@@ -2,7 +2,7 @@
 
 use crossterm::event::KeyEvent;
 use ratatui::layout::Rect;
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::widgets::{Block, Borders};
 use ratatui::Frame;
 use tui_textarea::TextArea;
@@ -17,15 +17,29 @@ pub struct PromptState {
 impl PromptState {
     pub fn new() -> Self {
         let mut textarea = TextArea::default();
+        let p = &crate::render::theme::active().palette;
+
         textarea.set_block(
             Block::default()
                 .borders(Borders::ALL)
                 .title(" Prompt ")
-                .border_style(Style::default().fg(Color::DarkGray)),
+                .border_style(Style::default().fg(p.border_ratatui())),
         );
-        textarea.set_cursor_line_style(Style::default());
-        textarea.set_cursor_style(Style::default().add_modifier(Modifier::REVERSED));
-        textarea.set_placeholder_text("Type your message here...");
+
+        // Enhanced cursor: block style with theme color
+        textarea.set_cursor_style(
+            Style::default()
+                .bg(p.accent_ratatui())
+                .fg(p.bg_panel_ratatui())
+                .add_modifier(Modifier::BOLD)
+        );
+
+        // Subtle cursor line highlight
+        textarea.set_cursor_line_style(
+            Style::default().bg(p.bg_highlight_ratatui())
+        );
+
+        textarea.set_placeholder_text("Type your message... (Ctrl+Enter to send, Enter for new line)");
 
         Self {
             textarea,
@@ -34,20 +48,49 @@ impl PromptState {
         }
     }
 
-    /// Render the prompt widget.
-    pub fn render(&mut self, frame: &mut Frame, area: Rect, focused: bool) {
-        let border_color = if focused { Color::Cyan } else { Color::DarkGray };
-        let title = if focused {
-            " Prompt (Ctrl+Enter to send) "
+    /// Render the prompt widget with enhanced visual feedback.
+    ///
+    /// # Arguments
+    /// * `typing` - Whether to show typing indicator (Phase 44C).
+    pub fn render(&mut self, frame: &mut Frame, area: Rect, focused: bool, typing: bool) {
+        let p = &crate::render::theme::active().palette;
+
+        // Count chars and lines for status display
+        let text = self.text();
+        let char_count = text.chars().count();
+        let line_count = self.textarea.lines().len();
+
+        let (border_color, title) = if focused {
+            let title_text = if typing && char_count == 0 {
+                " ✍ typing... ".to_string()
+            } else if char_count > 0 {
+                format!(
+                    " ✎ Prompt ({} chars, {} lines) · Ctrl+Enter→send ",
+                    char_count, line_count
+                )
+            } else {
+                " ✎ Prompt (Ctrl+Enter to send) ".to_string()
+            };
+            (p.accent_ratatui(), title_text)
         } else {
-            " Prompt "
+            (p.border_ratatui(), " Prompt ".to_string())
         };
+
         self.textarea.set_block(
             Block::default()
                 .borders(Borders::ALL)
                 .title(title)
-                .border_style(Style::default().fg(border_color)),
+                .border_style(
+                    Style::default()
+                        .fg(border_color)
+                        .add_modifier(if focused {
+                            Modifier::BOLD
+                        } else {
+                            Modifier::empty()
+                        }),
+                ),
         );
+
         frame.render_widget(&self.textarea, area);
     }
 
@@ -61,14 +104,14 @@ impl PromptState {
         self.history_index = None;
         // Clear textarea.
         self.textarea = TextArea::default();
-        self.textarea.set_placeholder_text("Type your message here...");
+        self.textarea.set_placeholder_text("Type your message... (Ctrl+Enter to send, Enter for new line)");
         text
     }
 
     /// Clear the prompt text.
     pub fn clear(&mut self) {
         self.textarea = TextArea::default();
-        self.textarea.set_placeholder_text("Type your message here...");
+        self.textarea.set_placeholder_text("Type your message... (Ctrl+Enter to send, Enter for new line)");
         self.history_index = None;
     }
 
@@ -115,7 +158,7 @@ impl PromptState {
         if let Some(entry) = self.history.get(idx) {
             let lines: Vec<&str> = entry.lines().collect();
             self.textarea = TextArea::new(lines.iter().map(|l| l.to_string()).collect());
-            self.textarea.set_placeholder_text("Type your message here...");
+            self.textarea.set_placeholder_text("Type your message... (Ctrl+Enter to send, Enter for new line)");
         }
     }
 

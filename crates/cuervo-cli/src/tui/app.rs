@@ -12,7 +12,7 @@ use crossterm::terminal::{self, EnterAlternateScreen, LeaveAlternateScreen};
 use crossterm::ExecutableCommand;
 use ratatui::backend::CrosstermBackend;
 use ratatui::layout::{Constraint, Direction, Layout, Rect};
-use ratatui::style::{Color, Modifier, Style};
+use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph};
 use ratatui::Terminal;
@@ -23,7 +23,7 @@ use super::events::{ControlEvent, UiEvent};
 use super::input;
 use super::layout;
 use super::overlay::{self, OverlayKind};
-use super::state::{AppState, FocusZone, UiMode};
+use super::state::{AgentControl, AppState, FocusZone, UiMode};
 use super::widgets::activity::ActivityState;
 use super::widgets::panel::SidePanel;
 use super::widgets::prompt::PromptState;
@@ -186,11 +186,12 @@ impl TuiApp {
         terminal.clear()?;
 
         // Spawn a single dedicated thread for crossterm event polling.
-        // This avoids spawn_blocking thread accumulation.
+        // Phase 44C: Reduced polling interval for snappier keyboard response.
         let (key_tx, mut key_rx) = mpsc::unbounded_channel::<Event>();
         std::thread::spawn(move || {
             loop {
-                if event::poll(Duration::from_millis(50)).unwrap_or(false) {
+                // 10ms polling for <50ms input latency (was 50ms).
+                if event::poll(Duration::from_millis(10)).unwrap_or(false) {
                     if let Ok(ev) = event::read() {
                         if key_tx.send(ev).is_err() {
                             break; // Receiver dropped, TUI is shutting down.
@@ -204,8 +205,9 @@ impl TuiApp {
         let mut tick_interval = tokio::time::interval(Duration::from_millis(100));
         tick_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-        // Phase F7: Frame rate limiter — minimum 16ms between frames (≈60 FPS cap).
-        let min_frame_interval = Duration::from_millis(16);
+        // Phase 44C: Frame rate limiter — minimum 8ms between frames (≈120 FPS cap).
+        // Increased from 60 FPS for smoother scrolling and animations.
+        let min_frame_interval = Duration::from_millis(8);
         let mut last_render = Instant::now();
         let mut needs_render = true;
 
@@ -219,14 +221,22 @@ impl TuiApp {
                 last_render = Instant::now();
             }
 
+            // Phase 44C: Auto-hide typing indicator after 2 seconds of inactivity.
+            if self.state.typing_indicator
+                && self.state.last_keystroke.elapsed() > Duration::from_secs(2)
+            {
+                self.state.typing_indicator = false;
+            }
+
             // Render frame.
             terminal.draw(|frame| {
                 let area = frame.area();
 
                 // Phase F5: Graceful degradation for small terminals.
                 if layout::is_too_small(area.width, area.height) {
+                    let p = &crate::render::theme::active().palette;
                     let msg = Paragraph::new("Terminal too small.\nMinimum: 40x10")
-                        .style(Style::default().fg(Color::Yellow));
+                        .style(Style::default().fg(p.warning_ratatui()));
                     frame.render_widget(msg, area);
                     return;
                 }
@@ -241,26 +251,54 @@ impl TuiApp {
                 );
 
                 // Split prompt zone: [textarea | submit button].
+                // Adapt button width based on queue state.
+                let button_width = if self.state.prompts_queued > 1 {
+                    20  // Wider for "Queue (#N)"
+                } else {
+                    18  // Normal "Send (Ctrl+⏎)"
+                };
+
                 let prompt_chunks = Layout::default()
                     .direction(Direction::Horizontal)
-                    .constraints([Constraint::Min(1), Constraint::Length(14)])
+                    .constraints([Constraint::Min(1), Constraint::Length(button_width)])
                     .split(mode_layout.prompt);
                 let textarea_area = prompt_chunks[0];
                 let button_area = prompt_chunks[1];
 
-                self.prompt.render(frame, textarea_area, self.state.focus == FocusZone::Prompt);
+                self.prompt.render(
+                    frame,
+                    textarea_area,
+                    self.state.focus == FocusZone::Prompt,
+                    self.state.typing_indicator,
+                );
 
-                // Render submit button with highlighted background when ready.
-                let (btn_text_style, btn_border_style, btn_title) = if self.state.agent_running {
+                // Render submit button with theme colors and queue-aware state.
+                let p = &crate::render::theme::active().palette;
+
+                let (btn_text, btn_text_style, btn_border_style, btn_title) = if self.state.prompts_queued > 0 {
+                    // Agent is processing or prompts queued
+                    let text = if self.state.prompts_queued == 1 {
+                        "  ▶ Processing  "
+                    } else {
+                        "  ⏳ Queued (#N)  "  // Will be replaced below
+                    };
                     (
-                        Style::default().fg(Color::DarkGray),
-                        Style::default().fg(Color::DarkGray),
-                        " ··· ",
+                        text,
+                        Style::default()
+                            .fg(p.text_ratatui())
+                            .bg(p.warning_ratatui()),
+                        Style::default().fg(p.warning_ratatui()),
+                        "",
                     )
                 } else {
+                    // Ready for new prompt
                     (
-                        Style::default().fg(Color::Black).bg(Color::Green).add_modifier(Modifier::BOLD),
-                        Style::default().fg(Color::Green),
+                        "  ► Send (Ctrl+⏎)  ",
+                        Style::default()
+                            .fg(p.bg_panel_ratatui())
+                            .bg(p.success_ratatui())
+                            .add_modifier(Modifier::BOLD),
+                        Style::default().fg(p.success_ratatui()),
                         "",
                     )
                 };
@@ -270,8 +308,17 @@ impl TuiApp {
                 for _ in 0..pad_top {
                     btn_lines.push(Line::from(""));
                 }
-                btn_lines.push(Line::from(Span::styled("  ► Send  ", btn_text_style)));
-                if h > 2 {
+
+                // Replace #N with actual queue count
+                let display_text = if btn_text.contains("#N") {
+                    btn_text.replace("#N", &format!("#{}", self.state.prompts_queued))
+                } else {
+                    btn_text.to_string()
+                };
+
+                btn_lines.push(Line::from(Span::styled(display_text, btn_text_style)));
+                if h > 2 && self.state.prompts_queued == 0 {
+                    // Only show ⏎ hint when ready (not when busy)
                     btn_lines.push(Line::from(Span::styled("    ⏎     ", btn_text_style)));
                 }
                 let button = Paragraph::new(btn_lines)
@@ -293,9 +340,9 @@ impl TuiApp {
                 // Render inspector panel in Expert mode — event log.
                 if let Some(inspector_area) = mode_layout.inspector {
                     let p_theme = &crate::render::theme::active().palette;
-                    let c_border_insp = p_theme.border.to_ratatui_color();
-                    let c_muted_insp = p_theme.muted.to_ratatui_color();
-                    let c_text_insp = p_theme.text.to_ratatui_color();
+                    let c_border_insp = p_theme.border_ratatui();
+                    let c_muted_insp = p_theme.muted_ratatui();
+                    let c_text_insp = p_theme.text_ratatui();
 
                     let inner_height = inspector_area.height.saturating_sub(2) as usize;
                     let total = self.event_log.len();
@@ -391,7 +438,8 @@ impl TuiApp {
                             match mouse.kind {
                                 MouseEventKind::Down(MouseButton::Left) => {
                                     let r = self.submit_button_area;
-                                    if !self.state.agent_running
+                                    // Permitir click solo si no hay prompts en cola (consistente con la visualización del botón)
+                                    if self.state.prompts_queued == 0
                                         && mouse.column >= r.x
                                         && mouse.column < r.x + r.width
                                         && mouse.row >= r.y
@@ -560,6 +608,10 @@ impl TuiApp {
                     self.search_matches.clear();
                     self.search_current = 0;
                 }
+                // Resetear agent_control si se cierra el overlay de permisos
+                if matches!(self.state.overlay.active, Some(OverlayKind::PermissionPrompt { .. })) {
+                    self.state.agent_control = AgentControl::Running;
+                }
                 self.state.overlay.close();
             }
             KeyCode::Enter => {
@@ -567,6 +619,7 @@ impl TuiApp {
                     Some(OverlayKind::PermissionPrompt { .. }) => {
                         let _ = self.perm_tx.send(true);
                         self.activity.push_info("[control] Action approved");
+                        self.state.agent_control = AgentControl::Running;
                         self.state.overlay.close();
                     }
                     Some(OverlayKind::CommandPalette) => {
@@ -611,6 +664,7 @@ impl TuiApp {
                 if matches!(self.state.overlay.active, Some(OverlayKind::PermissionPrompt { .. })) {
                     let _ = self.perm_tx.send(true);
                     self.activity.push_info("[control] Action approved");
+                    self.state.agent_control = AgentControl::Running;
                     self.state.overlay.close();
                 } else {
                     self.state.overlay.type_char('y');
@@ -620,6 +674,7 @@ impl TuiApp {
                 if matches!(self.state.overlay.active, Some(OverlayKind::PermissionPrompt { .. })) {
                     let _ = self.perm_tx.send(false);
                     self.activity.push_warning("[control] Action rejected", None);
+                    self.state.agent_control = AgentControl::Running;
                     self.state.overlay.close();
                 } else {
                     self.state.overlay.type_char('n');
@@ -759,10 +814,38 @@ impl TuiApp {
                     self.execute_slash_command(cmd);
                     return;
                 }
+                // Phase 44B: Allow queueing prompts even when agent is running.
                 self.activity.push_user_prompt(&text);
-                self.state.agent_running = true;
-                self.state.focus = FocusZone::Activity;
-                let _ = self.prompt_tx.send(text);
+
+                // Queue the prompt (unbounded channel never blocks).
+                if let Err(e) = self.prompt_tx.send(text) {
+                    self.activity.push_error(&format!("Failed to queue prompt: {e}"), None);
+                    return;
+                }
+
+                // Optimistically increment queue count (will be corrected by events).
+                self.state.prompts_queued += 1;
+
+                // If agent already running, show toast that prompt was queued.
+                if self.state.agent_running {
+                    self.toasts.push(Toast::new(
+                        format!("Prompt #{} queued", self.state.prompts_queued),
+                        ToastLevel::Info
+                    ));
+                } else {
+                    // First prompt, start agent.
+                    self.state.agent_running = true;
+                    self.state.focus = FocusZone::Activity;
+                }
+
+                // Logging de estado para debugging
+                tracing::debug!(
+                    agent_running = self.state.agent_running,
+                    prompts_queued = self.state.prompts_queued,
+                    agent_control = ?self.state.agent_control,
+                    focus = ?self.state.focus,
+                    "Prompt submitted to queue"
+                );
             }
             input::InputAction::ClearPrompt => {
                 self.prompt.clear();
@@ -854,7 +937,12 @@ impl TuiApp {
             }
             input::InputAction::ForwardToWidget(key) => {
                 match self.state.focus {
-                    FocusZone::Prompt => self.prompt.handle_key(key),
+                    FocusZone::Prompt => {
+                        self.prompt.handle_key(key);
+                        // Phase 44C: Track typing activity for indicator.
+                        self.state.typing_indicator = true;
+                        self.state.last_keystroke = std::time::Instant::now();
+                    }
                     FocusZone::Activity => {
                         // Arrow keys scroll the activity zone.
                         use crossterm::event::KeyCode;
@@ -960,12 +1048,54 @@ impl TuiApp {
                 // Force redraw — the next frame will pick up any pending changes.
                 tracing::trace!("Redraw requested");
             }
+            // Phase 44B: Continuous interaction events
+            UiEvent::AgentStartedPrompt => {
+                // Agent dequeued a prompt and started processing.
+                // Decrement queue count (will be corrected by PromptQueueStatus).
+                self.state.prompts_queued = self.state.prompts_queued.saturating_sub(1);
+                self.state.agent_running = true;
+
+                tracing::debug!(
+                    agent_running = self.state.agent_running,
+                    prompts_queued = self.state.prompts_queued,
+                    "Agent dequeued and started processing prompt"
+                );
+            }
+            UiEvent::AgentFinishedPrompt => {
+                // Agent finished processing one prompt.
+                // Decrementar inmediatamente si la cola está vacía para evitar desincronización.
+                // PromptQueueStatus proporcionará la cuenta autoritativa después.
+                if self.state.prompts_queued > 0 {
+                    self.state.prompts_queued -= 1;
+                }
+                tracing::debug!(
+                    prompts_queued = self.state.prompts_queued,
+                    "Agent finished processing prompt"
+                );
+            }
+            UiEvent::PromptQueueStatus(count) => {
+                // Authoritative queue count from the agent loop.
+                self.state.prompts_queued = count;
+                tracing::debug!(queued = count, "Prompt queue status updated");
+            }
             UiEvent::AgentDone => {
                 self.state.agent_running = false;
                 self.state.spinner_active = false;
                 self.state.focus = FocusZone::Prompt;
                 self.state.agent_control = crate::tui::state::AgentControl::Running;
-                self.toasts.push(Toast::new("Agent completed", ToastLevel::Success));
+                // Only show toast if no more prompts queued
+                if self.state.prompts_queued == 0 {
+                    self.toasts.push(Toast::new("Agent completed", ToastLevel::Success));
+                }
+
+                // Logging de estado después de completar
+                tracing::debug!(
+                    agent_running = self.state.agent_running,
+                    prompts_queued = self.state.prompts_queued,
+                    agent_control = ?self.state.agent_control,
+                    focus = ?self.state.focus,
+                    "Agent completed processing"
+                );
             }
             UiEvent::Quit => {
                 self.state.should_quit = true;
@@ -1260,6 +1390,9 @@ fn event_summary(ev: &UiEvent) -> String {
         UiEvent::RoundStart(n) => format!("RoundStart({n})"),
         UiEvent::RoundEnd(n) => format!("RoundEnd({n})"),
         UiEvent::Redraw => constants::EVENT_REDRAW.into(),
+        UiEvent::AgentStartedPrompt => "AgentStarted".into(),
+        UiEvent::AgentFinishedPrompt => "AgentFinished".into(),
+        UiEvent::PromptQueueStatus(n) => format!("QueueStatus({n})"),
         UiEvent::AgentDone => constants::EVENT_AGENT_DONE.into(),
         UiEvent::Quit => constants::EVENT_QUIT.into(),
         UiEvent::PlanProgress { current_step, .. } => format!("PlanProgress(step={current_step})"),
@@ -1288,16 +1421,66 @@ fn event_summary(ev: &UiEvent) -> String {
     }
 }
 
+/// Cleanup del terminal cuando TuiApp se destruye.
+/// Esto asegura que el terminal se restaure correctamente incluso si el TUI
+/// se cierra abruptamente (panic, Ctrl+C, etc.).
+impl Drop for TuiApp {
+    fn drop(&mut self) {
+        // Desactivar raw mode
+        let _ = terminal::disable_raw_mode();
+
+        // Salir de la pantalla alternativa
+        let _ = io::stdout().execute(LeaveAlternateScreen);
+
+        // Desactivar captura de mouse
+        let _ = io::stdout().execute(DisableMouseCapture);
+
+        // Restaurar mejoras de teclado
+        let _ = io::stdout().execute(PopKeyboardEnhancementFlags);
+
+        tracing::debug!("Terminal cleanup completed");
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn test_app() -> TuiApp {
+    // Helper struct to keep channel receivers alive during tests
+    struct TestAppContext {
+        app: TuiApp,
+        #[allow(dead_code)]
+        prompt_rx: mpsc::UnboundedReceiver<String>,
+        #[allow(dead_code)]
+        ctrl_rx: mpsc::UnboundedReceiver<ControlEvent>,
+        #[allow(dead_code)]
+        perm_rx: mpsc::UnboundedReceiver<bool>,
+    }
+
+    impl std::ops::Deref for TestAppContext {
+        type Target = TuiApp;
+        fn deref(&self) -> &Self::Target {
+            &self.app
+        }
+    }
+
+    impl std::ops::DerefMut for TestAppContext {
+        fn deref_mut(&mut self) -> &mut Self::Target {
+            &mut self.app
+        }
+    }
+
+    fn test_app() -> TestAppContext {
         let (_tx, rx) = mpsc::channel(1024);
-        let (prompt_tx, _prompt_rx) = mpsc::unbounded_channel();
-        let (ctrl_tx, _ctrl_rx) = mpsc::unbounded_channel();
-        let (perm_tx, _perm_rx) = mpsc::unbounded_channel();
-        TuiApp::new(rx, prompt_tx, ctrl_tx, perm_tx)
+        let (prompt_tx, prompt_rx) = mpsc::unbounded_channel();
+        let (ctrl_tx, ctrl_rx) = mpsc::unbounded_channel();
+        let (perm_tx, perm_rx) = mpsc::unbounded_channel();
+        TestAppContext {
+            app: TuiApp::new(rx, prompt_tx, ctrl_tx, perm_tx),
+            prompt_rx,
+            ctrl_rx,
+            perm_rx,
+        }
     }
 
     #[test]
