@@ -87,3 +87,13 @@ TOOLS_INVENTORY.md
 
 # ── Claude / AI Assistant ───────────────────────────
 .claude/
+
+# Temporary documentation and reports
+AUDITORIA_*.md
+DIAGNOSTICO_*.md
+GUIA_*.md
+IMPLEMENTATION_*.md
+QUESTIONNAIRE_*.md
+RESUMEN_*.md
+STEP4_*.md
+test_tui_debug.sh
