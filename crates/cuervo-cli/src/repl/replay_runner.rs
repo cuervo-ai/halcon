@@ -18,7 +18,6 @@ use cuervo_storage::AsyncDatabase;
 use cuervo_tools::ToolRegistry;
 
 use super::agent::{self, AgentContext};
-use super::permissions::PermissionChecker;
 use super::replay_executor::ReplayToolExecutor;
 use super::resilience::ResilienceManager;
 
@@ -103,7 +102,7 @@ pub async fn run_replay(
         ..Default::default()
     };
     let routing_config = RoutingConfig::default();
-    let mut permissions = PermissionChecker::new(true);
+    let mut permissions = super::conversational_permission::ConversationalPermissionHandler::new(true);
     let mut resilience = ResilienceManager::new(Default::default());
 
     let silent_sink = crate::render::sink::SilentSink::new();

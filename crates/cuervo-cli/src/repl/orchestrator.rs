@@ -23,7 +23,6 @@ use cuervo_tools::ToolRegistry;
 
 use super::agent::{self, AgentContext};
 use super::agent_comm::SharedContextStore;
-use super::permissions::PermissionChecker;
 use super::resilience::ResilienceManager;
 use super::response_cache::ResponseCache;
 
@@ -307,10 +306,10 @@ pub async fn run_orchestrator(
                     // Create owned mutable state for this sub-agent.
                     let provider_name = provider.name().to_string();
                     let mut session = Session::new(model.clone(), provider_name, working_dir.clone());
-                    let mut permissions = PermissionChecker::with_tbac(confirm_destructive, tbac_enabled);
+                    let mut permissions = super::conversational_permission::ConversationalPermissionHandler::with_tbac(confirm_destructive, tbac_enabled);
                     if !allowed_tools.is_empty() {
                         let ctx = TaskContext::new(instruction.clone(), allowed_tools);
-                        permissions.push_context(ctx);
+                        permissions.checker_mut().push_context(ctx);
                     }
                     let mut resilience = ResilienceManager::new(ResilienceConfig::default());
 

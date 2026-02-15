@@ -20,11 +20,11 @@ use cuervo_tools::ToolRegistry;
 
 use super::accumulator::ToolUseAccumulator;
 use super::compaction::ContextCompactor;
+use super::conversational_permission::ConversationalPermissionHandler;
 use super::execution_tracker::ExecutionTracker;
 use super::executor;
 use super::failure_tracker::ToolFailureTracker;
 use super::loop_guard::{hash_tool_args, LoopAction, ToolLoopGuard};
-use super::permissions::PermissionChecker;
 use super::resilience::{PreInvokeDecision, ResilienceManager};
 use super::response_cache::ResponseCache;
 use super::speculative::SpeculativeInvoker;
@@ -46,7 +46,7 @@ pub struct AgentContext<'a> {
     pub session: &'a mut Session,
     pub request: &'a ModelRequest,
     pub tool_registry: &'a ToolRegistry,
-    pub permissions: &'a mut PermissionChecker,
+    pub permissions: &'a mut ConversationalPermissionHandler,
     pub working_dir: &'a str,
     pub event_tx: &'a EventSender,
     pub limits: &'a AgentLimits,
@@ -86,6 +86,7 @@ pub struct AgentContext<'a> {
     pub context_metrics: Option<&'a std::sync::Arc<super::context_metrics::ContextMetrics>>,
     /// Optional control channel receiver (Phase 43). TUI sends Pause/Step/Cancel events.
     /// Classic REPL passes None. When Some, agent loop checks at yield points.
+    #[cfg(feature = "tui")]
     pub ctrl_rx: Option<tokio::sync::mpsc::UnboundedReceiver<crate::tui::events::ControlEvent>>,
 }
 
@@ -369,6 +370,7 @@ use super::agent_utils::{auto_checkpoint, record_trace};
 /// All ControlEvent variants are handled explicitly — no silent ignores.
 /// ApproveAction/RejectAction are permission responses handled by the
 /// dedicated permission channel in TUI mode; they are no-ops here.
+#[cfg(feature = "tui")]
 async fn check_control(
     ctrl_rx: &mut tokio::sync::mpsc::UnboundedReceiver<crate::tui::events::ControlEvent>,
     sink: &dyn RenderSink,
@@ -447,6 +449,7 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
         tool_selection_enabled,
         mut task_bridge,
         context_metrics,
+        #[cfg(feature = "tui")]
         mut ctrl_rx,
     } = ctx;
 
@@ -1128,7 +1131,8 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
         // Phase 43D: Emit context tier data for TUI panel.
         if !silent {
             let l0_tokens = context_pipeline.l0().token_count();
-            let l0_cap = context_pipeline.l0().capacity() as u32 * 50; // approx token capacity
+            // FIX: Use actual L0 budget from TokenAccountant instead of slot * 50 approximation
+            let l0_cap = context_pipeline.accountant().tier_budget(cuervo_context::Tier::L0Hot);
             let l1_tokens = context_pipeline.l1().token_count();
             let l1_entries = context_pipeline.l1().len();
             let l2_entries = context_pipeline.l2().len();
@@ -2932,7 +2936,7 @@ mod tests {
         session: &'a mut Session,
         request: &'a ModelRequest,
         tool_registry: &'a ToolRegistry,
-        permissions: &'a mut PermissionChecker,
+        permissions: &'a mut ConversationalPermissionHandler,
         event_tx: &'a EventSender,
         limits: &'a AgentLimits,
         resilience: &'a mut ResilienceManager,
@@ -2977,7 +2981,7 @@ mod tests {
         let mut session = Session::new("echo".into(), "echo".into(), "/tmp".into());
         let request = make_request(vec![]);
         let tool_reg = ToolRegistry::new();
-        let mut perms = PermissionChecker::new(true);
+        let mut perms = ConversationalPermissionHandler::new(true);
         let (event_tx, _rx) = test_event_tx();
         let limits = AgentLimits::default();
         let mut resilience = test_resilience();
@@ -3001,7 +3005,7 @@ mod tests {
         let mut session = Session::new("echo".into(), "echo".into(), "/tmp".into());
         let request = make_request(vec![]);
         let tool_reg = ToolRegistry::new();
-        let mut perms = PermissionChecker::new(true);
+        let mut perms = ConversationalPermissionHandler::new(true);
         let (event_tx, mut event_rx) = test_event_tx();
         let limits = AgentLimits::default();
         let mut resilience = test_resilience();
@@ -3042,7 +3046,7 @@ mod tests {
         let mut session = Session::new("echo".into(), "echo".into(), "/tmp".into());
         let request = make_request(vec![]);
         let tool_reg = ToolRegistry::new();
-        let mut perms = PermissionChecker::new(true);
+        let mut perms = ConversationalPermissionHandler::new(true);
         let (event_tx, _rx) = test_event_tx();
         let limits = AgentLimits::default();
         let mut resilience = test_resilience();
@@ -3067,7 +3071,7 @@ mod tests {
         let mut session = Session::new("echo".into(), "echo".into(), "/tmp".into());
         let request = make_request(vec![]);
         let tool_reg = ToolRegistry::new();
-        let mut perms = PermissionChecker::new(true);
+        let mut perms = ConversationalPermissionHandler::new(true);
         let (event_tx, _rx) = test_event_tx();
         let limits = AgentLimits::default();
         let mut resilience = test_resilience();
@@ -3091,7 +3095,7 @@ mod tests {
         let mut session = Session::new("echo".into(), "echo".into(), "/tmp".into());
         let request = make_request(vec![]);
         let tool_reg = ToolRegistry::new();
-        let mut perms = PermissionChecker::new(true);
+        let mut perms = ConversationalPermissionHandler::new(true);
         let (event_tx, _rx) = test_event_tx();
         let db = AsyncDatabase::new(Arc::new(Database::open_in_memory().unwrap()));
         let limits = AgentLimits::default();
@@ -3125,7 +3129,7 @@ mod tests {
         let mut session = Session::new("echo".into(), "echo".into(), "/tmp".into());
         let request = make_request(vec![]);
         let tool_reg = ToolRegistry::new();
-        let mut perms = PermissionChecker::new(true);
+        let mut perms = ConversationalPermissionHandler::new(true);
         let (event_tx, _rx) = test_event_tx();
         let limits = AgentLimits { max_total_tokens: 0, ..AgentLimits::default() };
         let mut resilience = test_resilience();
@@ -3147,7 +3151,7 @@ mod tests {
         let mut session = Session::new("echo".into(), "echo".into(), "/tmp".into());
         let request = make_request(vec![]);
         let tool_reg = ToolRegistry::new();
-        let mut perms = PermissionChecker::new(true);
+        let mut perms = ConversationalPermissionHandler::new(true);
         let (event_tx, _rx) = test_event_tx();
         let limits = AgentLimits { max_total_tokens: 1, ..AgentLimits::default() };
         let mut resilience = test_resilience();
@@ -3169,7 +3173,7 @@ mod tests {
         let mut session = Session::new("echo".into(), "echo".into(), "/tmp".into());
         let request = make_request(vec![]);
         let tool_reg = ToolRegistry::new();
-        let mut perms = PermissionChecker::new(true);
+        let mut perms = ConversationalPermissionHandler::new(true);
         let (event_tx, _rx) = test_event_tx();
         let limits = AgentLimits { max_rounds: 3, ..AgentLimits::default() };
         let mut resilience = test_resilience();
@@ -3216,7 +3220,7 @@ mod tests {
         let mut session = Session::new("echo".into(), "echo".into(), "/tmp".into());
         let request = make_request(vec![]);
         let tool_reg = ToolRegistry::new();
-        let mut perms = PermissionChecker::new(true);
+        let mut perms = ConversationalPermissionHandler::new(true);
         let (event_tx, _rx) = test_event_tx();
         let cache = test_cache(true);
         let limits = AgentLimits::default();
@@ -3244,7 +3248,7 @@ mod tests {
         let provider: Arc<dyn ModelProvider> = Arc::new(cuervo_providers::EchoProvider::new());
         let request = make_request(vec![]);
         let tool_reg = ToolRegistry::new();
-        let mut perms = PermissionChecker::new(true);
+        let mut perms = ConversationalPermissionHandler::new(true);
         let (event_tx, _rx) = test_event_tx();
         let cache = test_cache(true);
 
@@ -3276,7 +3280,7 @@ mod tests {
         let mut session = Session::new("echo".into(), "echo".into(), "/tmp".into());
         let request = make_request(vec![]);
         let tool_reg = ToolRegistry::new();
-        let mut perms = PermissionChecker::new(true);
+        let mut perms = ConversationalPermissionHandler::new(true);
         let (event_tx, _rx) = test_event_tx();
         let cache = test_cache(false);
         let limits = AgentLimits::default();
@@ -3301,7 +3305,7 @@ mod tests {
         let mut session = Session::new("echo".into(), "echo".into(), "/tmp".into());
         let request = make_request(vec![]);
         let tool_reg = ToolRegistry::new();
-        let mut perms = PermissionChecker::new(true);
+        let mut perms = ConversationalPermissionHandler::new(true);
         let (event_tx, _rx) = test_event_tx();
         let db = AsyncDatabase::new(Arc::new(Database::open_in_memory().unwrap()));
         let limits = AgentLimits::default();
@@ -3335,7 +3339,7 @@ mod tests {
         let mut session = Session::new("echo".into(), "echo".into(), "/tmp".into());
         let request = make_request(vec![]);
         let tool_reg = ToolRegistry::new();
-        let mut perms = PermissionChecker::new(true);
+        let mut perms = ConversationalPermissionHandler::new(true);
         let (event_tx, _rx) = test_event_tx();
         let db = AsyncDatabase::new(Arc::new(Database::open_in_memory().unwrap()));
         let limits = AgentLimits::default();
@@ -3442,7 +3446,7 @@ mod tests {
         let mut session = Session::new("echo".into(), "echo".into(), "/tmp".into());
         let request = make_request(vec![]);
         let tool_reg = ToolRegistry::new();
-        let mut perms = PermissionChecker::new(true);
+        let mut perms = ConversationalPermissionHandler::new(true);
         let (event_tx, _rx) = test_event_tx();
 
         let mut resilience = ResilienceManager::new(ResilienceConfig {
@@ -3553,7 +3557,7 @@ mod tests {
         let mut session = Session::new("echo".into(), "echo".into(), "/tmp".into());
         let request = make_request(vec![]);
         let tool_reg = ToolRegistry::new();
-        let mut perms = PermissionChecker::new(true);
+        let mut perms = ConversationalPermissionHandler::new(true);
         let (event_tx, _rx) = test_event_tx();
         let config = RoutingConfig {
             mode: "speculative".into(),
@@ -3626,7 +3630,7 @@ mod tests {
         let mut session = Session::new("echo".into(), "echo".into(), "/tmp".into());
         let request = make_request(vec![]);
         let tool_reg = ToolRegistry::new();
-        let mut perms = PermissionChecker::new(true);
+        let mut perms = ConversationalPermissionHandler::new(true);
         let (event_tx, _rx) = test_event_tx();
 
         let config = RoutingConfig {
@@ -3661,7 +3665,7 @@ mod tests {
         session.total_usage.output_tokens = 100;
         let request = make_request(vec![]);
         let tool_reg = ToolRegistry::new();
-        let mut perms = PermissionChecker::new(true);
+        let mut perms = ConversationalPermissionHandler::new(true);
         let (event_tx, _rx) = test_event_tx();
         // Budget is 150 but we already used 300 — should break before invoking.
         let limits = AgentLimits { max_total_tokens: 150, ..AgentLimits::default() };
@@ -3689,7 +3693,7 @@ mod tests {
         let mut session = Session::new("echo".into(), "echo".into(), "/tmp".into());
         let request = make_request(vec![]);
         let tool_reg = ToolRegistry::new();
-        let mut perms = PermissionChecker::new(true);
+        let mut perms = ConversationalPermissionHandler::new(true);
         let (event_tx, _rx) = test_event_tx();
         let db = AsyncDatabase::new(Arc::new(Database::open_in_memory().unwrap()));
         let limits = AgentLimits::default();
@@ -3769,7 +3773,7 @@ mod tests {
 
         // First message
         {
-            let mut perms = PermissionChecker::new(true);
+            let mut perms = ConversationalPermissionHandler::new(true);
             let mut resilience = test_resilience();
             let mut ctx = test_ctx(
                 &provider, &mut session, &request, &tool_reg, &mut perms,
@@ -3785,7 +3789,7 @@ mod tests {
 
         // Second message: step indices should continue from where first left off.
         {
-            let mut perms = PermissionChecker::new(true);
+            let mut perms = ConversationalPermissionHandler::new(true);
             let mut resilience = test_resilience();
             let mut ctx = test_ctx(
                 &provider, &mut session, &request, &tool_reg, &mut perms,
@@ -4420,7 +4424,7 @@ mod tests {
         let mut session = Session::new("cost_primary".into(), "echo".into(), "/tmp".into());
         let request = make_request(vec![]);
         let tool_reg = ToolRegistry::new();
-        let mut perms = PermissionChecker::new(true);
+        let mut perms = ConversationalPermissionHandler::new(true);
         let (event_tx, _rx) = test_event_tx();
 
         let mut resilience = ResilienceManager::new(ResilienceConfig {
@@ -4466,7 +4470,7 @@ mod tests {
         let mut session = Session::new("cost_primary".into(), "echo".into(), "/tmp".into());
         let request = make_request(vec![]);
         let tool_reg = ToolRegistry::new();
-        let mut perms = PermissionChecker::new(true);
+        let mut perms = ConversationalPermissionHandler::new(true);
         let (event_tx, _rx) = test_event_tx();
         let limits = AgentLimits::default();
         let mut resilience = test_resilience();
@@ -4747,7 +4751,7 @@ mod tests {
         let tool_reg = ToolRegistry::new();
         let (event_tx, _event_rx) = test_event_tx();
         let limits = AgentLimits::default();
-        let mut permissions = PermissionChecker::new(false);
+        let mut permissions = ConversationalPermissionHandler::new(false);
         let mut resilience = test_resilience();
         let routing_config = RoutingConfig::default();
         let ctx = test_ctx(
@@ -4776,7 +4780,7 @@ mod tests {
         let tool_reg = ToolRegistry::new();
         let (event_tx, _event_rx) = test_event_tx();
         let limits = AgentLimits::default();
-        let mut permissions = PermissionChecker::new(false);
+        let mut permissions = ConversationalPermissionHandler::new(false);
         let mut resilience = test_resilience();
         let routing_config = RoutingConfig::default();
         let mut ctx = test_ctx(
@@ -4804,7 +4808,7 @@ mod tests {
         let tool_reg = ToolRegistry::new();
         let (event_tx, _event_rx) = test_event_tx();
         let limits = AgentLimits::default();
-        let mut permissions = PermissionChecker::new(false);
+        let mut permissions = ConversationalPermissionHandler::new(false);
         let mut resilience = test_resilience();
         let routing_config = RoutingConfig::default();
         let mut ctx = test_ctx(

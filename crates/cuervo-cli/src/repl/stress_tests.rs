@@ -165,7 +165,7 @@ fn test_ctx<'a>(
     session: &'a mut Session,
     request: &'a ModelRequest,
     tool_registry: &'a ToolRegistry,
-    permissions: &'a mut PermissionChecker,
+    permissions: &'a mut super::conversational_permission::ConversationalPermissionHandler,
     event_tx: &'a cuervo_core::EventSender,
     limits: &'a AgentLimits,
     resilience: &'a mut ResilienceManager,
@@ -217,7 +217,7 @@ async fn multi_round_tool_conversation() {
     let mut session = Session::new("tool_test".into(), "tool-test".into(), "/tmp".into());
     let request = make_request("tool-test");
     let tool_reg = make_tool_registry();
-    let mut perms = PermissionChecker::new(true);
+    let mut perms = super::conversational_permission::ConversationalPermissionHandler::new(true);
     perms.set_non_interactive();
     let (event_tx, _rx) = test_event_tx();
     let limits = AgentLimits::default();
@@ -442,7 +442,7 @@ async fn fallback_provider_cost_tracking() {
     let mut session = Session::new("fb_primary".into(), "echo".into(), "/tmp".into());
     let request = make_request("echo");
     let tool_reg = ToolRegistry::new();
-    let mut perms = PermissionChecker::new(true);
+    let mut perms = super::conversational_permission::ConversationalPermissionHandler::new(true);
     let (event_tx, _rx) = test_event_tx();
 
     let mut resilience = ResilienceManager::new(ResilienceConfig {

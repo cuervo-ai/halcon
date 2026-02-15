@@ -16,8 +16,8 @@ use cuervo_providers::ProviderRegistry;
 use cuervo_storage::{AsyncDatabase, Database};
 use cuervo_tools::ToolRegistry;
 
+use conversational_permission::ConversationalPermissionHandler;
 use memory_source::MemorySource;
-use permissions::PermissionChecker;
 use planning_source::PlanningSource;
 use resilience::ResilienceManager;
 use response_cache::ResponseCache;
@@ -30,6 +30,7 @@ pub mod agent_utils;
 pub mod artifact_store;
 pub mod authorization;
 pub mod backpressure;
+pub mod ci_detection;
 pub mod circuit_breaker;
 pub mod commands;
 pub mod compaction;
@@ -53,6 +54,12 @@ pub mod model_selector;
 pub mod optimizer;
 pub mod orchestrator;
 pub mod permissions;
+pub mod conversation_protocol;
+pub mod conversation_state;
+pub mod input_normalizer;
+pub mod adaptive_prompt;
+pub mod validation;
+pub mod conversational_permission;
 pub mod planner;
 pub mod planning_source;
 pub mod provenance_tracker;
@@ -66,6 +73,9 @@ pub mod resilience;
 pub mod response_cache;
 pub mod router;
 pub mod speculative;
+pub mod evaluator;
+pub mod strategy_selector;
+pub mod task_analyzer;
 pub mod task_backlog;
 pub mod task_bridge;
 pub mod task_scheduler;
@@ -91,7 +101,7 @@ pub struct Repl {
     pub(crate) async_db: Option<AsyncDatabase>,
     pub(crate) registry: ProviderRegistry,
     pub(crate) tool_registry: ToolRegistry,
-    pub(crate) permissions: PermissionChecker,
+    pub(crate) permissions: ConversationalPermissionHandler,
     pub(crate) event_tx: EventSender,
     pub(crate) context_sources: Vec<Box<dyn ContextSource>>,
     pub(crate) response_cache: Option<ResponseCache>,
@@ -164,9 +174,10 @@ impl Repl {
         let session =
             resume_session.unwrap_or_else(|| Session::new(model.clone(), provider.clone(), cwd));
 
-        let permissions = PermissionChecker::with_config(
+        let permissions = ConversationalPermissionHandler::with_config(
             config.tools.confirm_destructive,
             config.security.tbac_enabled,
+            config.tools.auto_approve_in_ci,
             config.tools.prompt_timeout_secs,
         );
 
@@ -549,8 +560,11 @@ impl Repl {
         };
 
         // Spawn TUI render loop in a separate task.
+        tracing::debug!("Spawning TUI task");
         let tui_handle = tokio::spawn(async move {
+            tracing::debug!("TUI task started");
             let mut app = TuiApp::with_mode(ui_rx, prompt_tx, ctrl_tx, perm_tx, initial_mode);
+            tracing::debug!("TUI app created with mode: {:?}", initial_mode);
             app.push_banner(
                 &banner_version,
                 &banner_provider,
@@ -560,7 +574,10 @@ impl Repl {
                 &banner_session_type,
                 banner_routing.as_ref(),
             );
-            app.run().await
+            tracing::debug!("TUI banner pushed, calling run()");
+            let result = app.run().await;
+            tracing::debug!("TUI run() returned: {:?}", result);
+            result
         });
 
         // Send initial status update with session info.
@@ -581,11 +598,22 @@ impl Repl {
         let session_start = std::time::Instant::now();
 
         // Agent message loop: wait for prompts from TUI, process each.
+        tracing::debug!("Entering agent message loop, waiting for prompts from TUI");
         loop {
+            tracing::trace!("Waiting for prompt from TUI...");
             let text = match prompt_rx.recv().await {
-                Some(t) => t,
-                None => break, // TUI closed the channel.
+                Some(t) => {
+                    tracing::debug!("Received prompt from TUI: {}", t.chars().take(50).collect::<String>());
+                    t
+                }
+                None => {
+                    tracing::warn!("TUI closed the prompt channel, exiting loop");
+                    break; // TUI closed the channel.
+                }
             };
+
+            // Phase 44B: Signal that agent started processing this prompt.
+            let _ = ui_tx.send(UiEvent::AgentStartedPrompt);
 
             // Route slash commands before sending to agent.
             let trimmed = text.trim();
@@ -667,6 +695,9 @@ impl Repl {
                         });
                     }
                 }
+                // Phase 44B: Slash commands also count as prompt completion.
+                let _ = ui_tx.send(UiEvent::AgentFinishedPrompt);
+                let _ = ui_tx.send(UiEvent::PromptQueueStatus(prompt_rx.len()));
                 let _ = ui_tx.send(UiEvent::AgentDone);
                 continue;
             }
@@ -695,6 +726,13 @@ impl Repl {
                 input_tokens: Some(self.session.total_usage.input_tokens),
                 output_tokens: Some(self.session.total_usage.output_tokens),
             });
+
+            // Phase 44B: Signal that agent finished processing this prompt.
+            let _ = ui_tx.send(UiEvent::AgentFinishedPrompt);
+
+            // Phase 44B: Send current queue status (how many prompts waiting).
+            let queued_count = prompt_rx.len();
+            let _ = ui_tx.send(UiEvent::PromptQueueStatus(queued_count));
 
             // Signal agent done.
             let _ = ui_tx.send(UiEvent::AgentDone);
@@ -1039,7 +1077,40 @@ impl Repl {
                 // Auto-consolidate reflections after each agent interaction.
                 if let Some(ref adb) = self.async_db {
                     sink.consolidation_status("consolidating reflections...");
-                    memory_consolidator::maybe_consolidate(adb).await;
+
+                    // Consolidation with 30-second timeout to prevent UI freeze
+                    let consolidation_timeout = std::time::Duration::from_secs(30);
+                    let start = std::time::Instant::now();
+
+                    match tokio::time::timeout(
+                        consolidation_timeout,
+                        memory_consolidator::maybe_consolidate(adb)
+                    ).await {
+                        Ok(Some(result)) => {
+                            let duration_ms = start.elapsed().as_millis() as u64;
+                            tracing::debug!(
+                                merged = result.merged,
+                                pruned = result.pruned,
+                                duration_ms,
+                                "Memory consolidation completed successfully"
+                            );
+                            sink.consolidation_complete(result.merged, result.pruned, duration_ms);
+                        }
+                        Ok(None) => {
+                            // Consolidation was skipped (below threshold or error)
+                            tracing::debug!("Memory consolidation skipped");
+                        }
+                        Err(_) => {
+                            tracing::warn!(
+                                timeout_secs = consolidation_timeout.as_secs(),
+                                "Memory consolidation timed out - skipping to prevent UI freeze"
+                            );
+                            sink.warning(
+                                "Memory consolidation took too long and was skipped",
+                                Some("This is safe but may accumulate more reflections. Consider clearing old memories."),
+                            );
+                        }
+                    }
                 }
             }
             None => {
