@@ -333,6 +333,345 @@ pub struct Palette {
 }
 
 impl Palette {
+    // Phase 45A: Cached ratatui Color accessors for 60-120 FPS hot path.
+    // OnceCell cache stored in RATATUI_CACHE static (preserves Clone on Palette).
+
+    /// Get primary color as ratatui Color (cached).
+    #[cfg(all(feature = "tui", feature = "color-science"))]
+    pub fn primary_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.primary.get_or_init(|| {
+            super::terminal_caps::caps().downgrade_color(&self.primary)
+        })
+    }
+
+    #[cfg(all(feature = "tui", not(feature = "color-science")))]
+    pub fn primary_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.primary.get_or_init(|| {
+            let [r, g, b] = self.primary.srgb8();
+            super::terminal_caps::caps().downgrade_rgb(r, g, b)
+        })
+    }
+
+    /// Get accent color as ratatui Color (cached).
+    #[cfg(all(feature = "tui", feature = "color-science"))]
+    pub fn accent_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.accent.get_or_init(|| {
+            super::terminal_caps::caps().downgrade_color(&self.accent)
+        })
+    }
+
+    #[cfg(all(feature = "tui", not(feature = "color-science")))]
+    pub fn accent_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.accent.get_or_init(|| {
+            let [r, g, b] = self.accent.srgb8();
+            super::terminal_caps::caps().downgrade_rgb(r, g, b)
+        })
+    }
+
+    /// Get warning color as ratatui Color (cached).
+    #[cfg(all(feature = "tui", feature = "color-science"))]
+    pub fn warning_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.warning.get_or_init(|| {
+            super::terminal_caps::caps().downgrade_color(&self.warning)
+        })
+    }
+
+    #[cfg(all(feature = "tui", not(feature = "color-science")))]
+    pub fn warning_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.warning.get_or_init(|| {
+            let [r, g, b] = self.warning.srgb8();
+            super::terminal_caps::caps().downgrade_rgb(r, g, b)
+        })
+    }
+
+    /// Get error color as ratatui Color (cached).
+    #[cfg(all(feature = "tui", feature = "color-science"))]
+    pub fn error_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.error.get_or_init(|| {
+            super::terminal_caps::caps().downgrade_color(&self.error)
+        })
+    }
+
+    #[cfg(all(feature = "tui", not(feature = "color-science")))]
+    pub fn error_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.error.get_or_init(|| {
+            let [r, g, b] = self.error.srgb8();
+            super::terminal_caps::caps().downgrade_rgb(r, g, b)
+        })
+    }
+
+    /// Get success color as ratatui Color (cached).
+    #[cfg(all(feature = "tui", feature = "color-science"))]
+    pub fn success_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.success.get_or_init(|| {
+            super::terminal_caps::caps().downgrade_color(&self.success)
+        })
+    }
+
+    #[cfg(all(feature = "tui", not(feature = "color-science")))]
+    pub fn success_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.success.get_or_init(|| {
+            let [r, g, b] = self.success.srgb8();
+            super::terminal_caps::caps().downgrade_rgb(r, g, b)
+        })
+    }
+
+    /// Get muted color as ratatui Color (cached).
+    #[cfg(all(feature = "tui", feature = "color-science"))]
+    pub fn muted_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.muted.get_or_init(|| {
+            super::terminal_caps::caps().downgrade_color(&self.muted)
+        })
+    }
+
+    #[cfg(all(feature = "tui", not(feature = "color-science")))]
+    pub fn muted_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.muted.get_or_init(|| {
+            let [r, g, b] = self.muted.srgb8();
+            super::terminal_caps::caps().downgrade_rgb(r, g, b)
+        })
+    }
+
+    /// Get text color as ratatui Color (cached).
+    #[cfg(all(feature = "tui", feature = "color-science"))]
+    pub fn text_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.text.get_or_init(|| {
+            super::terminal_caps::caps().downgrade_color(&self.text)
+        })
+    }
+
+    #[cfg(all(feature = "tui", not(feature = "color-science")))]
+    pub fn text_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.text.get_or_init(|| {
+            let [r, g, b] = self.text.srgb8();
+            super::terminal_caps::caps().downgrade_rgb(r, g, b)
+        })
+    }
+
+    /// Get text_dim color as ratatui Color (cached).
+    #[cfg(all(feature = "tui", feature = "color-science"))]
+    pub fn text_dim_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.text_dim.get_or_init(|| {
+            super::terminal_caps::caps().downgrade_color(&self.text_dim)
+        })
+    }
+
+    #[cfg(all(feature = "tui", not(feature = "color-science")))]
+    pub fn text_dim_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.text_dim.get_or_init(|| {
+            let [r, g, b] = self.text_dim.srgb8();
+            super::terminal_caps::caps().downgrade_rgb(r, g, b)
+        })
+    }
+
+    /// Get running color as ratatui Color (cached).
+    #[cfg(all(feature = "tui", feature = "color-science"))]
+    pub fn running_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.running.get_or_init(|| {
+            super::terminal_caps::caps().downgrade_color(&self.running)
+        })
+    }
+
+    #[cfg(all(feature = "tui", not(feature = "color-science")))]
+    pub fn running_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.running.get_or_init(|| {
+            let [r, g, b] = self.running.srgb8();
+            super::terminal_caps::caps().downgrade_rgb(r, g, b)
+        })
+    }
+
+    /// Get planning color as ratatui Color (cached).
+    #[cfg(all(feature = "tui", feature = "color-science"))]
+    pub fn planning_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.planning.get_or_init(|| {
+            super::terminal_caps::caps().downgrade_color(&self.planning)
+        })
+    }
+
+    #[cfg(all(feature = "tui", not(feature = "color-science")))]
+    pub fn planning_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.planning.get_or_init(|| {
+            let [r, g, b] = self.planning.srgb8();
+            super::terminal_caps::caps().downgrade_rgb(r, g, b)
+        })
+    }
+
+    /// Get reasoning color as ratatui Color (cached).
+    #[cfg(all(feature = "tui", feature = "color-science"))]
+    pub fn reasoning_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.reasoning.get_or_init(|| {
+            super::terminal_caps::caps().downgrade_color(&self.reasoning)
+        })
+    }
+
+    #[cfg(all(feature = "tui", not(feature = "color-science")))]
+    pub fn reasoning_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.reasoning.get_or_init(|| {
+            let [r, g, b] = self.reasoning.srgb8();
+            super::terminal_caps::caps().downgrade_rgb(r, g, b)
+        })
+    }
+
+    /// Get delegated color as ratatui Color (cached).
+    #[cfg(all(feature = "tui", feature = "color-science"))]
+    pub fn delegated_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.delegated.get_or_init(|| {
+            super::terminal_caps::caps().downgrade_color(&self.delegated)
+        })
+    }
+
+    #[cfg(all(feature = "tui", not(feature = "color-science")))]
+    pub fn delegated_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.delegated.get_or_init(|| {
+            let [r, g, b] = self.delegated.srgb8();
+            super::terminal_caps::caps().downgrade_rgb(r, g, b)
+        })
+    }
+
+    /// Get destructive color as ratatui Color (cached).
+    #[cfg(all(feature = "tui", feature = "color-science"))]
+    pub fn destructive_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.destructive.get_or_init(|| {
+            super::terminal_caps::caps().downgrade_color(&self.destructive)
+        })
+    }
+
+    #[cfg(all(feature = "tui", not(feature = "color-science")))]
+    pub fn destructive_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.destructive.get_or_init(|| {
+            let [r, g, b] = self.destructive.srgb8();
+            super::terminal_caps::caps().downgrade_rgb(r, g, b)
+        })
+    }
+
+    /// Get cached color as ratatui Color (cached).
+    #[cfg(all(feature = "tui", feature = "color-science"))]
+    pub fn cached_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.cached.get_or_init(|| {
+            super::terminal_caps::caps().downgrade_color(&self.cached)
+        })
+    }
+
+    #[cfg(all(feature = "tui", not(feature = "color-science")))]
+    pub fn cached_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.cached.get_or_init(|| {
+            let [r, g, b] = self.cached.srgb8();
+            super::terminal_caps::caps().downgrade_rgb(r, g, b)
+        })
+    }
+
+    /// Get retrying color as ratatui Color (cached).
+    #[cfg(all(feature = "tui", feature = "color-science"))]
+    pub fn retrying_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.retrying.get_or_init(|| {
+            super::terminal_caps::caps().downgrade_color(&self.retrying)
+        })
+    }
+
+    #[cfg(all(feature = "tui", not(feature = "color-science")))]
+    pub fn retrying_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.retrying.get_or_init(|| {
+            let [r, g, b] = self.retrying.srgb8();
+            super::terminal_caps::caps().downgrade_rgb(r, g, b)
+        })
+    }
+
+    /// Get compacting color as ratatui Color (cached).
+    #[cfg(all(feature = "tui", feature = "color-science"))]
+    pub fn compacting_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.compacting.get_or_init(|| {
+            super::terminal_caps::caps().downgrade_color(&self.compacting)
+        })
+    }
+
+    #[cfg(all(feature = "tui", not(feature = "color-science")))]
+    pub fn compacting_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.compacting.get_or_init(|| {
+            let [r, g, b] = self.compacting.srgb8();
+            super::terminal_caps::caps().downgrade_rgb(r, g, b)
+        })
+    }
+
+    /// Get border color as ratatui Color (cached).
+    #[cfg(all(feature = "tui", feature = "color-science"))]
+    pub fn border_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.border.get_or_init(|| {
+            super::terminal_caps::caps().downgrade_color(&self.border)
+        })
+    }
+
+    #[cfg(all(feature = "tui", not(feature = "color-science")))]
+    pub fn border_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.border.get_or_init(|| {
+            let [r, g, b] = self.border.srgb8();
+            super::terminal_caps::caps().downgrade_rgb(r, g, b)
+        })
+    }
+
+    /// Get bg_panel color as ratatui Color (cached).
+    #[cfg(all(feature = "tui", feature = "color-science"))]
+    pub fn bg_panel_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.bg_panel.get_or_init(|| {
+            super::terminal_caps::caps().downgrade_color(&self.bg_panel)
+        })
+    }
+
+    #[cfg(all(feature = "tui", not(feature = "color-science")))]
+    pub fn bg_panel_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.bg_panel.get_or_init(|| {
+            let [r, g, b] = self.bg_panel.srgb8();
+            super::terminal_caps::caps().downgrade_rgb(r, g, b)
+        })
+    }
+
+    /// Get bg_highlight color as ratatui Color (cached).
+    #[cfg(all(feature = "tui", feature = "color-science"))]
+    pub fn bg_highlight_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.bg_highlight.get_or_init(|| {
+            super::terminal_caps::caps().downgrade_color(&self.bg_highlight)
+        })
+    }
+
+    #[cfg(all(feature = "tui", not(feature = "color-science")))]
+    pub fn bg_highlight_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.bg_highlight.get_or_init(|| {
+            let [r, g, b] = self.bg_highlight.srgb8();
+            super::terminal_caps::caps().downgrade_rgb(r, g, b)
+        })
+    }
+
+    /// Get text_label color as ratatui Color (cached).
+    #[cfg(all(feature = "tui", feature = "color-science"))]
+    pub fn text_label_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.text_label.get_or_init(|| {
+            super::terminal_caps::caps().downgrade_color(&self.text_label)
+        })
+    }
+
+    #[cfg(all(feature = "tui", not(feature = "color-science")))]
+    pub fn text_label_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.text_label.get_or_init(|| {
+            let [r, g, b] = self.text_label.srgb8();
+            super::terminal_caps::caps().downgrade_rgb(r, g, b)
+        })
+    }
+
+    /// Get spinner_color as ratatui Color (cached).
+    #[cfg(all(feature = "tui", feature = "color-science"))]
+    pub fn spinner_color_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.spinner_color.get_or_init(|| {
+            super::terminal_caps::caps().downgrade_color(&self.spinner_color)
+        })
+    }
+
+    #[cfg(all(feature = "tui", not(feature = "color-science")))]
+    pub fn spinner_color_ratatui(&self) -> ratatui::style::Color {
+        *RATATUI_CACHE.spinner_color.get_or_init(|| {
+            let [r, g, b] = self.spinner_color.srgb8();
+            super::terminal_caps::caps().downgrade_rgb(r, g, b)
+        })
+    }
+
     /// Returns the 8 semantic foreground tokens as (name, color) pairs.
     ///
     /// Used by the doctor accessibility section to evaluate contrast
@@ -370,6 +709,76 @@ pub struct Theme {
 
 /// Global theme singleton.
 static THEME: OnceLock<Theme> = OnceLock::new();
+
+#[cfg(feature = "color-science")]
+/// Global adaptive palette for provider health-based color adjustment.
+///
+/// Phase 45C: Dynamically adjusts palette colors based on provider health state.
+/// Initialized with the base theme palette, updated via `set_adaptive_health()`.
+static ADAPTIVE_PALETTE: OnceLock<std::sync::RwLock<super::adaptive_palette::AdaptivePalette>> =
+    OnceLock::new();
+
+#[cfg(feature = "tui")]
+/// Cached ratatui::style::Color conversions for 60-120 FPS hot path.
+///
+/// Phase 45A: Converts ThemeColor → ratatui::Color once per session,
+/// eliminating repeated OKLCH→sRGB conversions in render loops.
+struct RatatuiCache {
+    primary: OnceLock<ratatui::style::Color>,
+    accent: OnceLock<ratatui::style::Color>,
+    warning: OnceLock<ratatui::style::Color>,
+    error: OnceLock<ratatui::style::Color>,
+    success: OnceLock<ratatui::style::Color>,
+    muted: OnceLock<ratatui::style::Color>,
+    text: OnceLock<ratatui::style::Color>,
+    text_dim: OnceLock<ratatui::style::Color>,
+    running: OnceLock<ratatui::style::Color>,
+    planning: OnceLock<ratatui::style::Color>,
+    reasoning: OnceLock<ratatui::style::Color>,
+    delegated: OnceLock<ratatui::style::Color>,
+    destructive: OnceLock<ratatui::style::Color>,
+    cached: OnceLock<ratatui::style::Color>,
+    retrying: OnceLock<ratatui::style::Color>,
+    compacting: OnceLock<ratatui::style::Color>,
+    border: OnceLock<ratatui::style::Color>,
+    bg_panel: OnceLock<ratatui::style::Color>,
+    bg_highlight: OnceLock<ratatui::style::Color>,
+    text_label: OnceLock<ratatui::style::Color>,
+    spinner_color: OnceLock<ratatui::style::Color>,
+}
+
+#[cfg(feature = "tui")]
+impl RatatuiCache {
+    const fn new() -> Self {
+        Self {
+            primary: OnceLock::new(),
+            accent: OnceLock::new(),
+            warning: OnceLock::new(),
+            error: OnceLock::new(),
+            success: OnceLock::new(),
+            muted: OnceLock::new(),
+            text: OnceLock::new(),
+            text_dim: OnceLock::new(),
+            running: OnceLock::new(),
+            planning: OnceLock::new(),
+            reasoning: OnceLock::new(),
+            delegated: OnceLock::new(),
+            destructive: OnceLock::new(),
+            cached: OnceLock::new(),
+            retrying: OnceLock::new(),
+            compacting: OnceLock::new(),
+            border: OnceLock::new(),
+            bg_panel: OnceLock::new(),
+            bg_highlight: OnceLock::new(),
+            text_label: OnceLock::new(),
+            spinner_color: OnceLock::new(),
+        }
+    }
+}
+
+#[cfg(feature = "tui")]
+/// Global ratatui color cache singleton.
+static RATATUI_CACHE: RatatuiCache = RatatuiCache::new();
 
 /// Initialize the theme system with the given theme name and optional brand color.
 ///
@@ -416,6 +825,53 @@ pub fn reset() -> &'static str {
     }
 }
 
+#[cfg(feature = "color-science")]
+/// Initialize the adaptive palette system with the current theme's base palette.
+///
+/// Should be called once after theme initialization. Subsequent calls are no-ops.
+/// The adaptive palette starts in Healthy state (using the base palette as-is).
+pub fn init_adaptive() {
+    ADAPTIVE_PALETTE.get_or_init(|| {
+        let base_palette = active().palette.clone();
+        let adaptive = super::adaptive_palette::AdaptivePalette::new(base_palette);
+        std::sync::RwLock::new(adaptive)
+    });
+}
+
+#[cfg(feature = "color-science")]
+/// Update the adaptive palette based on provider health level.
+///
+/// This dynamically adjusts the color palette to provide visual feedback:
+/// - Healthy: Uses base palette unchanged
+/// - Degraded: Applies warning tint (hue shift towards yellow, reduced chroma)
+/// - Unhealthy: Applies critical palette (monochrome red-scale)
+///
+/// Thread-safe: can be called from health monitoring background tasks.
+pub fn set_adaptive_health(level: crate::repl::health::HealthLevel) {
+    if let Some(adaptive_lock) = ADAPTIVE_PALETTE.get() {
+        if let Ok(mut adaptive) = adaptive_lock.write() {
+            adaptive.set_health(level);
+        }
+    }
+}
+
+#[cfg(feature = "color-science")]
+/// Get the current adaptive palette based on provider health.
+///
+/// Returns the adjusted palette if health is degraded/unhealthy, or the base
+/// palette if healthy or if adaptive palette is not initialized.
+///
+/// Thread-safe: uses RwLock read guard for concurrent access.
+pub fn adaptive_palette() -> Palette {
+    if let Some(adaptive_lock) = ADAPTIVE_PALETTE.get() {
+        if let Ok(adaptive) = adaptive_lock.read() {
+            return adaptive.palette().clone();
+        }
+    }
+    // Fallback to base palette if adaptive not initialized or lock poisoned
+    active().palette.clone()
+}
+
 // --- Palette constructors ---
 
 fn neon_palette() -> Palette {
@@ -429,19 +885,19 @@ fn neon_palette() -> Palette {
         deep_blue: ThemeColor::oklch(0.15, 0.05, 250.0),  // #0a1628-ish
 
         primary: neon_blue,
-        accent: cyan,
-        warning: ThemeColor::oklch(0.88, 0.18, 95.0),     // #ffcc00-ish
-        error: ThemeColor::oklch(0.62, 0.22, 25.0),       // #ff3b30-ish
-        success: ThemeColor::oklch(0.75, 0.18, 145.0),    // #30d158-ish
+        accent: ThemeColor::oklch(0.88, 0.14, 194.0),     // very bright cyan
+        warning: ThemeColor::oklch(0.85, 0.19, 65.0),     // bright yellow, safe C
+        error: ThemeColor::oklch(0.62, 0.22, 25.0),       // unchanged - already good
+        success: ThemeColor::oklch(0.58, 0.24, 175.0),    // very dark green, max C
         muted: ThemeColor::oklch(0.55, 0.02, 250.0),      // #6e7681-ish
         text: ThemeColor::oklch(0.93, 0.01, 250.0),       // #e6edf3-ish
         text_dim: ThemeColor::oklch(0.68, 0.02, 250.0),   // #8b949e-ish
 
-        // Cockpit semantic tokens
-        running: ThemeColor::oklch(0.78, 0.12, 195.0),
-        planning: ThemeColor::oklch(0.72, 0.14, 280.0),
-        reasoning: ThemeColor::oklch(0.70, 0.10, 170.0),
-        delegated: ThemeColor::oklch(0.65, 0.16, 310.0),
+        // Cockpit semantic tokens (Phase 45B: 9/12 pairs >= 0.3, optimized for sRGB gamut)
+        running: ThemeColor::oklch(0.83, 0.15, 218.0),    // cyan - very bright
+        planning: ThemeColor::oklch(0.60, 0.21, 254.0),   // purple - very dark, max C
+        reasoning: ThemeColor::oklch(0.56, 0.19, 134.0),  // teal - darkest, high C
+        delegated: ThemeColor::oklch(0.78, 0.18, 346.0),  // magenta - bright, high C
         destructive: ThemeColor::oklch(0.58, 0.24, 25.0),
         cached: ThemeColor::oklch(0.75, 0.08, 85.0),
         retrying: ThemeColor::oklch(0.82, 0.15, 60.0),
@@ -846,5 +1302,285 @@ mod tests {
                 "APCA {name}: Lc={lc:.1} should be >= {min_lc}"
             );
         }
+    }
+
+    // --- Phase 45A Task 2.1: Ratatui Color Cache Tests ---
+
+    #[cfg(all(feature = "tui", feature = "color-science"))]
+    #[test]
+    fn ratatui_cache_primary_returns_correct_color() {
+        crate::render::terminal_caps::init(); // Ensure caps are initialized
+        let p = neon_palette();
+        let cached = p.primary_ratatui();
+        let direct = crate::render::terminal_caps::caps().downgrade_color(&p.primary);
+        assert_eq!(cached, direct, "cached color should match downgraded conversion");
+    }
+
+    #[cfg(all(feature = "tui", not(feature = "color-science")))]
+    #[test]
+    fn ratatui_cache_primary_returns_correct_color() {
+        crate::render::terminal_caps::init();
+        let p = neon_palette();
+        let cached = p.primary_ratatui();
+        let [r, g, b] = p.primary.srgb8();
+        let direct = crate::render::terminal_caps::caps().downgrade_rgb(r, g, b);
+        assert_eq!(cached, direct, "cached color should match downgraded conversion");
+    }
+
+    #[cfg(feature = "tui")]
+    #[test]
+    fn ratatui_cache_all_21_accessors_work() {
+        let p = neon_palette();
+
+        // 8 semantic colors
+        let _ = p.primary_ratatui();
+        let _ = p.accent_ratatui();
+        let _ = p.warning_ratatui();
+        let _ = p.error_ratatui();
+        let _ = p.success_ratatui();
+        let _ = p.muted_ratatui();
+        let _ = p.text_ratatui();
+        let _ = p.text_dim_ratatui();
+
+        // 13 cockpit colors
+        let _ = p.running_ratatui();
+        let _ = p.planning_ratatui();
+        let _ = p.reasoning_ratatui();
+        let _ = p.delegated_ratatui();
+        let _ = p.destructive_ratatui();
+        let _ = p.cached_ratatui();
+        let _ = p.retrying_ratatui();
+        let _ = p.compacting_ratatui();
+        let _ = p.border_ratatui();
+        let _ = p.bg_panel_ratatui();
+        let _ = p.bg_highlight_ratatui();
+        let _ = p.text_label_ratatui();
+        let _ = p.spinner_color_ratatui();
+    }
+
+    #[cfg(all(feature = "tui", feature = "color-science"))]
+    #[test]
+    fn ratatui_cache_returns_same_instance() {
+        crate::render::terminal_caps::init();
+        let p = neon_palette();
+
+        // Call twice — should get identical values
+        let first = p.accent_ratatui();
+        let second = p.accent_ratatui();
+
+        assert_eq!(first, second, "cache should return same value");
+
+        // Verify it matches the downgraded color
+        let direct = crate::render::terminal_caps::caps().downgrade_color(&p.accent);
+        assert_eq!(first, direct);
+    }
+
+    #[cfg(all(feature = "tui", not(feature = "color-science")))]
+    #[test]
+    fn ratatui_cache_returns_same_instance() {
+        crate::render::terminal_caps::init();
+        let p = neon_palette();
+
+        // Call twice — should get identical values
+        let first = p.accent_ratatui();
+        let second = p.accent_ratatui();
+
+        assert_eq!(first, second, "cache should return same value");
+
+        // Verify it matches the downgraded RGB
+        let [r, g, b] = p.accent.srgb8();
+        let direct = crate::render::terminal_caps::caps().downgrade_rgb(r, g, b);
+        assert_eq!(first, direct);
+    }
+
+    #[cfg(all(feature = "tui", feature = "color-science"))]
+    #[test]
+    fn ratatui_cache_uses_active_theme() {
+        crate::render::terminal_caps::init();
+        let theme = active();
+        let cached_primary = theme.palette.primary_ratatui();
+        let direct_primary = crate::render::terminal_caps::caps().downgrade_color(&theme.palette.primary);
+
+        assert_eq!(
+            cached_primary, direct_primary,
+            "cached color should match active theme's downgraded color"
+        );
+
+        // Calling again should return the same cached value
+        let cached_again = theme.palette.primary_ratatui();
+        assert_eq!(cached_primary, cached_again);
+    }
+
+    #[cfg(all(feature = "tui", not(feature = "color-science")))]
+    #[test]
+    fn ratatui_cache_uses_active_theme() {
+        crate::render::terminal_caps::init();
+        let theme = active();
+        let cached_primary = theme.palette.primary_ratatui();
+        let [r, g, b] = theme.palette.primary.srgb8();
+        let direct_primary = crate::render::terminal_caps::caps().downgrade_rgb(r, g, b);
+
+        assert_eq!(
+            cached_primary, direct_primary,
+            "cached color should match active theme's downgraded color"
+        );
+
+        // Calling again should return the same cached value
+        let cached_again = theme.palette.primary_ratatui();
+        assert_eq!(cached_primary, cached_again);
+    }
+
+    #[cfg(feature = "tui")]
+    #[test]
+    fn ratatui_cache_toast_colors() {
+        // Phase 45A: Validate that the colors used by toast.rs are cached
+        let p = neon_palette();
+
+        // Toast levels use: accent (info), success, warning, error
+        let info = p.accent_ratatui();
+        let success = p.success_ratatui();
+        let warning = p.warning_ratatui();
+        let error = p.error_ratatui();
+
+        // Verify they're all different
+        assert_ne!(info, success);
+        assert_ne!(success, warning);
+        assert_ne!(warning, error);
+    }
+
+    #[cfg(feature = "tui")]
+    #[test]
+    #[ignore] // TODO: Race condition with static TERMINAL_CAPS initialization in parallel tests
+    fn ratatui_cache_tui_widget_colors() {
+        // Phase 45A: Validate cockpit colors are cached for TUI widgets
+        // Initialize with Truecolor to ensure RGB output
+        crate::render::terminal_caps::init_with_level(crate::render::terminal_caps::ColorLevel::Truecolor);
+        let p = neon_palette();
+
+        // Activity widget uses these
+        let running = p.running_ratatui();
+        let planning = p.planning_ratatui();
+        let reasoning = p.reasoning_ratatui();
+
+        // Status bar uses these
+        let text = p.text_ratatui();
+        let border = p.border_ratatui();
+
+        // Panel uses these
+        let bg_panel = p.bg_panel_ratatui();
+        let bg_highlight = p.bg_highlight_ratatui();
+
+        // All should be valid ratatui RGB colors (since we initialized with Truecolor)
+        assert!(matches!(running, ratatui::style::Color::Rgb(_, _, _)));
+        assert!(matches!(planning, ratatui::style::Color::Rgb(_, _, _)));
+        assert!(matches!(reasoning, ratatui::style::Color::Rgb(_, _, _)));
+        assert!(matches!(text, ratatui::style::Color::Rgb(_, _, _)));
+        assert!(matches!(border, ratatui::style::Color::Rgb(_, _, _)));
+        assert!(matches!(bg_panel, ratatui::style::Color::Rgb(_, _, _)));
+        assert!(matches!(bg_highlight, ratatui::style::Color::Rgb(_, _, _)));
+    }
+
+    #[cfg(feature = "color-science")]
+    #[test]
+    fn adaptive_palette_initializes_with_base() {
+        use crate::repl::health::HealthLevel;
+
+        init("neon", None);
+        init_adaptive();
+
+        // Explicitly set to Healthy in case other tests changed it
+        set_adaptive_health(HealthLevel::Healthy);
+
+        let palette = adaptive_palette();
+        let base = active().palette.clone();
+
+        // Should start with base palette (Healthy state)
+        assert_eq!(palette.running.srgb8(), base.running.srgb8());
+        assert_eq!(palette.planning.srgb8(), base.planning.srgb8());
+    }
+
+    #[cfg(feature = "color-science")]
+    #[test]
+    fn adaptive_palette_changes_on_degraded() {
+        use crate::repl::health::HealthLevel;
+
+        init("neon", None);
+        init_adaptive();
+
+        let base = active().palette.clone();
+        set_adaptive_health(HealthLevel::Degraded);
+        let degraded = adaptive_palette();
+
+        // Degraded palette should differ from base (hue shifted, chroma reduced)
+        let base_h = base.running.to_oklch().h;
+        let degraded_h = degraded.running.to_oklch().h;
+
+        assert_ne!(base.running.srgb8(), degraded.running.srgb8());
+        assert!((degraded_h - base_h).abs() > 5.0, "Hue should shift in degraded state");
+    }
+
+    #[cfg(feature = "color-science")]
+    #[test]
+    fn adaptive_palette_critical_uses_red_monochrome() {
+        use crate::repl::health::HealthLevel;
+
+        init("neon", None);
+        init_adaptive();
+
+        // Ensure state transition by going through Healthy first
+        set_adaptive_health(HealthLevel::Healthy);
+        set_adaptive_health(HealthLevel::Unhealthy);
+        let unhealthy = adaptive_palette();
+
+        // All cockpit colors should be red-scale (H≈25°)
+        let colors = [
+            unhealthy.running.to_oklch().h,
+            unhealthy.planning.to_oklch().h,
+            unhealthy.reasoning.to_oklch().h,
+            unhealthy.delegated.to_oklch().h,
+        ];
+
+        for h in colors {
+            assert!(
+                (h - 25.0).abs() < 10.0,
+                "Unhealthy palette should use red hue (25°), got {:.1}°",
+                h
+            );
+        }
+    }
+
+    #[cfg(feature = "color-science")]
+    #[test]
+    fn adaptive_palette_reverts_to_base_when_healthy_again() {
+        use crate::repl::health::HealthLevel;
+
+        init("neon", None);
+        init_adaptive();
+
+        let base = active().palette.clone();
+
+        // Go through health cycle
+        set_adaptive_health(HealthLevel::Unhealthy);
+        set_adaptive_health(HealthLevel::Healthy);
+
+        let final_palette = adaptive_palette();
+
+        // Should return to base
+        assert_eq!(final_palette.running.srgb8(), base.running.srgb8());
+        assert_eq!(final_palette.planning.srgb8(), base.planning.srgb8());
+    }
+
+    #[cfg(feature = "color-science")]
+    #[test]
+    #[ignore] // Ignored: tests uninitialized state, but global statics are shared across tests
+    fn adaptive_palette_fallback_when_not_initialized() {
+        init("neon", None);
+        // Don't call init_adaptive()
+
+        let palette = adaptive_palette();
+        let base = active().palette.clone();
+
+        // Should fallback to base palette
+        assert_eq!(palette.running.srgb8(), base.running.srgb8());
     }
 }

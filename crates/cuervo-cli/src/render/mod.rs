@@ -5,6 +5,9 @@ pub mod banner;
 pub mod color;
 #[cfg(feature = "color-science")]
 pub mod color_science;
+#[cfg(feature = "color-science")]
+pub mod adaptive_palette;
+pub mod terminal_caps;
 pub mod components;
 #[allow(dead_code)]
 pub mod diff;

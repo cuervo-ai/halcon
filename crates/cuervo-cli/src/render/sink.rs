@@ -88,8 +88,8 @@ pub trait RenderSink: Send + Sync {
     fn cache_status(&self, _hit: bool, _source: &str) {}
     /// Speculative tool execution result.
     fn speculative_result(&self, _tool: &str, _hit: bool) {}
-    /// Awaiting user permission for a tool.
-    fn permission_awaiting(&self, _tool: &str) {}
+    /// Awaiting user permission for a tool (Phase I-6C: extended signature).
+    fn permission_awaiting(&self, _tool: &str, _args: &serde_json::Value, _risk_level: &str) {}
 
     // Phase 43C: Feedback completeness — zero silent operations.
 
@@ -99,6 +99,8 @@ pub trait RenderSink: Send + Sync {
     fn reflection_complete(&self, _analysis: &str, _score: f64) {}
     /// Consolidation operation in progress.
     fn consolidation_status(&self, _action: &str) {}
+    /// Consolidation operation completed.
+    fn consolidation_complete(&self, _merged: usize, _pruned: usize, _duration_ms: u64) {}
     /// Tool retrying after failure.
     fn tool_retrying(&self, _tool: &str, _attempt: usize, _max: usize, _delay_ms: u64) {}
 
@@ -338,10 +340,10 @@ impl RenderSink for ClassicSink {
         eprintln!("{p}  [speculative {label}] {tool}{r}");
     }
 
-    fn permission_awaiting(&self, tool: &str) {
+    fn permission_awaiting(&self, tool: &str, _args: &serde_json::Value, risk_level: &str) {
         let p = super::theme::active().palette.destructive.fg();
         let r = super::theme::reset();
-        eprintln!("{p}  [permission] awaiting approval for {tool}{r}");
+        eprintln!("{p}  [permission] awaiting approval for {tool} (risk: {risk_level}){r}");
     }
 
     fn reflection_started(&self) {
@@ -364,6 +366,14 @@ impl RenderSink for ClassicSink {
         let c = super::theme::active().palette.compacting.fg();
         let r = super::theme::reset();
         eprintln!("{c}  [memory] {action}{r}");
+    }
+
+    fn consolidation_complete(&self, merged: usize, pruned: usize, duration_ms: u64) {
+        if !self.expert { return; }
+        let c = super::theme::active().palette.success.fg();
+        let r = super::theme::reset();
+        let duration_s = duration_ms as f64 / 1000.0;
+        eprintln!("{c}  [memory] consolidated: merged={merged}, pruned={pruned}, duration={duration_s:.2}s{r}");
     }
 
     fn tool_retrying(&self, tool: &str, attempt: usize, max: usize, delay_ms: u64) {
@@ -568,6 +578,7 @@ impl RenderSink for SilentSink {
 // TuiSink — sends UiEvents through a channel to the TUI render loop
 // ---------------------------------------------------------------------------
 
+#[cfg(feature = "tui")]
 /// TUI renderer — converts all agent output into `UiEvent`s sent through an mpsc channel.
 ///
 /// The TUI render loop receives these events and updates the 3-zone layout.
@@ -577,6 +588,7 @@ pub struct TuiSink {
     text: Mutex<String>,
 }
 
+#[cfg(feature = "tui")]
 impl TuiSink {
     pub fn new(tx: tokio::sync::mpsc::Sender<crate::tui::events::UiEvent>) -> Self {
         Self {
@@ -586,10 +598,17 @@ impl TuiSink {
     }
 
     fn send(&self, event: crate::tui::events::UiEvent) {
-        let _ = self.tx.try_send(event);
+        // FIX: Log dropped events for diagnostics instead of silently ignoring
+        if let Err(e) = self.tx.try_send(event) {
+            tracing::warn!(
+                error = ?e,
+                "TUI event channel full, dropping event (receiver may be slow or blocked)"
+            );
+        }
     }
 }
 
+#[cfg(feature = "tui")]
 impl RenderSink for TuiSink {
     fn stream_text(&self, text: &str) {
         self.text.lock().unwrap().push_str(text);
@@ -743,9 +762,11 @@ impl RenderSink for TuiSink {
         });
     }
 
-    fn permission_awaiting(&self, tool: &str) {
+    fn permission_awaiting(&self, tool: &str, args: &serde_json::Value, risk_level: &str) {
         self.send(crate::tui::events::UiEvent::PermissionAwaiting {
             tool: tool.to_string(),
+            args: args.clone(),
+            risk_level: risk_level.to_string(),
         });
     }
 
@@ -763,6 +784,14 @@ impl RenderSink for TuiSink {
     fn consolidation_status(&self, action: &str) {
         self.send(crate::tui::events::UiEvent::ConsolidationStatus {
             action: action.to_string(),
+        });
+    }
+
+    fn consolidation_complete(&self, merged: usize, pruned: usize, duration_ms: u64) {
+        self.send(crate::tui::events::UiEvent::ConsolidationComplete {
+            merged,
+            pruned,
+            duration_ms,
         });
     }
 
@@ -1216,7 +1245,7 @@ mod tests {
     #[test]
     fn classic_sink_permission_awaiting_no_panic() {
         let sink = ClassicSink::new();
-        sink.permission_awaiting("bash");
+        sink.permission_awaiting("bash", &serde_json::json!({"command": "echo test"}), "Low");
     }
 
     #[test]
