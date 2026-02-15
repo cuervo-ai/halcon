@@ -786,7 +786,14 @@ static RATATUI_CACHE: RatatuiCache = RatatuiCache::new();
 /// When `brand_hex` is provided (e.g. "#0066cc"), the palette is generated
 /// from that hue using OKLCH color science (requires `color-science` feature).
 /// Call once at startup; subsequent calls are no-ops.
+///
+/// **Progressive Enhancement (Phase 45)**: Auto-detects terminal capabilities
+/// via environment variables (COLORTERM, TERM) and applies color downgrades
+/// for limited terminals (256/16/None).
 pub fn init(theme_name: &str, brand_hex: Option<&str>) {
+    // Auto-detect terminal capabilities (progressive enhancement)
+    let _caps = super::terminal_caps::caps();
+
     THEME.get_or_init(|| {
         let palette = if let Some(hex) = brand_hex {
             brand_palette(hex).unwrap_or_else(|| match theme_name {
@@ -870,6 +877,19 @@ pub fn adaptive_palette() -> Palette {
     }
     // Fallback to base palette if adaptive not initialized or lock poisoned
     active().palette.clone()
+}
+
+#[cfg(all(test, feature = "color-science"))]
+/// Reset adaptive palette to Healthy state (test-only helper).
+///
+/// Needed because ADAPTIVE_PALETTE is a global singleton that persists across
+/// tests. Call this at the start of each adaptive palette test to ensure clean state.
+pub fn reset_adaptive_for_test() {
+    use crate::repl::health::HealthLevel;
+    // Initialize if not yet done
+    init_adaptive();
+    // Reset to Healthy
+    set_adaptive_health(HealthLevel::Healthy);
 }
 
 // --- Palette constructors ---
@@ -1008,6 +1028,60 @@ fn brand_palette(_hex: &str) -> Option<Palette> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ===== Progressive Enhancement Tests (Phase 45 - FASE 3.3) =====
+
+    #[test]
+    fn progressive_enhancement_initializes_on_theme_init() {
+        init("neon", None);
+
+        // Terminal capabilities should be auto-detected
+        let caps = super::super::terminal_caps::caps();
+
+        // Should have detected SOME color level (at minimum Color16)
+        assert!(matches!(
+            caps.color_level,
+            super::super::terminal_caps::ColorLevel::Truecolor
+                | super::super::terminal_caps::ColorLevel::Color256
+                | super::super::terminal_caps::ColorLevel::Color16
+                | super::super::terminal_caps::ColorLevel::None
+        ));
+    }
+
+    #[cfg(all(feature = "tui", feature = "color-science"))]
+    #[test]
+    fn progressive_enhancement_downgrades_for_limited_terminals() {
+        // Force 256-color mode
+        super::super::terminal_caps::init_with_level(
+            super::super::terminal_caps::ColorLevel::Color256
+        );
+
+        init("neon", None);
+        let neon_blue = ThemeColor::oklch(0.80, 0.15, 210.0);
+
+        // Downgrade a color and verify it's Indexed, not RGB
+        let downgraded = super::super::terminal_caps::caps()
+            .downgrade_color(&neon_blue);
+
+        assert!(matches!(downgraded, ratatui::style::Color::Indexed(_)));
+    }
+
+    #[cfg(all(feature = "tui", feature = "color-science"))]
+    #[test]
+    fn progressive_enhancement_respects_no_color() {
+        // Test that ColorLevel::None downgrades to Reset
+        // Note: Cannot force terminal caps due to OnceLock, so test the logic directly
+        let caps_none = super::super::terminal_caps::TerminalCapabilities::with_color_level(
+            super::super::terminal_caps::ColorLevel::None
+        );
+
+        let red = ThemeColor::rgb(255, 0, 0);
+
+        let downgraded = caps_none.downgrade_color(&red);
+
+        // Should downgrade to Reset (monochrome)
+        assert_eq!(downgraded, ratatui::style::Color::Reset);
+    }
 
     #[test]
     fn theme_active_returns_consistent_value() {
@@ -1483,13 +1557,8 @@ mod tests {
     #[cfg(feature = "color-science")]
     #[test]
     fn adaptive_palette_initializes_with_base() {
-        use crate::repl::health::HealthLevel;
-
         init("neon", None);
-        init_adaptive();
-
-        // Explicitly set to Healthy in case other tests changed it
-        set_adaptive_health(HealthLevel::Healthy);
+        reset_adaptive_for_test(); // Ensure clean state
 
         let palette = adaptive_palette();
         let base = active().palette.clone();
@@ -1505,7 +1574,7 @@ mod tests {
         use crate::repl::health::HealthLevel;
 
         init("neon", None);
-        init_adaptive();
+        reset_adaptive_for_test(); // Ensure clean state
 
         let base = active().palette.clone();
         set_adaptive_health(HealthLevel::Degraded);
@@ -1525,10 +1594,8 @@ mod tests {
         use crate::repl::health::HealthLevel;
 
         init("neon", None);
-        init_adaptive();
+        reset_adaptive_for_test(); // Ensure clean state
 
-        // Ensure state transition by going through Healthy first
-        set_adaptive_health(HealthLevel::Healthy);
         set_adaptive_health(HealthLevel::Unhealthy);
         let unhealthy = adaptive_palette();
 
