@@ -32,22 +32,23 @@ pub struct PermissionChecker {
 impl PermissionChecker {
     #[allow(dead_code)] // Used by tests in permissions.rs + agent.rs + executor.rs.
     pub fn new(confirm_destructive: bool) -> Self {
-        Self::with_config(confirm_destructive, false, 30)
+        Self::with_config(confirm_destructive, false, true, 30)
     }
 
     /// Create a new PermissionChecker with TBAC support (legacy constructor).
     pub fn with_tbac(confirm_destructive: bool, tbac_enabled: bool) -> Self {
-        Self::with_config(confirm_destructive, tbac_enabled, 30)
+        Self::with_config(confirm_destructive, tbac_enabled, true, 30)
     }
 
     /// Create a new PermissionChecker with full configuration.
     pub fn with_config(
         confirm_destructive: bool,
         tbac_enabled: bool,
+        auto_approve_in_ci: bool,
         prompt_timeout_secs: u64,
     ) -> Self {
         Self {
-            middleware: AuthorizationMiddleware::new(confirm_destructive, prompt_timeout_secs),
+            middleware: AuthorizationMiddleware::new(confirm_destructive, auto_approve_in_ci, prompt_timeout_secs),
             task_contexts: Vec::new(),
             tbac_enabled,
             #[cfg(feature = "tui")]
@@ -488,7 +489,7 @@ mod tests {
 
     #[test]
     fn with_config_prompt_timeout() {
-        let checker = PermissionChecker::with_config(true, false, 60);
+        let checker = PermissionChecker::with_config(true, false, false, 60);
         assert!(checker.needs_prompt("bash", PermissionLevel::Destructive));
     }
 

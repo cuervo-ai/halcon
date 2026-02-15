@@ -18,9 +18,10 @@ use cuervo_tools::ToolRegistry;
 use cuervo_core::types::ToolRetryConfig;
 
 use super::accumulator::CompletedToolUse;
+use super::conversational_permission::ConversationalPermissionHandler;
 use super::idempotency::DryRunMode;
-use super::permissions::PermissionChecker;
 use crate::render::sink::RenderSink;
+use crate::render::diff::{compute_ai_diff, render_file_diff};
 
 /// Configuration for tool execution (dry-run + idempotency).
 ///
@@ -151,6 +152,72 @@ pub fn is_deterministic_error(error: &str) -> bool {
         || lower.contains("authentication")
         || lower.contains("unauthorized")
         || lower.contains("insufficient_quota")
+}
+
+/// Generate diff preview for file_edit operations.
+///
+/// Returns (path, added_lines, deleted_lines) if successful, None otherwise.
+/// Writes the unified diff to stderr for user review before permission prompt.
+fn generate_file_edit_preview(input: &serde_json::Value) -> Option<(String, usize, usize)> {
+    use std::io::Write;
+
+    let path = input.get("path")?.as_str()?;
+    let old_string = input.get("old_string")?.as_str()?;
+    let new_string = input.get("new_string")?.as_str()?;
+    let replace_all = input.get("replace_all")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+
+    // Read current file
+    let old_content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!("Failed to read file for diff preview: {}", e);
+            eprintln!("\n⚠️  [file not readable - diff preview unavailable]\n");
+            return None;
+        }
+    };
+
+    // Binary detection
+    if old_content.contains('\0') {
+        eprintln!("\n⚠️  [binary file - diff preview unavailable]\n");
+        return None;
+    }
+
+    // Apply replacement (same logic as file_edit tool)
+    let new_content = if replace_all {
+        old_content.replace(old_string, new_string)
+    } else {
+        old_content.replacen(old_string, new_string, 1)
+    };
+
+    // No changes
+    if old_content == new_content {
+        eprintln!("\n⚠️  [no changes detected - replacement string not found]\n");
+        return None;
+    }
+
+    // Compute diff
+    let diff = compute_ai_diff(path, &old_content, &new_content);
+
+    // Extract stats
+    let added = diff.added;
+    let deleted = diff.deleted;
+
+    // Render to stderr (render_file_diff writes directly)
+    let mut preview = Vec::new();
+    render_file_diff(&diff, &mut preview);
+
+    // Write to stderr
+    if let Err(e) = std::io::stderr().write_all(&preview) {
+        tracing::warn!("Failed to write diff to stderr: {}", e);
+        return None;
+    }
+
+    // Flush to ensure it appears before the permission prompt
+    let _ = std::io::stderr().flush();
+
+    Some((path.to_string(), added, deleted))
 }
 
 /// Apply ±20% jitter to a delay to prevent thundering herd.
@@ -484,7 +551,7 @@ pub async fn execute_parallel_batch(
 pub async fn execute_sequential_tool(
     tool_call: &CompletedToolUse,
     registry: &ToolRegistry,
-    permissions: &mut PermissionChecker,
+    permissions: &mut ConversationalPermissionHandler,
     working_dir: &str,
     tool_timeout: Duration,
     event_tx: &EventSender,
@@ -587,11 +654,22 @@ pub async fn execute_sequential_tool(
 
     // Emit permission-awaiting event for destructive tools.
     if perm_level == cuervo_core::types::PermissionLevel::Destructive {
-        render_sink.permission_awaiting(&tool_call.name);
+        // Phase I-6C: Pass args and risk level to permission event.
+        let risk_level = "High"; // Destructive tools are always high risk.
+        render_sink.permission_awaiting(&tool_call.name, &tool_call.input, risk_level);
         // Phase E5: Transition to ToolWait while awaiting permission.
         render_sink.agent_state_transition("executing", "tool_wait", "awaiting permission");
+
+        // UX-9: Show diff preview for file_edit BEFORE permission prompt
+        if tool_call.name == "file_edit" {
+            let _ = generate_file_edit_preview(&tool_call.input);
+            // Note: Stats from preview could enhance the permission prompt,
+            // but that would require modifying AuthorizationMiddleware API.
+            // For now, the visual diff is enough for informed decisions.
+        }
     }
 
+    // Phase I-6B: Conversational permission handler with multi-turn loop
     let decision = permissions
         .authorize(&tool_call.name, perm_level, &tool_input)
         .await;
@@ -1157,7 +1235,7 @@ mod tests {
         let registry = cuervo_tools::default_registry(&Default::default());
         let (event_tx, _rx) = cuervo_core::event_bus(16);
         let mut idx = 0u32;
-        let mut perms = PermissionChecker::new(true);
+        let mut perms = ConversationalPermissionHandler::new(true);
 
         let tool = make_completed("t1", "bash");
         let config = ToolExecutionConfig {
@@ -1195,7 +1273,7 @@ mod tests {
         let registry = cuervo_tools::default_registry(&Default::default());
         let (event_tx, _rx) = cuervo_core::event_bus(16);
         let mut idx = 0u32;
-        let mut perms = PermissionChecker::new(true);
+        let mut perms = ConversationalPermissionHandler::new(true);
 
         // file_write is Destructive — should be skipped in DestructiveOnly mode.
         let tool = make_completed("t1", "file_write");

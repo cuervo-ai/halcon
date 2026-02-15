@@ -210,19 +210,19 @@ const AUTO_CONSOLIDATION_THRESHOLD: u32 = 20;
 /// Check if consolidation is needed and run it in the background.
 ///
 /// Triggers when the number of reflections exceeds the threshold.
-/// Designed to be called fire-and-forget after agent loop completion.
-pub async fn maybe_consolidate(db: &AsyncDatabase) {
+/// Returns the consolidation result if consolidation was performed, None if skipped.
+pub async fn maybe_consolidate(db: &AsyncDatabase) -> Option<ConsolidationResult> {
     // Quick count check — avoid loading all reflections if not needed.
     let count = match db
         .list_memories(Some(MemoryEntryType::Reflection), AUTO_CONSOLIDATION_THRESHOLD + 1)
         .await
     {
         Ok(entries) => entries.len() as u32,
-        Err(_) => return,
+        Err(_) => return None,
     };
 
     if count <= AUTO_CONSOLIDATION_THRESHOLD {
-        return;
+        return None;
     }
 
     let config = ConsolidationConfig::default();
@@ -236,9 +236,11 @@ pub async fn maybe_consolidate(db: &AsyncDatabase) {
                     "Auto-consolidated reflections"
                 );
             }
+            Some(result)
         }
         Err(e) => {
             tracing::warn!(error = %e, "Failed to auto-consolidate reflections");
+            None
         }
     }
 }

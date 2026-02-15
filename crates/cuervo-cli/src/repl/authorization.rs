@@ -148,7 +148,7 @@ pub struct AuthorizationMiddleware {
 
 impl AuthorizationMiddleware {
     /// Create middleware with the default policy chain.
-    pub fn new(interactive: bool, prompt_timeout_secs: u64) -> Self {
+    pub fn new(interactive: bool, auto_approve_in_ci: bool, prompt_timeout_secs: u64) -> Self {
         let timeout = if prompt_timeout_secs == 0 {
             Duration::from_secs(u64::MAX) // effectively no timeout
         } else {
@@ -157,6 +157,7 @@ impl AuthorizationMiddleware {
 
         Self {
             policies: vec![
+                Box::new(crate::repl::ci_detection::CIDetectionPolicy::new(auto_approve_in_ci)),
                 Box::new(NonInteractivePolicy),
                 Box::new(PermissionLevelPolicy),
                 Box::new(SessionMemoryPolicy),
@@ -452,7 +453,7 @@ mod tests {
 
     #[test]
     fn apply_answer_yes() {
-        let mut mw = AuthorizationMiddleware::new(true, 30);
+        let mut mw = AuthorizationMiddleware::new(true, false, 30);
         let result = mw.apply_answer("bash", "y");
         assert_eq!(result, PermissionDecision::Allowed);
         assert!(!mw.state.always_allowed.contains("bash"));
@@ -460,14 +461,14 @@ mod tests {
 
     #[test]
     fn apply_answer_yes_full() {
-        let mut mw = AuthorizationMiddleware::new(true, 30);
+        let mut mw = AuthorizationMiddleware::new(true, false, 30);
         let result = mw.apply_answer("bash", "yes");
         assert_eq!(result, PermissionDecision::Allowed);
     }
 
     #[test]
     fn apply_answer_always() {
-        let mut mw = AuthorizationMiddleware::new(true, 30);
+        let mut mw = AuthorizationMiddleware::new(true, false, 30);
         let result = mw.apply_answer("bash", "a");
         assert_eq!(result, PermissionDecision::AllowedAlways);
         assert!(mw.state.always_allowed.contains("bash"));
@@ -475,7 +476,7 @@ mod tests {
 
     #[test]
     fn apply_answer_deny_always() {
-        let mut mw = AuthorizationMiddleware::new(true, 30);
+        let mut mw = AuthorizationMiddleware::new(true, false, 30);
         let result = mw.apply_answer("bash", "d");
         assert_eq!(result, PermissionDecision::Denied);
         assert!(mw.state.always_denied.contains("bash"));
@@ -483,7 +484,7 @@ mod tests {
 
     #[test]
     fn apply_answer_deny_always_full() {
-        let mut mw = AuthorizationMiddleware::new(true, 30);
+        let mut mw = AuthorizationMiddleware::new(true, false, 30);
         let result = mw.apply_answer("bash", "deny");
         assert_eq!(result, PermissionDecision::Denied);
         assert!(mw.state.always_denied.contains("bash"));
@@ -491,7 +492,7 @@ mod tests {
 
     #[test]
     fn apply_answer_no() {
-        let mut mw = AuthorizationMiddleware::new(true, 30);
+        let mut mw = AuthorizationMiddleware::new(true, false, 30);
         let result = mw.apply_answer("bash", "n");
         assert_eq!(result, PermissionDecision::Denied);
         // "n" is single-deny, NOT deny-always.
@@ -500,7 +501,7 @@ mod tests {
 
     #[test]
     fn apply_answer_invalid_failsafe() {
-        let mut mw = AuthorizationMiddleware::new(true, 30);
+        let mut mw = AuthorizationMiddleware::new(true, false, 30);
         // Empty input.
         assert_eq!(mw.apply_answer("bash", ""), PermissionDecision::Denied);
         // Garbage input.
@@ -587,39 +588,39 @@ mod tests {
 
     #[test]
     fn needs_prompt_readonly_false() {
-        let mw = AuthorizationMiddleware::new(true, 30);
+        let mw = AuthorizationMiddleware::new(true, false, 30);
         assert!(!mw.needs_prompt("file_read", PermissionLevel::ReadOnly));
     }
 
     #[test]
     fn needs_prompt_destructive_true() {
-        let mw = AuthorizationMiddleware::new(true, 30);
+        let mw = AuthorizationMiddleware::new(true, false, 30);
         assert!(mw.needs_prompt("bash", PermissionLevel::Destructive));
     }
 
     #[test]
     fn needs_prompt_after_always_false() {
-        let mut mw = AuthorizationMiddleware::new(true, 30);
+        let mut mw = AuthorizationMiddleware::new(true, false, 30);
         mw.state.always_allowed.insert("bash".to_string());
         assert!(!mw.needs_prompt("bash", PermissionLevel::Destructive));
     }
 
     #[test]
     fn needs_prompt_after_deny_always_false() {
-        let mut mw = AuthorizationMiddleware::new(true, 30);
+        let mut mw = AuthorizationMiddleware::new(true, false, 30);
         mw.state.always_denied.insert("bash".to_string());
         assert!(!mw.needs_prompt("bash", PermissionLevel::Destructive));
     }
 
     #[test]
     fn needs_prompt_non_interactive_false() {
-        let mw = AuthorizationMiddleware::new(false, 30);
+        let mw = AuthorizationMiddleware::new(false, false, 30);
         assert!(!mw.needs_prompt("bash", PermissionLevel::Destructive));
     }
 
     #[test]
     fn auto_decide_readonly_allowed() {
-        let mw = AuthorizationMiddleware::new(true, 30);
+        let mw = AuthorizationMiddleware::new(true, false, 30);
         assert_eq!(
             mw.auto_decide("file_read", PermissionLevel::ReadOnly),
             PermissionDecision::Allowed
@@ -628,7 +629,7 @@ mod tests {
 
     #[test]
     fn auto_decide_destructive_denied_no_session_memory() {
-        let mw = AuthorizationMiddleware::new(true, 30);
+        let mw = AuthorizationMiddleware::new(true, false, 30);
         // All policies abstain for Destructive interactive → Denied fallback.
         assert_eq!(
             mw.auto_decide("bash", PermissionLevel::Destructive),
@@ -638,7 +639,7 @@ mod tests {
 
     #[test]
     fn set_non_interactive_auto_allows() {
-        let mut mw = AuthorizationMiddleware::new(true, 30);
+        let mut mw = AuthorizationMiddleware::new(true, false, 30);
         assert!(mw.needs_prompt("bash", PermissionLevel::Destructive));
         mw.set_non_interactive();
         assert!(!mw.needs_prompt("bash", PermissionLevel::Destructive));
@@ -695,7 +696,7 @@ mod tests {
         // Create middleware with 1-second timeout.
         // Since we're in a test environment without stdin, spawn_blocking will
         // block indefinitely on stdin.lock().read_line(), so timeout fires.
-        let mut mw = AuthorizationMiddleware::new(true, 1);
+        let mut mw = AuthorizationMiddleware::new(true, false, 1);
         let input = dummy_input(serde_json::json!({"command": "test"}));
         let decision = mw
             .authorize("bash", PermissionLevel::Destructive, &input)
@@ -734,7 +735,7 @@ mod tests {
 
     #[test]
     fn zero_timeout_means_no_timeout() {
-        let mw = AuthorizationMiddleware::new(true, 0);
+        let mw = AuthorizationMiddleware::new(true, false, 0);
         // u64::MAX seconds is effectively "no timeout".
         assert_eq!(mw.prompt_timeout, Duration::from_secs(u64::MAX));
     }
