@@ -16,6 +16,25 @@ readonly INSTALL_DIR="${HALCON_INSTALL_DIR:-$HOME/.local/bin}"
 readonly GITHUB_API="https://api.github.com"
 readonly GITHUB_DOWNLOAD="https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/latest/download"
 
+get_latest_version() {
+    local version
+    if has curl; then
+        version="$(curl --proto '=https' --tlsv1.2 -fsSL \
+            "${GITHUB_API}/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest" \
+            | grep '"tag_name"' | sed 's/.*"tag_name": *"v\?\([^"]*\)".*/\1/')"
+    elif has wget; then
+        version="$(wget --https-only -qO- \
+            "${GITHUB_API}/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest" \
+            | grep '"tag_name"' | sed 's/.*"tag_name": *"v\?\([^"]*\)".*/\1/')"
+    else
+        error "Neither curl nor wget found."
+    fi
+    if [ -z "$version" ]; then
+        error "Failed to determine latest release version from GitHub API"
+    fi
+    echo "$version"
+}
+
 # Colors
 readonly RED='\033[0;31m'
 readonly GREEN='\033[0;32m'
@@ -295,7 +314,7 @@ try_cargo_install() {
     warn "No precompiled binary available for your platform."
     info "Falling back to cargo install (this will compile from source, may take 2-5 minutes)..."
 
-    if cargo install --git "https://github.com/${REPO_OWNER}/${REPO_NAME}" --locked; then
+    if cargo install --git "https://github.com/${REPO_OWNER}/${REPO_NAME}" --locked halcon-cli; then
         success "Installed via cargo install"
         return 0
     else
@@ -311,7 +330,7 @@ main() {
     echo -e "${BOLD}${MAGENTA}"
     cat << 'EOF'
    ╔═══════════════════════════════════════╗
-   ║      Cuervo CLI - Installation        ║
+   ║      Halcón CLI - Installation        ║
    ╚═══════════════════════════════════════╝
 EOF
     echo -e "${NC}"
@@ -334,7 +353,12 @@ EOF
     local archive_ext
     [ "$os" = "windows" ] && archive_ext="zip" || archive_ext="tar.gz"
 
-    local archive_name="${BINARY_NAME}-${target}.${archive_ext}"
+    info "Fetching latest release version..."
+    local version
+    version="$(get_latest_version)"
+    success "Latest version: $version"
+
+    local archive_name="${BINARY_NAME}-${version}-${target}.${archive_ext}"
     local archive_url="${GITHUB_DOWNLOAD}/${archive_name}"
     local checksum_url="${GITHUB_DOWNLOAD}/${archive_name}.sha256"
 
