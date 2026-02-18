@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Cuervo CLI - Universal Binary Installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/cuervo-ai/cuervo-cli/main/scripts/install-binary.sh | sh
-# or:    wget -qO- https://raw.githubusercontent.com/cuervo-ai/cuervo-cli/main/scripts/install-binary.sh | sh
+# Halcón CLI - Universal Binary Installer
+# Usage: curl -sSfL https://cli.cuervo.cloud/install.sh | sh
+# or:    wget -qO- https://cli.cuervo.cloud/install.sh | sh
 
 set -euo pipefail
 
@@ -9,10 +9,10 @@ set -euo pipefail
 # Constants
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-readonly REPO_OWNER="${CUERVO_REPO_OWNER:-cuervo-ai}"
-readonly REPO_NAME="${CUERVO_REPO_NAME:-cuervo-cli}"
-readonly BINARY_NAME="cuervo"
-readonly INSTALL_DIR="${CUERVO_INSTALL_DIR:-$HOME/.local/bin}"
+readonly REPO_OWNER="${HALCON_REPO_OWNER:-cuervo-ai}"
+readonly REPO_NAME="${HALCON_REPO_NAME:-halcon-cli}"
+readonly BINARY_NAME="halcon"
+readonly INSTALL_DIR="${HALCON_INSTALL_DIR:-$HOME/.local/bin}"
 readonly GITHUB_API="https://api.github.com"
 readonly GITHUB_DOWNLOAD="https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/latest/download"
 
@@ -261,7 +261,7 @@ add_to_path() {
 
     if ! grep -q "export PATH=\"$install_dir:\$PATH\"" "$shell_profile"; then
         echo "" >> "$shell_profile"
-        echo "# Added by cuervo-cli installer" >> "$shell_profile"
+        echo "# Added by halcon-cli installer" >> "$shell_profile"
         echo "export PATH=\"$install_dir:\$PATH\"" >> "$shell_profile"
         success "Added to PATH. Run: source $shell_profile"
     else
@@ -419,10 +419,10 @@ EOF
     echo -e "     ${BOLD}source $(detect_shell_profile)${NC}"
     echo ""
     echo -e "  ${CYAN}2.${NC} Verify installation:"
-    echo -e "     ${BOLD}cuervo --version${NC}"
+    echo -e "     ${BOLD}halcon --version${NC}"
     echo ""
     echo -e "  ${CYAN}3.${NC} Get started:"
-    echo -e "     ${BOLD}cuervo --help${NC}"
+    echo -e "     ${BOLD}halcon --help${NC}"
     echo ""
     echo -e "  ${BLUE}Documentation:${NC} https://github.com/${REPO_OWNER}/${REPO_NAME}"
     echo ""

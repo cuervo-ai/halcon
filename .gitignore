@@ -88,7 +88,7 @@ TOOLS_INVENTORY.md
 # ── Claude / AI Assistant ───────────────────────────
 .claude/
 
-# Temporary documentation and reports
+# Temporary documentation and reports (dev/session artifacts)
 AUDITORIA_*.md
 DIAGNOSTICO_*.md
 GUIA_*.md
@@ -97,3 +97,83 @@ QUESTIONNAIRE_*.md
 RESUMEN_*.md
 STEP4_*.md
 test_tui_debug.sh
+
+# Session report files generated during development
+ANALISIS_*.md
+ACTIVITY_VISUAL_*.md
+ARTISTIC_*.md
+AUDIT_REPORT_*.md
+BANNER_*.md
+BASELINE_*.md
+BOTON_*.md
+COMO_*.md
+CONTEXT_SERVERS_*.md
+CRITICAL_GOTCHAS_*.md
+DEBUG_*.md
+FINAL_REPORT_*.md
+FIX_*.md
+HICON_*.md
+HOTFIX_*.md
+IMPLEMENTACION_*.md
+INSTALACION_*.md
+INSTALLATION_*.md
+INSTALLATION_COMPLETE*.md
+INTEGRATION_*.md
+INTEGRACION_*.md
+INVESTIGACION_*.md
+LOOP_GUARD_*.md
+M[0-9]_*.md
+M[0-9][0-9]_*.md
+MOMOTO_*.md
+NATIVE_SEARCH_*.md
+OKLCH_*.md
+OPTIMIZACION_*.md
+P[0-9]_*.md
+P[0-9].[0-9]_*.md
+PANEL_*.md
+PERMISSION_SYSTEM_*.md
+PHASE_*.md
+PLAN_*.md
+PRUEBA_*.md
+PUSH_SUMMARY_*.md
+QUICK_START_*.md
+REMEDIATION_*.md
+REMEDIACION_*.md
+RESULTADOS_*.md
+SCROLL_*.md
+SEARCH_INDEX_*.md
+SESION_*.md
+SESSION_COMPLETE_*.md
+SOLUCION_*.md
+SOTA_*.md
+SPRINT_*.md
+SRCH-*.md
+TASK_*.md
+TESTING_GUIDE_*.md
+TEST_*.md
+TUI_VISUAL_*.md
+VALIDACION_*.md
+VERIFICACION_*.md
+VISUAL_*.md
+WEB_SEARCH_*.md
+
+# Dev test scripts at repo root
+test_autonomy.sh
+test_deepseek_full.sh
+test_m7_visual.sh
+test_permission_fixes.sh
+test_tui_unlock.sh
+test_web_search.sh
+test_palette.rs
+monitor_runtime.sh
+HICON_VALIDATION_SCRIPT.sh
+QUICK_START_NATIVE_SEARCH.sh
+VERIFICACION_SCROLL_PANEL.sh
+scripts/collect_baseline.sh
+scripts/seed_search_index.sh
+
+# Cache directories
+.fastembed_cache/
+
+# Workers directory
+workers/

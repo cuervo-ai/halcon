@@ -1,0 +1,53 @@
+// src/components/ui/Terminal.astro
+---
+interface Props {
+  title?: string;
+  command?: string;
+  output?: string;
+  interactive?: boolean;
+}
+
+const { 
+  title = 'terminal', 
+  command = '', 
+  output = '',
+  interactive = false 
+} = Astro.props;
+---
+
+<div class="terminal-window overflow-hidden rounded-lg border border-gray-800 bg-gray-950">
+  <!-- Terminal header -->
+  <div class="flex items-center gap-2 border-b border-gray-800 bg-gray-900/50 px-4 py-2">
+    <div class="flex gap-1.5">
+      <div class="h-3 w-3 rounded-full bg-red-500"></div>
+      <div class="h-3 w-3 rounded-full bg-yellow-500"></div>
+      <div class="h-3 w-3 rounded-full bg-green-500"></div>
+    </div>
+    <span class="ml-2 text-xs font-mono text-gray-400">{title}</span>
+  </div>
+  
+  <!-- Terminal content -->
+  <div class="p-4 font-mono text-sm">
+    {command && (
+      <div class="mb-2">
+        <span class="text-green-400">$</span>
+        <span class="ml-2 text-gray-300">{command}</span>
+      </div>
+    )}
+    
+    {output && (
+      <div class="text-gray-400 whitespace-pre-wrap">{output}</div>
+    )}
+    
+    {interactive && (
+      <div class="mt-2 flex items-center">
+        <span class="text-green-400">$</span>
+        <span class="ml-2 flex-1">
+          <span class="animate-pulse">█</span>
+        </span>
+      </div>
+    )}
+    
+    <slot />
+  </div>
+</div>

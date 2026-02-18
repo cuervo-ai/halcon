@@ -9,7 +9,7 @@ export OPENAI_API_KEY=$(grep '^openai=' .env | cut -d= -f2 | tr -d ' ')
 export GEMINI_API_KEY=$(grep '^gemini=' .env | cut -d= -f2 | tr -d ' ')
 # Anthropic from keychain (auto-resolved by cuervo)
 
-CUERVO="./target/release/cuervo"
+CUERVO="./target/release/halcon"
 REPORT_FILE="docs/Provider_Test_Report.md"
 PROMPT="Responde en una sola línea: ¿Cuál es la capital de Francia?"
 TIMESTAMP=$(date -u +"%Y-%m-%dT%H:%M:%SZ")

@@ -1,0 +1,31 @@
+// src/components/ui/Card.astro
+---
+interface Props {
+  padding?: 'none' | 'sm' | 'md' | 'lg';
+  hover?: boolean;
+  border?: boolean;
+}
+
+const { 
+  padding = 'md', 
+  hover = false,
+  border = true 
+} = Astro.props;
+
+const paddingClasses = {
+  none: '',
+  sm: 'p-4',
+  md: 'p-6',
+  lg: 'p-8'
+};
+
+const baseClasses = 'rounded-xl bg-white dark:bg-gray-900 transition-all';
+const borderClass = border ? 'border border-gray-200 dark:border-gray-800' : '';
+const hoverClass = hover ? 'hover:shadow-lg hover:-translate-y-0.5' : '';
+
+const classes = `${baseClasses} ${borderClass} ${hoverClass} ${paddingClasses[padding]}`;
+---
+
+<div class={classes}>
+  <slot />
+</div>

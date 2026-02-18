@@ -1,0 +1,122 @@
+---
+import '../styles/global.css';
+import Header from '../components/layout/Header.astro';
+import Footer from '../components/layout/Footer.astro';
+import { ViewTransitions } from 'astro:transitions';
+import type { Lang } from '../i18n/translations';
+
+interface Props {
+  title:        string;
+  description?: string;
+  lang?:        Lang;
+  ogImage?:     string;
+  canonical?:   string;
+}
+
+const {
+  title,
+  description = 'Halcón CLI — AI coding agent for your terminal. Connect Claude, GPT-4o, DeepSeek, Gemini, or local Ollama models. 21 built-in tools, full permission control, MCP server built in.',
+  lang      = 'en',
+  ogImage   = '/og-image.png',
+  canonical,
+} = Astro.props;
+
+const siteBase     = 'https://cuervo.cloud';
+const canonicalUrl = canonical ?? new URL(Astro.url.pathname, siteBase).toString();
+const ogTitle      = `${title} | Halcón CLI`;
+const esPath       = '/es' + (Astro.url.pathname === '/' ? '' : Astro.url.pathname);
+const enPath       = Astro.url.pathname.replace(/^\/es/, '') || '/';
+
+const prefix = lang === 'es' ? '/es' : '';
+---
+
+<!DOCTYPE html>
+<html lang={lang} class="dark scroll-smooth">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content={description} />
+    <meta name="theme-color" content="#070401" />
+    <meta name="robots" content="index, follow" />
+
+    <title>{ogTitle}</title>
+    <link rel="canonical" href={canonicalUrl} />
+    {lang === 'en' && <link rel="alternate" hreflang="es" href={siteBase + esPath} />}
+    {lang === 'es' && <link rel="alternate" hreflang="en" href={siteBase + enPath} />}
+    <link rel="alternate" hreflang="x-default" href={siteBase + '/'} />
+
+    <meta property="og:type"        content="website" />
+    <meta property="og:url"         content={canonicalUrl} />
+    <meta property="og:title"       content={ogTitle} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image"       content={`${siteBase}${ogImage}`} />
+    <meta property="og:site_name"   content="Halcón CLI" />
+
+    <meta name="twitter:card"        content="summary_large_image" />
+    <meta name="twitter:title"       content={ogTitle} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image"       content={`${siteBase}${ogImage}`} />
+
+    <link rel="icon"             type="image/png" href="/halcon-logo.png" />
+    <link rel="apple-touch-icon" sizes="180x180"  href="/halcon-logo.png" />
+
+    <!-- Preconnect para fonts (reduce RTT) -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+
+    <!-- Fonts: carga no bloqueante con print trick -->
+    <link
+      rel="stylesheet"
+      media="print"
+      onload="this.media='all'"
+      href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@600;700&family=Montserrat:ital,wght@0,300;0,400;0,500;0,600;0,700;0,900;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap"
+    />
+    <noscript>
+      <link
+        href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@600;700&family=Montserrat:ital,wght@0,300;0,400;0,500;0,600;0,700;0,900;1,400&family=JetBrains+Mono:wght@400;500;600&display=swap"
+        rel="stylesheet"
+      />
+    </noscript>
+
+    <!-- Prefetch páginas principales en background -->
+    <link rel="prefetch" href={prefix + '/docs'} as="document" />
+    <link rel="prefetch" href={prefix + '/download'} as="document" />
+
+    <!-- ViewTransitions: navegación instantánea tipo SPA -->
+    <ViewTransitions fallback="none" />
+  </head>
+
+  <body>
+    <Header lang={lang} currentPath={Astro.url.pathname} />
+    <main transition:animate="fade">
+      <slot />
+    </main>
+    <Footer lang={lang} />
+
+    <!-- momoto WASM: inyectar tokens CSS, re-ejecutar tras cada transición -->
+    <script>
+      function initMomoto() {
+        import('../lib/momoto/index').then(({ injectCssTokens }) => {
+          injectCssTokens().catch(() => {});
+        }).catch(() => {});
+      }
+
+      // Primera carga
+      initMomoto();
+
+      // Re-inyectar tras cada View Transition
+      document.addEventListener('astro:after-swap', initMomoto);
+
+      // Scroll suave a anchor tras View Transition
+      document.addEventListener('astro:page-load', () => {
+        const hash = window.location.hash;
+        if (hash) {
+          const el = document.querySelector(hash);
+          if (el) {
+            setTimeout(() => el.scrollIntoView({ behavior: 'smooth', block: 'start' }), 80);
+          }
+        }
+      });
+    </script>
+  </body>
+</html>

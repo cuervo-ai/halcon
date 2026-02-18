@@ -1,0 +1,40 @@
+Name:           halcon
+Version:        {{VERSION}}
+Release:        1%{?dist}
+Summary:        AI-powered CLI for software development
+
+License:        Apache-2.0
+URL:            https://cli.halcon.cloud
+Source0:        https://releases.cli.halcon.cloud/v%{version}/halcon-%{version}-x86_64-unknown-linux-musl.tar.gz
+
+BuildArch:      x86_64
+ExclusiveArch:  x86_64 aarch64
+
+%description
+Halcon CLI is a multi-model, open-source AI assistant for software
+development. It supports Anthropic Claude, OpenAI GPT, DeepSeek,
+Ollama, and other providers through a unified interface.
+
+Features:
+- Interactive REPL with full agent loop
+- Multi-provider support (Anthropic, OpenAI, DeepSeek, Ollama)
+- Persistent memory and session management
+- MCP (Model Context Protocol) server integration
+- TUI mode with activity visualization
+- Tool execution with permission controls
+
+%prep
+%setup -q -n halcon-%{version}-x86_64-unknown-linux-musl
+
+%install
+mkdir -p %{buildroot}%{_bindir}
+install -m 0755 halcon %{buildroot}%{_bindir}/halcon
+
+%files
+%{_bindir}/halcon
+%doc README.md
+%license LICENSE
+
+%changelog
+* {{DATE}} Cuervo AI <hello@halcon.cloud> - {{VERSION}}-1
+- Update to version {{VERSION}}

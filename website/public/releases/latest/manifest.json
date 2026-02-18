@@ -1,0 +1,17 @@
+{
+  "version": "0.2.0",
+  "published_at": "2026-02-18T22:18:13Z",
+  "artifacts": [
+    {
+      "name": "halcon-0.2.0-aarch64-apple-darwin.tar.gz",
+      "target": "aarch64-apple-darwin",
+      "os": "macos",
+      "arch": "aarch64",
+      "ext": "tar.gz",
+      "sha256": "edf83da55760043e141e4f25831173f6bbae12c1255e246b8de2f9b5f93d66f3",
+      "size": 13288175
+    }
+  ],
+  "checksums_url": "https://cuervo.cloud/releases/latest/checksums.txt",
+  "release_notes": "https://github.com/cuervo-ai/cuervo-cli/releases/tag/v0.2.0"
+}

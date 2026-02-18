@@ -1,6 +1,6 @@
-# Cuervo CLI - Windows PowerShell Installer
-# Usage: iwr -useb https://raw.githubusercontent.com/cuervo-ai/cuervo-cli/main/scripts/install-binary.ps1 | iex
-# or:    Invoke-WebRequest -Uri https://raw.githubusercontent.com/cuervo-ai/cuervo-cli/main/scripts/install-binary.ps1 -UseBasicParsing | Invoke-Expression
+# Halcón CLI - Windows PowerShell Installer
+# Usage: iwr -useb https://cli.cuervo.cloud/install.ps1 | iex
+# or:    Invoke-WebRequest -Uri https://cli.cuervo.cloud/install.ps1 -UseBasicParsing | Invoke-Expression
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = "SilentlyContinue"
@@ -9,10 +9,10 @@ $ProgressPreference = "SilentlyContinue"
 # Constants
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-$REPO_OWNER = if ($env:CUERVO_REPO_OWNER) { $env:CUERVO_REPO_OWNER } else { "cuervo-ai" }
-$REPO_NAME = if ($env:CUERVO_REPO_NAME) { $env:CUERVO_REPO_NAME } else { "cuervo-cli" }
-$BINARY_NAME = "cuervo"
-$INSTALL_DIR = if ($env:CUERVO_INSTALL_DIR) { $env:CUERVO_INSTALL_DIR } else { "$env:USERPROFILE\.local\bin" }
+$REPO_OWNER = if ($env:HALCON_REPO_OWNER) { $env:HALCON_REPO_OWNER } else { "cuervo-ai" }
+$REPO_NAME = if ($env:HALCON_REPO_NAME) { $env:HALCON_REPO_NAME } else { "halcon-cli" }
+$BINARY_NAME = "halcon"
+$INSTALL_DIR = if ($env:HALCON_INSTALL_DIR) { $env:HALCON_INSTALL_DIR } else { "$env:USERPROFILE\.local\bin" }
 $GITHUB_DOWNLOAD = "https://github.com/$REPO_OWNER/$REPO_NAME/releases/latest/download"
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -174,7 +174,7 @@ function Try-CargoInstall {
 function Main {
     Write-Host ""
     Write-Host "╔═══════════════════════════════════════╗" -ForegroundColor Magenta
-    Write-Host "║      Cuervo CLI - Installation        ║" -ForegroundColor Magenta
+    Write-Host "║      Halcón CLI - Installation        ║" -ForegroundColor Magenta
     Write-Host "╚═══════════════════════════════════════╝" -ForegroundColor Magenta
     Write-Host ""
 
@@ -192,7 +192,7 @@ function Main {
     Write-Info "Asset: $archiveName"
     Write-Info "URL:   $archiveUrl"
 
-    $tmpDir = Join-Path $env:TEMP "cuervo-install-$(Get-Random)"
+    $tmpDir = Join-Path $env:TEMP "halcon-install-$(Get-Random)"
     New-Item -ItemType Directory -Path $tmpDir -Force | Out-Null
 
     try {
@@ -262,10 +262,10 @@ function Main {
         Write-Host "  1. Restart your terminal" -ForegroundColor Cyan
         Write-Host ""
         Write-Host "  2. Verify installation:" -ForegroundColor Cyan
-        Write-Host "     cuervo --version" -ForegroundColor White
+        Write-Host "     halcon --version" -ForegroundColor White
         Write-Host ""
         Write-Host "  3. Get started:" -ForegroundColor Cyan
-        Write-Host "     cuervo --help" -ForegroundColor White
+        Write-Host "     halcon --help" -ForegroundColor White
         Write-Host ""
         Write-Host "  Documentation: https://github.com/$REPO_OWNER/$REPO_NAME" -ForegroundColor Blue
         Write-Host ""

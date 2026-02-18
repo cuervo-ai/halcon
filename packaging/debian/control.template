@@ -1,0 +1,20 @@
+Package: halcon
+Version: {{VERSION}}
+Section: utils
+Priority: optional
+Architecture: {{ARCH}}
+Depends: libc6 (>= 2.17)
+Maintainer: Cuervo AI <hello@halcon.cloud>
+Homepage: https://cli.halcon.cloud
+Description: AI-powered CLI for software development
+ Halcon CLI is a multi-model, open-source AI assistant for software
+ development. It supports Anthropic Claude, OpenAI GPT, DeepSeek,
+ Ollama, and other providers through a unified interface.
+ .
+ Features:
+  - Interactive REPL with full agent loop
+  - Multi-provider support (Anthropic, OpenAI, DeepSeek, Ollama)
+  - Persistent memory and session management
+  - MCP (Model Context Protocol) server integration
+  - TUI mode with activity visualization
+  - Tool execution with permission controls

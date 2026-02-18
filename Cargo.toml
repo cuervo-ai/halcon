@@ -1,19 +1,20 @@
 [workspace]
 members = [
-    "crates/cuervo-cli",
-    "crates/cuervo-core",
-    "crates/cuervo-providers",
-    "crates/cuervo-tools",
-    "crates/cuervo-auth",
-    "crates/cuervo-storage",
-    "crates/cuervo-security",
-    "crates/cuervo-context",
-    "crates/cuervo-mcp",
-    "crates/cuervo-files",
-    "crates/cuervo-runtime",
-    "crates/cuervo-api",
-    "crates/cuervo-client",
-    "crates/cuervo-desktop",
+    "crates/halcon-cli",
+    "crates/halcon-core",
+    "crates/halcon-providers",
+    "crates/halcon-tools",
+    "crates/halcon-auth",
+    "crates/halcon-storage",
+    "crates/halcon-security",
+    "crates/halcon-context",
+    "crates/halcon-mcp",
+    "crates/halcon-files",
+    "crates/halcon-runtime",
+    "crates/halcon-api",
+    "crates/halcon-client",
+    "crates/halcon-desktop",
+    "crates/halcon-search", "crates/halcon-integrations",
 ]
 resolver = "2"
 
@@ -22,7 +23,7 @@ version = "0.2.0"
 edition = "2021"
 rust-version = "1.80"
 license = "Apache-2.0"
-repository = "https://github.com/cuervo-ai/cuervo-cli"
+repository = "https://github.com/cuervo-ai/halcon-cli"
 
 [workspace.dependencies]
 # Async runtime
@@ -31,6 +32,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "io-
 # Serialization
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+serde_yaml = "0.9"
 toml = "0.8"
 
 # Error handling
@@ -122,22 +124,22 @@ futures-util = "0.3"
 http = "1"
 
 # Workspace crates
-cuervo-core = { path = "crates/cuervo-core" }
-cuervo-providers = { path = "crates/cuervo-providers" }
-cuervo-tools = { path = "crates/cuervo-tools" }
-cuervo-auth = { path = "crates/cuervo-auth" }
-cuervo-storage = { path = "crates/cuervo-storage" }
-cuervo-security = { path = "crates/cuervo-security" }
-cuervo-context = { path = "crates/cuervo-context" }
-cuervo-mcp = { path = "crates/cuervo-mcp" }
-cuervo-files = { path = "crates/cuervo-files" }
-cuervo-runtime = { path = "crates/cuervo-runtime" }
-cuervo-api = { path = "crates/cuervo-api", default-features = false }
-cuervo-client = { path = "crates/cuervo-client" }
+halcon-core = { path = "crates/halcon-core" }
+halcon-providers = { path = "crates/halcon-providers" }
+halcon-tools = { path = "crates/halcon-tools" }
+halcon-auth = { path = "crates/halcon-auth" }
+halcon-storage = { path = "crates/halcon-storage" }
+halcon-security = { path = "crates/halcon-security" }
+halcon-context = { path = "crates/halcon-context" }
+halcon-mcp = { path = "crates/halcon-mcp" }
+halcon-files = { path = "crates/halcon-files" }
+halcon-runtime = { path = "crates/halcon-runtime" }
+halcon-api = { path = "crates/halcon-api", default-features = false }
+halcon-client = { path = "crates/halcon-client" }
 
 [profile.release]
-opt-level = "z"
-lto = "fat"
-codegen-units = 1
-panic = "abort"
-strip = true
+opt-level = 3           # Rendimiento máximo (no tamaño)
+lto = "thin"            # LTO ligero (más seguro que "fat")
+codegen-units = 1       # Máxima optimización cross-crate
+panic = "abort"         # Binario más pequeño
+strip = true            # Reducir tamaño

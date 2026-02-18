@@ -1,0 +1,185 @@
+//! CI environment auto-detection for auto-approving destructive tools.
+//!
+//! When running in CI/CD environments (GitHub Actions, GitLab CI, etc.),
+//! we auto-approve destructive tool calls to prevent 30-second timeout hangs
+//! on permission prompts.
+
+use crate::repl::authorization::{AuthorizationPolicy, AuthorizationState};
+use halcon_core::types::{PermissionDecision, PermissionLevel, ToolInput};
+use std::env;
+
+/// Auto-approves all tools when running in a CI environment.
+///
+/// Detects CI by checking standard environment variables:
+/// - CI=true (generic)
+/// - GITHUB_ACTIONS, GITLAB_CI, CIRCLECI, JENKINS_HOME, etc. (platform-specific)
+///
+/// When enabled and CI is detected, this policy returns `Allowed` for all tools,
+/// bypassing permission prompts that would otherwise timeout.
+pub struct CIDetectionPolicy {
+    enabled: bool,
+}
+
+impl CIDetectionPolicy {
+    pub fn new(enabled: bool) -> Self {
+        Self { enabled }
+    }
+
+    /// Returns true if running in a CI environment.
+    ///
+    /// Checks both generic CI=true and platform-specific variables.
+    fn is_ci_environment() -> bool {
+        // Generic CI indicator
+        if env::var("CI").is_ok_and(|v| v == "true" || v == "1") {
+            tracing::info!("CI environment detected: CI=true");
+            return true;
+        }
+
+        // Platform-specific CI variables
+        const CI_VARS: &[&str] = &[
+            "GITHUB_ACTIONS",   // GitHub Actions
+            "GITLAB_CI",        // GitLab CI
+            "CIRCLECI",         // CircleCI
+            "JENKINS_HOME",     // Jenkins
+            "TRAVIS",           // Travis CI
+            "BUILDKITE",        // Buildkite
+            "DRONE",            // Drone CI
+            "TEAMCITY_VERSION", // TeamCity
+            "CIRRUS_CI",        // Cirrus CI
+            "SEMAPHORE",        // Semaphore CI
+            "CODEBUILD_BUILD_ID", // AWS CodeBuild
+        ];
+
+        for &var in CI_VARS {
+            if env::var(var).is_ok() {
+                tracing::info!("CI environment detected: {}=true", var);
+                return true;
+            }
+        }
+
+        false
+    }
+}
+
+impl AuthorizationPolicy for CIDetectionPolicy {
+    fn evaluate(
+        &self,
+        tool_name: &str,
+        _perm_level: PermissionLevel,
+        _input: &ToolInput,
+        _state: &AuthorizationState,
+    ) -> Option<PermissionDecision> {
+        if !self.enabled {
+            return None; // Abstain when disabled
+        }
+
+        if !Self::is_ci_environment() {
+            return None; // Not CI, let other policies decide
+        }
+
+        tracing::info!("Auto-approving tool '{}' in CI environment", tool_name);
+        Some(PermissionDecision::Allowed)
+    }
+
+    fn name(&self) -> &str {
+        "CIDetectionPolicy"
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serial_test::serial;
+
+    fn dummy_input(args: serde_json::Value) -> ToolInput {
+        ToolInput {
+            tool_use_id: "test".into(),
+            arguments: args,
+            working_directory: "/tmp".into(),
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn ci_detection_github_actions() {
+        std::env::set_var("GITHUB_ACTIONS", "true");
+        assert!(CIDetectionPolicy::is_ci_environment());
+        std::env::remove_var("GITHUB_ACTIONS");
+    }
+
+    #[test]
+    #[serial]
+    fn ci_detection_gitlab_ci() {
+        std::env::set_var("GITLAB_CI", "true");
+        assert!(CIDetectionPolicy::is_ci_environment());
+        std::env::remove_var("GITLAB_CI");
+    }
+
+    #[test]
+    #[serial]
+    fn ci_detection_generic() {
+        std::env::set_var("CI", "true");
+        assert!(CIDetectionPolicy::is_ci_environment());
+        std::env::remove_var("CI");
+    }
+
+    #[test]
+    #[serial]
+    fn ci_detection_generic_one() {
+        std::env::set_var("CI", "1");
+        assert!(CIDetectionPolicy::is_ci_environment());
+        std::env::remove_var("CI");
+    }
+
+    #[test]
+    #[serial]
+    fn not_ci_environment() {
+        // Clear all potential CI vars
+        for var in &["CI", "GITHUB_ACTIONS", "GITLAB_CI", "CIRCLECI", "JENKINS_HOME"] {
+            std::env::remove_var(var);
+        }
+        assert!(!CIDetectionPolicy::is_ci_environment());
+    }
+
+    #[test]
+    #[serial]
+    fn auto_approves_in_ci() {
+        std::env::set_var("CI", "true");
+        let policy = CIDetectionPolicy::new(true);
+        let state = AuthorizationState::new(true);
+        let input = dummy_input(serde_json::json!({"command": "rm -rf /tmp/test"}));
+
+        let decision = policy.evaluate("file_delete", PermissionLevel::Destructive, &input, &state);
+        assert_eq!(decision, Some(PermissionDecision::Allowed));
+
+        std::env::remove_var("CI");
+    }
+
+    #[test]
+    #[serial]
+    fn abstains_when_not_ci() {
+        std::env::remove_var("CI");
+        std::env::remove_var("GITHUB_ACTIONS");
+
+        let policy = CIDetectionPolicy::new(true);
+        let state = AuthorizationState::new(true);
+        let input = dummy_input(serde_json::json!({}));
+
+        let decision = policy.evaluate("bash", PermissionLevel::Destructive, &input, &state);
+        assert_eq!(decision, None);
+    }
+
+    #[test]
+    #[serial]
+    fn abstains_when_disabled() {
+        std::env::set_var("CI", "true");
+        let policy = CIDetectionPolicy::new(false); // Disabled
+        let state = AuthorizationState::new(true);
+        let input = dummy_input(serde_json::json!({}));
+
+        let decision = policy.evaluate("bash", PermissionLevel::Destructive, &input, &state);
+        assert_eq!(decision, None); // Should abstain even though CI detected
+
+        std::env::remove_var("CI");
+    }
+}

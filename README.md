@@ -1,4 +1,4 @@
-# Cuervo CLI
+# Halcon CLI
 
 <div align="center">
 
@@ -21,7 +21,7 @@
 
 **Linux / macOS**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/cuervo-ai/cuervo-cli/main/scripts/install-binary.sh | sh
+curl -fsSL https://raw.githubusercontent.com/cuervo-ai/halcon-cli/main/scripts/install-binary.sh | sh
 ```
 
 </td>
@@ -29,7 +29,7 @@ curl -fsSL https://raw.githubusercontent.com/cuervo-ai/cuervo-cli/main/scripts/i
 
 **Windows**
 ```powershell
-iwr -useb https://raw.githubusercontent.com/cuervo-ai/cuervo-cli/main/scripts/install-binary.ps1 | iex
+iwr -useb https://raw.githubusercontent.com/cuervo-ai/halcon-cli/main/scripts/install-binary.ps1 | iex
 ```
 
 </td>
@@ -44,7 +44,7 @@ iwr -useb https://raw.githubusercontent.com/cuervo-ai/cuervo-cli/main/scripts/in
 
 ## 🚀 Visión
 
-Cuervo CLI es la primera plataforma de IA para desarrollo que unifica modelos propietarios, open source y locales en un solo CLI extensible, con soporte nativo para self-hosting, fine-tuning integrado, y orquestación multi-agente — diseñada desde cero para equipos enterprise y el mercado latinoamericano.
+Halcon CLI es la primera plataforma de IA para desarrollo que unifica modelos propietarios, open source y locales en un solo CLI extensible, con soporte nativo para self-hosting, fine-tuning integrado, y orquestación multi-agente — diseñada desde cero para equipos enterprise y el mercado latinoamericano.
 
 ## ✨ Características Principales
 
@@ -65,7 +65,7 @@ Cuervo CLI es la primera plataforma de IA para desarrollo que unifica modelos pr
 
 ### 🚀 Instalación Rápida (Un Solo Comando)
 
-Instala Cuervo CLI en **menos de 10 segundos** con detección automática de tu plataforma:
+Instala Halcon CLI en **menos de 10 segundos** con detección automática de tu plataforma:
 
 <table>
 <tr>
@@ -73,7 +73,7 @@ Instala Cuervo CLI en **menos de 10 segundos** con detección automática de tu 
 
 **Linux / macOS**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/cuervo-ai/cuervo-cli/main/scripts/install-binary.sh | sh
+curl -fsSL https://raw.githubusercontent.com/cuervo-ai/halcon-cli/main/scripts/install-binary.sh | sh
 ```
 
 </td>
@@ -81,7 +81,7 @@ curl -fsSL https://raw.githubusercontent.com/cuervo-ai/cuervo-cli/main/scripts/i
 
 **Windows (PowerShell)**
 ```powershell
-iwr -useb https://raw.githubusercontent.com/cuervo-ai/cuervo-cli/main/scripts/install-binary.ps1 | iex
+iwr -useb https://raw.githubusercontent.com/cuervo-ai/halcon-cli/main/scripts/install-binary.ps1 | iex
 ```
 
 </td>
@@ -90,7 +90,7 @@ iwr -useb https://raw.githubusercontent.com/cuervo-ai/cuervo-cli/main/scripts/in
 
 **¿Qué hace el instalador?**
 - ✅ **Detecta automáticamente** tu sistema operativo y arquitectura (x86_64, ARM64, etc.)
-- ✅ **Descarga el binario** precompilado desde [GitHub Releases](https://github.com/cuervo-ai/cuervo-cli/releases/latest)
+- ✅ **Descarga el binario** precompilado desde [GitHub Releases](https://github.com/cuervo-ai/halcon-cli/releases/latest)
 - ✅ **Verifica integridad** con checksums SHA256
 - ✅ **Instala en** `~/.local/bin/cuervo` (Unix) o `%USERPROFILE%\.local\bin\cuervo.exe` (Windows)
 - ✅ **Configura PATH** automáticamente para tu shell (bash, zsh, fish, PowerShell)
@@ -137,7 +137,7 @@ source ~/.config/fish/config.fish
 
 ```bash
 # Instalar desde repositorio Git
-cargo install --git https://github.com/cuervo-ai/cuervo-cli --features tui --locked
+cargo install --git https://github.com/cuervo-ai/halcon-cli --features tui --locked
 
 # El binario se instalará en ~/.cargo/bin/cuervo
 ```
@@ -157,7 +157,7 @@ cargo install --git https://github.com/cuervo-ai/cuervo-cli --features tui --loc
 <details>
 <summary><b>Método 3: Descarga Manual de Binarios</b></summary>
 
-1. Ve a la página de [Releases](https://github.com/cuervo-ai/cuervo-cli/releases/latest)
+1. Ve a la página de [Releases](https://github.com/cuervo-ai/halcon-cli/releases/latest)
 2. Descarga el archivo para tu plataforma:
    - **Linux x64 (glibc)**: `cuervo-x86_64-unknown-linux-gnu.tar.gz`
    - **Linux x64 (musl/Alpine)**: `cuervo-x86_64-unknown-linux-musl.tar.gz`
@@ -200,7 +200,7 @@ Para desarrollo activo o contribuciones:
 
 ```bash
 # Clonar el repositorio
-git clone https://github.com/cuervo-ai/cuervo-cli.git
+git clone https://github.com/cuervo-ai/halcon-cli.git
 cd cuervo-cli
 
 # Compilar en modo debug (más rápido, sin optimizaciones)
@@ -372,16 +372,16 @@ cuervo-cli/
 ## 🔧 Configuración
 
 ### Archivos de Configuración
-Cuervo CLI utiliza configuración jerárquica:
+Halcon CLI utiliza configuración jerárquica:
 1. **Comandos CLI** (--model, --provider)
 2. **Variables de entorno** (CUERVO_MODEL, CUERVO_PROVIDER)
 3. **Config local** (`./.cuervo/config.toml`)
-4. **Config global** (`~/.cuervo/config.toml`)
+4. **Config global** (`~/.halcon/config.toml`)
 5. **Config por defecto** (`config/default.toml`)
 
 ### Ejemplo de Configuración
 ```toml
-# ~/.cuervo/config.toml
+# ~/.halcon/config.toml
 [general]
 default_provider = "anthropic"
 default_model = "claude-sonnet-4-5-20250929"
@@ -471,7 +471,7 @@ cuervo memory prune --force
 
 ## 🔄 Integración MCP (Model Context Protocol)
 
-Cuervo CLI incluye soporte nativo para MCP, permitiendo:
+Halcon CLI incluye soporte nativo para MCP, permitiendo:
 
 ```bash
 # Iniciar servidor MCP para integración con IDEs
@@ -568,15 +568,15 @@ Este proyecto está licenciado bajo la **Apache License 2.0** - ver el archivo [
 
 ## 🆘 Soporte
 
-- **Issues**: [GitHub Issues](https://github.com/cuervo-ai/cuervo-cli/issues)
-- **Discusiones**: [GitHub Discussions](https://github.com/cuervo-ai/cuervo-cli/discussions)
+- **Issues**: [GitHub Issues](https://github.com/cuervo-ai/halcon-cli/issues)
+- **Discusiones**: [GitHub Discussions](https://github.com/cuervo-ai/halcon-cli/discussions)
 - **Documentación**: [docs/](docs/)
 
 ---
 
 <div align="center">
 
-**Cuervo CLI** - Plataforma de IA Generativa para Desarrollo de Software
+**Halcon CLI** - Plataforma de IA Generativa para Desarrollo de Software
 
 *"Unificando el futuro del desarrollo asistido por IA"*
 

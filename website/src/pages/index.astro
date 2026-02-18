@@ -1,0 +1,451 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { t } from '../i18n/translations';
+
+const lang = 'en';
+
+const providers = [
+  {
+    name: 'Anthropic',
+    logo: '🧠',
+    accent: 'rgba(232,82,0,0.10)',
+    border: 'rgba(232,82,0,0.30)',
+    models: ['Claude Opus 4.6', 'Claude Sonnet 4.5', 'Claude Haiku 4.5'],
+    badge: null,
+  },
+  {
+    name: 'OpenAI',
+    logo: '⬡',
+    accent: 'rgba(16,163,127,0.10)',
+    border: 'rgba(16,163,127,0.28)',
+    models: ['GPT-4o', 'GPT-4o mini', 'o1', 'o3-mini'],
+    badge: null,
+  },
+  {
+    name: 'DeepSeek',
+    logo: '◎',
+    accent: 'rgba(99,102,241,0.10)',
+    border: 'rgba(99,102,241,0.28)',
+    models: ['deepseek-chat', 'deepseek-coder', 'deepseek-reasoner'],
+    badge: null,
+  },
+  {
+    name: 'Google Gemini',
+    logo: '✦',
+    accent: 'rgba(66,133,244,0.10)',
+    border: 'rgba(66,133,244,0.28)',
+    models: ['Gemini 2.0 Flash', 'Gemini 2.5 Pro'],
+    badge: null,
+  },
+  {
+    name: 'Ollama',
+    logo: '⬤',
+    accent: 'rgba(245,160,0,0.08)',
+    border: 'rgba(245,160,0,0.28)',
+    models: ['Llama 3', 'Mistral', 'DeepSeek Coder V2', '+ any model'],
+    badge: t(lang, 'providers.local_badge'),
+  },
+];
+
+const features = [
+  {
+    icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>`,
+    title: t(lang, 'f1.title'),
+    desc: t(lang, 'f1.desc'),
+  },
+  {
+    icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>`,
+    title: t(lang, 'f2.title'),
+    desc: t(lang, 'f2.desc'),
+  },
+  {
+    icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>`,
+    title: t(lang, 'f3.title'),
+    desc: t(lang, 'f3.desc'),
+  },
+  {
+    icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>`,
+    title: t(lang, 'f4.title'),
+    desc: t(lang, 'f4.desc'),
+  },
+  {
+    icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>`,
+    title: t(lang, 'f5.title'),
+    desc: t(lang, 'f5.desc'),
+  },
+  {
+    icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 10V3L4 14h7v7l9-11h-7z"/>`,
+    title: t(lang, 'f6.title'),
+    desc: t(lang, 'f6.desc'),
+  },
+];
+---
+
+<Layout
+  title={t(lang, 'meta.index.title')}
+  description={t(lang, 'meta.index.desc')}
+  lang={lang}
+>
+
+  <!-- ═══════════════════════════════════════════ HERO ══ -->
+  <section class="relative min-h-[90vh] flex flex-col items-center justify-center pt-24 pb-16 px-4 overflow-hidden">
+
+    <!-- Background glow -->
+    <div class="absolute inset-0 pointer-events-none" aria-hidden="true">
+      <div class="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full opacity-20"
+           style="background: radial-gradient(circle, rgba(232,82,0,0.5) 0%, rgba(245,160,0,0.2) 40%, transparent 70%); filter: blur(80px);"></div>
+    </div>
+
+    <div class="relative z-10 max-w-4xl mx-auto text-center">
+
+      <!-- Badge -->
+      <div class="inline-flex items-center gap-2 px-3 py-1.5 mb-8 rounded-full border text-xs font-medium font-mono"
+           style="border-color: rgba(232,82,0,0.35); background: rgba(232,82,0,0.08); color: var(--c-gold);">
+        <span class="w-1.5 h-1.5 rounded-full animate-pulse" style="background: var(--c-p);"></span>
+        v0.2.0 · macOS · Linux · Windows
+      </div>
+
+      <!-- Headline -->
+      <h1 class="text-5xl sm:text-6xl md:text-7xl font-black leading-none tracking-tight mb-6 font-display">
+        {t(lang, 'hero.headline').split('\n').map((line: string, i: number) => (
+          <span class={i === 1 ? 'block gradient-text-brand mt-1' : 'block'}>{line}</span>
+        ))}
+      </h1>
+
+      <!-- Subheadline -->
+      <p class="text-lg sm:text-xl leading-relaxed max-w-2xl mx-auto mb-10" style="color: var(--c-t2);">
+        {t(lang, 'hero.sub')}
+      </p>
+
+      <!-- CTAs -->
+      <div class="flex flex-col sm:flex-row items-center justify-center gap-4 mb-14">
+        <a href="/download" class="btn-primary" style="padding: 0.875rem 2rem; font-size: 1rem;">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+          </svg>
+          {t(lang, 'hero.cta_dl')}
+        </a>
+        <a href="/docs"
+           class="flex items-center gap-2 px-6 py-3.5 rounded-xl text-sm font-medium border transition-all duration-200"
+           style="color: var(--c-t2); border-color: var(--c-b);"
+           onmouseover="this.style.color='var(--c-t1)'; this.style.borderColor='var(--c-bh)'"
+           onmouseout="this.style.color='var(--c-t2)'; this.style.borderColor='var(--c-b)'">
+          {t(lang, 'hero.cta_docs')}
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+          </svg>
+        </a>
+      </div>
+
+      <!-- Install snippet -->
+      <div class="inline-block max-w-lg w-full">
+        <p class="text-xs font-medium mb-2 text-left pl-1" style="color: var(--c-t4);">{t(lang, 'hero.install_label')}</p>
+        <div class="glass rounded-xl overflow-hidden text-left">
+          <div class="flex items-center justify-between px-4 py-2.5 border-b" style="border-color: var(--c-b); background: var(--c-surface);">
+            <div class="flex gap-1.5">
+              <span class="w-2.5 h-2.5 rounded-full" style="background: rgba(200,80,0,0.4);"></span>
+              <span class="w-2.5 h-2.5 rounded-full" style="background: rgba(245,160,0,0.3);"></span>
+              <span class="w-2.5 h-2.5 rounded-full" style="background: rgba(34,197,94,0.3);"></span>
+            </div>
+            <span class="text-xs font-mono" style="color: var(--c-t4);">bash</span>
+          </div>
+          <div class="px-4 py-3.5 font-mono text-sm flex items-center justify-between gap-3"
+               style="color: var(--c-p);">
+            <div>
+              <span style="color: var(--c-t4);">$ </span>curl -sSfL cuervo.cloud/install.sh | sh
+            </div>
+            <button id="hero-copy-btn" title="Copy"
+                    class="flex-shrink-0 p-1.5 rounded transition-colors"
+                    style="color: var(--c-t4);"
+                    onmouseover="this.style.color='var(--c-t1)'; this.style.background='var(--c-surface)'"
+                    onmouseout="this.style.color='var(--c-t4)'; this.style.background='transparent'">
+              <svg id="copy-icon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <p class="text-xs mt-2 text-center" style="color: var(--c-t4);">SHA-256 verified · no sudo required · installs to ~/.local/bin</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════ PROVIDERS ══ -->
+  <section id="providers" class="py-24 px-4 border-t" style="border-color: var(--c-b);">
+    <div class="max-w-6xl mx-auto">
+
+      <div class="text-center mb-14">
+        <h2 class="text-3xl sm:text-4xl font-black mb-3 font-display">{t(lang, 'providers.heading')}</h2>
+        <p class="text-base" style="color: var(--c-t3);">{t(lang, 'providers.sub')}</p>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+        {providers.map(p => (
+          <div class="glass rounded-2xl p-5 transition-all duration-300"
+               style={`border-color: ${p.border}; background: ${p.accent};`}
+               onmouseover={`this.style.transform='scale(1.01)'`}
+               onmouseout={`this.style.transform='scale(1)'`}>
+            <div class="flex items-start justify-between mb-4">
+              <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl flex items-center justify-center text-xl"
+                     style={`background: ${p.accent}; border: 1px solid ${p.border};`}>
+                  {p.logo}
+                </div>
+                <span class="font-bold text-base" style="color: var(--c-t1);">{p.name}</span>
+              </div>
+              {p.badge && (
+                <span class="text-xs font-medium px-2 py-0.5 rounded-full"
+                      style="background: rgba(245,160,0,0.15); color: var(--c-gold); border: 1px solid rgba(245,160,0,0.3);">
+                  {p.badge}
+                </span>
+              )}
+            </div>
+            <div class="space-y-1.5">
+              <p class="text-xs uppercase tracking-wider mb-2" style="color: var(--c-t4);">{t(lang, 'providers.models')}</p>
+              {p.models.map(m => (
+                <div class="flex items-center gap-2">
+                  <span class="w-1 h-1 rounded-full flex-shrink-0" style="background: var(--c-p); opacity: 0.6;"></span>
+                  <span class="font-mono text-xs" style="color: var(--c-t2);">{m}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+
+        <!-- Switch card -->
+        <div class="glass rounded-2xl p-5 flex flex-col items-center justify-center text-center gap-3"
+             style="border-style: dashed; border-color: rgba(200,80,0,0.25);">
+          <div class="w-10 h-10 rounded-xl flex items-center justify-center"
+               style="background: rgba(232,82,0,0.08); border: 1px solid rgba(232,82,0,0.2);">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color: var(--c-p);">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/>
+            </svg>
+          </div>
+          <p class="text-sm font-medium" style="color: var(--c-t2);">Switch with one flag</p>
+          <code class="font-mono text-xs px-3 py-1.5 rounded-lg" style="background: var(--c-surface); color: var(--c-p);">
+            halcon -p openai chat
+          </code>
+          <code class="font-mono text-xs px-3 py-1.5 rounded-lg" style="background: var(--c-surface); color: var(--c-gold);">
+            halcon -p ollama -m llama3 chat
+          </code>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════ FEATURES ══ -->
+  <section id="features" class="py-24 px-4 border-t" style="border-color: var(--c-b);">
+    <div class="max-w-6xl mx-auto">
+
+      <div class="text-center mb-14">
+        <h2 class="text-3xl sm:text-4xl font-black mb-3 font-display">{t(lang, 'features.heading')}</h2>
+        <p class="text-base" style="color: var(--c-t3);">{t(lang, 'features.sub')}</p>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+        {features.map(f => (
+          <div class="glass rounded-2xl p-6 transition-all duration-300"
+               onmouseover="this.style.borderColor='var(--c-bh)'; this.style.transform='scale(1.01)'"
+               onmouseout="this.style.borderColor=''; this.style.transform='scale(1)'">
+            <div class="w-10 h-10 rounded-xl flex items-center justify-center mb-4"
+                 style="background: rgba(232,82,0,0.08); border: 1px solid rgba(232,82,0,0.2);">
+              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color: var(--c-p);" set:html={f.icon} />
+            </div>
+            <h3 class="font-bold text-base mb-2" style="color: var(--c-t1);">{f.title}</h3>
+            <p class="text-sm leading-relaxed" style="color: var(--c-t3);">{f.desc}</p>
+          </div>
+        ))}
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════ TUI DEMO ══ -->
+  <section class="py-24 px-4 border-t" style="border-color: var(--c-b);">
+    <div class="max-w-6xl mx-auto">
+      <div class="grid md:grid-cols-2 gap-12 items-center">
+
+        <div>
+          <div class="inline-flex items-center gap-2 px-3 py-1 mb-5 rounded-full border text-xs font-mono"
+               style="border-color: rgba(232,82,0,0.30); background: rgba(232,82,0,0.06); color: var(--c-p);">
+            TUI Cockpit
+          </div>
+          <h2 class="text-3xl font-black mb-4 font-display leading-tight">
+            Full situational<br/><span class="gradient-text-brand">awareness.</span>
+          </h2>
+          <p class="text-base leading-relaxed mb-6" style="color: var(--c-t3);">
+            The 3-zone TUI gives you live token counters, real-time agent FSM state, execution plan progress, side panel metrics, and a scrollable activity stream — all updating as the agent works.
+          </p>
+          <ul class="space-y-3">
+            {[
+              'Pause, step, or cancel the agent mid-execution',
+              'Live token cost tracked per round',
+              'Tool execution timeline with durations',
+              'Provider fallback indicators',
+              'Context compression events in real time',
+            ].map((item: string) => (
+              <li class="flex items-start gap-2.5 text-sm" style="color: var(--c-t2);">
+                <span class="mt-0.5 w-4 h-4 rounded flex-shrink-0 flex items-center justify-center"
+                      style="background: rgba(232,82,0,0.12);">
+                  <span style="color: var(--c-p); font-size: 0.6rem;">✓</span>
+                </span>
+                {item}
+              </li>
+            ))}
+          </ul>
+          <div class="mt-8">
+            <code class="font-mono text-sm px-4 py-2.5 rounded-xl"
+                  style="background: var(--c-surface); border: 1px solid var(--c-b); color: var(--c-p);">
+              halcon chat --tui
+            </code>
+          </div>
+        </div>
+
+        <!-- Terminal mockup -->
+        <div class="glass rounded-2xl overflow-hidden" style="font-family: 'JetBrains Mono', monospace;">
+          <!-- Window bar -->
+          <div class="flex items-center justify-between px-4 py-2.5 border-b"
+               style="border-color: var(--c-b); background: rgba(12,8,4,0.9);">
+            <div class="flex gap-1.5">
+              <span class="w-3 h-3 rounded-full" style="background: rgba(232,82,0,0.5);"></span>
+              <span class="w-3 h-3 rounded-full" style="background: rgba(245,160,0,0.35);"></span>
+              <span class="w-3 h-3 rounded-full" style="background: rgba(34,197,94,0.3);"></span>
+            </div>
+            <span class="text-xs" style="color: var(--c-t4);">halcon · TUI Cockpit</span>
+            <div class="flex items-center gap-2">
+              <span class="w-1.5 h-1.5 rounded-full animate-pulse" style="background: var(--c-p);"></span>
+              <span class="text-xs" style="color: var(--c-p);">● RUNNING</span>
+            </div>
+          </div>
+          <!-- Status bar -->
+          <div class="px-3 py-1.5 text-xs flex items-center justify-between"
+               style="background: rgba(232,82,0,0.08); border-bottom: 1px solid rgba(232,82,0,0.12); color: var(--c-t3);">
+            <span class="font-mono">SESSION <span style="color: var(--c-t4);">a3f8c1</span></span>
+            <span>anthropic / claude-sonnet-4-5</span>
+            <span>R<span style="color: var(--c-p);">3</span> &nbsp; ↑<span style="color: var(--c-gold);">1.2k</span> ↓<span style="color: var(--c-emerald);">4.8k</span></span>
+            <span style="color: var(--c-gold);">$0.0024</span>
+          </div>
+          <!-- Split: activity + panel -->
+          <div class="flex" style="min-height: 280px;">
+            <div class="flex-1 p-3 text-xs space-y-1.5 overflow-hidden border-r"
+                 style="border-color: var(--c-b); background: rgba(7,4,1,0.6);">
+              <div style="color: var(--c-t4);">╌╌ R1</div>
+              <div style="color: var(--c-t2);"><span style="color: var(--c-gold);">▸</span> Analyze project structure</div>
+              <div style="color: var(--c-p);">⟳ directory_tree <span style="color: var(--c-t4); font-size: 0.65rem;">240ms</span></div>
+              <div style="color: var(--c-emerald);">✓ directory_tree  <span style="color: var(--c-t4);">▸</span></div>
+              <div class="mt-1" style="color: var(--c-t4);">╌╌ R2</div>
+              <div style="color: var(--c-t2);"><span style="color: var(--c-gold);">▸</span> Read key source files</div>
+              <div style="color: var(--c-p);">⟳ file_read  src/main.rs</div>
+              <div style="color: var(--c-emerald);">✓ file_read  <span style="color: var(--c-t4);">▸</span></div>
+              <div class="mt-1" style="color: var(--c-t4);">╌╌ R3</div>
+              <div class="flex items-start gap-1.5 mt-1">
+                <span style="color: var(--c-p);">◆ Halcón</span>
+                <span style="color: var(--c-t2); line-height: 1.4;">The project has 14 crates. The main entry point...</span>
+              </div>
+            </div>
+            <div class="w-32 p-3 text-xs" style="background: rgba(4,2,0,0.7);">
+              <div class="mb-3">
+                <p class="uppercase tracking-wider mb-1.5" style="color: var(--c-t4); font-size: 0.6rem;">Plan</p>
+                {['Analyze structure', 'Read sources', 'Generate report'].map((s: string, i: number) => (
+                  <div class="flex items-start gap-1 mb-1">
+                    <span style={`color: ${i < 2 ? 'var(--c-emerald)' : 'var(--c-p)'}; font-size: 0.65rem;`}>{i < 2 ? '✓' : '▸'}</span>
+                    <span style={`color: ${i < 2 ? 'var(--c-t4)' : 'var(--c-t2)'}; font-size: 0.65rem; line-height: 1.3;`}>{s}</span>
+                  </div>
+                ))}
+              </div>
+              <div>
+                <p class="uppercase tracking-wider mb-1.5" style="color: var(--c-t4); font-size: 0.6rem;">Tokens</p>
+                <div class="space-y-1">
+                  {([['In', '1.2k', 'var(--c-gold)'], ['Out', '4.8k', 'var(--c-emerald)'], ['Cost', '$0.002', 'var(--c-p)']] as [string, string, string][]).map(([label, val, color]) => (
+                    <div class="flex justify-between">
+                      <span style="color: var(--c-t4); font-size: 0.6rem;">{label}</span>
+                      <span style={`color: ${color}; font-size: 0.6rem;`}>{val}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- Prompt zone -->
+          <div class="border-t px-3 py-2.5" style="border-color: var(--c-b); background: rgba(12,8,4,0.9);">
+            <div class="flex items-center gap-2">
+              <span style="color: var(--c-p);">›</span>
+              <span class="text-xs flex-1" style="color: var(--c-t3);">Ask anything or give a task…</span>
+              <span class="text-xs px-2 py-0.5 rounded" style="background: var(--c-surface); color: var(--c-t4);">⏸ Space</span>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════ QUICK START ══ -->
+  <section class="py-24 px-4 border-t" style="border-color: var(--c-b);">
+    <div class="max-w-3xl mx-auto">
+
+      <div class="text-center mb-12">
+        <h2 class="text-3xl sm:text-4xl font-black mb-3 font-display">{t(lang, 'qs.heading')}</h2>
+      </div>
+
+      <div class="space-y-4">
+        {[
+          {
+            n: '1',
+            title: t(lang, 'qs.step1'),
+            note: t(lang, 'qs.step1_note'),
+            code: 'curl -sSfL cuervo.cloud/install.sh | sh',
+          },
+          {
+            n: '2',
+            title: t(lang, 'qs.step2'),
+            note: t(lang, 'qs.step2_note'),
+            code: 'halcon auth login anthropic',
+          },
+          {
+            n: '3',
+            title: t(lang, 'qs.step3'),
+            note: t(lang, 'qs.step3_note'),
+            code: 'halcon chat "Refactor my login function to use async/await"',
+          },
+        ].map(step => (
+          <div class="glass rounded-2xl overflow-hidden">
+            <div class="flex items-center gap-4 px-5 py-4 border-b" style="border-color: var(--c-b); background: var(--c-surface);">
+              <div class="w-7 h-7 rounded-lg flex items-center justify-center text-sm font-mono font-bold flex-shrink-0"
+                   style="background: rgba(232,82,0,0.12); color: var(--c-p); border: 1px solid rgba(232,82,0,0.3);">
+                {step.n}
+              </div>
+              <div>
+                <p class="font-semibold text-sm" style="color: var(--c-t1);">{step.title}</p>
+                <p class="text-xs mt-0.5" style="color: var(--c-t4);">{step.note}</p>
+              </div>
+            </div>
+            <div class="px-5 py-4 font-mono text-sm" style="color: var(--c-p);">
+              <span style="color: var(--c-t4);">$ </span>{step.code}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <p class="text-center text-sm mt-8" style="color: var(--c-t4);">
+        {t(lang, 'qs.all_providers')}
+      </p>
+    </div>
+  </section>
+
+</Layout>
+
+<script>
+  const btn = document.getElementById('hero-copy-btn');
+  btn?.addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText('curl -sSfL https://cuervo.cloud/install.sh | sh');
+      const icon = btn.querySelector('svg');
+      if (icon) {
+        icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>';
+        setTimeout(() => {
+          icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>';
+        }, 1500);
+      }
+    } catch {}
+  });
+</script>

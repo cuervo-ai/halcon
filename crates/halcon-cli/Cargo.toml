@@ -1,0 +1,95 @@
+[package]
+name = "halcon-cli"
+description = "AI-powered CLI for software development"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[lib]
+name = "halcon_cli"
+path = "src/lib.rs"
+
+[[bin]]
+name = "halcon"
+path = "src/main.rs"
+
+[[bench]]
+name = "tui_rendering"
+harness = false
+
+[[bench]]
+name = "phase_45_features"
+harness = false
+
+[[bench]]
+name = "momoto_integration"
+harness = false
+
+[[bench]]
+name = "tui_performance"
+harness = false
+
+[dependencies]
+halcon-core = { workspace = true }
+halcon-providers = { workspace = true }
+halcon-tools = { workspace = true }
+halcon-auth = { workspace = true }
+halcon-storage = { workspace = true }
+halcon-security = { workspace = true }
+halcon-context = { workspace = true }
+halcon-mcp = { workspace = true }
+halcon-runtime = { workspace = true }
+halcon-api = { workspace = true, features = ["server"] }
+halcon-search = { path = "../halcon-search" }
+
+async-trait = { workspace = true }
+clap = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+toml = { workspace = true }
+anyhow = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+futures = { workspace = true }
+crossterm = { workspace = true }
+reedline = { workspace = true }
+termimad = { workspace = true }
+syntect = { workspace = true }
+chrono = { workspace = true }
+uuid = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
+glob = { workspace = true }
+regex = { workspace = true }
+tempfile = { workspace = true }
+lru = { workspace = true }
+momoto-core = { workspace = true, optional = true }
+momoto-metrics = { workspace = true, optional = true }
+momoto-intelligence = { workspace = true, optional = true }
+rand = { workspace = true }
+dirs = "5"
+reqwest = { workspace = true, features = ["blocking"] }
+flate2 = "1"
+tar = "0.4"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+ratatui = { workspace = true, optional = true }
+tui-textarea = { workspace = true, optional = true }
+arboard = { version = "3.4", optional = true } # Cross-platform clipboard (Phase A3)
+
+[features]
+default = ["color-science", "tui"]
+color-science = ["momoto-core", "momoto-metrics", "momoto-intelligence"]
+tui = ["ratatui", "tui-textarea", "arboard"]
+
+[dev-dependencies]
+assert_cmd = { workspace = true }
+predicates = { workspace = true }
+tempfile = { workspace = true }
+wiremock = { workspace = true }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+criterion = { version = "0.5", features = ["html_reports"] }
+serial_test = "3.2"

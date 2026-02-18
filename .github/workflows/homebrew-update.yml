@@ -1,0 +1,97 @@
+name: Homebrew Update
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to update formula for (e.g., 0.2.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  update-formula:
+    name: Update Homebrew Formula
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout halcon-cli
+        uses: actions/checkout@v4
+
+      - name: Get version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Fetch manifest and extract SHAs
+        id: shas
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          MANIFEST_URL="https://releases.cli.cuervo.cloud/v${VERSION}/manifest.json"
+
+          echo "Fetching manifest from: ${MANIFEST_URL}"
+          MANIFEST=$(curl -sSfL "$MANIFEST_URL" || curl -sSfL "https://releases.cli.cuervo.cloud/latest/manifest.json")
+
+          extract_sha() {
+            local artifact="$1"
+            echo "$MANIFEST" | python3 -c "
+          import sys, json
+          d = json.load(sys.stdin)
+          for a in d.get('artifacts', []):
+              if a['name'] == '${artifact}':
+                  print(a['sha256'])
+                  break
+          "
+          }
+
+          SHA_AARCH64_DARWIN=$(extract_sha "halcon-${VERSION}-aarch64-apple-darwin.tar.gz")
+          SHA_X86_64_DARWIN=$(extract_sha "halcon-${VERSION}-x86_64-apple-darwin.tar.gz")
+          SHA_AARCH64_LINUX=$(extract_sha "halcon-${VERSION}-aarch64-unknown-linux-gnu.tar.gz")
+          SHA_X86_64_LINUX=$(extract_sha "halcon-${VERSION}-x86_64-unknown-linux-musl.tar.gz")
+
+          echo "sha_aarch64_darwin=${SHA_AARCH64_DARWIN}" >> $GITHUB_OUTPUT
+          echo "sha_x86_64_darwin=${SHA_X86_64_DARWIN}" >> $GITHUB_OUTPUT
+          echo "sha_aarch64_linux=${SHA_AARCH64_LINUX}" >> $GITHUB_OUTPUT
+          echo "sha_x86_64_linux=${SHA_X86_64_LINUX}" >> $GITHUB_OUTPUT
+
+          echo "SHAs:"
+          echo "  aarch64-apple-darwin: ${SHA_AARCH64_DARWIN}"
+          echo "  x86_64-apple-darwin:  ${SHA_X86_64_DARWIN}"
+          echo "  aarch64-linux-gnu:    ${SHA_AARCH64_LINUX}"
+          echo "  x86_64-linux-musl:    ${SHA_X86_64_LINUX}"
+
+      - name: Generate formula from template
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+
+          sed \
+            -e "s/{{VERSION}}/${VERSION}/g" \
+            -e "s/{{SHA256_AARCH64_DARWIN}}/${{ steps.shas.outputs.sha_aarch64_darwin }}/g" \
+            -e "s/{{SHA256_X86_64_DARWIN}}/${{ steps.shas.outputs.sha_x86_64_darwin }}/g" \
+            -e "s/{{SHA256_AARCH64_LINUX}}/${{ steps.shas.outputs.sha_aarch64_linux }}/g" \
+            -e "s/{{SHA256_X86_64_LINUX}}/${{ steps.shas.outputs.sha_x86_64_linux }}/g" \
+            homebrew/halcon.rb.template > /tmp/halcon.rb
+
+          echo "Generated formula:"
+          cat /tmp/halcon.rb
+
+      - name: Push to homebrew-tap repository
+        uses: dmnemec/copy_file_to_another_repo_action@main
+        env:
+          API_TOKEN_GITHUB: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+        with:
+          source_file: /tmp/halcon.rb
+          destination_repo: cuervo-ai/homebrew-tap
+          destination_folder: Formula
+          user_email: "bot@cuervo.cloud"
+          user_name: "halcon-bot"
+          commit_message: "chore: update halcon formula to v${{ steps.version.outputs.version }}"
+        continue-on-error: true  # Don't fail release if tap push fails

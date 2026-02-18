@@ -1,6 +1,6 @@
 # Cuervo CLI — Default Configuration
 # Override via: ~/.cuervo/config.toml (global) or .cuervo/config.toml (project)
-# Environment variables: CUERVO_DEFAULT_PROVIDER, CUERVO_DEFAULT_MODEL, etc.
+# Environment variables: HALCON_DEFAULT_PROVIDER, HALCON_DEFAULT_MODEL, etc.
 
 [general]
 default_provider = "anthropic"

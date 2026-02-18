@@ -1,0 +1,76 @@
+[package]
+name = "halcon-search"
+description = "Native search engine: crawling, indexing, and retrieval"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+
+[dependencies]
+# Workspace dependencies
+halcon-core = { workspace = true }
+halcon-storage = { workspace = true }
+
+# Async runtime
+tokio = { workspace = true, features = ["sync", "time"] }
+async-trait = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+rmp-serde = "1.3"  # MessagePack for cache
+
+# Database
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# IDs and time
+uuid = { workspace = true }
+chrono = { workspace = true }
+
+# HTTP client
+reqwest = { workspace = true, features = ["gzip", "deflate"] }
+
+# HTML parsing
+scraper = "0.20"
+html5ever = "0.29"
+ego-tree = "0.9"
+
+# Text processing
+whatlang = "0.17"  # Language detection
+unicode-segmentation = "1.12"
+
+# Embeddings and vector search
+fastembed = "4.5"  # Local semantic embeddings
+ndarray = "0.16"  # Vector operations
+
+# Compression
+zstd = { version = "0.13", features = ["zstdmt"] }
+
+# Hashing
+sha2 = "0.10"
+blake3 = "1.5"
+
+# URL handling
+url = { version = "2.5", features = ["serde"] }
+
+# Bloom filter (dedup)
+bloomfilter = { version = "1.0", features = ["serde"] }
+
+# Robots.txt
+robotstxt = "0.3"
+
+# Logging
+tracing = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt", "rt-multi-thread", "macros"] }
+criterion = { version = "0.5", features = ["html_reports"] }
+
+# [[bench]]
+# name = "search_bench"
+# harness = false

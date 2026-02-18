@@ -1,4 +1,4 @@
-# 🚀 Métodos de Instalación de Cuervo CLI
+# 🚀 Métodos de Instalación de Halcon CLI
 
 Guía de referencia rápida de todos los métodos de instalación disponibles.
 
@@ -18,7 +18,7 @@ curl -fsSL https://raw.githubusercontent.com/cuervo-ai/cuervo-cli/main/scripts/i
 - ✅ Detecta automáticamente OS, arquitectura y libc
 - ✅ Descarga el binario correcto desde GitHub Releases
 - ✅ Verifica checksum SHA256
-- ✅ Instala en `~/.local/bin/cuervo`
+- ✅ Instala en `~/.local/bin/halcon`
 - ✅ Configura PATH automáticamente
 
 ### Windows (PowerShell)
@@ -145,7 +145,7 @@ cargo binstall cuervo-cli
    ```bash
    # Linux/macOS
    mv cuervo ~/.local/bin/
-   chmod +x ~/.local/bin/cuervo
+   chmod +x ~/.local/bin/halcon
 
    # Windows
    move cuervo.exe %USERPROFILE%\.local\bin\
@@ -198,7 +198,7 @@ RUN cuervo --version
 
 ```yaml
 steps:
-  - name: Install Cuervo CLI
+  - name: Install Halcon CLI
     run: |
       curl -fsSL https://raw.githubusercontent.com/cuervo-ai/cuervo-cli/main/scripts/install-binary.sh | sh
       echo "$HOME/.local/bin" >> $GITHUB_PATH
@@ -262,7 +262,7 @@ cargo install --git https://github.com/cuervo-ai/cuervo-cli --features tui --for
 
 ```bash
 # Linux/macOS
-rm ~/.local/bin/cuervo
+rm ~/.local/bin/halcon
 rm -rf ~/.cuervo  # Opcional: elimina config y datos
 
 # Windows
@@ -285,7 +285,7 @@ rm -rf ~/.cuervo  # Opcional
 
 ```bash
 # Verificar que existe
-ls ~/.local/bin/cuervo
+ls ~/.local/bin/halcon
 
 # Añadir a PATH
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
@@ -295,7 +295,7 @@ source ~/.bashrc
 ### "Permission denied"
 
 ```bash
-chmod +x ~/.local/bin/cuervo
+chmod +x ~/.local/bin/halcon
 ```
 
 ### Checksum verification fails

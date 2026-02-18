@@ -1,0 +1,125 @@
+---
+import { t } from '../../i18n/translations';
+import type { Lang } from '../../i18n/translations';
+
+interface Props {
+  lang: Lang;
+}
+
+const { lang } = Astro.props;
+const prefix = lang === 'es' ? '/es' : '';
+---
+
+<footer class="border-t" style="border-color: var(--c-b); background: var(--c-base);">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
+
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-10 lg:gap-16">
+
+      <!-- ── Brand ── -->
+      <div class="col-span-2 md:col-span-1">
+        <a href={prefix + '/'} class="flex items-center gap-2.5 mb-4 group" aria-label="Halcón CLI Home">
+          <div class="relative w-8 h-8 flex-shrink-0">
+            <div class="absolute inset-0 rounded-lg blur-md opacity-0 group-hover:opacity-50 transition-opacity duration-500"
+                 style="background: radial-gradient(circle, rgba(232,82,0,0.8) 0%, transparent 70%);"></div>
+            <img src="/halcon-logo.png" alt="Halcón"
+                 class="relative w-8 h-8 object-contain"
+                 style="filter: drop-shadow(0 0 6px rgba(232,82,0,0.35));"/>
+          </div>
+          <div class="flex flex-col leading-none">
+            <span class="font-display font-bold text-sm tracking-widest uppercase gradient-text-brand">HALCÓN</span>
+            <span class="font-mono" style="color: var(--c-t4); font-size: 0.55rem;">CLI · v0.2.0</span>
+          </div>
+        </a>
+        <p class="text-sm leading-relaxed mb-5" style="color: var(--c-t3);">
+          {t(lang, 'footer.tagline')}
+        </p>
+        <span class="text-xs" style="color: var(--c-t4);">{t(lang, 'footer.by')}</span>
+      </div>
+
+      <!-- ── Product ── -->
+      <div>
+        <h3 class="text-xs font-semibold uppercase tracking-wider mb-4" style="color: var(--c-t4);">
+          {t(lang, 'footer.product')}
+        </h3>
+        <ul class="space-y-2.5">
+          {[
+            { key: 'footer.download',  href: prefix + '/download' },
+            { key: 'footer.changelog', href: prefix + '/changelog' },
+            { key: 'footer.roadmap',   href: prefix + '/roadmap' },
+            { key: 'footer.support',   href: 'mailto:support@cuervo.cloud' },
+          ].map(l => (
+            <li>
+              <a href={l.href}
+                 class="text-sm transition-colors"
+                 style="color: var(--c-t3);"
+                 onmouseover="this.style.color='var(--c-t1)'"
+                 onmouseout="this.style.color='var(--c-t3)'">{t(lang, l.key)}</a>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <!-- ── Developers ── -->
+      <div>
+        <h3 class="text-xs font-semibold uppercase tracking-wider mb-4" style="color: var(--c-t4);">
+          {t(lang, 'footer.developers')}
+        </h3>
+        <ul class="space-y-2.5">
+          {[
+            { key: 'footer.quickstart', href: prefix + '/docs' },
+            { key: 'footer.cli_ref',    href: prefix + '/docs#commands' },
+            { key: 'footer.config',     href: prefix + '/docs#config' },
+            { key: 'footer.mcp',        href: prefix + '/docs#mcp' },
+          ].map(l => (
+            <li>
+              <a href={l.href}
+                 class="text-sm transition-colors"
+                 style="color: var(--c-t3);"
+                 onmouseover="this.style.color='var(--c-t1)'"
+                 onmouseout="this.style.color='var(--c-t3)'">{t(lang, l.key)}</a>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      <!-- ── Install ── -->
+      <div>
+        <h3 class="text-xs font-semibold uppercase tracking-wider mb-4" style="color: var(--c-t4);">
+          {t(lang, 'footer.install')}
+        </h3>
+        <div class="glass rounded-xl p-3.5 font-mono text-xs leading-relaxed overflow-x-auto"
+             style="color: var(--c-p);">
+          <span style="color: var(--c-t4);">$ </span>curl -sSfL \<br/>
+          <span class="pl-2">cuervo.cloud/install.sh | sh</span>
+        </div>
+        <p class="text-xs mt-3" style="color: var(--c-t4);">
+          {t(lang, 'footer.or')}{' '}
+          <a href={prefix + '/download'}
+             class="underline underline-offset-2 transition-colors"
+             style="color: var(--c-t3);"
+             onmouseover="this.style.color='var(--c-gold)'"
+             onmouseout="this.style.color='var(--c-t3)'">{t(lang, 'footer.manual_dl')}</a>
+        </p>
+      </div>
+    </div>
+
+    <!-- ── Bottom bar ── -->
+    <div class="mt-14 pt-8 border-t flex flex-col sm:flex-row items-center justify-between gap-4"
+         style="border-color: var(--c-b);">
+      <p class="text-xs" style="color: var(--c-t4);">
+        {t(lang, 'footer.copyright')}
+      </p>
+      <div class="flex items-center gap-4 text-xs" style="color: var(--c-t4);">
+        <a href={prefix + '/docs#security'}
+           class="transition-colors"
+           onmouseover="this.style.color='var(--c-t2)'" onmouseout="this.style.color='var(--c-t4)'">Security</a>
+        <span style="color: rgba(200,80,0,0.25);">·</span>
+        <a href={prefix + '/docs'}
+           class="transition-colors"
+           onmouseover="this.style.color='var(--c-t2)'" onmouseout="this.style.color='var(--c-t4)'">Docs</a>
+        <span style="color: rgba(200,80,0,0.25);">·</span>
+        <span class="font-mono" style="color: var(--c-p);">v0.2.0</span>
+      </div>
+    </div>
+  </div>
+</footer>

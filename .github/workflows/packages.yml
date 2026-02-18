@@ -1,0 +1,133 @@
+name: Linux Packages
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build (e.g., 0.2.0, without v prefix)'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  # ── .deb package ─────────────────────────────────────────────────────────
+  build-deb:
+    name: Build .deb (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            target: x86_64-unknown-linux-musl
+          - arch: arm64
+            target: aarch64-unknown-linux-gnu
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Get version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Download binary from R2
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          TARGET="${{ matrix.target }}"
+          ARCHIVE="halcon-${VERSION}-${TARGET}.tar.gz"
+          curl -sSfL "https://releases.cli.cuervo.cloud/v${VERSION}/${ARCHIVE}" -o /tmp/halcon.tar.gz
+          tar xzf /tmp/halcon.tar.gz -C /tmp
+          # Binary should be in extracted dir
+          find /tmp -name halcon -type f | head -1 | xargs -I{} cp {} /tmp/halcon-bin
+          chmod +x /tmp/halcon-bin
+
+      - name: Build .deb
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ./packaging/debian/build.sh "${VERSION}" /tmp/halcon-bin "${{ matrix.arch }}"
+
+      - name: Upload .deb to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          files: dist/packages/*.deb
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Upload .deb to R2
+        run: |
+          pip install awscli --quiet
+          VERSION="${{ steps.version.outputs.version }}"
+          aws s3 sync dist/packages/ "s3://cuervo-releases/v${VERSION}/packages/" \
+            --endpoint-url "https://${{ secrets.CF_ACCOUNT_ID }}.r2.cloudflarestorage.com" \
+            --no-progress
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        continue-on-error: true
+
+  # ── .rpm package ──────────────────────────────────────────────────────────
+  build-rpm:
+    name: Build .rpm (x86_64)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install rpmbuild
+        run: sudo apt-get install -y rpm
+
+      - name: Get version
+        id: version
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            VERSION="${{ github.event.inputs.version }}"
+          else
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          fi
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Download binary from R2
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ARCHIVE="halcon-${VERSION}-x86_64-unknown-linux-musl.tar.gz"
+          curl -sSfL "https://releases.cli.cuervo.cloud/v${VERSION}/${ARCHIVE}" -o /tmp/halcon.tar.gz
+          tar xzf /tmp/halcon.tar.gz -C /tmp
+          find /tmp -name halcon -type f | head -1 | xargs -I{} cp {} /tmp/halcon-bin
+          chmod +x /tmp/halcon-bin
+
+      - name: Build .rpm
+        run: |
+          VERSION="${{ steps.version.outputs.version }}"
+          ./packaging/rpm/build.sh "${VERSION}" /tmp/halcon-bin
+
+      - name: Upload .rpm to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.version.outputs.version }}
+          files: dist/packages/*.rpm
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Upload .rpm to R2
+        run: |
+          pip install awscli --quiet
+          VERSION="${{ steps.version.outputs.version }}"
+          aws s3 sync dist/packages/ "s3://cuervo-releases/v${VERSION}/packages/" \
+            --endpoint-url "https://${{ secrets.CF_ACCOUNT_ID }}.r2.cloudflarestorage.com" \
+            --no-progress
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        continue-on-error: true

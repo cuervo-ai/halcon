@@ -1,0 +1,22 @@
+// src/components/ui/Card.astro
+---
+interface Props {
+  padding?: 'none' | 'sm' | 'md' | 'lg';
+  hover?: boolean;
+}
+
+const { padding = 'md', hover = false } = Astro.props;
+---
+
+<div
+  class={`
+    rounded-xl border border-border bg-white dark:bg-gray-900
+    ${padding === 'none' ? '' : ''}
+    ${padding === 'sm' ? 'p-4' : ''}
+    ${padding === 'md' ? 'p-6' : ''}
+    ${padding === 'lg' ? 'p-8' : ''}
+    ${hover ? 'transition-all hover:shadow-lg hover:border-primary/20' : ''}
+  `}
+>
+  <slot />
+</div>

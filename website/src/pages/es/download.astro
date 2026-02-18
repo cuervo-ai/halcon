@@ -1,0 +1,180 @@
+---
+import Layout from '../../layouts/Layout.astro';
+import SmartDownload from '../../components/download/SmartDownload';
+import { t } from '../../i18n/translations';
+
+const lang = 'es';
+const RELEASES_URL = "https://releases.cli.cuervo.cloud";
+const VERSION = "0.2.0";
+
+const platforms = [
+  { name: "macOS Apple Silicon", target: "aarch64-apple-darwin",         ext: "tar.gz", notes: "M1 / M2 / M3 / M4 — Recomendado para Macs modernos" },
+  { name: "macOS Intel",         target: "x86_64-apple-darwin",          ext: "tar.gz", notes: "Intel Macs (antes de 2021)" },
+  { name: "Linux x86_64",        target: "x86_64-unknown-linux-musl",    ext: "tar.gz", notes: "Binario estático, sin dependencias libc" },
+  { name: "Linux ARM64",         target: "aarch64-unknown-linux-gnu",    ext: "tar.gz", notes: "Raspberry Pi 4/5, AWS Graviton, Ampere" },
+  { name: "Windows x86_64",      target: "x86_64-pc-windows-msvc",       ext: "zip",    notes: "Windows 10/11 (instalador PowerShell)" },
+];
+
+const installMethods = [
+  { label: "macOS / Linux",      color: "emerald", lang_: "bash",       code: "curl -sSfL https://cli.cuervo.cloud/install.sh | sh",       note: "Verificado con SHA-256. Instala en ~/.local/bin/" },
+  { label: "Windows (PowerShell)", color: "blue",  lang_: "powershell", code: "iwr -useb https://cli.cuervo.cloud/install.ps1 | iex",      note: "Instala en %LOCALAPPDATA%\\halcon\\bin" },
+  { label: "Homebrew",           color: "amber",   lang_: "bash",       code: "brew tap cuervo-ai/tap && brew install halcon",          note: "macOS y Linux — se actualiza con brew upgrade" },
+];
+---
+
+<Layout
+  title={t(lang, 'meta.download.title')}
+  description={t(lang, 'meta.download.desc')}
+  lang={lang}
+>
+
+  <section class="pt-28 pb-12 px-4 text-center border-b" style="border-color: var(--c-b); background: rgba(7,4,1,0.70);">
+    <div class="max-w-3xl mx-auto">
+      <div class="inline-flex items-center gap-2 px-3 py-1 mb-6 rounded-full border text-sm font-medium"
+           style="border-color: rgba(232,82,0,0.35); background: rgba(232,82,0,0.08); color: var(--c-gold);">
+        <span class="w-1.5 h-1.5 rounded-full animate-pulse" style="background: var(--c-p);"></span>
+        Última versión · v{VERSION}
+      </div>
+      <h1 class="text-5xl font-black mb-4 tracking-tight font-display">Descargar <span class="gradient-text-brand">Halcón CLI</span></h1>
+      <p class="text-xl" style="color: var(--c-t3);">
+        Agente IA de desarrollo para tu terminal.<br class="hidden sm:block"/>Multi-modelo. Rendimiento nativo.
+      </p>
+    </div>
+  </section>
+
+  <main class="max-w-4xl mx-auto px-4 py-16 space-y-20">
+
+    <section>
+      <SmartDownload client:load releasesUrl={RELEASES_URL} />
+    </section>
+
+    <section>
+      <h2 class="text-2xl font-bold mb-8">Métodos de instalación</h2>
+      <div class="space-y-3">
+        {installMethods.map(m => {
+          const colorMap = { emerald: "var(--c-emerald)", blue: "var(--c-gold)", amber: "var(--c-gold)", violet: "var(--c-p)" };
+          const textColor = (colorMap as {[k:string]:string})[m.color] ?? "var(--c-p)";
+          return (
+            <div class="glass rounded-xl overflow-hidden transition-colors"
+                 onmouseover="this.style.borderColor='var(--c-bh)'"
+                 onmouseout="this.style.borderColor=''">
+              <div class="flex items-center justify-between px-4 py-2.5 border-b" style="border-color: var(--c-b); background: var(--c-surface);">
+                <span class="text-xs font-medium" style="color: var(--c-t2);">{m.label}</span>
+                <span class="text-xs font-mono" style={`color: ${textColor};`}>{m.lang_}</span>
+              </div>
+              <div class="flex items-center justify-between px-4 py-4 gap-4">
+                <code class="font-mono text-sm flex-1 min-w-0 break-all" style={`color: ${textColor};`}>{m.code}</code>
+                <button class="copy-btn flex-shrink-0 p-1.5 rounded transition-colors" data-copy={m.code} title="Copiar"
+                        style="color: var(--c-t4);"
+                        onmouseover="this.style.color='var(--c-t1)'; this.style.background='var(--c-surface)'"
+                        onmouseout="this.style.color='var(--c-t4)'; this.style.background='transparent'">
+                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                  </svg>
+                </button>
+              </div>
+              <div class="px-4 pb-3 text-xs" style="color: var(--c-t4);">{m.note}</div>
+            </div>
+          );
+        })}
+      </div>
+    </section>
+
+    <section>
+      <h2 class="text-2xl font-bold mb-8">Todas las plataformas</h2>
+      <div class="rounded-xl overflow-hidden" style="background: var(--c-code); border: 1px solid var(--c-b);">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="border-b" style="border-color: var(--c-b); background: var(--c-surface);">
+              <th class="text-left text-xs font-medium uppercase tracking-wider px-5 py-3" style="color: var(--c-t4);">Plataforma</th>
+              <th class="text-left text-xs font-medium uppercase tracking-wider px-5 py-3 hidden md:table-cell" style="color: var(--c-t4);">Triple objetivo</th>
+              <th class="text-left text-xs font-medium uppercase tracking-wider px-5 py-3 hidden lg:table-cell" style="color: var(--c-t4);">Notas</th>
+              <th class="text-right text-xs font-medium uppercase tracking-wider px-5 py-3" style="color: var(--c-t4);">Descargar</th>
+            </tr>
+          </thead>
+          <tbody>
+            {platforms.map(p => (
+              <tr class="transition-colors border-t" style="border-color: rgba(200,80,0,0.08);"
+                  onmouseover="this.style.background='rgba(232,82,0,0.04)'"
+                  onmouseout="this.style.background='transparent'">
+                <td class="px-5 py-4 font-medium" style="color: var(--c-t1);">{p.name}</td>
+                <td class="px-5 py-4 font-mono text-xs hidden md:table-cell" style="color: var(--c-t3);">{p.target}</td>
+                <td class="px-5 py-4 text-xs hidden lg:table-cell" style="color: var(--c-t4);">{p.notes}</td>
+                <td class="px-5 py-4 text-right">
+                  <a href={`${RELEASES_URL}/latest/halcon-${VERSION}-${p.target}.${p.ext}`}
+                     class="inline-flex items-center gap-1.5 text-xs font-medium transition-colors"
+                     style="color: var(--c-p);"
+                     onmouseover="this.style.color='var(--c-gold)'"
+                     onmouseout="this.style.color='var(--c-p)'">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                    </svg>
+                    .{p.ext}
+                  </a>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div class="px-5 py-3.5 border-t" style="border-color: var(--c-b); background: var(--c-surface);">
+          <a href={`${RELEASES_URL}/latest/checksums.txt`}
+             class="text-xs transition-colors flex items-center gap-1.5"
+             style="color: var(--c-t4);"
+             onmouseover="this.style.color='var(--c-t2)'"
+             onmouseout="this.style.color='var(--c-t4)'">
+            Descargar checksums.txt (SHA-256)
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <section class="glass rounded-2xl p-8">
+      <h2 class="text-xl font-bold mb-6">Después de instalar</h2>
+      <div class="space-y-4">
+        {[
+          { step: "1", cmd: "halcon auth login anthropic", note: "Agrega tu clave API de Anthropic" },
+          { step: "2", cmd: 'halcon chat "¡Hola, Halcón!"',  note: "Prueba la conexión" },
+          { step: "3", cmd: "halcon chat --tui",            note: "Lanza el cockpit TUI completo" },
+        ].map(s => (
+          <div class="flex items-start gap-4">
+            <div class="w-7 h-7 rounded-lg flex items-center justify-center text-xs font-mono shrink-0 mt-0.5"
+                 style="background: var(--c-surface); color: var(--c-t3); border: 1px solid var(--c-b);">{s.step}</div>
+            <div>
+              <code class="font-mono text-sm" style="color: var(--c-emerald);">{s.cmd}</code>
+              <div class="text-xs mt-1" style="color: var(--c-t4);">{s.note}</div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <div class="mt-6 pt-6 border-t" style="border-color: var(--c-b);">
+        <a href="/es/docs" class="text-sm transition-colors"
+           style="color: var(--c-p);"
+           onmouseover="this.style.color='var(--c-gold)'"
+           onmouseout="this.style.color='var(--c-p)'">
+          Leer la documentación completa ↗
+        </a>
+      </div>
+    </section>
+
+  </main>
+</Layout>
+
+<script>
+  document.querySelectorAll<HTMLButtonElement>('.copy-btn').forEach(btn => {
+    btn.addEventListener('click', async () => {
+      const text = btn.dataset.copy ?? '';
+      try {
+        await navigator.clipboard.writeText(text);
+        const icon = btn.querySelector('svg');
+        if (icon) {
+          icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>';
+          btn.classList.add('text-emerald-400');
+          setTimeout(() => {
+            icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>';
+            btn.classList.remove('text-emerald-400');
+          }, 1500);
+        }
+      } catch {}
+    });
+  });
+</script>

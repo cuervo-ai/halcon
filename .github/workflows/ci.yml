@@ -79,12 +79,12 @@ jobs:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
       - name: Build release
-        run: cargo build --release --target ${{ matrix.target }} -p cuervo-cli ${{ env.CARGO_FEATURES }}
+        run: cargo build --release --target ${{ matrix.target }} -p halcon-cli ${{ env.CARGO_FEATURES }}
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
-          name: cuervo-${{ matrix.target }}
-          path: target/${{ matrix.target }}/release/cuervo
+          name: halcon-${{ matrix.target }}
+          path: target/${{ matrix.target }}/release/halcon
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

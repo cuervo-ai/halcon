@@ -1,0 +1,70 @@
+name: SBOM
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+      - 'crates/**/Cargo.toml'
+  schedule:
+    - cron: '0 8 * * 0'  # Weekly Sunday 8 AM UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  generate-sbom:
+    name: Generate SBOM
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install syft
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+          syft version
+
+      - name: Get version
+        id: version
+        run: |
+          VERSION="$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')"
+          echo "version=${VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Generate SPDX SBOM
+        run: |
+          syft dir:. \
+            --output spdx-json="halcon-${{ steps.version.outputs.version }}.sbom.spdx.json"
+
+      - name: Generate CycloneDX SBOM
+        run: |
+          syft dir:. \
+            --output cyclonedx-json="halcon-${{ steps.version.outputs.version }}.sbom.cyclonedx.json"
+
+      - name: Upload SBOM artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sbom-${{ steps.version.outputs.version }}-${{ github.sha }}
+          path: |
+            halcon-*.sbom.spdx.json
+            halcon-*.sbom.cyclonedx.json
+          retention-days: 365
+
+      - name: Upload SPDX SBOM to GitHub dependency graph
+        uses: advanced-security/spdx-dependency-submission-action@v0.1.1
+        with:
+          filePath: "halcon-${{ steps.version.outputs.version }}.sbom.spdx.json"
+        continue-on-error: true  # Action may not be available on all plans
+
+      - name: Summary
+        run: |
+          echo "## SBOM Generated" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- **Version**: ${{ steps.version.outputs.version }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Commit**: ${{ github.sha }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Formats**: SPDX 2.3 JSON, CycloneDX 1.5 JSON" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          SPDX_COUNT=$(python3 -c "import json; d=json.load(open(.halcon-${{ steps.version.outputs.version }}.sbom.spdx.json')); print(len(d.get('packages', [])))" 2>/dev/null || echo '?')
+          echo "- **Packages in SPDX**: ${SPDX_COUNT}" >> $GITHUB_STEP_SUMMARY

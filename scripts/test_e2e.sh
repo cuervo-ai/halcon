@@ -34,8 +34,8 @@ strip_ansi() {
 
 # ── Configuration ────────────────────────────────────────────────────────────
 
-CUERVO="${CUERVO_BINARY:-./target/release/cuervo}"
-PROVIDER="${CUERVO_PROVIDER:-deepseek}"
+CUERVO="${HALCON_BINARY:-./target/release/cuervo}"
+PROVIDER="${HALCON_PROVIDER:-deepseek}"
 TEST_DIR="/tmp/cuervo_e2e_$$"
 TIMEOUT_SECS=120
 OLLAMA_TIMEOUT_SECS=300
@@ -192,12 +192,12 @@ echo ""
 echo -e "${BLUE}[CASO 1] Simple prompt — text-only response${NC}"
 START=$(python3 -c 'import time; print(int(time.time()*1000))' 2>/dev/null || date +%s%3N)
 
-RESPONSE=$(run_cuervo "$TIMEOUT_SECS" chat "Respond with ONLY the word CUERVO_OK and nothing else." 2>/dev/null || true)
+RESPONSE=$(run_cuervo "$TIMEOUT_SECS" chat "Respond with ONLY the word HALCON_OK and nothing else." 2>/dev/null || true)
 
-if echo "$RESPONSE" | grep -qi "CUERVO_OK"; then
+if echo "$RESPONSE" | grep -qi "HALCON_OK"; then
     pass "Simple prompt" "$(elapsed "$START")"
 else
-    fail "Simple prompt" "Expected CUERVO_OK, got: $(echo "$RESPONSE" | head -1 | cut -c1-80)"
+    fail "Simple prompt" "Expected HALCON_OK, got: $(echo "$RESPONSE" | head -1 | cut -c1-80)"
 fi
 
 # ── CASO 2: File Read (tool use) ────────────────────────────────────────────

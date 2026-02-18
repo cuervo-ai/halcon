@@ -166,7 +166,7 @@ test_archive_extraction() {
     mkdir -p "$test_dir"
 
     # Create test file
-    echo "test binary" > "$test_dir/cuervo"
+    echo "test binary" > "$test_dir/halcon"
 
     # Create tar.gz
     tar czf test.tar.gz -C "$test_dir" cuervo
@@ -178,7 +178,7 @@ test_archive_extraction() {
     source <(sed '/^main /,/^main /d' scripts/install-binary.sh 2>/dev/null || echo "")
 
     if extract_archive "test.tar.gz" "$extract_dir" 2>/dev/null; then
-        if [ -f "$extract_dir/cuervo" ]; then
+        if [ -f "$extract_dir/halcon" ]; then
             pass "Archive extraction successful"
         else
             fail "Archive extracted but file not found"
@@ -242,9 +242,9 @@ test_dry_run() {
     section "Dry Run Test (Mock Installation)"
 
     # Set environment to point to non-existent repo for testing
-    export CUERVO_REPO_OWNER="test-owner"
-    export CUERVO_REPO_NAME="test-repo"
-    export CUERVO_INSTALL_DIR="/tmp/cuervo-test-install-$$"
+    export HALCON_REPO_OWNER="test-owner"
+    export HALCON_REPO_NAME="test-repo"
+    export HALCON_INSTALL_DIR="/tmp/cuervo-test-install-$$"
 
     info "Testing install script (expect to fail on download, which is normal)"
 
@@ -256,8 +256,8 @@ test_dry_run() {
     fi
 
     # Cleanup
-    rm -rf "$CUERVO_INSTALL_DIR"
-    unset CUERVO_REPO_OWNER CUERVO_REPO_NAME CUERVO_INSTALL_DIR
+    rm -rf "$HALCON_INSTALL_DIR"
+    unset HALCON_REPO_OWNER HALCON_REPO_NAME HALCON_INSTALL_DIR
 }
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

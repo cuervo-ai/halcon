@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Cuervo CLI — Installation Script
+# Halcón CLI — Installation Script
 # Usage: ./scripts/install.sh
-# Installs cuervo to ~/.local/bin/ (no sudo required)
+# Installs halcon to ~/.local/bin/ (no sudo required)
 set -euo pipefail
 
 RED='\033[0;31m'
@@ -11,9 +11,9 @@ BLUE='\033[0;34m'
 BOLD='\033[1m'
 NC='\033[0m'
 
-INSTALL_DIR="${CUERVO_INSTALL_DIR:-$HOME/.local/bin}"
+INSTALL_DIR="${HALCON_INSTALL_DIR:-$HOME/.local/bin}"
 REQUIRED_MSRV="1.80.0"
-REPO_URL="https://github.com/cuervo-ai/cuervo-cli"
+REPO_URL="https://github.com/cuervo-ai/halcon-cli"
 
 info()  { echo -e "${BLUE}[INFO]${NC}  $*"; }
 ok()    { echo -e "${GREEN}[OK]${NC}    $*"; }
@@ -22,7 +22,7 @@ fail()  { echo -e "${RED}[FAIL]${NC}  $*"; exit 1; }
 
 echo -e "${BOLD}${BLUE}"
 echo "  ╔═════════════════════════════════════════════╗"
-echo "  ║         Cuervo CLI — Installation           ║"
+echo "  ║         Halcón CLI — Installation           ║"
 echo "  ╚═════════════════════════════════════════════╝"
 echo -e "${NC}"
 
@@ -50,21 +50,21 @@ fi
 info "[2/6] Preparing source code..."
 
 # If we're already in the repo, use it; otherwise clone
-if [ -f "Cargo.toml" ] && grep -q 'name = "cuervo"' Cargo.toml 2>/dev/null; then
-    ok "Already in cuervo-cli repository"
+if [ -f "Cargo.toml" ] && grep -q 'name = "halcon"' Cargo.toml 2>/dev/null; then
+    ok "Already in halcon-cli repository"
     REPO_DIR="$(pwd)"
-elif [ -f "../Cargo.toml" ] && grep -q 'name = "cuervo"' ../Cargo.toml 2>/dev/null; then
-    ok "Found cuervo-cli repository in parent directory"
+elif [ -f "../Cargo.toml" ] && grep -q 'name = "halcon"' ../Cargo.toml 2>/dev/null; then
+    ok "Found halcon-cli repository in parent directory"
     REPO_DIR="$(cd .. && pwd)"
-elif [ -d "cuervo-cli" ]; then
+elif [ -d "halcon-cli" ]; then
     info "Updating existing clone..."
-    cd cuervo-cli
+    cd halcon-cli
     git pull origin main
     REPO_DIR="$(pwd)"
 else
     info "Cloning from $REPO_URL..."
     git clone "$REPO_URL"
-    cd cuervo-cli
+    cd halcon-cli
     REPO_DIR="$(pwd)"
 fi
 
@@ -74,7 +74,7 @@ info "[3/6] Building release binary (this may take several minutes)..."
 cd "$REPO_DIR"
 cargo build --release --no-default-features 2>&1 | tail -5
 
-BINARY="$REPO_DIR/target/release/cuervo"
+BINARY="$REPO_DIR/target/release/halcon"
 if [ ! -f "$BINARY" ]; then
     fail "Build failed — binary not found at $BINARY"
 fi
@@ -86,9 +86,9 @@ ok "Build complete — $BINARY_SIZE"
 info "[4/6] Installing to $INSTALL_DIR..."
 
 mkdir -p "$INSTALL_DIR"
-cp "$BINARY" "$INSTALL_DIR/cuervo"
-chmod +x "$INSTALL_DIR/cuervo"
-ok "Installed to $INSTALL_DIR/cuervo"
+cp "$BINARY" "$INSTALL_DIR/halcon"
+chmod +x "$INSTALL_DIR/halcon"
+ok "Installed to $INSTALL_DIR/halcon"
 
 # Ensure install dir is in PATH
 if ! echo "$PATH" | tr ':' '\n' | grep -qx "$INSTALL_DIR"; then
@@ -103,7 +103,7 @@ fi
 # ── Step 5: Configuration ────────────────────────────────────────────────────
 info "[5/6] Checking configuration..."
 
-CONFIG_DIR="$HOME/.cuervo"
+CONFIG_DIR="$HOME/.halcon"
 CONFIG_FILE="$CONFIG_DIR/config.toml"
 
 mkdir -p "$CONFIG_DIR"
@@ -148,19 +148,19 @@ fi
 # ── Step 6: Verify ───────────────────────────────────────────────────────────
 info "[6/6] Verifying installation..."
 
-CUERVO_BIN="$INSTALL_DIR/cuervo"
-if [ -x "$CUERVO_BIN" ]; then
-    VERSION=$("$CUERVO_BIN" --version 2>&1 || true)
-    ok "cuervo --version: $VERSION"
+HALCON_BIN="$INSTALL_DIR/halcon"
+if [ -x "$HALCON_BIN" ]; then
+    VERSION=$("$HALCON_BIN" --version 2>&1 || true)
+    ok "halcon --version: $VERSION"
 else
-    fail "Binary not executable at $CUERVO_BIN"
+    fail "Binary not executable at $HALCON_BIN"
 fi
 
 # Quick smoke test
-if "$CUERVO_BIN" --help >/dev/null 2>&1; then
-    ok "cuervo --help: exit 0"
+if "$HALCON_BIN" --help >/dev/null 2>&1; then
+    ok "halcon --help: exit 0"
 else
-    warn "cuervo --help returned non-zero (may need API key configuration)"
+    warn "halcon --help returned non-zero (may need API key configuration)"
 fi
 
 echo ""
@@ -173,10 +173,10 @@ echo "     export OPENAI_API_KEY=sk-..."
 echo "     export ANTHROPIC_API_KEY=sk-ant-..."
 echo ""
 echo "  2. Start chatting:"
-echo "     cuervo chat \"Hello, Cuervo!\""
+echo "     halcon chat \"Hello, Halcón!\""
 echo ""
 echo "  3. Interactive REPL:"
-echo "     cuervo"
+echo "     halcon"
 echo ""
 echo "  4. Run E2E tests:"
 echo "     ./scripts/test_e2e.sh"

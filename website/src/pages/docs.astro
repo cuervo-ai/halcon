@@ -1,0 +1,781 @@
+---
+import Layout from '../layouts/Layout.astro';
+import { t } from '../i18n/translations';
+
+const lang = 'en';
+
+const sections = [
+  {
+    title: "Getting Started",
+    items: [
+      { title: "Installation",       anchor: "installation" },
+      { title: "Global flags",       anchor: "global-flags" },
+      { title: "Configuration",      anchor: "configuration" },
+      { title: "First conversation", anchor: "first-chat" },
+    ]
+  },
+  {
+    title: "CLI Reference",
+    items: [
+      { title: "halcon chat",        anchor: "chat" },
+      { title: "halcon auth",        anchor: "auth" },
+      { title: "halcon config",      anchor: "config" },
+      { title: "halcon init",        anchor: "init" },
+      { title: "halcon status",      anchor: "status" },
+      { title: "halcon tools",       anchor: "tools" },
+      { title: "halcon memory",      anchor: "memory" },
+      { title: "halcon trace",       anchor: "trace" },
+      { title: "halcon replay",      anchor: "replay" },
+      { title: "halcon metrics",     anchor: "metrics" },
+      { title: "halcon doctor",      anchor: "doctor" },
+      { title: "halcon update",      anchor: "update" },
+      { title: "halcon mcp-server",  anchor: "mcp-server" },
+      { title: "halcon serve",       anchor: "serve" },
+    ]
+  },
+  {
+    title: "Advanced",
+    items: [
+      { title: "Feature flags",      anchor: "feature-flags" },
+      { title: "TUI Cockpit",        anchor: "tui-cockpit" },
+      { title: "Memory system",      anchor: "memory-system" },
+      { title: "Slash commands",     anchor: "slash-commands" },
+      { title: "Provider setup",     anchor: "providers" },
+      { title: "Tool permissions",   anchor: "permissions" },
+    ]
+  },
+];
+---
+
+<Layout
+  title={t(lang, 'meta.docs.title')}
+  description={t(lang, 'meta.docs.desc')}
+  lang={lang}
+>
+  <div class="pt-20 min-h-screen">
+    <div class="max-w-7xl mx-auto px-4 py-12 flex gap-12">
+
+      <!-- Sidebar -->
+      <aside class="hidden lg:block w-56 shrink-0">
+        <div class="sticky top-24 space-y-6">
+          {sections.map(s => (
+            <div>
+              <h3 class="text-xs font-semibold uppercase tracking-wider mb-2" style="color: var(--c-t4);">{s.title}</h3>
+              <ul class="space-y-1">
+                {s.items.map(item => (
+                  <li>
+                    <a href={`#${item.anchor}`}
+                       class="block text-sm py-0.5 transition-colors"
+                       style="color: var(--c-t3);"
+                       onmouseover="this.style.color='var(--c-t1)'"
+                       onmouseout="this.style.color='var(--c-t3)'">
+                      {item.title}
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
+        </div>
+      </aside>
+
+      <!-- Content -->
+      <main class="flex-1 max-w-3xl min-w-0">
+
+        <div class="mb-10">
+          <h1 class="text-4xl font-bold mb-3">Documentation</h1>
+          <p class="text-lg" style="color: var(--c-t3);">
+            Everything you need to install, configure, and get full use out of Halcón CLI.
+          </p>
+        </div>
+
+        <!-- ══════════════════════════════════════════
+             INSTALLATION
+        ═══════════════════════════════════════════ -->
+        <section id="installation" class="mb-14 scroll-mt-24">
+          <h2 class="text-2xl font-bold mb-4 pb-3 border-b" style="border-color: var(--c-b);">Installation</h2>
+
+          <h3 class="text-lg font-semibold mb-3" style="color: var(--c-t1);">Quick install (recommended)</h3>
+          <div class="rounded-xl p-4 mb-3" style="background: var(--c-code); border: 1px solid var(--c-b);">
+            <div class="text-xs mb-2" style="color: var(--c-t4);">macOS / Linux</div>
+            <code class="font-mono text-sm" style="color: var(--c-emerald);">curl -sSfL https://cuervo.cloud/install.sh | sh</code>
+          </div>
+          <div class="rounded-xl p-4 mb-4" style="background: var(--c-code); border: 1px solid var(--c-b);">
+            <div class="text-xs mb-2" style="color: var(--c-t4);">Windows (PowerShell)</div>
+            <code class="font-mono text-sm" style="color: var(--c-p);">iwr -useb https://cuervo.cloud/install.ps1 | iex</code>
+          </div>
+          <p class="text-sm mb-5 leading-relaxed" style="color: var(--c-t3);">
+            The installer detects your platform, downloads the correct binary, verifies the SHA-256 checksum,
+            and places it in <code class="px-1.5 py-0.5 rounded text-xs font-mono" style="color: var(--c-t1); background: var(--c-surface);">~/.local/bin/halcon</code>.
+            No sudo required.
+          </p>
+
+          <h3 class="text-lg font-semibold mb-3" style="color: var(--c-t1);">Other methods</h3>
+          <div class="space-y-3">
+            <div class="rounded-xl p-4" style="background: var(--c-code); border: 1px solid var(--c-b);">
+              <div class="text-xs mb-2" style="color: var(--c-t4);">Homebrew (macOS / Linux)</div>
+              <code class="font-mono text-sm" style="color: var(--c-gold);">brew tap cuervo-ai/tap && brew install halcon</code>
+            </div>
+            <div class="rounded-xl p-4" style="background: var(--c-code); border: 1px solid var(--c-b);">
+              <div class="text-xs mb-2" style="color: var(--c-t4);">Specific version</div>
+              <code class="font-mono text-sm" style="color: var(--c-emerald);">curl -sSfL https://cuervo.cloud/install.sh | sh -s -- --version v0.2.0</code>
+            </div>
+          </div>
+        </section>
+
+        <!-- ══════════════════════════════════════════
+             GLOBAL FLAGS
+        ═══════════════════════════════════════════ -->
+        <section id="global-flags" class="mb-14 scroll-mt-24">
+          <h2 class="text-2xl font-bold mb-4 pb-3 border-b" style="border-color: var(--c-b);">Global flags</h2>
+          <p class="text-sm mb-4 leading-relaxed" style="color: var(--c-t3);">
+            Global flags go <strong>before</strong> the subcommand and apply to the entire session.
+            Most have environment variable equivalents.
+          </p>
+          <div class="rounded-xl p-4 font-mono text-xs leading-7" style="background: var(--c-code); border: 1px solid var(--c-b); color: var(--c-t3);">
+            <div><span style="color: var(--c-emerald);">halcon</span> [GLOBAL FLAGS] &lt;command&gt; [OPTIONS]</div>
+            <div class="mt-3 mb-1" style="color: var(--c-t4);">Provider and model:</div>
+            <div>  <span style="color: var(--c-gold);">-p, --provider</span> &lt;name&gt;    AI provider to use  <span style="color: var(--c-t4);">(env: HALCON_PROVIDER)</span></div>
+            <div>  <span style="color: var(--c-gold);">-m, --model</span> &lt;name&gt;       Model to use  <span style="color: var(--c-t4);">(env: HALCON_MODEL)</span></div>
+            <div class="mt-3 mb-1" style="color: var(--c-t4);">Config and logging:</div>
+            <div>  <span style="color: var(--c-gold);">--config</span> &lt;path&gt;          Use custom config file  <span style="color: var(--c-t4);">(env: HALCON_CONFIG)</span></div>
+            <div>  <span style="color: var(--c-gold);">--log-level</span> &lt;level&gt;      Verbosity: error · warn · info · debug  <span style="color: var(--c-t4);">(env: HALCON_LOG)</span></div>
+            <div>  <span style="color: var(--c-gold);">-v, --verbose</span>             Enable debug output</div>
+            <div>  <span style="color: var(--c-gold);">--trace-json</span>              Write JSON trace lines to stderr</div>
+            <div>  <span style="color: var(--c-gold);">--no-banner</span>               Suppress the startup banner</div>
+          </div>
+          <p class="mt-3 text-xs" style="color: var(--c-t4);">
+            Example: <code class="font-mono" style="color: var(--c-t2);">halcon -p openai -m gpt-4o chat "refactor this function"</code>
+          </p>
+        </section>
+
+        <!-- ══════════════════════════════════════════
+             CONFIGURATION
+        ═══════════════════════════════════════════ -->
+        <section id="configuration" class="mb-14 scroll-mt-24">
+          <h2 class="text-2xl font-bold mb-4 pb-3 border-b" style="border-color: var(--c-b);">Configuration</h2>
+          <p class="mb-4 text-sm leading-relaxed" style="color: var(--c-t3);">
+            Halcón reads configuration from <code class="px-1.5 py-0.5 rounded text-xs font-mono" style="color: var(--c-t1); background: var(--c-surface);">~/.halcon/config.toml</code> (global)
+            and <code class="px-1.5 py-0.5 rounded text-xs font-mono" style="color: var(--c-t1); background: var(--c-surface);">./.halcon/config.toml</code> (project override).
+            On first run a default config is created automatically.
+          </p>
+          <div class="rounded-xl p-4 font-mono text-xs leading-6" style="background: var(--c-code); border: 1px solid var(--c-b); color: var(--c-t3);">
+            <div style="color: var(--c-t4);"># ~/.halcon/config.toml</div>
+            <div class="mt-2">[<span style="color: var(--c-p);">general</span>]</div>
+            <div><span style="color: var(--c-gold);">default_provider</span> = <span style="color: var(--c-emerald);">"anthropic"</span>  <span style="color: var(--c-t4);"># anthropic · openai · deepseek · gemini · ollama</span></div>
+            <div><span style="color: var(--c-gold);">default_model</span>    = <span style="color: var(--c-emerald);">"claude-sonnet-4-5-20250929"</span></div>
+            <div class="mt-2">[<span style="color: var(--c-p);">agent.limits</span>]</div>
+            <div><span style="color: var(--c-gold);">max_rounds</span>            = <span style="color: var(--c-ember);">25</span></div>
+            <div><span style="color: var(--c-gold);">max_tool_output_chars</span> = <span style="color: var(--c-ember);">100000</span></div>
+            <div><span style="color: var(--c-gold);">max_parallel_tools</span>    = <span style="color: var(--c-ember);">10</span></div>
+            <div class="mt-2">[<span style="color: var(--c-p);">tools</span>]</div>
+            <div><span style="color: var(--c-gold);">confirm_destructive</span>  = <span style="color: var(--c-ember);">true</span></div>
+            <div><span style="color: var(--c-gold);">allowed_directories</span>  = [<span style="color: var(--c-emerald);">"~/"</span>, <span style="color: var(--c-emerald);">"/tmp"</span>]</div>
+            <div><span style="color: var(--c-gold);">blocked_patterns</span>     = [<span style="color: var(--c-emerald);">"**/.env"</span>, <span style="color: var(--c-emerald);">"**/*.key"</span>, <span style="color: var(--c-emerald);">"**/*.pem"</span>]</div>
+            <div class="mt-2">[<span style="color: var(--c-p);">agent.routing</span>]</div>
+            <div><span style="color: var(--c-gold);">strategy</span> = <span style="color: var(--c-emerald);">"balanced"</span>  <span style="color: var(--c-t4);"># balanced · fast · cheap</span></div>
+            <div class="mt-2">[<span style="color: var(--c-p);">display</span>]</div>
+            <div><span style="color: var(--c-gold);">ui_mode</span> = <span style="color: var(--c-emerald);">"simple"</span>  <span style="color: var(--c-t4);"># simple · expert</span></div>
+          </div>
+          <p class="mt-3 text-xs" style="color: var(--c-t4);">
+            Override at runtime: <code class="font-mono" style="color: var(--c-t2);">halcon config set general.default_provider openai</code>
+          </p>
+        </section>
+
+        <!-- ══════════════════════════════════════════
+             FIRST CONVERSATION
+        ═══════════════════════════════════════════ -->
+        <section id="first-chat" class="mb-14 scroll-mt-24">
+          <h2 class="text-2xl font-bold mb-4 pb-3 border-b" style="border-color: var(--c-b);">First conversation</h2>
+          <div class="space-y-3 text-sm">
+            {[
+              { n: "1", label: "Add your API key",    cmd: "halcon auth login anthropic",             note: "" },
+              { n: "2", label: "Verify it works",     cmd: 'halcon chat "What is 2+2?"',              note: "" },
+              { n: "3", label: "Try the TUI cockpit", cmd: "halcon chat --tui",                       note: "" },
+              { n: "4", label: "Unlock everything",   cmd: 'halcon chat --full "explain this codebase"', note: "Enables orchestration, reflexion, structured tasks, and expert feedback." },
+            ].map(s => (
+              <div class="flex items-start gap-3">
+                <div class={`w-6 h-6 rounded-md text-xs flex items-center justify-center shrink-0 mt-0.5 font-mono ${s.n === '4' ? '' : ''}`}
+                     style={s.n === '4' ? 'background: var(--c-surface); color: var(--c-p); border: 1px solid rgba(232,82,0,0.35);' : 'background: var(--c-surface); color: var(--c-t3); border: 1px solid var(--c-b);'}>{s.n}</div>
+                <div>
+                  <div class="mb-1.5" style="color: var(--c-t1);">{s.label}</div>
+                  <div class="rounded-lg p-3" style="background: var(--c-code); border: 1px solid var(--c-b);">
+                    <code class="font-mono text-xs" style={s.n === '4' ? 'color: var(--c-p);' : 'color: var(--c-emerald);'}>{s.cmd}</code>
+                  </div>
+                  {s.note && <p class="text-xs mt-1.5" style="color: var(--c-t4);">{s.note}</p>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <!-- ══════════════════════════════════════════
+             CLI REFERENCE
+        ═══════════════════════════════════════════ -->
+        <section id="chat" class="mb-2 scroll-mt-24">
+          <h2 class="text-2xl font-bold mb-6 pb-3 border-b" style="border-color: var(--c-b);">CLI Reference</h2>
+        </section>
+
+        <!-- halcon chat -->
+        <div class="mb-10 scroll-mt-24">
+          <h3 class="text-lg font-bold mb-1 font-mono" style="color: var(--c-p);">halcon chat</h3>
+          <p class="text-sm mb-3" style="color: var(--c-t3);">
+            Start an AI session with full tool access. Pass a prompt for single-shot mode or omit it for the interactive REPL.
+          </p>
+          <div class="rounded-xl p-4 font-mono text-xs leading-7" style="background: var(--c-code); border: 1px solid var(--c-b); color: var(--c-t3);">
+            <div><span style="color: var(--c-emerald);">halcon chat</span> [OPTIONS] [PROMPT]</div>
+            <div class="mt-2" style="color: var(--c-t4);">Core flags:</div>
+            <div>  <span style="color: var(--c-gold);">--tui</span>                   Launch 3-zone TUI cockpit</div>
+            <div>  <span style="color: var(--c-gold);">--provider</span> &lt;name&gt;       Override provider for this session</div>
+            <div>  <span style="color: var(--c-gold);">--model</span> &lt;name&gt;          Override model for this session</div>
+            <div>  <span style="color: var(--c-gold);">--resume</span> &lt;session-id&gt;   Resume a previous session by UUID</div>
+            <div>  <span style="color: var(--c-gold);">--expert</span>                 Show verbose agent feedback</div>
+            <div class="mt-2" style="color: var(--c-t4);">Advanced features (or use --full for all):</div>
+            <div>  <span style="color: var(--c-p);">--full</span>                   Orchestration + reflexion + tasks + expert output</div>
+            <div>  <span style="color: var(--c-p);">--orchestrate</span>            Multi-agent orchestration with wave scheduling</div>
+            <div>  <span style="color: var(--c-p);">--reflexion</span>              Self-improvement loop before responding</div>
+            <div>  <span style="color: var(--c-p);">--tasks</span>                  Structured task framework with FSM tracking</div>
+            <div class="mt-2" style="color: var(--c-t4);">Observability:</div>
+            <div>  <span style="color: var(--c-emerald);">--metrics</span>               Print session metrics on exit</div>
+            <div>  <span style="color: var(--c-emerald);">--timeline</span>              Export execution timeline as JSON on exit</div>
+            <div>  <span style="color: var(--c-emerald);">--trace-out</span> &lt;path&gt;     Write JSONL trace (replayable with --trace-in)</div>
+            <div>  <span style="color: var(--c-emerald);">--trace-in</span> &lt;path&gt;      Replay a JSONL trace before the session</div>
+          </div>
+        </div>
+
+        <!-- halcon auth -->
+        <div id="auth" class="mb-10 scroll-mt-24">
+          <h3 class="text-lg font-bold mb-1 font-mono" style="color: var(--c-p);">halcon auth</h3>
+          <p class="text-sm mb-3" style="color: var(--c-t3);">
+            Manage API keys. Keys are stored in the OS keychain — never written to disk in plaintext.
+          </p>
+          <div class="rounded-xl p-4 font-mono text-xs leading-7" style="background: var(--c-code); border: 1px solid var(--c-b); color: var(--c-t3);">
+            <div><span style="color: var(--c-emerald);">halcon auth login</span> &lt;provider&gt;    Store API key in system keychain</div>
+            <div><span style="color: var(--c-emerald);">halcon auth logout</span> &lt;provider&gt;   Remove API key from keychain</div>
+            <div><span style="color: var(--c-emerald);">halcon auth status</span>               Show which providers have keys configured</div>
+            <div class="mt-2" style="color: var(--c-t4);">Providers: anthropic · openai · deepseek · gemini  <span style="color: var(--c-t4);">(ollama needs no key)</span></div>
+          </div>
+        </div>
+
+        <!-- halcon config -->
+        <div id="config" class="mb-10 scroll-mt-24">
+          <h3 class="text-lg font-bold mb-1 font-mono" style="color: var(--c-p);">halcon config</h3>
+          <p class="text-sm mb-3" style="color: var(--c-t3);">
+            Read and write configuration values without editing the TOML file manually.
+          </p>
+          <div class="rounded-xl p-4 font-mono text-xs leading-7" style="background: var(--c-code); border: 1px solid var(--c-b); color: var(--c-t3);">
+            <div><span style="color: var(--c-emerald);">halcon config show</span>                         Print all active config (merged global + project)</div>
+            <div><span style="color: var(--c-emerald);">halcon config path</span>                         Show the config file path in use</div>
+            <div><span style="color: var(--c-emerald);">halcon config get</span> &lt;key&gt;                    Read a single value  <span style="color: var(--c-t4);">e.g. general.default_provider</span></div>
+            <div><span style="color: var(--c-emerald);">halcon config set</span> &lt;key&gt; &lt;value&gt;             Write a value to the global config</div>
+          </div>
+        </div>
+
+        <!-- halcon init -->
+        <div id="init" class="mb-10 scroll-mt-24">
+          <h3 class="text-lg font-bold mb-1 font-mono" style="color: var(--c-p);">halcon init</h3>
+          <p class="text-sm mb-3" style="color: var(--c-t3);">
+            Initialize Halcón in the current project directory. Creates a <code class="font-mono text-xs" style="color: var(--c-t1);">.halcon/config.toml</code> override.
+          </p>
+          <div class="rounded-xl p-4 font-mono text-xs leading-7" style="background: var(--c-code); border: 1px solid var(--c-b); color: var(--c-t3);">
+            <div><span style="color: var(--c-emerald);">halcon init</span>                                Create .halcon/config.toml in current directory</div>
+            <div><span style="color: var(--c-emerald);">halcon init --provider openai</span>              Initialize with OpenAI as default provider</div>
+          </div>
+        </div>
+
+        <!-- halcon status -->
+        <div id="status" class="mb-10 scroll-mt-24">
+          <h3 class="text-lg font-bold mb-1 font-mono" style="color: var(--c-p);">halcon status</h3>
+          <p class="text-sm mb-3" style="color: var(--c-t3);">
+            Show the current system status: active provider and model, session count, version, and keychain state.
+          </p>
+          <div class="rounded-xl p-4 font-mono text-xs leading-7" style="background: var(--c-code); border: 1px solid var(--c-b); color: var(--c-t3);">
+            <div><span style="color: var(--c-emerald);">halcon status</span>                              Print provider, model, session count, binary version</div>
+          </div>
+        </div>
+
+        <!-- halcon tools -->
+        <div id="tools" class="mb-10 scroll-mt-24">
+          <h3 class="text-lg font-bold mb-1 font-mono" style="color: var(--c-p);">halcon tools</h3>
+          <p class="text-sm mb-3" style="color: var(--c-t3);">
+            Inspect and manage the 21 built-in tools. Add custom tools via TOML manifests stored at
+            <code class="font-mono text-xs" style="color: var(--c-t1);">~/.halcon/tools/&lt;name&gt;.toml</code>.
+          </p>
+          <div class="rounded-xl p-4 font-mono text-xs leading-7" style="background: var(--c-code); border: 1px solid var(--c-b); color: var(--c-t3);">
+            <div><span style="color: var(--c-emerald);">halcon tools list</span>                          List all tools with names and permission levels</div>
+            <div><span style="color: var(--c-emerald);">halcon tools validate</span>                      Deep schema validation for all registered tools</div>
+            <div><span style="color: var(--c-emerald);">halcon tools doctor</span>                        Health diagnostics: schema, probes, error metrics</div>
+            <div><span style="color: var(--c-emerald);">halcon tools add</span> &lt;name&gt; \</div>
+            <div>  --command &lt;cmd&gt; --description &lt;desc&gt; [--permission ReadOnly|Destructive]</div>
+            <div><span style="color: var(--c-emerald);">halcon tools remove</span> &lt;name&gt; [--force]      Remove a custom tool manifest</div>
+          </div>
+        </div>
+
+        <!-- halcon memory -->
+        <div id="memory" class="mb-10 scroll-mt-24">
+          <h3 class="text-lg font-bold mb-1 font-mono" style="color: var(--c-p);">halcon memory</h3>
+          <p class="text-sm mb-3" style="color: var(--c-t3);">
+            Query and manage the episodic memory store. The agent automatically reads relevant memory before each response using BM25 semantic search.
+          </p>
+          <div class="rounded-xl p-4 font-mono text-xs leading-7" style="background: var(--c-code); border: 1px solid var(--c-b); color: var(--c-t3);">
+            <div><span style="color: var(--c-emerald);">halcon memory search</span> &lt;query&gt; [--limit N]  BM25 full-text search across all entries</div>
+            <div><span style="color: var(--c-emerald);">halcon memory list</span> [--type &lt;type&gt;]        List entries, optionally filtered by type</div>
+            <div><span style="color: var(--c-emerald);">halcon memory stats</span>                        Show counts and total storage size</div>
+            <div><span style="color: var(--c-emerald);">halcon memory prune</span> [--force]             Remove expired and low-relevance entries</div>
+            <div class="mt-2" style="color: var(--c-t4);">Entry types: fact · session_summary · decision · code_snippet · project_meta</div>
+          </div>
+        </div>
+
+        <!-- halcon trace -->
+        <div id="trace" class="mb-10 scroll-mt-24">
+          <h3 class="text-lg font-bold mb-1 font-mono" style="color: var(--c-p);">halcon trace</h3>
+          <p class="text-sm mb-3" style="color: var(--c-t3);">
+            Inspect and export session traces. Traces are human-readable JSONL files capturing every agent round, tool call, and model response.
+          </p>
+          <div class="rounded-xl p-4 font-mono text-xs leading-7" style="background: var(--c-code); border: 1px solid var(--c-b); color: var(--c-t3);">
+            <div><span style="color: var(--c-emerald);">halcon trace list</span>                          List recorded JSONL trace files</div>
+            <div><span style="color: var(--c-emerald);">halcon trace show</span> &lt;path&gt;                  Print a trace file in human-readable format</div>
+            <div><span style="color: var(--c-emerald);">halcon trace export</span> &lt;session-id&gt;          Export a session from the database as a JSONL trace</div>
+          </div>
+        </div>
+
+        <!-- halcon replay -->
+        <div id="replay" class="mb-10 scroll-mt-24">
+          <h3 class="text-lg font-bold mb-1 font-mono" style="color: var(--c-p);">halcon replay</h3>
+          <p class="text-sm mb-3" style="color: var(--c-t3);">
+            Replay a JSONL trace file. Tool results are read from the trace — no live tool execution occurs. Useful for deterministic testing and debugging.
+          </p>
+          <div class="rounded-xl p-4 font-mono text-xs leading-7" style="background: var(--c-code); border: 1px solid var(--c-b); color: var(--c-t3);">
+            <div><span style="color: var(--c-emerald);">halcon replay</span> &lt;trace-path&gt;               Replay a trace file (reads tool results from file)</div>
+            <div class="mt-2" style="color: var(--c-t4);"># Tip: create a trace with --trace-out, then replay with halcon replay</div>
+          </div>
+        </div>
+
+        <!-- halcon metrics -->
+        <div id="metrics" class="mb-10 scroll-mt-24">
+          <h3 class="text-lg font-bold mb-1 font-mono" style="color: var(--c-p);">halcon metrics</h3>
+          <p class="text-sm mb-3" style="color: var(--c-t3);">
+            View and manage aggregated performance metrics collected from past sessions: latency, cost, token usage, tool invocations.
+          </p>
+          <div class="rounded-xl p-4 font-mono text-xs leading-7" style="background: var(--c-code); border: 1px solid var(--c-b); color: var(--c-t3);">
+            <div><span style="color: var(--c-emerald);">halcon metrics show</span>                        Show aggregated metrics (P50, P95, avg cost, etc.)</div>
+            <div><span style="color: var(--c-emerald);">halcon metrics export</span>                      Export metrics as JSON</div>
+            <div><span style="color: var(--c-emerald);">halcon metrics prune</span>                       Remove metric records older than the retention window</div>
+            <div><span style="color: var(--c-emerald);">halcon metrics decide</span>                      Analyze metrics and suggest config optimizations</div>
+          </div>
+        </div>
+
+        <!-- halcon doctor -->
+        <div id="doctor" class="mb-10 scroll-mt-24">
+          <h3 class="text-lg font-bold mb-1 font-mono" style="color: var(--c-p);">halcon doctor</h3>
+          <p class="text-sm mb-3" style="color: var(--c-t3);">
+            Run full system diagnostics — provider connectivity, tool health, config validity, keychain access, database integrity. Attach the output when reporting issues.
+          </p>
+          <div class="rounded-xl p-4 font-mono text-xs leading-7" style="background: var(--c-code); border: 1px solid var(--c-b); color: var(--c-t3);">
+            <div><span style="color: var(--c-emerald);">halcon doctor</span>                              Run all health checks and print a status report</div>
+          </div>
+        </div>
+
+        <!-- halcon update -->
+        <div id="update" class="mb-10 scroll-mt-24">
+          <h3 class="text-lg font-bold mb-1 font-mono" style="color: var(--c-p);">halcon update</h3>
+          <p class="text-sm mb-3" style="color: var(--c-t3);">
+            Self-update: fetches the latest release manifest from <code class="font-mono text-xs" style="color: var(--c-t1);">cuervo.cloud</code>, verifies the SHA-256 checksum, and replaces the binary atomically.
+          </p>
+          <div class="rounded-xl p-4 font-mono text-xs leading-7" style="background: var(--c-code); border: 1px solid var(--c-b); color: var(--c-t3);">
+            <div><span style="color: var(--c-emerald);">halcon update</span>                              Download and install the latest release</div>
+            <div><span style="color: var(--c-emerald);">halcon update --check</span>                      Report if a newer version is available</div>
+            <div><span style="color: var(--c-emerald);">halcon update --version v0.2.0</span>             Install a specific release</div>
+            <div><span style="color: var(--c-emerald);">halcon update --force</span>                      Reinstall even if already on latest version</div>
+          </div>
+        </div>
+
+        <!-- halcon mcp-server -->
+        <div id="mcp-server" class="mb-10 scroll-mt-24">
+          <h3 class="text-lg font-bold mb-1 font-mono" style="color: var(--c-p);">halcon mcp-server</h3>
+          <p class="text-sm mb-3" style="color: var(--c-t3);">
+            Start Halcón as an MCP server over stdio. Exposes all 21 tools via JSON-RPC to any MCP-compatible IDE (Cursor, VS Code, Zed, etc.).
+          </p>
+          <div class="rounded-xl p-4 font-mono text-xs leading-7" style="background: var(--c-code); border: 1px solid var(--c-b); color: var(--c-t3);">
+            <div><span style="color: var(--c-emerald);">halcon mcp-server</span> [--working-dir &lt;path&gt;]  Start MCP server on stdio</div>
+            <div class="mt-2" style="color: var(--c-t4);"># Add to your .mcp.json:</div>
+            <div>{`{ "mcpServers": { "halcon": { "command": "halcon", "args": ["mcp-server"] } } }`}</div>
+          </div>
+        </div>
+
+        <!-- halcon serve -->
+        <div id="serve" class="mb-14 scroll-mt-24">
+          <h3 class="text-lg font-bold mb-1 font-mono" style="color: var(--c-p);">halcon serve</h3>
+          <p class="text-sm mb-3" style="color: var(--c-t3);">
+            Start an HTTP control plane API with WebSocket streaming. Useful for desktop integrations and programmatic control.
+          </p>
+          <div class="rounded-xl p-4 font-mono text-xs leading-7" style="background: var(--c-code); border: 1px solid var(--c-b); color: var(--c-t3);">
+            <div><span style="color: var(--c-emerald);">halcon serve</span> [--host 127.0.0.1] [--port 9849]   Start API server</div>
+            <div class="mt-2" style="color: var(--c-t4);"># Bearer token auto-generated (or set via HALCON_API_TOKEN env var)</div>
+          </div>
+        </div>
+
+        <!-- ══════════════════════════════════════════
+             FEATURE FLAGS
+        ═══════════════════════════════════════════ -->
+        <section id="feature-flags" class="mb-14 scroll-mt-24">
+          <h2 class="text-2xl font-bold mb-4 pb-3 border-b" style="border-color: var(--c-b);">Feature flags</h2>
+          <p class="text-sm mb-5 leading-relaxed" style="color: var(--c-t3);">
+            Advanced capabilities are opt-in per session. Use <code class="font-mono px-1 py-0.5 rounded text-xs" style="color: var(--c-p); background: rgba(232,82,0,0.10);">--full</code> to enable all at once,
+            or activate individually for a leaner session.
+          </p>
+          <div class="space-y-2">
+            {[
+              { flag: "--full",             desc: "Enable orchestration + reflexion + tasks + expert output in a single flag.", color: "var(--c-p)" },
+              { flag: "--orchestrate",      desc: "Multi-agent orchestration with dependency graphs and wave scheduling. Requires adaptive planning.", color: "var(--c-p)" },
+              { flag: "--reflexion",        desc: "Self-improvement loop: the agent reflects on its own output and self-corrects before responding.", color: "var(--c-p)" },
+              { flag: "--tasks",            desc: "Structured task framework with 9-state FSM, retry policies, artifact tracking, and provenance.", color: "var(--c-p)" },
+              { flag: "--expert",           desc: "Show full agent feedback: model selection, cache hits, compaction events, round stats.", color: "var(--c-gold)" },
+              { flag: "--metrics",          desc: "Print session metrics on exit: rounds, tokens, cost, duration, tool invocations.", color: "var(--c-gold)" },
+              { flag: "--timeline",         desc: "Export the full execution timeline as JSON on exit.", color: "var(--c-gold)" },
+              { flag: "--trace-out <path>", desc: "Write a JSONL execution trace. Human-editable; replay with halcon replay or --trace-in.", color: "var(--c-emerald)" },
+              { flag: "--resume <id>",      desc: "Resume a previous session by UUID — restores messages, token counts, and session state.", color: "var(--c-emerald)" },
+            ].map(f => (
+              <div class="flex gap-4 p-3 rounded-xl" style="background: var(--c-surface); border: 1px solid var(--c-b);">
+                <code class="font-mono text-xs shrink-0 mt-0.5 whitespace-nowrap" style={`color: ${f.color};`}>{f.flag}</code>
+                <span class="text-xs leading-relaxed" style="color: var(--c-t3);">{f.desc}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <!-- ══════════════════════════════════════════
+             TUI COCKPIT
+        ═══════════════════════════════════════════ -->
+        <section id="tui-cockpit" class="mb-14 scroll-mt-24">
+          <h2 class="text-2xl font-bold mb-4 pb-3 border-b" style="border-color: var(--c-b);">TUI Cockpit</h2>
+          <p class="text-sm mb-5 leading-relaxed" style="color: var(--c-t3);">
+            Launch with <code class="font-mono text-xs px-1.5 py-0.5 rounded" style="color: var(--c-emerald); background: var(--c-surface);">halcon chat --tui</code>.
+            A 3-zone terminal UI that gives you live visibility and control over every agent action.
+          </p>
+
+          <h3 class="text-base font-semibold mb-3" style="color: var(--c-t1);">Three zones</h3>
+          <div class="space-y-2 mb-6">
+            {[
+              { zone: "Prompt zone", pos: "top",    desc: "Multiline text editor. Dynamic height up to 12 lines. Submit history navigation with ↑/↓." },
+              { zone: "Activity zone", pos: "middle", desc: "Scrollable live output: tool execution cards, plan progress, round separators, assistant text with markdown rendering, spinner feedback." },
+              { zone: "Status zone", pos: "bottom",  desc: "3-line bar: session ID · provider/model · round # · token counts · session cost · elapsed time · tool count. Click session ID to copy. Click ■ STOP to cancel." },
+            ].map(z => (
+              <div class="p-3 rounded-xl flex gap-4" style="background: var(--c-surface); border: 1px solid var(--c-b);">
+                <div class="shrink-0 text-right" style="min-width: 5rem;">
+                  <span class="text-xs font-bold font-mono" style="color: var(--c-p);">{z.zone}</span>
+                  <div class="text-xs mt-0.5" style="color: var(--c-t4);">{z.pos}</div>
+                </div>
+                <span class="text-xs leading-relaxed" style="color: var(--c-t3);">{z.desc}</span>
+              </div>
+            ))}
+          </div>
+
+          <h3 class="text-base font-semibold mb-3" style="color: var(--c-t1);">Key bindings</h3>
+          <div class="rounded-xl overflow-hidden" style="background: var(--c-code); border: 1px solid var(--c-b);">
+            {[
+              { key: "Ctrl+Enter",  desc: "Submit prompt" },
+              { key: "■  / Ctrl+C", desc: "Stop running agent" },
+              { key: "Space",       desc: "Pause / resume agent mid-execution" },
+              { key: "N",           desc: "Step — advance exactly one agent round" },
+              { key: "↑ / ↓",      desc: "Prompt history (in prompt zone)" },
+              { key: "PgUp / PgDn", desc: "Scroll activity zone" },
+              { key: "F1",          desc: "Toggle side panel" },
+              { key: "F2",          desc: "Cycle panel section: Plan → Metrics → Context → Reasoning → All" },
+              { key: "F6",          desc: "Open session browser overlay" },
+              { key: "Esc",         desc: "Cancel overlay / deny permission request" },
+            ].map((k, i) => (
+              <div class={`flex gap-6 px-4 py-2 font-mono text-xs ${i > 0 ? 'border-t' : ''}`}
+                   style={i > 0 ? 'border-color: rgba(200,80,0,0.08);' : ''}>
+                <span class="shrink-0 w-32" style="color: var(--c-gold);">{k.key}</span>
+                <span style="color: var(--c-t3);">{k.desc}</span>
+              </div>
+            ))}
+          </div>
+
+          <h3 class="text-base font-semibold mt-6 mb-3" style="color: var(--c-t1);">Side panel sections</h3>
+          <div class="space-y-2">
+            {[
+              { section: "Plan",      desc: "Active execution plan with per-step statuses (pending · running · done · failed) and timing." },
+              { section: "Metrics",   desc: "Session token counts (input/output), cost, tool invocations, round count." },
+              { section: "Context",   desc: "L0–L4 context tier usage and token budgets. Shows how much of each tier is consumed." },
+              { section: "Reasoning", desc: "Selected routing strategy, detected task type, complexity score, and model rationale." },
+            ].map(s => (
+              <div class="flex gap-4 p-3 rounded-xl" style="background: var(--c-surface); border: 1px solid var(--c-b);">
+                <span class="font-mono text-xs shrink-0 w-20 mt-0.5" style="color: var(--c-p);">{s.section}</span>
+                <span class="text-xs leading-relaxed" style="color: var(--c-t3);">{s.desc}</span>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <!-- ══════════════════════════════════════════
+             MEMORY SYSTEM
+        ═══════════════════════════════════════════ -->
+        <section id="memory-system" class="mb-14 scroll-mt-24">
+          <h2 class="text-2xl font-bold mb-4 pb-3 border-b" style="border-color: var(--c-b);">Memory system</h2>
+          <p class="text-sm mb-5 leading-relaxed" style="color: var(--c-t3);">
+            Halcón manages context automatically using a 5-tier memory architecture. You never need to configure it —
+            the agent decides what to keep, compress, and retrieve based on relevance and token budgets.
+          </p>
+
+          <h3 class="text-base font-semibold mb-3" style="color: var(--c-t1);">Context tiers (active session)</h3>
+          <div class="rounded-xl overflow-hidden mb-6" style="background: var(--c-code); border: 1px solid var(--c-b);">
+            {[
+              { tier: "L0", name: "HotBuffer",     pct: "40%", desc: "Ring buffer of the most recent messages. Always included in every request." },
+              { tier: "L1", name: "SlidingWindow", pct: "25%", desc: "Compacted conversation segments. Older messages are merged and summarized." },
+              { tier: "L2", name: "ColdStore",     pct: "15%", desc: "zstd-compressed segments with delta encoding. Retrieved when budget allows." },
+              { tier: "L3", name: "SemanticStore", pct: "15%", desc: "BM25-indexed retrieval. The most relevant past context for the current query." },
+              { tier: "L4", name: "ColdArchive",   pct: "5%",  desc: "Disk-persisted archive (~/.local/share/halcon/l4_archive.bin). Cross-session." },
+            ].map((t, i) => (
+              <div class={`flex gap-4 px-4 py-3 font-mono text-xs ${i > 0 ? 'border-t' : ''}`}
+                   style={i > 0 ? 'border-color: rgba(200,80,0,0.08);' : ''}>
+                <span class="shrink-0 font-bold" style="color: var(--c-p); width:2rem">{t.tier}</span>
+                <span class="shrink-0" style="color: var(--c-gold); width:8rem">{t.name}</span>
+                <span class="shrink-0" style="color: var(--c-t4); width:2.5rem">{t.pct}</span>
+                <span style="color: var(--c-t3);">{t.desc}</span>
+              </div>
+            ))}
+          </div>
+
+          <h3 class="text-base font-semibold mb-3" style="color: var(--c-t1);">Episodic memory (cross-session)</h3>
+          <p class="text-sm mb-3 leading-relaxed" style="color: var(--c-t3);">
+            Stored in <code class="font-mono text-xs px-1 rounded" style="color: var(--c-t1); background: var(--c-surface);">~/.halcon/halcon.db</code> using SQLite with FTS5 full-text index.
+            The agent automatically records decisions, code patterns, and important facts, then retrieves the most relevant entries before each response.
+          </p>
+          <div class="rounded-xl p-4 font-mono text-xs leading-6" style="background: var(--c-code); border: 1px solid var(--c-b); color: var(--c-t3);">
+            <div style="color: var(--c-t4);">Retrieval: BM25 semantic search on current query</div>
+            <div style="color: var(--c-t4);">Scoring:   relevance_score × temporal decay (14-day half-life)</div>
+            <div style="color: var(--c-t4);">Feedback:  successful rounds boost score +0.2 · failures decay −0.15</div>
+            <div style="color: var(--c-t4);">Cleanup:   auto-consolidation merges similar entries (Jaccard similarity)</div>
+          </div>
+        </section>
+
+        <!-- ══════════════════════════════════════════
+             SLASH COMMANDS
+        ═══════════════════════════════════════════ -->
+        <section id="slash-commands" class="mb-14 scroll-mt-24">
+          <h2 class="text-2xl font-bold mb-4 pb-3 border-b" style="border-color: var(--c-b);">Slash commands</h2>
+          <p class="text-sm mb-5 leading-relaxed" style="color: var(--c-t3);">
+            Inside the REPL or TUI, type <code class="font-mono px-1 py-0.5 rounded text-xs" style="color: var(--c-t1); background: var(--c-surface);">/</code> to access live commands without leaving your session.
+          </p>
+
+          {[
+            {
+              category: "Session",
+              color: "var(--c-p)",
+              cmds: [
+                { cmd: "/session list",          desc: "List recent sessions with UUIDs and timestamps" },
+                { cmd: "/session resume <id>",   desc: "Resume a previous session — restores messages and token counts" },
+                { cmd: "/session diff <a> <b>",  desc: "Compare two sessions side by side" },
+                { cmd: "/snapshot",              desc: "Save current session state as a checkpoint" },
+              ]
+            },
+            {
+              category: "Inspection & diagnostics",
+              color: "var(--c-gold)",
+              cmds: [
+                { cmd: "/status",           desc: "Live system status: session, rounds, tokens, cost, providers" },
+                { cmd: "/metrics",          desc: "Cache, memory, and tool speculation metrics" },
+                { cmd: "/cost",             desc: "Session cost breakdown by provider and model" },
+                { cmd: "/inspect runtime",  desc: "Runtime environment details" },
+                { cmd: "/inspect context",  desc: "Context pipeline tier usage and token budgets" },
+                { cmd: "/inspect memory",   desc: "Episodic memory entry count and usage" },
+                { cmd: "/inspect tasks",    desc: "Active task framework status and FSM states" },
+                { cmd: "/doctor",           desc: "Run health diagnostics from inside the REPL" },
+              ]
+            },
+            {
+              category: "Planning & orchestration",
+              color: "var(--c-emerald)",
+              cmds: [
+                { cmd: "/plan <goal>",           desc: "Generate an execution plan using the LLM planner" },
+                { cmd: "/orchestrate <task>",    desc: "Delegate task to the multi-agent orchestrator" },
+                { cmd: "/step",                  desc: "Execute exactly one agent round, then pause" },
+              ]
+            },
+            {
+              category: "Trace & replay",
+              color: "var(--c-t2)",
+              cmds: [
+                { cmd: "/trace",              desc: "Browse recorded trace files" },
+                { cmd: "/replay <path>",      desc: "Replay a JSONL trace inside the current session" },
+                { cmd: "/research <topic>",   desc: "Run a focused knowledge research session" },
+              ]
+            },
+            {
+              category: "Performance",
+              color: "var(--c-ember)",
+              cmds: [
+                { cmd: "/benchmark inference", desc: "Measure model latency: P50, P95, average" },
+                { cmd: "/benchmark cache",     desc: "Cache hit rate and token savings" },
+                { cmd: "/benchmark full",      desc: "Complete benchmark suite" },
+                { cmd: "/analyze",             desc: "Run code complexity and quality analysis" },
+                { cmd: "/optimize",            desc: "Analyze session and suggest optimizations" },
+              ]
+            },
+          ].map(group => (
+            <div class="mb-5">
+              <div class="text-xs font-semibold uppercase tracking-wider mb-2" style={`color: ${group.color};`}>{group.category}</div>
+              <div class="rounded-xl overflow-hidden" style="background: var(--c-code); border: 1px solid var(--c-b);">
+                {group.cmds.map((c, i) => (
+                  <div class={`flex gap-4 px-4 py-2.5 font-mono text-xs ${i > 0 ? 'border-t' : ''}`}
+                       style={i > 0 ? 'border-color: rgba(200,80,0,0.08);' : ''}>
+                    <span class="shrink-0 whitespace-nowrap" style={`color: ${group.color};`}>{c.cmd}</span>
+                    <span style="color: var(--c-t4);">{c.desc}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ))}
+        </section>
+
+        <!-- ══════════════════════════════════════════
+             PROVIDER SETUP
+        ═══════════════════════════════════════════ -->
+        <section id="providers" class="mb-14 scroll-mt-24">
+          <h2 class="text-2xl font-bold mb-4 pb-3 border-b" style="border-color: var(--c-b);">Provider setup</h2>
+          <p class="text-sm mb-5 leading-relaxed" style="color: var(--c-t3);">
+            API keys are stored in the OS keychain via <code class="font-mono text-xs px-1 py-0.5 rounded" style="color: var(--c-t1); background: var(--c-surface);">halcon auth login</code>.
+            The routing strategy (<code class="font-mono text-xs" style="color: var(--c-t1);">balanced · fast · cheap</code>) picks between configured providers automatically.
+          </p>
+
+          <div class="space-y-3">
+            {[
+              {
+                provider: "Anthropic",
+                key: "ANTHROPIC_API_KEY",
+                models: [
+                  { id: "claude-opus-4-6",            ctx: "200K", caps: "vision · tools" },
+                  { id: "claude-sonnet-4-5-20250929",  ctx: "200K", caps: "vision · tools" },
+                  { id: "claude-haiku-4-5-20251001",   ctx: "200K", caps: "vision · tools" },
+                ],
+              },
+              {
+                provider: "OpenAI",
+                key: "OPENAI_API_KEY",
+                models: [
+                  { id: "gpt-4o",     ctx: "128K", caps: "vision · tools · reasoning" },
+                  { id: "gpt-4o-mini",ctx: "128K", caps: "vision · tools" },
+                  { id: "o1",         ctx: "200K", caps: "reasoning (no vision)" },
+                  { id: "o3-mini",    ctx: "200K", caps: "reasoning (no vision)" },
+                ],
+              },
+              {
+                provider: "DeepSeek",
+                key: "DEEPSEEK_API_KEY",
+                models: [
+                  { id: "deepseek-chat",     ctx: "64K", caps: "tools" },
+                  { id: "deepseek-coder",    ctx: "64K", caps: "tools" },
+                  { id: "deepseek-reasoner", ctx: "64K", caps: "tools · reasoning" },
+                ],
+              },
+              {
+                provider: "Gemini",
+                key: "GEMINI_API_KEY",
+                models: [
+                  { id: "gemini-2.0-flash", ctx: "1M",  caps: "vision · tools" },
+                  { id: "gemini-1.5-pro",   ctx: "1M",  caps: "vision · tools" },
+                ],
+              },
+              {
+                provider: "Ollama",
+                key: "(no key required)",
+                models: [
+                  { id: "any installed model", ctx: "varies", caps: "tool emulation via XML system prompt" },
+                ],
+              },
+            ].map(p => (
+              <div class="p-4 rounded-xl" style="background: var(--c-surface); border: 1px solid var(--c-b);">
+                <div class="flex items-center justify-between mb-3">
+                  <span class="font-bold text-sm" style="color: var(--c-t1);">{p.provider}</span>
+                  <code class="text-xs font-mono" style="color: var(--c-t4);">{p.key}</code>
+                </div>
+                <div class="space-y-1">
+                  {p.models.map(m => (
+                    <div class="flex items-center gap-3 font-mono text-xs">
+                      <span style="color: var(--c-gold); min-width:16rem">{m.id}</span>
+                      <span style="color: var(--c-t4); min-width:3rem">{m.ctx}</span>
+                      <span style="color: var(--c-t4);">{m.caps}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div class="mt-4 rounded-xl p-4 font-mono text-xs leading-6" style="background: var(--c-code); border: 1px solid var(--c-b); color: var(--c-t3);">
+            <div style="color: var(--c-t4);"># Routing strategies (agent.routing.strategy):</div>
+            <div>  <span style="color: var(--c-gold);">balanced</span>  Cost/quality tradeoff — default. Routes to best-fit model per task.</div>
+            <div>  <span style="color: var(--c-gold);">fast</span>      Lowest latency. Prioritizes by p95 response time from past metrics.</div>
+            <div>  <span style="color: var(--c-gold);">cheap</span>     Lowest cost per token. Always routes to the cheapest capable model.</div>
+          </div>
+        </section>
+
+        <!-- ══════════════════════════════════════════
+             TOOL PERMISSIONS
+        ═══════════════════════════════════════════ -->
+        <section id="permissions" class="mb-14 scroll-mt-24">
+          <h2 class="text-2xl font-bold mb-4 pb-3 border-b" style="border-color: var(--c-b);">Tool permissions</h2>
+          <p class="text-sm mb-5 leading-relaxed" style="color: var(--c-t3);">
+            Every tool carries an explicit permission level. Destructive tools show a confirmation prompt before executing.
+            Set <code class="font-mono text-xs" style="color: var(--c-t1);">tools.confirm_destructive = false</code> to disable in CI/automated pipelines.
+          </p>
+          <div class="space-y-4">
+            {[
+              {
+                level: "ReadOnly",
+                color: "var(--c-emerald)",
+                note: "Never prompts — safe read operations",
+                tools: "file_read · directory_tree · glob · grep · fuzzy_find · symbol_search · web_fetch · web_search · native_search · git_status · git_diff · git_log · file_inspect · background_output · task_track",
+              },
+              {
+                level: "ReadWrite",
+                color: "var(--c-gold)",
+                note: "No confirmation — reversible writes",
+                tools: "git_add",
+              },
+              {
+                level: "Destructive",
+                color: "var(--c-ember)",
+                note: "Prompts before executing (confirm_destructive = true)",
+                tools: "bash · file_write · file_edit · file_delete · git_commit · http_request · background_start · background_kill",
+              },
+            ].map(p => (
+              <div class="p-4 rounded-xl" style="background: var(--c-code); border: 1px solid var(--c-b);">
+                <div class="flex items-center gap-2 mb-2">
+                  <span class="text-xs font-bold font-mono px-2 py-0.5 rounded" style={`color: ${p.color}; border: 1px solid ${p.color}; opacity: 0.9;`}>{p.level}</span>
+                  <span class="text-xs" style="color: var(--c-t4);">{p.note}</span>
+                </div>
+                <div class="text-xs font-mono leading-relaxed" style="color: var(--c-t3);">{p.tools}</div>
+              </div>
+            ))}
+          </div>
+        </section>
+
+        <!-- ══════════════════════════════════════════
+             HELP
+        ═══════════════════════════════════════════ -->
+        <div class="rounded-2xl p-6" style="background: rgba(232,82,0,0.06); border: 1px solid rgba(232,82,0,0.20);">
+          <h3 class="font-bold mb-3" style="color: var(--c-p);">Need help?</h3>
+          <div class="space-y-2 text-sm">
+            <div>
+              <a href="mailto:support@cuervo.cloud"
+                 class="transition-colors" style="color: var(--c-gold);"
+                 onmouseover="this.style.color='var(--c-t1)'"
+                 onmouseout="this.style.color='var(--c-gold)'">
+                support@cuervo.cloud
+              </a>
+              <span class="ml-2" style="color: var(--c-t4);">— Questions, bug reports, feature requests</span>
+            </div>
+            <div>
+              <code class="font-mono text-xs" style="color: var(--c-t2);">halcon doctor</code>
+              <span class="ml-2" style="color: var(--c-t4);">— Run diagnostics first, attach the output to your report</span>
+            </div>
+          </div>
+        </div>
+
+      </main>
+    </div>
+  </div>
+</Layout>

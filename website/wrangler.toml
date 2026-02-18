@@ -1,0 +1,6 @@
+name = "halcon-website"
+pages_build_output_dir = "dist"
+compatibility_date = "2025-01-01"
+
+[env.production]
+name = "halcon-website"

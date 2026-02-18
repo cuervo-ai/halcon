@@ -1,0 +1,19 @@
+# Cloudflare Pages redirects
+# https://developers.cloudflare.com/pages/platform/redirects/
+
+# Install script shortcuts
+/install      /install.sh   302
+/get          /install.sh   302
+/get.sh       /install.sh   302
+
+# Latest release — served from Pages static files
+# /releases/* served directly from public/releases/ directory
+
+# GitHub shortcuts
+/github       https://github.com/cuervo-ai/cuervo-cli   302
+/repo         https://github.com/cuervo-ai/cuervo-cli   302
+/issues       https://github.com/cuervo-ai/cuervo-cli/issues  302
+/changelog    https://github.com/cuervo-ai/cuervo-cli/releases  302
+
+# Docs
+/docs         /docs/getting-started   301

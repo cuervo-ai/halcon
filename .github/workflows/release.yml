@@ -10,150 +10,126 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to release (e.g., v0.1.0)'
+        description: 'Tag to release (e.g., v0.2.0)'
         required: true
         type: string
 
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: 1
+  CARGO_INCREMENTAL: 0
+
+permissions:
+  contents: write
+  id-token: write   # Required for cosign OIDC + SLSA provenance
+  packages: write
+  attestations: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  # Create GitHub Release
-  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  create-release:
-    name: Create Release
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  # Pre-flight: validate tag matches Cargo.toml version
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  preflight:
+    name: Pre-flight checks
     runs-on: ubuntu-latest
     outputs:
-      upload_url: ${{ steps.create_release.outputs.upload_url }}
-      version: ${{ steps.get_version.outputs.version }}
+      version: ${{ steps.version.outputs.version }}
+      version_bare: ${{ steps.version.outputs.version_bare }}
+      is_prerelease: ${{ steps.version.outputs.is_prerelease }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@v4
 
-      - name: Get version
-        id: get_version
+      - name: Resolve version
+        id: version
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION="${{ github.event.inputs.tag }}"
+            TAG="${{ github.event.inputs.tag }}"
           else
-            VERSION="${GITHUB_REF#refs/tags/}"
+            TAG="${GITHUB_REF#refs/tags/}"
           fi
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Version: $VERSION"
+          BARE="${TAG#v}"
+          echo "version=${TAG}" >> $GITHUB_OUTPUT
+          echo "version_bare=${BARE}" >> $GITHUB_OUTPUT
 
-      - name: Generate changelog
-        id: changelog
+          if echo "$TAG" | grep -qE '(alpha|beta|rc)'; then
+            echo "is_prerelease=true" >> $GITHUB_OUTPUT
+          else
+            echo "is_prerelease=false" >> $GITHUB_OUTPUT
+          fi
+
+          echo "Tag: ${TAG} (bare: ${BARE})"
+
+      - name: Validate tag == Cargo.toml version
         run: |
-          # Get commits since last tag
-          LAST_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
-          if [ -z "$LAST_TAG" ]; then
-            echo "changelog<<EOF" >> $GITHUB_OUTPUT
-            git log --pretty=format:"- %s (%h)" >> $GITHUB_OUTPUT
-            echo "" >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
-          else
-            echo "changelog<<EOF" >> $GITHUB_OUTPUT
-            git log ${LAST_TAG}..HEAD --pretty=format:"- %s (%h)" >> $GITHUB_OUTPUT
-            echo "" >> $GITHUB_OUTPUT
-            echo "EOF" >> $GITHUB_OUTPUT
+          CARGO_VERSION="$(grep '^version' Cargo.toml | head -1 | sed 's/.*"\(.*\)".*/\1/')"
+          TAG_VERSION="${{ steps.version.outputs.version_bare }}"
+          echo "Cargo.toml version: ${CARGO_VERSION}"
+          echo "Tag version:        ${TAG_VERSION}"
+          if [ "$CARGO_VERSION" != "$TAG_VERSION" ]; then
+            echo "ERROR: Cargo.toml version (${CARGO_VERSION}) does not match tag (${TAG_VERSION})"
+            exit 1
           fi
+          echo "✓ Version match confirmed"
 
-      - name: Create Release
-        id: create_release
-        uses: actions/create-release@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tag_name: ${{ steps.get_version.outputs.version }}
-          release_name: Cuervo CLI ${{ steps.get_version.outputs.version }}
-          body: |
-            ## Cuervo CLI ${{ steps.get_version.outputs.version }}
-
-            ### Installation
-
-            **Linux / macOS:**
-            ```bash
-            curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/main/scripts/install-binary.sh | sh
-            ```
-
-            **Windows (PowerShell):**
-            ```powershell
-            iwr -useb https://raw.githubusercontent.com/${{ github.repository }}/main/scripts/install-binary.ps1 | iex
-            ```
-
-            **From source:**
-            ```bash
-            cargo install --git https://github.com/${{ github.repository }} --tag ${{ steps.get_version.outputs.version }}
-            ```
-
-            ### Changes
-
-            ${{ steps.changelog.outputs.changelog }}
-
-            ### Assets
-
-            Download the appropriate binary for your platform below.
-
-            ---
-
-            **Checksums**: SHA256 checksums are provided for each asset.
-          draft: false
-          prerelease: ${{ contains(steps.get_version.outputs.version, 'alpha') || contains(steps.get_version.outputs.version, 'beta') || contains(steps.get_version.outputs.version, 'rc') }}
-
-  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  # Build Matrix - Cross-platform compilation
-  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  # Build matrix — 6 targets
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   build:
     name: Build ${{ matrix.target }}
-    needs: create-release
+    needs: preflight
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Linux x86_64 (glibc)
-          - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
-            use-cross: false
-            archive: tar.gz
-
-          # Linux x86_64 (musl - static)
+          # Linux x86_64 — static musl (primary Linux artifact)
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
             use-cross: true
             archive: tar.gz
+            features: tui
 
-          # Linux ARM64 (glibc)
+          # Linux ARM64
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             use-cross: true
             archive: tar.gz
+            features: ""
 
           # macOS Intel
-          - os: macos-latest
+          - os: macos-13
             target: x86_64-apple-darwin
             use-cross: false
             archive: tar.gz
+            features: tui
 
           # macOS Apple Silicon
           - os: macos-latest
             target: aarch64-apple-darwin
             use-cross: false
             archive: tar.gz
+            features: tui
 
           # Windows x86_64
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             use-cross: false
             archive: zip
+            features: ""
+
+          # Linux ARM64 musl (for Alpine/Docker)
+          - os: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            use-cross: true
+            archive: tar.gz
+            features: ""
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -161,100 +137,335 @@ jobs:
           targets: ${{ matrix.target }}
 
       - name: Install cross
-        if: matrix.use-cross
-        run: cargo install cross --git https://github.com/cross-rs/cross
+        if: matrix.use-cross == true
+        run: cargo install cross --git https://github.com/cross-rs/cross --locked
 
-      - name: Cache cargo
-        uses: actions/cache@v4
+      - uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo-${{ matrix.target }}-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-${{ matrix.target }}-
-            ${{ runner.os }}-cargo-
+          key: ${{ matrix.target }}
 
-      - name: Build binary
+      - name: Set build metadata
+        shell: bash
         run: |
-          if [ "${{ matrix.use-cross }}" = "true" ]; then
-            cross build --release --target ${{ matrix.target }} --features tui --locked
+          echo "HALCON_GIT_HASH=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+          echo "HALCON_BUILD_DATE=$(date -u +%Y-%m-%d)" >> $GITHUB_ENV
+          echo "HALCON_TARGET=${{ matrix.target }}" >> $GITHUB_ENV
+
+      - name: Build (cross)
+        if: matrix.use-cross == true
+        shell: bash
+        run: |
+          FEATURES="${{ matrix.features }}"
+          if [ -n "$FEATURES" ]; then
+            cross build --release --target ${{ matrix.target }} --features "$FEATURES" --locked -p halcon-cli
           else
-            cargo build --release --target ${{ matrix.target }} --features tui --locked
+            cross build --release --target ${{ matrix.target }} --no-default-features --locked -p halcon-cli
           fi
-        shell: bash
 
-      - name: Prepare archive (Unix)
+      - name: Build (cargo)
+        if: matrix.use-cross == false
+        shell: bash
+        run: |
+          FEATURES="${{ matrix.features }}"
+          if [ -n "$FEATURES" ]; then
+            cargo build --release --target ${{ matrix.target }} --features "$FEATURES" --locked -p halcon-cli
+          else
+            cargo build --release --target ${{ matrix.target }} --no-default-features --locked -p halcon-cli
+          fi
+
+      - name: Package (Unix)
         if: matrix.archive == 'tar.gz'
-        run: |
-          BINARY_NAME=cuervo
-          ARCHIVE_NAME=cuervo-${{ matrix.target }}.tar.gz
-
-          cd target/${{ matrix.target }}/release
-          tar czf ../../../$ARCHIVE_NAME $BINARY_NAME
-          cd ../../..
-
-          sha256sum $ARCHIVE_NAME > $ARCHIVE_NAME.sha256
-
-          echo "ARCHIVE_NAME=$ARCHIVE_NAME" >> $GITHUB_ENV
-          echo "CHECKSUM_NAME=$ARCHIVE_NAME.sha256" >> $GITHUB_ENV
         shell: bash
-
-      - name: Prepare archive (Windows)
-        if: matrix.archive == 'zip'
         run: |
-          $BINARY_NAME = "cuervo.exe"
-          $ARCHIVE_NAME = "cuervo-${{ matrix.target }}.zip"
+          VERSION="${{ needs.preflight.outputs.version_bare }}"
+          TARGET="${{ matrix.target }}"
+          ARTIFACT="halcon-${VERSION}-${TARGET}"
+          BIN="target/${TARGET}/release/halcon"
 
-          cd target/${{ matrix.target }}/release
-          Compress-Archive -Path $BINARY_NAME -DestinationPath ../../../$ARCHIVE_NAME
-          cd ../../..
+          mkdir -p "artifacts/${ARTIFACT}"
+          cp "$BIN" "artifacts/${ARTIFACT}/halcon"
+          cp README.md "artifacts/${ARTIFACT}/" 2>/dev/null || true
+          cp LICENSE "artifacts/${ARTIFACT}/" 2>/dev/null || true
 
-          $hash = (Get-FileHash -Path $ARCHIVE_NAME -Algorithm SHA256).Hash
-          "$hash  $ARCHIVE_NAME" | Out-File -FilePath "$ARCHIVE_NAME.sha256" -Encoding ASCII
+          tar czf "${ARTIFACT}.tar.gz" -C artifacts "${ARTIFACT}"
 
-          echo "ARCHIVE_NAME=$ARCHIVE_NAME" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          echo "CHECKSUM_NAME=$ARCHIVE_NAME.sha256" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-        shell: powershell
+          # SHA-256
+          if command -v sha256sum &>/dev/null; then
+            sha256sum "${ARTIFACT}.tar.gz" | awk '{print $1}' > "${ARTIFACT}.tar.gz.sha256"
+          else
+            shasum -a 256 "${ARTIFACT}.tar.gz" | awk '{print $1}' > "${ARTIFACT}.tar.gz.sha256"
+          fi
 
-      - name: Upload archive
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          echo "ARTIFACT_ARCHIVE=${ARTIFACT}.tar.gz" >> $GITHUB_ENV
+          echo "ARTIFACT_SHA256=${ARTIFACT}.tar.gz.sha256" >> $GITHUB_ENV
+
+      - name: Package (Windows)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          $Version = "${{ needs.preflight.outputs.version_bare }}"
+          $Target = "${{ matrix.target }}"
+          $Artifact = "halcon-${Version}-${Target}"
+          $Bin = "target/${Target}/release/halcon.exe"
+
+          New-Item -ItemType Directory -Path "artifacts/${Artifact}" -Force | Out-Null
+          Copy-Item $Bin "artifacts/${Artifact}/halcon.exe"
+          if (Test-Path "README.md") { Copy-Item "README.md" "artifacts/${Artifact}/" }
+          if (Test-Path "LICENSE")   { Copy-Item "LICENSE"   "artifacts/${Artifact}/" }
+
+          Compress-Archive -Path "artifacts/${Artifact}" -DestinationPath "${Artifact}.zip" -Force
+
+          $Hash = (Get-FileHash -Path "${Artifact}.zip" -Algorithm SHA256).Hash.ToLower()
+          $Hash | Out-File -FilePath "${Artifact}.zip.sha256" -Encoding ASCII -NoNewline
+
+          echo "ARTIFACT_ARCHIVE=${Artifact}.zip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          echo "ARTIFACT_SHA256=${Artifact}.zip.sha256" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
         with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./${{ env.ARCHIVE_NAME }}
-          asset_name: ${{ env.ARCHIVE_NAME }}
-          asset_content_type: application/octet-stream
+          name: ${{ env.ARTIFACT_ARCHIVE }}
+          path: |
+            ${{ env.ARTIFACT_ARCHIVE }}
+            ${{ env.ARTIFACT_SHA256 }}
+          retention-days: 7
 
-      - name: Upload checksum
-        uses: actions/upload-release-asset@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          upload_url: ${{ needs.create-release.outputs.upload_url }}
-          asset_path: ./${{ env.CHECKSUM_NAME }}
-          asset_name: ${{ env.CHECKSUM_NAME }}
-          asset_content_type: text/plain
-
-  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  # Publish to crates.io (optional)
-  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  publish-crate:
-    name: Publish to crates.io
-    needs: [create-release, build]
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  # Sign, SBOM, SLSA provenance, publish
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  publish:
+    name: Sign, SBOM & Publish
+    needs: [preflight, build]
     runs-on: ubuntu-latest
-    if: ${{ !contains(needs.create-release.outputs.version, 'alpha') && !contains(needs.create-release.outputs.version, 'beta') && !contains(needs.create-release.outputs.version, 'rc') }}
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Install Rust
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist/
+          merge-multiple: true
+
+      - name: Install tooling
+        run: |
+          # cosign
+          COSIGN_VER="v2.4.1"
+          curl -sSfL "https://github.com/sigstore/cosign/releases/download/${COSIGN_VER}/cosign-linux-amd64" \
+            -o /usr/local/bin/cosign
+          chmod +x /usr/local/bin/cosign
+
+          # syft (SBOM)
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+
+          # Python (for manifest generation)
+          python3 --version
+
+      - name: Generate checksums.txt
+        run: |
+          cd dist/
+          > checksums.txt
+          for f in *.tar.gz *.zip; do
+            [ -f "$f" ] || continue
+            sha256sum "$f" >> checksums.txt
+          done
+          echo "==> checksums.txt:"
+          cat checksums.txt
+
+      - name: Sign archives with cosign (keyless)
+        run: |
+          cd dist/
+          for f in *.tar.gz *.zip; do
+            [ -f "$f" ] || continue
+            echo "Signing: $f"
+            cosign sign-blob \
+              --yes \
+              --output-signature "${f}.sig" \
+              --output-certificate "${f}.pem" \
+              "$f"
+          done
+          # Sign checksums file
+          cosign sign-blob \
+            --yes \
+            --output-signature "checksums.txt.sig" \
+            --output-certificate "checksums.txt.pem" \
+            checksums.txt
+
+      - name: Generate SBOM (syft)
+        run: |
+          syft dir:. \
+            --output spdx-json=dist/halcon-${{ needs.preflight.outputs.version_bare }}.sbom.spdx.json \
+            --output cyclonedx-json=dist/halcon-${{ needs.preflight.outputs.version_bare }}.sbom.cyclonedx.json
+
+      - name: Install Rust (for cargo metadata)
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Publish to crates.io
-        run: cargo publish --token ${{ secrets.CARGO_REGISTRY_TOKEN }} --allow-dirty
+      - name: Generate manifest.json
+        run: |
+          python3 - <<'EOF'
+          import json, os, hashlib, subprocess
+          from pathlib import Path
+          from datetime import datetime, timezone
+
+          version = os.environ.get("VERSION", "")
+          dist = Path("dist")
+
+          artifacts = []
+          for f in sorted(dist.glob("*.tar.gz")) + sorted(dist.glob("*.zip")):
+              if any(ext in f.name for ext in [".sig", ".pem", ".sbom"]):
+                  continue
+              sha256 = hashlib.sha256(f.read_bytes()).hexdigest()
+              size = f.stat().st_size
+              target = f.stem.replace(f"halcon-{version}-", "").replace(".tar", "").replace(".zip", "")
+              artifacts.append({
+                  "name": f.name,
+                  "target": target,
+                  "sha256": sha256,
+                  "size": size,
+                  "url": f"https://releases.cli.cuervo.cloud/latest/{f.name}"
+              })
+
+          manifest = {
+              "version": version,
+              "published_at": datetime.now(timezone.utc).isoformat(),
+              "artifacts": artifacts,
+              "checksums_url": "https://releases.cli.cuervo.cloud/latest/checksums.txt",
+              "sbom_url": f"https://releases.cli.cuervo.cloud/latest/halcon-{version}.sbom.spdx.json",
+          }
+
+          out = dist / "manifest.json"
+          out.write_text(json.dumps(manifest, indent=2))
+          print(json.dumps(manifest, indent=2))
+          EOF
+        env:
+          VERSION: ${{ needs.preflight.outputs.version_bare }}
+
+      - name: Upload to Cloudflare R2 (versioned)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+          command: r2 object put cuervo-releases/${{ needs.preflight.outputs.version }}/
+        continue-on-error: true  # Fallback: upload via aws cli below
+
+      - name: Upload to R2 (aws s3 compat)
+        run: |
+          pip install awscli --quiet
+          VERSION="${{ needs.preflight.outputs.version }}"
+          BARE="${{ needs.preflight.outputs.version_bare }}"
+
+          # Upload versioned copy
+          aws s3 sync dist/ "s3://cuervo-releases/${VERSION}/" \
+            --endpoint-url "https://${{ secrets.CF_ACCOUNT_ID }}.r2.cloudflarestorage.com" \
+            --checksum-algorithm SHA256 \
+            --no-progress
+
+          # Update latest/
+          aws s3 sync dist/ "s3://cuervo-releases/latest/" \
+            --endpoint-url "https://${{ secrets.CF_ACCOUNT_ID }}.r2.cloudflarestorage.com" \
+            --checksum-algorithm SHA256 \
+            --no-progress \
+            --delete
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.CF_R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.CF_R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.preflight.outputs.version }}
+          name: Halcon CLI ${{ needs.preflight.outputs.version }}
+          prerelease: ${{ needs.preflight.outputs.is_prerelease == 'true' }}
+          generate_release_notes: true
+          body: |
+            ## Halcon CLI ${{ needs.preflight.outputs.version }}
+
+            ### Quick Install
+
+            **Linux / macOS:**
+            ```bash
+            curl -sSfL https://cli.cuervo.cloud/install.sh | sh
+            ```
+
+            **Windows (PowerShell):**
+            ```powershell
+            iwr -useb https://cli.cuervo.cloud/install.ps1 | iex
+            ```
+
+            **Homebrew:**
+            ```bash
+            brew tap cuervo-ai/tap && brew install halcon
+            ```
+
+            **Self-update (if already installed):**
+            ```bash
+            halcon update
+            ```
+
+            ---
+
+            ### Verify
+
+            All artifacts are signed with [cosign](https://sigstore.dev) keyless signing.
+            See [checksums.txt](https://releases.cli.cuervo.cloud/${{ needs.preflight.outputs.version }}/checksums.txt) for SHA-256 hashes.
+          files: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.sha256
+            dist/*.sig
+            dist/*.pem
+            dist/checksums.txt
+            dist/manifest.json
+            dist/*.sbom.*.json
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Deploy website (Cloudflare Pages)
+        uses: cloudflare/pages-action@v1
+        with:
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+          projectName: cuervo-website
+          directory: website/dist
+          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true  # Don't fail release if pages deploy fails
+
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  # Smoke tests post-release
+  # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  smoke-test:
+    name: Smoke tests
+    needs: [preflight, publish]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify manifest.json accessible
+        run: |
+          sleep 10  # allow CDN propagation
+          MANIFEST=$(curl -sSfL https://releases.cli.cuervo.cloud/latest/manifest.json 2>/dev/null || echo '{}')
+          VERSION=$(echo "$MANIFEST" | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('version',''))" 2>/dev/null || echo '')
+          EXPECTED="${{ needs.preflight.outputs.version_bare }}"
+          if [ "$VERSION" != "$EXPECTED" ]; then
+            echo "WARN: manifest version '${VERSION}' != expected '${EXPECTED}'"
+          else
+            echo "✓ manifest.json: version=${VERSION}"
+          fi
+        continue-on-error: true
+
+      - name: Verify checksums.txt accessible
+        run: |
+          HTTP_CODE=$(curl -sSo /dev/null -w '%{http_code}' https://releases.cli.cuervo.cloud/latest/checksums.txt 2>/dev/null || echo '000')
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "✓ checksums.txt: HTTP 200"
+          else
+            echo "WARN: checksums.txt returned HTTP ${HTTP_CODE}"
+          fi
+        continue-on-error: true
+
+      - name: Test install script syntax
+        run: |
+          # Download and syntax-check install.sh
+          curl -sSfL https://cli.cuervo.cloud/install.sh -o /tmp/install.sh 2>/dev/null || true
+          if [ -f /tmp/install.sh ]; then
+            bash -n /tmp/install.sh && echo "✓ install.sh syntax OK" || echo "WARN: install.sh syntax error"
+          fi
         continue-on-error: true
