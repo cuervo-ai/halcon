@@ -23,7 +23,7 @@ use halcon_core::types::{
 
 use crate::http;
 use types::{
-    ApiContentBlock, ApiMessage, ApiMessageContent, ApiRequest, ApiToolDefinition, SseEvent,
+    ApiContentBlock, ApiImageSource, ApiMessage, ApiMessageContent, ApiRequest, ApiToolDefinition, SseEvent,
 };
 
 const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
@@ -344,6 +344,32 @@ fn message_to_api_content(msg: &ChatMessage) -> ApiMessageContent {
                         tool_use_id: tool_use_id.clone(),
                         content: content.clone(),
                         is_error: *is_error,
+                    },
+                    halcon_core::types::ContentBlock::Image { source } => {
+                        use halcon_core::types::ImageSource;
+                        match source {
+                            ImageSource::Base64 { media_type, data } => ApiContentBlock::Image {
+                                source: ApiImageSource::Base64 {
+                                    media_type: media_type.as_mime_str().to_string(),
+                                    data: data.clone(),
+                                },
+                            },
+                            ImageSource::Url { url } => {
+                                tracing::warn!(url = %url, "Anthropic does not support image URL; using text placeholder");
+                                ApiContentBlock::Text {
+                                    text: format!("[Image URL not supported by Anthropic: {url}]"),
+                                }
+                            }
+                            ImageSource::LocalPath { path } => {
+                                tracing::warn!(path = %path, "Unresolved LocalPath image; using text placeholder");
+                                ApiContentBlock::Text {
+                                    text: format!("[Unresolved local image: {path}]"),
+                                }
+                            }
+                        }
+                    }
+                    halcon_core::types::ContentBlock::AudioTranscript { text, .. } => ApiContentBlock::Text {
+                        text: format!("[Audio transcript]: {text}"),
                     },
                 })
                 .collect();

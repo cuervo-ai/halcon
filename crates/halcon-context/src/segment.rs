@@ -142,6 +142,12 @@ pub fn extract_segment_from_message(
                         let first_line = content.lines().next().unwrap_or("");
                         outcomes.push(format!("[{prefix}] {}", truncate_text(first_line, 100)));
                     }
+                    ContentBlock::Image { .. } => {
+                        text_parts.push("[image]".to_string());
+                    }
+                    ContentBlock::AudioTranscript { text, .. } => {
+                        text_parts.push(truncate_text(text, 200));
+                    }
                 }
             }
 

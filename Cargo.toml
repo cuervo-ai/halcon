@@ -15,6 +15,7 @@ members = [
     "crates/halcon-client",
     "crates/halcon-desktop",
     "crates/halcon-search", "crates/halcon-integrations",
+    "crates/halcon-multimodal",
 ]
 resolver = "2"
 
@@ -136,6 +137,7 @@ halcon-files = { path = "crates/halcon-files" }
 halcon-runtime = { path = "crates/halcon-runtime" }
 halcon-api = { path = "crates/halcon-api", default-features = false }
 halcon-client = { path = "crates/halcon-client" }
+halcon-multimodal = { path = "crates/halcon-multimodal" }
 
 [profile.release]
 opt-level = 3           # Rendimiento máximo (no tamaño)

@@ -134,6 +134,8 @@ pub fn validate_message_sequence(
                     resolved_tool_use_ids.insert(tool_use_id.clone());
                 }
                 ContentBlock::Text { .. } => {}
+                ContentBlock::Image { .. } => {}
+                ContentBlock::AudioTranscript { .. } => {}
             }
         }
     }

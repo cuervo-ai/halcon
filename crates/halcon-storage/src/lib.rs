@@ -10,6 +10,7 @@
 
 pub mod async_db;
 pub mod cache;
+pub mod media;
 pub mod memory;
 pub mod metrics;
 pub mod migrations;

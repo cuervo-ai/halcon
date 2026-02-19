@@ -55,6 +55,49 @@ impl MessageContent {
     }
 }
 
+/// Supported image media types (detected via magic bytes).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ImageMediaType {
+    Jpeg,
+    Png,
+    Webp,
+    Gif,
+}
+
+impl ImageMediaType {
+    /// Detect image type from the first bytes of file data.
+    pub fn from_magic(bytes: &[u8]) -> Option<Self> {
+        if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) { return Some(Self::Jpeg); }
+        if bytes.starts_with(&[0x89, 0x50, 0x4E, 0x47]) { return Some(Self::Png); }
+        if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
+            return Some(Self::Webp);
+        }
+        if bytes.starts_with(b"GIF8") { return Some(Self::Gif); }
+        None
+    }
+
+    /// Return the canonical MIME type string.
+    pub fn as_mime_str(self) -> &'static str {
+        match self {
+            Self::Jpeg => "image/jpeg",
+            Self::Png  => "image/png",
+            Self::Webp => "image/webp",
+            Self::Gif  => "image/gif",
+        }
+    }
+}
+
+/// Source of image data for multimodal requests.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum ImageSource {
+    /// Base64-encoded image data with known media type.
+    Base64 { media_type: ImageMediaType, data: String },
+    /// A URL pointing to an image (not supported by all providers).
+    Url { url: String },
+    /// A local filesystem path (must be resolved before API use).
+    LocalPath { path: String },
+}
+
 /// A content block within a message.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
@@ -73,6 +116,12 @@ pub enum ContentBlock {
         content: String,
         is_error: bool,
     },
+    /// An image block (for vision-capable models).
+    #[serde(rename = "image")]
+    Image { source: ImageSource },
+    /// The result of audio transcription.
+    #[serde(rename = "audio_transcript")]
+    AudioTranscript { text: String, duration_secs: Option<f32>, confidence: Option<f32> },
 }
 
 /// Conversation role.

@@ -1,0 +1,130 @@
+{
+  "config": {
+    "configFile": "/Users/oscarvalois/Documents/Github/cuervo-cli/website/playwright.config.ts",
+    "rootDir": "/Users/oscarvalois/Documents/Github/cuervo-cli/website/tests/perf",
+    "forbidOnly": false,
+    "fullyParallel": false,
+    "globalSetup": "/Users/oscarvalois/Documents/Github/cuervo-cli/website/tests/global-setup.ts",
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {},
+    "preserveOutput": "always",
+    "projects": [
+      {
+        "outputDir": "/Users/oscarvalois/Documents/Github/cuervo-cli/website/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {},
+        "id": "",
+        "name": "",
+        "testDir": "/Users/oscarvalois/Documents/Github/cuervo-cli/website/tests/perf",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 90000
+      }
+    ],
+    "quiet": false,
+    "reporter": [
+      [
+        "list",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "tests/perf/results.json"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "runAgents": "none",
+    "shard": null,
+    "tags": [],
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.58.2",
+    "workers": 1,
+    "webServer": {
+      "command": "npx --yes serve ./tests/fixtures --listen 4399 --no-clipboard",
+      "port": 4399,
+      "reuseExistingServer": true,
+      "timeout": 20000
+    }
+  },
+  "suites": [
+    {
+      "title": "inject-css-tokens.spec.ts",
+      "file": "inject-css-tokens.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "injectCssTokens() performance",
+          "file": "inject-css-tokens.spec.ts",
+          "line": 33,
+          "column": 6,
+          "specs": [
+            {
+              "title": "p95 < 16ms — single-frame budget",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "c5886bb3842354a725d7-f6337d8109fd7649a859",
+              "file": "inject-css-tokens.spec.ts",
+              "line": 34,
+              "column": 3
+            },
+            {
+              "title": "CSS tokens are actually injected",
+              "ok": true,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 90000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "",
+                  "projectName": "",
+                  "results": [],
+                  "status": "skipped"
+                }
+              ],
+              "id": "c5886bb3842354a725d7-5deae116a970dfac9605",
+              "file": "inject-css-tokens.spec.ts",
+              "line": 79,
+              "column": 3
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2026-02-19T01:24:43.084Z",
+    "duration": 42.34400000000005,
+    "expected": 0,
+    "skipped": 2,
+    "unexpected": 0,
+    "flaky": 0
+  }
+}

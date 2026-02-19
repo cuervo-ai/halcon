@@ -194,6 +194,15 @@ pub fn estimate_message_tokens(msg: &ChatMessage) -> u32 {
                     estimate_tokens(&input.to_string()) as u32
                 }
                 ContentBlock::ToolResult { content, .. } => estimate_tokens(content) as u32,
+                ContentBlock::Image { source } => {
+                    use halcon_core::types::ImageSource;
+                    match source {
+                        ImageSource::Base64 { .. }    => 85 + 170, // 1-tile minimum
+                        ImageSource::Url { .. }       => 1_000,    // conservative estimate
+                        ImageSource::LocalPath { .. } => 1_000,
+                    }
+                }
+                ContentBlock::AudioTranscript { text, .. } => estimate_tokens(text) as u32,
             })
             .sum(),
     }

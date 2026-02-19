@@ -367,6 +367,8 @@ fn estimate_message_tokens(messages: &[ChatMessage]) -> u32 {
                     halcon_core::types::ContentBlock::ToolUse { input, .. } => {
                         serde_json::to_string(input).map(|s| s.len()).unwrap_or(0)
                     }
+                    halcon_core::types::ContentBlock::Image { .. } => 1024,
+                    halcon_core::types::ContentBlock::AudioTranscript { text, .. } => text.len(),
                 })
                 .sum(),
         })

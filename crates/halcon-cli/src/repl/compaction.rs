@@ -35,6 +35,10 @@ impl ContextCompactor {
                         halcon_core::types::ContentBlock::ToolResult { content, .. } => {
                             estimate_tokens(content)
                         }
+                        halcon_core::types::ContentBlock::Image { .. } => 255,
+                        halcon_core::types::ContentBlock::AudioTranscript { text, .. } => {
+                            estimate_tokens(text)
+                        }
                     })
                     .sum(),
             })
@@ -98,6 +102,10 @@ impl ContextCompactor {
                             } else {
                                 content.as_str()
                             }
+                        }
+                        halcon_core::types::ContentBlock::Image { .. } => "[image]",
+                        halcon_core::types::ContentBlock::AudioTranscript { text, .. } => {
+                            text.as_str()
                         }
                     })
                     .collect::<Vec<_>>()

@@ -140,6 +140,20 @@ impl GeminiProvider {
                                     },
                                 });
                             }
+                            ContentBlock::Image { source } => {
+                                use halcon_core::types::ImageSource;
+                                let desc = match source {
+                                    ImageSource::Base64 { media_type, .. } => format!("[Image: base64 {} data]", media_type.as_mime_str()),
+                                    ImageSource::Url { url } => format!("[Image URL: {url}]"),
+                                    ImageSource::LocalPath { path } => format!("[Local image: {path}]"),
+                                };
+                                parts.push(GeminiPart::Text { text: desc });
+                            }
+                            ContentBlock::AudioTranscript { text, .. } => {
+                                parts.push(GeminiPart::Text {
+                                    text: format!("[Audio transcript]: {text}"),
+                                });
+                            }
                         }
                     }
 
@@ -421,6 +435,8 @@ impl ModelProvider for GeminiProvider {
                         ContentBlock::ToolUse { input, .. } => {
                             crate::openai_compat::estimate_value_size(input)
                         }
+                        ContentBlock::Image { .. } => 1024,
+                        ContentBlock::AudioTranscript { text, .. } => text.len(),
                     })
                     .sum(),
             })

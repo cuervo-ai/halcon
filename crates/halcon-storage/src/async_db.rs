@@ -728,6 +728,73 @@ impl AsyncDatabase {
                 format!("spawn_blocking: {e}"),
             ))))?
     }
+
+    // ── Media Cache (M27) ────────────────────────────────────────────────────
+
+    /// Get a media analysis from the cache.
+    pub async fn get_media_cache(
+        &self,
+        content_hash: &str,
+    ) -> halcon_core::error::Result<Option<crate::media::MediaCacheEntry>> {
+        let db = self.inner.clone();
+        let hash = content_hash.to_owned();
+        tokio::task::spawn_blocking(move || db.get_media_cache(&hash))
+            .await
+            .map_err(|e| halcon_core::error::HalconError::Internal(format!("spawn_blocking: {e}")))?
+    }
+
+    /// Store a media analysis result in the cache.
+    pub async fn store_media_cache(
+        &self,
+        entry: &crate::media::MediaCacheEntry,
+    ) -> halcon_core::error::Result<()> {
+        let db = self.inner.clone();
+        let entry = entry.clone();
+        tokio::task::spawn_blocking(move || db.store_media_cache(&entry))
+            .await
+            .map_err(|e| halcon_core::error::HalconError::Internal(format!("spawn_blocking: {e}")))?
+    }
+
+    /// Evict expired media cache entries (older than TTL seconds).
+    pub async fn evict_expired_media_cache(
+        &self,
+        ttl_secs: u64,
+    ) -> halcon_core::error::Result<usize> {
+        let db = self.inner.clone();
+        tokio::task::spawn_blocking(move || db.evict_expired_media_cache(ttl_secs))
+            .await
+            .map_err(|e| halcon_core::error::HalconError::Internal(format!("spawn_blocking: {e}")))?
+    }
+
+    // ── Media Index (M28) ────────────────────────────────────────────────────
+
+    /// Store a media embedding in the index.
+    pub async fn store_media_index_entry(
+        &self,
+        entry: &crate::media::MediaIndexEntry,
+    ) -> halcon_core::error::Result<()> {
+        let db = self.inner.clone();
+        let entry = entry.clone();
+        tokio::task::spawn_blocking(move || db.store_media_index_entry(&entry))
+            .await
+            .map_err(|e| halcon_core::error::HalconError::Internal(format!("spawn_blocking: {e}")))?
+    }
+
+    /// Search media index by cosine similarity (linear scan, returns top-k).
+    pub async fn search_media_index(
+        &self,
+        query_embedding: Vec<f32>,
+        modality: Option<&str>,
+        top_k: usize,
+    ) -> halcon_core::error::Result<Vec<crate::media::MediaIndexEntry>> {
+        let db = self.inner.clone();
+        let modality = modality.map(|s| s.to_owned());
+        tokio::task::spawn_blocking(move || {
+            db.search_media_index(&query_embedding, modality.as_deref(), top_k)
+        })
+        .await
+        .map_err(|e| halcon_core::error::HalconError::Internal(format!("spawn_blocking: {e}")))?
+    }
 }
 
 #[cfg(test)]

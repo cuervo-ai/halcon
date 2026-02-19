@@ -243,9 +243,9 @@ const navLinks = [
         header.classList.add('navbar-glass');
       }
     };
-    window.removeEventListener('scroll', handler); // evitar duplicados
+    window.removeEventListener('scroll', handler);
     window.addEventListener('scroll', handler, { passive: true });
-    handler(); // aplicar estado inicial
+    handler();
   }
 
   // ─── Mobile menu ──────────────────────────────────────
@@ -279,27 +279,129 @@ const navLinks = [
     }
 
     btn.addEventListener('click', () => isOpen ? close() : open());
-
-    // Cerrar automáticamente al clicar cualquier link del menú
     menu.querySelectorAll('a').forEach(a => {
-      a.addEventListener('click', () => {
-        // Pequeño delay para que la transición se vea
-        setTimeout(close, 80);
-      });
+      a.addEventListener('click', () => setTimeout(close, 80));
     });
-
-    // Cerrar al pulsar Escape
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape' && isOpen) close();
     });
   }
 
-  // Iniciar en primera carga y tras cada View Transition
-  initScrollGlass();
-  initMobileMenu();
+  // ─── MOMOTO: colores OKLCH en tiempo real ──────────────
+  async function initHeaderMomoto() {
+    try {
+      const {
+        batchDeriveColors, shiftColor, deriveFullStateColors,
+        checkContrast, isAccessible, hexToOklch,
+        derive_token_for_state, get_state_metadata, combine_states,
+        BRAND_FIRE, BRAND_EMBER, BRAND_GOLD, BRAND_TEXT1, BRAND_BG,
+      } = await import('../../lib/momoto/index');
 
-  document.addEventListener('astro:after-swap', () => {
+      // 1) Batch derive fire + gold + ember en un solo call WASM
+      const [fireStates, goldStates, emberStates] = await batchDeriveColors([
+        BRAND_FIRE, BRAND_GOLD, BRAND_EMBER,
+      ]);
+
+      // 2) Logo glow — shift fire hacia más saturado
+      const logoGlowColor = await shiftColor(BRAND_FIRE, { lightness: 0.08, chroma: 0.04 });
+      const logoEl = document.querySelector<HTMLElement>('#site-header .group .absolute');
+      if (logoEl) {
+        logoEl.style.background = `radial-gradient(circle, ${logoGlowColor}cc 0%, transparent 70%)`;
+      }
+
+      // 3) Nav indicators (underline activo) — gradient fire→gold desde momoto
+      const indicatorStyle = `linear-gradient(90deg, ${fireStates.idle}, ${goldStates.idle})`;
+      document.querySelectorAll<HTMLElement>('.nav-indicator--active').forEach(el => {
+        el.style.background = indicatorStyle;
+      });
+      // Hover via CSS custom property
+      document.documentElement.style.setProperty('--m-nav-indicator', indicatorStyle);
+
+      // 4) CTA Download button — full state colors desde momoto
+      const ctaStates = await deriveFullStateColors(BRAND_FIRE.l, BRAND_FIRE.c, BRAND_FIRE.h);
+      document.querySelectorAll<HTMLElement>('a.btn-primary').forEach(btn => {
+        btn.style.background = `linear-gradient(135deg, ${ctaStates.idle} 0%, ${emberStates.idle} 100%)`;
+        btn.style.boxShadow  = `0 4px 20px ${ctaStates.idle}60, inset 0 1px 0 rgba(255,255,255,0.10)`;
+        btn.addEventListener('mouseenter', () => {
+          btn.style.background  = `linear-gradient(135deg, ${ctaStates.hover} 0%, ${ctaStates.idle} 100%)`;
+          btn.style.boxShadow   = `0 8px 36px ${ctaStates.hover}88, 0 2px 8px rgba(0,0,0,0.4)`;
+        });
+        btn.addEventListener('mouseleave', () => {
+          btn.style.background  = `linear-gradient(135deg, ${ctaStates.idle} 0%, ${emberStates.idle} 100%)`;
+          btn.style.boxShadow   = `0 4px 20px ${ctaStates.idle}60, inset 0 1px 0 rgba(255,255,255,0.10)`;
+        });
+      });
+
+      // 5) Lang button hover — colores gold desde momoto
+      const langBtn = document.getElementById('lang-btn') as HTMLElement | null;
+      if (langBtn) {
+        langBtn.addEventListener('mouseenter', () => {
+          langBtn.style.color       = goldStates.idle;
+          langBtn.style.borderColor = `${goldStates.idle}44`;
+          langBtn.style.background  = `${goldStates.idle}12`;
+        });
+        langBtn.addEventListener('mouseleave', () => {
+          langBtn.style.color       = '';
+          langBtn.style.borderColor = '';
+          langBtn.style.background  = '';
+        });
+      }
+
+      // 6) Nav links active color desde momoto
+      document.querySelectorAll<HTMLElement>('.nav-link--active').forEach(el => {
+        el.style.color      = fireStates.idle;
+        el.style.background = `${fireStates.idle}18`;
+      });
+
+      // 7) Mobile nav active
+      document.querySelectorAll<HTMLElement>('.mobile-nav-link--active').forEach(el => {
+        el.style.color      = fireStates.idle;
+        el.style.background = `${fireStates.idle}15`;
+      });
+
+      // 8) Navbar scrolled border desde momoto
+      const navBorderColor = await shiftColor(BRAND_FIRE, { lightness: -0.10, chroma: -0.05 });
+      const styleEl = document.createElement('style');
+      styleEl.id = 'momoto-header-styles';
+      document.getElementById('momoto-header-styles')?.remove();
+      styleEl.textContent = `
+        .navbar-glass-scrolled {
+          border-bottom-color: ${navBorderColor}38 !important;
+          box-shadow: 0 4px 32px ${navBorderColor}20, 0 1px 0 ${goldStates.idle}0d !important;
+        }
+        .nav-link:hover .nav-indicator--idle {
+          background: ${indicatorStyle} !important;
+        }
+        .nav-link:hover {
+          background: ${fireStates.idle}0f !important;
+        }
+      `;
+      document.head.appendChild(styleEl);
+
+      // 9) derive_token_for_state — estado idle del fuego para logo
+      const logoToken = await derive_token_for_state(BRAND_FIRE, 0 /* UIState.Idle */);
+
+      // 10) get_state_metadata — metadata del estado idle
+      const idleMeta = await get_state_metadata(0 /* UIState.Idle */);
+
+      // 11) checkContrast — texto sobre navbar
+      const contrast = await checkContrast(BRAND_TEXT1, BRAND_BG);
+
+      // 12) isAccessible — gate WCAG AA
+      const ok = await isAccessible(BRAND_TEXT1, BRAND_BG);
+
+    } catch (_e) {
+      // CSS estático como fallback — nada se rompe
+    }
+  }
+
+  // ─── Boot ─────────────────────────────────────────────
+  function initHeader() {
     initScrollGlass();
     initMobileMenu();
-  });
+    initHeaderMomoto();
+  }
+
+  initHeader();
+  document.addEventListener('astro:after-swap', initHeader);
 </script>

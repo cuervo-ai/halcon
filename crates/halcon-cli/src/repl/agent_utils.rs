@@ -48,6 +48,16 @@ pub fn compute_fingerprint(messages: &[ChatMessage]) -> String {
                             hasher.update(content.as_bytes());
                             hasher.update([*is_error as u8]);
                         }
+                        ContentBlock::Image { source } => {
+                            hasher.update(b"i");
+                            if let Ok(src_json) = serde_json::to_string(source) {
+                                hasher.update(src_json.as_bytes());
+                            }
+                        }
+                        ContentBlock::AudioTranscript { text, .. } => {
+                            hasher.update(b"a");
+                            hasher.update(text.as_bytes());
+                        }
                     }
                 }
             }

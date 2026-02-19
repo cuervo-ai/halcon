@@ -181,6 +181,8 @@ pub struct Repl {
     pub(crate) playbook_planner: playbook_planner::PlaybookPlanner,
     /// OS username for user context injection into system prompt (e.g. "oscarvalois").
     pub(crate) user_display_name: String,
+    /// Multimodal subsystem (image/audio/video analysis). Activated with `--full`.
+    pub(crate) multimodal: Option<std::sync::Arc<halcon_multimodal::MultimodalSubsystem>>,
     /// Control channel receiver from TUI (Phase 43). None in classic REPL mode.
     #[cfg(feature = "tui")]
     pub(crate) ctrl_rx: Option<tokio::sync::mpsc::UnboundedReceiver<crate::tui::events::ControlEvent>>,

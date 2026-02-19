@@ -127,6 +127,18 @@ impl OpenAICompatibleProvider {
                             } => {
                                 tool_results.push((tool_use_id.clone(), content.clone()));
                             }
+                            ContentBlock::Image { source } => {
+                                use halcon_core::types::ImageSource;
+                                let desc = match source {
+                                    ImageSource::Base64 { media_type, .. } => format!("[Image: base64 {} data]", media_type.as_mime_str()),
+                                    ImageSource::Url { url } => format!("[Image URL: {url}]"),
+                                    ImageSource::LocalPath { path } => format!("[Local image: {path}]"),
+                                };
+                                text_parts.push(desc);
+                            }
+                            ContentBlock::AudioTranscript { text, .. } => {
+                                text_parts.push(format!("[Audio transcript]: {text}"));
+                            }
                         }
                     }
 
@@ -347,6 +359,8 @@ impl OpenAICompatibleProvider {
                         ContentBlock::Text { text } => text.len(),
                         ContentBlock::ToolResult { content, .. } => content.len(),
                         ContentBlock::ToolUse { input, .. } => estimate_value_size(input),
+                        ContentBlock::Image { .. } => 1024,
+                        ContentBlock::AudioTranscript { text, .. } => text.len(),
                     })
                     .sum(),
             })

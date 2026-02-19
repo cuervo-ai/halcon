@@ -28,6 +28,8 @@ const MIGRATIONS: &[(u32, &str, &str)] = &[
     (24, "observability", MIGRATION_024),
     (25, "metrics_snapshots", MIGRATION_025),
     (26, "session_messages_compression", MIGRATION_026),
+    (27, "media_cache", MIGRATION_027),
+    (28, "media_index", MIGRATION_028),
 ];
 
 const MIGRATION_001: &str = r#"
@@ -996,6 +998,40 @@ const MIGRATION_026: &str = r#"
 ALTER TABLE sessions ADD COLUMN messages_compressed BLOB;
 "#;
 
+const MIGRATION_027: &str = r#"
+-- M27: media_cache — content-addressed analysis result cache
+CREATE TABLE IF NOT EXISTS media_cache (
+    content_hash   TEXT    PRIMARY KEY,
+    modality       TEXT    NOT NULL CHECK (modality IN ('image','audio','video')),
+    analysis_json  TEXT    NOT NULL,
+    tile_count     INTEGER NOT NULL DEFAULT 1,
+    token_estimate INTEGER NOT NULL DEFAULT 0,
+    created_at     TEXT    NOT NULL,
+    accessed_at    TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_media_cache_accessed ON media_cache(accessed_at);
+CREATE INDEX IF NOT EXISTS idx_media_cache_modality ON media_cache(modality);
+"#;
+
+const MIGRATION_028: &str = r#"
+-- M28: media_index — CLIP embedding store for cross-modal retrieval
+CREATE TABLE IF NOT EXISTS media_index (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    content_hash   TEXT    NOT NULL,
+    modality       TEXT    NOT NULL CHECK (modality IN ('image','audio','video')),
+    embedding_data BLOB    NOT NULL,
+    embedding_dim  INTEGER NOT NULL,
+    clip_start_secs REAL,
+    clip_end_secs   REAL,
+    session_id     TEXT,
+    source_path    TEXT,
+    created_at     TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_media_index_hash     ON media_index(content_hash);
+CREATE INDEX IF NOT EXISTS idx_media_index_modality ON media_index(modality);
+CREATE INDEX IF NOT EXISTS idx_media_index_session  ON media_index(session_id);
+"#;
+
 /// Run all pending migrations.
 pub fn run_migrations(conn: &Connection) -> Result<(), halcon_core::error::HalconError> {
     // Ensure migrations table exists
@@ -1050,7 +1086,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(version, 26);
+        assert_eq!(version, 28);
     }
 
     #[test]
@@ -1064,7 +1100,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(count, 26);
+        assert_eq!(count, 28);
     }
 
     #[test]

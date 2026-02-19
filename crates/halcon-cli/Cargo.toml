@@ -42,6 +42,7 @@ halcon-mcp = { workspace = true }
 halcon-runtime = { workspace = true }
 halcon-api = { workspace = true, features = ["server"] }
 halcon-search = { path = "../halcon-search" }
+halcon-multimodal = { workspace = true }
 
 async-trait = { workspace = true }
 clap = { workspace = true }

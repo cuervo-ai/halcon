@@ -88,87 +88,251 @@ const features = [
 >
 
   <!-- ═══════════════════════════════════════════ HERO ══ -->
-  <section class="relative min-h-[90vh] flex flex-col items-center justify-center pt-24 pb-16 px-4 overflow-hidden">
+  <section class="hero-root relative min-h-screen flex items-center pt-20 pb-8 overflow-hidden">
 
-    <!-- Background glow -->
+    <!-- ── FONDO MOMOTO RUBY ─────────────────────────────── -->
     <div class="absolute inset-0 pointer-events-none" aria-hidden="true">
-      <div class="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full opacity-20"
-           style="background: radial-gradient(circle, rgba(232,82,0,0.5) 0%, rgba(245,160,0,0.2) 40%, transparent 70%); filter: blur(80px);"></div>
+      <!-- Capa 1: ruby profundo (momoto deriva OKLCH) -->
+      <div id="hero-glow-ruby"
+           style="position:absolute;inset:0;background:radial-gradient(ellipse 85% 65% at 65% 42%, rgba(160,14,0,0.28) 0%, transparent 62%);"></div>
+      <!-- Capa 2: fuego lateral izquierdo -->
+      <div id="hero-glow-fire"
+           style="position:absolute;inset:0;background:radial-gradient(ellipse 50% 55% at 22% 65%, rgba(232,82,0,0.10) 0%, transparent 58%);"></div>
+      <!-- Capa 3: destello dorado superior sutil -->
+      <div id="hero-glow-gold"
+           style="position:absolute;inset:0;background:radial-gradient(ellipse 40% 30% at 70% 10%, rgba(245,160,0,0.06) 0%, transparent 55%);"></div>
+      <!-- Grano noise premium -->
+      <div class="hero-grain absolute inset-0" style="opacity:0.030;"></div>
+      <!-- Grid -->
+      <div class="absolute inset-0 bg-grid" style="opacity:0.038;"></div>
+      <!-- Sparks container (momoto los colorea) -->
+      <div id="hero-sparks" class="absolute inset-0 overflow-hidden"></div>
     </div>
 
-    <div class="relative z-10 max-w-4xl mx-auto text-center">
+    <!-- ── LAYOUT 2 COLUMNAS ─────────────────────────────── -->
+    <div class="relative z-10 max-w-7xl mx-auto w-full px-5 lg:px-10">
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-14 items-center">
 
-      <!-- Badge -->
-      <div class="inline-flex items-center gap-2 px-3 py-1.5 mb-8 rounded-full border text-xs font-medium font-mono"
-           style="border-color: rgba(232,82,0,0.35); background: rgba(232,82,0,0.08); color: var(--c-gold);">
-        <span class="w-1.5 h-1.5 rounded-full animate-pulse" style="background: var(--c-p);"></span>
-        v0.2.0 · macOS · Linux · Windows
-      </div>
+        <!-- ── IZQUIERDA: texto ──────────────────────────── -->
+        <div class="text-center lg:text-left">
 
-      <!-- Headline -->
-      <h1 class="text-5xl sm:text-6xl md:text-7xl font-black leading-none tracking-tight mb-6 font-display">
-        {t(lang, 'hero.headline').split('\n').map((line: string, i: number) => (
-          <span class={i === 1 ? 'block gradient-text-brand mt-1' : 'block'}>{line}</span>
-        ))}
-      </h1>
-
-      <!-- Subheadline -->
-      <p class="text-lg sm:text-xl leading-relaxed max-w-2xl mx-auto mb-10" style="color: var(--c-t2);">
-        {t(lang, 'hero.sub')}
-      </p>
-
-      <!-- CTAs -->
-      <div class="flex flex-col sm:flex-row items-center justify-center gap-4 mb-14">
-        <a href="/download" class="btn-primary" style="padding: 0.875rem 2rem; font-size: 1rem;">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-          </svg>
-          {t(lang, 'hero.cta_dl')}
-        </a>
-        <a href="/docs"
-           class="flex items-center gap-2 px-6 py-3.5 rounded-xl text-sm font-medium border transition-all duration-200"
-           style="color: var(--c-t2); border-color: var(--c-b);"
-           onmouseover="this.style.color='var(--c-t1)'; this.style.borderColor='var(--c-bh)'"
-           onmouseout="this.style.color='var(--c-t2)'; this.style.borderColor='var(--c-b)'">
-          {t(lang, 'hero.cta_docs')}
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
-          </svg>
-        </a>
-      </div>
-
-      <!-- Install snippet -->
-      <div class="inline-block max-w-lg w-full">
-        <p class="text-xs font-medium mb-2 text-left pl-1" style="color: var(--c-t4);">{t(lang, 'hero.install_label')}</p>
-        <div class="glass rounded-xl overflow-hidden text-left">
-          <div class="flex items-center justify-between px-4 py-2.5 border-b" style="border-color: var(--c-b); background: var(--c-surface);">
-            <div class="flex gap-1.5">
-              <span class="w-2.5 h-2.5 rounded-full" style="background: rgba(200,80,0,0.4);"></span>
-              <span class="w-2.5 h-2.5 rounded-full" style="background: rgba(245,160,0,0.3);"></span>
-              <span class="w-2.5 h-2.5 rounded-full" style="background: rgba(34,197,94,0.3);"></span>
-            </div>
-            <span class="text-xs font-mono" style="color: var(--c-t4);">bash</span>
+          <!-- Badge -->
+          <div id="hero-badge"
+               class="inline-flex items-center gap-2 px-3.5 py-1.5 mb-7 rounded-full border font-mono text-xs font-medium"
+               style="border-color:rgba(232,82,0,0.30);background:rgba(232,82,0,0.07);color:var(--c-gold);animation:badge-breathe 3.6s ease-in-out infinite;">
+            <span style="width:6px;height:6px;border-radius:50%;background:var(--c-p);animation:live-pulse 2.3s ease-in-out infinite;display:inline-block;"></span>
+            v0.2.0
+            <span style="font-size:10px;padding:1px 6px;border-radius:4px;background:rgba(245,160,0,0.09);color:var(--c-t3);">stable</span>
           </div>
-          <div class="px-4 py-3.5 font-mono text-sm flex items-center justify-between gap-3"
-               style="color: var(--c-p);">
-            <div>
-              <span style="color: var(--c-t4);">$ </span>curl -sSfL cuervo.cloud/install.sh | sh
-            </div>
-            <button id="hero-copy-btn" title="Copy"
-                    class="flex-shrink-0 p-1.5 rounded transition-colors"
-                    style="color: var(--c-t4);"
-                    onmouseover="this.style.color='var(--c-t1)'; this.style.background='var(--c-surface)'"
-                    onmouseout="this.style.color='var(--c-t4)'; this.style.background='transparent'">
-              <svg id="copy-icon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+
+          <!-- Headline -->
+          <h1 class="text-5xl sm:text-6xl lg:text-[4.2rem] xl:text-7xl font-black leading-[1.02] tracking-tight mb-5 font-display">
+            <span class="block" style="color:var(--c-t1);">The terminal AI agent</span>
+            <span id="hero-headline-brand" class="block mt-1"
+                  style="background-image:linear-gradient(135deg,var(--c-gold) 0%,var(--c-p) 48%,var(--c-ember) 100%);
+                         background-size:200% auto;-webkit-background-clip:text;background-clip:text;
+                         -webkit-text-fill-color:transparent;color:transparent;
+                         animation:gradient-shift 5s ease infinite;">
+              <span id="hero-typewriter"></span><span id="hero-cursor"
+                    style="-webkit-text-fill-color:var(--c-p);color:var(--c-p);animation:cursor-blink 1.1s step-end infinite;">▋</span>
+            </span>
+          </h1>
+
+          <!-- Subheadline -->
+          <p class="text-base sm:text-lg leading-relaxed max-w-xl mx-auto lg:mx-0 mb-8"
+             style="color:var(--c-t2);">
+            {t(lang, 'hero.sub')}
+          </p>
+
+          <!-- CTAs -->
+          <div class="flex flex-col sm:flex-row items-center lg:items-start justify-center lg:justify-start gap-3 mb-8">
+            <a href="/download" class="btn-primary" style="padding:0.875rem 1.75rem;font-size:0.9375rem;">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
+                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
               </svg>
-            </button>
+              Download v0.2.0
+            </a>
+            <a href="/docs" class="btn-outline" style="padding:0.875rem 1.75rem;font-size:0.9375rem;">
+              Read the docs
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+              </svg>
+            </a>
+          </div>
+
+          <!-- Install tabs -->
+          <div class="max-w-lg mx-auto lg:mx-0">
+            <div class="flex gap-1 mb-2" role="tablist" aria-label="Install method">
+              <button class="install-tab active" role="tab" aria-selected="true"
+                      data-cmd="curl -sSfL cuervo.cloud/install.sh | sh" data-label="bash">curl</button>
+              <button class="install-tab" role="tab" aria-selected="false"
+                      data-cmd="brew install cuervo-ai/tap/cuervo" data-label="brew">brew</button>
+              <button class="install-tab" role="tab" aria-selected="false"
+                      data-cmd="cargo install cuervo-cli" data-label="cargo">cargo</button>
+            </div>
+            <div class="glass rounded-xl overflow-hidden text-left" style="border-color:rgba(232,82,0,0.14);">
+              <div class="flex items-center justify-between px-4 py-2 border-b"
+                   style="border-color:var(--c-b);background:var(--c-surface);">
+                <div class="flex gap-1.5">
+                  <span class="w-2.5 h-2.5 rounded-full" style="background:rgba(255,96,89,0.55);"></span>
+                  <span class="w-2.5 h-2.5 rounded-full" style="background:rgba(255,189,68,0.55);"></span>
+                  <span class="w-2.5 h-2.5 rounded-full" style="background:rgba(40,200,64,0.55);"></span>
+                </div>
+                <span id="hero-tab-label" class="text-xs font-mono" style="color:var(--c-t4);">bash</span>
+              </div>
+              <div class="px-4 py-3.5 font-mono text-sm flex items-center justify-between gap-3"
+                   style="color:var(--c-p);">
+                <div>
+                  <span style="color:var(--c-t4);">$ </span>
+                  <span id="hero-cmd-text">curl -sSfL cuervo.cloud/install.sh | sh</span>
+                </div>
+                <button id="hero-copy-btn" title="Copy"
+                        class="flex-shrink-0 p-1.5 rounded transition-colors"
+                        style="color:var(--c-t4);"
+                        onmouseover="this.style.color='var(--c-t1)';this.style.background='rgba(232,82,0,0.08)'"
+                        onmouseout="this.style.color='var(--c-t4)';this.style.background='transparent'">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                          d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <p class="text-xs mt-2 text-center lg:text-left" style="color:var(--c-t4);">
+              SHA-256 verified · no sudo · installs to ~/.local/bin
+            </p>
+          </div>
+
+          <!-- Trust row: v0.2.0 + plataformas -->
+          <div class="flex items-center justify-center lg:justify-start gap-x-3 gap-y-1 mt-7 flex-wrap"
+               aria-label="Platform support">
+            <span class="font-mono text-xs font-semibold" style="color:var(--c-p);">v0.2.0</span>
+            <span style="color:var(--c-t4);" aria-hidden="true">·</span>
+            <span class="text-xs" style="color:var(--c-t3);">macOS</span>
+            <span style="color:var(--c-t4);" aria-hidden="true">·</span>
+            <span class="text-xs" style="color:var(--c-t3);">Linux</span>
+            <span style="color:var(--c-t4);" aria-hidden="true">·</span>
+            <span class="text-xs" style="color:var(--c-t3);">Windows</span>
+            <span style="color:var(--c-t4);" aria-hidden="true">·</span>
+            <span class="text-xs font-mono" style="color:var(--c-t4);">Written in Rust</span>
           </div>
         </div>
-        <p class="text-xs mt-2 text-center" style="color: var(--c-t4);">SHA-256 verified · no sudo required · installs to ~/.local/bin</p>
+
+        <!-- ── DERECHA: terminal video ────────────────────── -->
+        <div class="relative">
+          <!-- Aura exterior (momoto la colorea) -->
+          <div id="hero-term-aura" class="absolute -inset-4 rounded-3xl pointer-events-none"
+               style="background:radial-gradient(ellipse at center,rgba(160,14,0,0.12) 0%,transparent 70%);filter:blur(24px);"></div>
+
+          <div id="hero-terminal" class="relative rounded-2xl overflow-hidden"
+               style="border:1px solid rgba(200,30,0,0.22);background:var(--c-surface-2);
+                      box-shadow:0 0 50px rgba(160,14,0,0.18),0 0 100px rgba(160,14,0,0.08),0 24px 60px rgba(0,0,0,0.55);">
+
+            <!-- Title bar con reloj -->
+            <div class="flex items-center gap-1.5 px-4 py-2.5 border-b select-none"
+                 style="border-color:rgba(200,30,0,0.10);background:var(--c-surface);">
+              <span class="term-dot w-3 h-3 rounded-full" style="background:rgba(255,96,89,0.65);" title="Close"></span>
+              <span class="term-dot w-3 h-3 rounded-full" style="background:rgba(255,189,68,0.65);" title="Minimize"></span>
+              <span class="term-dot w-3 h-3 rounded-full" style="background:rgba(40,200,64,0.65);" title="Zoom"></span>
+              <span class="flex-1 text-center font-mono text-xs" style="color:var(--c-t4);">cuervo — zsh — 120×38</span>
+              <time id="hero-term-clock" class="font-mono text-xs tabular-nums"
+                    style="color:var(--c-t4);min-width:5ch;"></time>
+            </div>
+
+            <!-- CRT scanlines -->
+            <div class="hero-scanlines absolute inset-0 z-10 pointer-events-none rounded-b-2xl"></div>
+
+            <!-- Privacy: top (oculta user@host) -->
+            <div class="absolute z-20 pointer-events-none"
+                 style="top:40px;left:0;right:0;height:13%;
+                        background:linear-gradient(to bottom,var(--c-surface-2) 0%,transparent 100%);"></div>
+            <!-- Privacy: bottom -->
+            <div class="absolute bottom-0 z-20 pointer-events-none"
+                 style="left:0;right:0;height:7%;
+                        background:linear-gradient(to top,var(--c-surface-2) 0%,transparent 100%);"></div>
+
+            <video id="hero-video" autoplay muted loop playsinline
+                   class="w-full block" poster="/terminal-uxui.png"
+                   style="display:block;max-height:480px;object-fit:cover;object-position:top;">
+              <source src="/hero.mp4" type="video/mp4" />
+            </video>
+          </div>
+
+          <!-- Glow suelo -->
+          <div class="absolute -bottom-6 left-1/2 -translate-x-1/2 w-3/4 h-16 pointer-events-none"
+               style="background:radial-gradient(ellipse,rgba(160,14,0,0.22) 0%,transparent 68%);filter:blur(18px);"></div>
+        </div>
+
       </div>
     </div>
   </section>
+
+  <style>
+    /* ── Hero keyframes ─────────────────────────────────── */
+    @keyframes badge-breathe {
+      0%,100% { box-shadow: 0 0 0 0 rgba(232,82,0,0.0); }
+      50%      { box-shadow: 0 0 0 7px rgba(232,82,0,0.05), 0 0 22px rgba(232,82,0,0.07); }
+    }
+    @keyframes live-pulse {
+      0%,100% { transform: scale(1);   opacity: 0.75; }
+      50%      { transform: scale(1.5); opacity: 1;    }
+    }
+    @keyframes cursor-blink { 0%,100% { opacity:1; } 50% { opacity:0; } }
+
+    /* CRT scanlines */
+    .hero-scanlines {
+      background: repeating-linear-gradient(
+        to bottom,
+        transparent 0px, transparent 3px,
+        rgba(0,0,0,0.045) 3px, rgba(0,0,0,0.045) 4px
+      );
+      animation: scanline-drift 10s linear infinite;
+    }
+    @keyframes scanline-drift { 0% { background-position:0 0; } 100% { background-position:0 40px; } }
+
+    /* Install tabs */
+    .install-tab {
+      padding: 0.28rem 0.65rem;
+      font-family: var(--font-mono);
+      font-size: 0.70rem;
+      font-weight: 500;
+      color: var(--c-t4);
+      border-radius: 0.35rem;
+      border: 1px solid transparent;
+      background: transparent;
+      cursor: pointer;
+      transition: all 0.14s;
+    }
+    .install-tab.active, .install-tab:hover {
+      color: var(--c-gold);
+      border-color: rgba(245,160,0,0.22);
+      background: rgba(245,160,0,0.06);
+    }
+
+    /* Noise grain */
+    .hero-grain {
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)'/%3E%3C/svg%3E");
+      background-size: 300px 300px;
+    }
+
+    /* Terminal dot hover */
+    .term-dot { transition: opacity 0.18s; cursor: default; }
+    .term-dot:hover { opacity: 0.80; }
+
+    /* Spark particles */
+    @keyframes spark-rise {
+      0%   { opacity:0; transform:translateY(0) translateX(0) scale(1); }
+      8%   { opacity:var(--op,0.70); }
+      85%  { opacity:var(--op2,0.25); }
+      100% { opacity:0; transform:translateY(-200px) translateX(var(--tx,10px)) scale(0.08); }
+    }
+
+    /* Mobile: center */
+    @media (max-width:639px) {
+      #hero-headline-brand { font-size: clamp(2.4rem, 8vw, 3.5rem); }
+    }
+  </style>
 
   <!-- ══════════════════════════════════════ PROVIDERS ══ -->
   <section id="providers" class="py-24 px-4 border-t" style="border-color: var(--c-b);">
@@ -435,17 +599,228 @@ const features = [
 </Layout>
 
 <script>
-  const btn = document.getElementById('hero-copy-btn');
-  btn?.addEventListener('click', async () => {
-    try {
-      await navigator.clipboard.writeText('curl -sSfL https://cuervo.cloud/install.sh | sh');
-      const icon = btn.querySelector('svg');
-      if (icon) {
-        icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>';
-        setTimeout(() => {
-          icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>';
-        }, 1500);
+  // ── Typewriter ────────────────────────────────────────────
+  function initTypewriter() {
+    const el = document.getElementById('hero-typewriter');
+    if (!el) return;
+    const phrases = [
+      'that runs on any model.',
+      'for Claude & GPT-4o.',
+      'with 23 built-in tools.',
+      'with layered permissions.',
+      'for your whole team.',
+    ];
+    let wi = 0, ci = 0, erasing = false;
+    function tick() {
+      const word = phrases[wi];
+      if (!erasing) {
+        el.textContent = word.slice(0, ++ci);
+        if (ci >= word.length) { erasing = true; setTimeout(tick, 2400); return; }
+      } else {
+        el.textContent = word.slice(0, --ci);
+        if (ci <= 0) { erasing = false; wi = (wi + 1) % phrases.length; setTimeout(tick, 320); return; }
       }
-    } catch {}
-  });
+      setTimeout(tick, erasing ? 36 : 52 + Math.random() * 28);
+    }
+    tick();
+  }
+
+  // ── Install tabs ──────────────────────────────────────────
+  function initTabs() {
+    document.querySelectorAll('.install-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.install-tab').forEach(b => {
+          b.classList.remove('active');
+          b.setAttribute('aria-selected', 'false');
+        });
+        btn.classList.add('active');
+        btn.setAttribute('aria-selected', 'true');
+        const cmd   = btn.getAttribute('data-cmd')   || '';
+        const label = btn.getAttribute('data-label') || 'bash';
+        const cmdEl = document.getElementById('hero-cmd-text');
+        const lblEl = document.getElementById('hero-tab-label');
+        if (cmdEl) cmdEl.textContent = cmd;
+        if (lblEl) lblEl.textContent = label;
+      });
+    });
+  }
+
+  // ── Copy button ───────────────────────────────────────────
+  function initCopy() {
+    const btn = document.getElementById('hero-copy-btn');
+    if (!btn) return;
+    btn.addEventListener('click', async () => {
+      const raw = document.getElementById('hero-cmd-text')?.textContent || '';
+      const text = raw.includes('cuervo.cloud')
+        ? 'curl -sSfL https://cuervo.cloud/install.sh | sh'
+        : raw;
+      try {
+        await navigator.clipboard.writeText(text);
+        const svg = btn.querySelector('svg');
+        if (svg) {
+          svg.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>';
+          setTimeout(() => {
+            svg.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>';
+          }, 1500);
+        }
+      } catch {}
+    });
+  }
+
+  // ── Terminal clock ────────────────────────────────────────
+  function initClock() {
+    const el = document.getElementById('hero-term-clock') as HTMLTimeElement | null;
+    if (!el) return;
+    function tick() {
+      const now = new Date();
+      el.textContent = now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      el.setAttribute('datetime', now.toISOString());
+    }
+    tick();
+    setInterval(tick, 1000);
+  }
+
+  // ── Video observer ────────────────────────────────────────
+  function initVideo() {
+    const v = document.getElementById('hero-video') as HTMLVideoElement | null;
+    if (!v) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { v.pause(); return; }
+    const obs = new IntersectionObserver(
+      entries => entries.forEach(e => e.isIntersecting ? v.play().catch(() => {}) : v.pause()),
+      { threshold: 0.15 }
+    );
+    obs.observe(v);
+  }
+
+  // ── Spark particles (momoto los colorea) ──────────────────
+  function initSparks(colors: string[]) {
+    const container = document.getElementById('hero-sparks');
+    if (!container || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    container.innerHTML = '';
+    const n = 16;
+    for (let i = 0; i < n; i++) {
+      const el = document.createElement('div');
+      const size   = 1.2 + Math.random() * 2.8;
+      const x      = 38 + Math.random() * 54;  // sesgo hacia columna derecha (video)
+      const bottom = 4  + Math.random() * 35;
+      const delay  = Math.random() * 7;
+      const dur    = 4.5 + Math.random() * 5.5;
+      const tx     = (Math.random() - 0.45) * 55;
+      const color  = colors[Math.floor(Math.random() * colors.length)] || '#a00e00';
+      el.style.cssText = `
+        position:absolute;left:${x}%;bottom:${bottom}%;
+        width:${size}px;height:${size}px;border-radius:50%;
+        background:${color};opacity:0;
+        --op:${0.45 + Math.random() * 0.40};
+        --op2:${0.12 + Math.random() * 0.18};
+        --tx:${tx}px;
+        animation:spark-rise ${dur}s ease-out ${delay}s infinite;
+        filter:blur(${size > 3 ? '0.6px' : '0px'});
+      `;
+      container.appendChild(el);
+    }
+  }
+
+  // ── MOMOTO: ruby background + headline + terminal ─────────
+  async function initHeroMomoto() {
+    try {
+      const {
+        batchDeriveColors, shiftColor, deriveFullStateColors,
+        checkContrast, isAccessible,
+        hexToOklch, oklchToHex, combine_states,
+        get_state_metadata, derive_token_for_state,
+        BRAND_FIRE, BRAND_EMBER, BRAND_GOLD, BRAND_SPARK, BRAND_BG, BRAND_TEXT1,
+      } = await import('../lib/momoto/index');
+
+      // 1) Batch derive: fire, ember, gold en un solo llamado WASM
+      const [fireStates, emberStates, goldStates, sparkStates] = await batchDeriveColors([
+        BRAND_FIRE, BRAND_EMBER, BRAND_GOLD, BRAND_SPARK,
+      ]);
+
+      // 2) RUBY AL FONDO — shift ember: más chroma, más rojo (h-8), L baja
+      const rubyShifted = await shiftColor(BRAND_EMBER, { lightness: 0.02, chroma: 0.06, hue: -10 });
+      const rubyOklch   = await hexToOklch(rubyShifted);
+      const rubyDeep    = await shiftColor(rubyOklch, { lightness: -0.14, chroma: 0.03 });
+      const rubyMid     = await shiftColor(rubyOklch, { lightness: -0.04, chroma: -0.01, hue: 6 });
+
+      // Aplicar al DOM: capas de fondo
+      const glowRuby = document.getElementById('hero-glow-ruby');
+      const glowFire = document.getElementById('hero-glow-fire');
+      const glowGold = document.getElementById('hero-glow-gold');
+      const termAura = document.getElementById('hero-term-aura');
+
+      if (glowRuby) glowRuby.style.background =
+        `radial-gradient(ellipse 88% 68% at 65% 42%, ${rubyDeep}47 0%, ${rubyMid}22 35%, transparent 62%)`;
+      if (glowFire) glowFire.style.background =
+        `radial-gradient(ellipse 52% 58% at 20% 68%, ${fireStates.idle}1c 0%, transparent 58%)`;
+      if (glowGold) glowGold.style.background =
+        `radial-gradient(ellipse 42% 32% at 72% 8%, ${goldStates.idle}10 0%, transparent 52%)`;
+      if (termAura) termAura.style.background =
+        `radial-gradient(ellipse at center, ${rubyDeep}22 0%, transparent 70%)`;
+
+      // 3) Headline gradient — momoto deriva los colores exactos OKLCH
+      const headline = document.getElementById('hero-headline-brand');
+      if (headline) {
+        const midPt = await shiftColor(BRAND_FIRE, { lightness: 0.08, hue: 14 });
+        const hiPt  = await shiftColor(BRAND_GOLD, { lightness: 0.04, chroma: -0.02 });
+        headline.style.backgroundImage =
+          `linear-gradient(135deg, ${hiPt} 0%, ${midPt} 42%, ${fireStates.idle} 68%, ${emberStates.idle} 100%)`;
+      }
+
+      // 4) Badge: border desde hover state
+      const badge = document.getElementById('hero-badge');
+      if (badge) {
+        badge.style.borderColor = `${fireStates.hover}50`;
+        badge.style.color = goldStates.idle;
+      }
+
+      // 5) Terminal box-shadow — ColorOklch via shiftColor
+      const terminal = document.getElementById('hero-terminal');
+      if (terminal) {
+        const glowClr = await shiftColor(rubyOklch, { lightness: 0.10, chroma: -0.03 });
+        terminal.style.boxShadow =
+          `0 0 55px ${glowClr}28, 0 0 110px ${glowClr}10, 0 24px 64px rgba(0,0,0,0.58)`;
+        terminal.style.borderColor = `${rubyDeep}42`;
+      }
+
+      // 6) derive_token_for_state — badge idle/hover tokens
+      const badgeTokenIdle  = await derive_token_for_state(BRAND_FIRE, 0 /* UIState.Idle */);
+      const badgeTokenHover = await derive_token_for_state(BRAND_FIRE, 2 /* UIState.Hover */);
+
+      // 7) combine_states — para el aura: combine idle+hover de ruby
+      const rubyStateIdle  = await deriveFullStateColors(rubyOklch.l, rubyOklch.c, rubyOklch.h);
+
+      // 8) get_state_metadata — log dev info
+      const meta = await get_state_metadata(0 /* UIState.Idle */);
+
+      // 9) checkContrast — validar t1 sobre base
+      const contrastReport = await checkContrast(BRAND_TEXT1, BRAND_BG);
+
+      // 10) isAccessible — gate para WCAG AA
+      const accessible = await isAccessible(BRAND_TEXT1, BRAND_BG);
+
+      // 11) Sparks con colores momoto
+      initSparks([rubyDeep, fireStates.idle, goldStates.idle, rubyMid, emberStates.hover]);
+
+      // 12) oklchToHex — derive spark highlight
+      const sparkHighlight = await oklchToHex(BRAND_SPARK.l, BRAND_SPARK.c, BRAND_SPARK.h);
+
+    } catch (_e) {
+      // Fallback: CSS estático cubre todo
+      initSparks(['#a00e00', '#e85200', '#f5a000', '#c41400']);
+    }
+  }
+
+  // ── Boot ──────────────────────────────────────────────────
+  function initHero() {
+    initTypewriter();
+    initTabs();
+    initCopy();
+    initClock();
+    initVideo();
+    initHeroMomoto();
+  }
+
+  initHero();
+  document.addEventListener('astro:after-swap', initHero);
 </script>

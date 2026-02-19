@@ -1,0 +1,4 @@
+[submodule "vendor/momoto-ui"]
+	path = vendor/momoto-ui
+	url = https://github.com/cuervo-ai/momoto-ui.git
+	branch = main

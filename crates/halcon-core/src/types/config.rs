@@ -271,6 +271,60 @@ pub fn validate_config(config: &AppConfig) -> Vec<ConfigIssue> {
     issues
 }
 
+/// Configuration for the multimodal subsystem.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MultimodalConfig {
+    /// Enable multimodal processing (default: false).
+    pub enabled: bool,
+    /// Routing mode: "api", "local", or "hybrid" (default: "hybrid").
+    pub mode: String,
+    /// Maximum file size in bytes (default: 20 MB).
+    pub max_file_size_bytes: u64,
+    /// Files smaller than this go to local inference when available (default: 2 MB).
+    pub local_threshold_bytes: u64,
+    /// Strip EXIF metadata before upload (default: true).
+    pub strip_exif: bool,
+    /// Reject local file paths in strict privacy mode (default: false).
+    pub privacy_strict: bool,
+    /// Maximum audio duration in seconds (default: 300).
+    pub max_audio_duration_secs: u32,
+    /// Maximum video duration in seconds (default: 60).
+    pub max_video_duration_secs: u32,
+    /// Video sampling rate in frames per second (default: 1).
+    pub video_sample_fps: u32,
+    /// Maximum number of video frames to extract (default: 10).
+    pub max_video_frames: u32,
+    /// Enable content-addressed caching (default: true).
+    pub cache_enabled: bool,
+    /// Cache TTL in seconds (default: 3600).
+    pub cache_ttl_secs: u64,
+    /// Directory containing ONNX model files (optional).
+    pub models_dir: Option<String>,
+    /// API call timeout in milliseconds (default: 30000).
+    pub api_timeout_ms: u64,
+}
+
+impl Default for MultimodalConfig {
+    fn default() -> Self {
+        Self {
+            enabled:                 false,
+            mode:                    "hybrid".to_string(),
+            max_file_size_bytes:     20 * 1024 * 1024,
+            local_threshold_bytes:   2 * 1024 * 1024,
+            strip_exif:              true,
+            privacy_strict:          false,
+            max_audio_duration_secs: 300,
+            max_video_duration_secs: 60,
+            video_sample_fps:        1,
+            max_video_frames:        10,
+            cache_enabled:           true,
+            cache_ttl_secs:          3600,
+            models_dir:              None,
+            api_timeout_ms:          30_000,
+        }
+    }
+}
+
 /// Top-level application configuration.
 ///
 /// Layered loading order: defaults → global (~/.halcon/config.toml) → project (.halcon/config.toml) → env vars.
@@ -310,6 +364,9 @@ pub struct AppConfig {
     pub search: SearchConfig,
     #[serde(default)]
     pub reasoning: ReasoningConfig,
+    /// Multimodal subsystem configuration.
+    #[serde(default)]
+    pub multimodal: MultimodalConfig,
 }
 
 /// Adaptive reasoning and UCB1 strategy learning configuration.

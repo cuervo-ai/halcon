@@ -33,6 +33,14 @@ pub enum ApiMessageContent {
     Blocks(Vec<ApiContentBlock>),
 }
 
+/// Image source for Anthropic's API format.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ApiImageSource {
+    Base64 { media_type: String, data: String },
+    Url { url: String },
+}
+
 /// A content block within an API message.
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "type")]
@@ -52,6 +60,8 @@ pub enum ApiContentBlock {
         #[serde(skip_serializing_if = "std::ops::Not::not")]
         is_error: bool,
     },
+    #[serde(rename = "image")]
+    Image { source: ApiImageSource },
 }
 
 /// Tool definition sent to the API.
