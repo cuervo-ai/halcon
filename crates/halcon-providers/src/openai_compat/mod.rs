@@ -22,7 +22,8 @@ use halcon_core::types::{
 
 use crate::http;
 use types::{
-    OpenAIChatMessage, OpenAIChatRequest, OpenAIFunctionDef, OpenAIMessageContent, OpenAISseChunk,
+    OpenAIChatMessage, OpenAIChatRequest, OpenAIContentPart, OpenAIFunctionDef,
+    OpenAIImageUrl, OpenAIMessageContent, OpenAISseChunk,
     OpenAITool, OpenAIToolCall, OpenAIFunctionCall, StreamOptions,
 };
 
@@ -99,8 +100,9 @@ impl OpenAICompatibleProvider {
                     });
                 }
                 MessageContent::Blocks(blocks) => {
-                    // Separate text, tool_use, and tool_result blocks.
-                    let mut text_parts = Vec::new();
+                    // Separate text, vision, tool_use, and tool_result blocks.
+                    let mut text_parts: Vec<String> = Vec::new();
+                    let mut image_parts: Vec<OpenAIContentPart> = Vec::new();
                     let mut tool_calls = Vec::new();
                     let mut tool_results = Vec::new();
 
@@ -129,14 +131,41 @@ impl OpenAICompatibleProvider {
                             }
                             ContentBlock::Image { source } => {
                                 use halcon_core::types::ImageSource;
-                                let desc = match source {
-                                    ImageSource::Base64 { media_type, .. } => format!("[Image: base64 {} data]", media_type.as_mime_str()),
-                                    ImageSource::Url { url } => format!("[Image URL: {url}]"),
-                                    ImageSource::LocalPath { path } => format!("[Local image: {path}]"),
-                                };
-                                text_parts.push(desc);
+                                match source {
+                                    ImageSource::Base64 { media_type, data } => {
+                                        // Real OpenAI Vision API format: data URI
+                                        let data_uri = format!(
+                                            "data:{};base64,{}",
+                                            media_type.as_mime_str(),
+                                            data
+                                        );
+                                        image_parts.push(OpenAIContentPart::ImageUrl {
+                                            image_url: OpenAIImageUrl {
+                                                url: data_uri,
+                                                detail: Some("auto".into()),
+                                            },
+                                        });
+                                    }
+                                    ImageSource::Url { url } => {
+                                        image_parts.push(OpenAIContentPart::ImageUrl {
+                                            image_url: OpenAIImageUrl {
+                                                url: url.clone(),
+                                                detail: Some("auto".into()),
+                                            },
+                                        });
+                                    }
+                                    ImageSource::LocalPath { path } => {
+                                        // Local paths must never reach an external API.
+                                        // Log a security warning and skip.
+                                        tracing::warn!(
+                                            path = %path,
+                                            "LocalPath image blocked from API transmission (security guard)"
+                                        );
+                                    }
+                                }
                             }
                             ContentBlock::AudioTranscript { text, .. } => {
+                                // Audio transcripts are included as text context.
                                 text_parts.push(format!("[Audio transcript]: {text}"));
                             }
                         }
@@ -153,6 +182,21 @@ impl OpenAICompatibleProvider {
                             role: "assistant".into(),
                             content,
                             tool_calls: Some(tool_calls),
+                            tool_call_id: None,
+                        });
+                    } else if !image_parts.is_empty() {
+                        // Vision message: combine text and image parts.
+                        let mut parts: Vec<OpenAIContentPart> = image_parts;
+                        if !text_parts.is_empty() {
+                            // Text comes after images (matches OpenAI convention).
+                            parts.push(OpenAIContentPart::Text {
+                                text: text_parts.join("\n"),
+                            });
+                        }
+                        messages.push(OpenAIChatMessage {
+                            role: role.into(),
+                            content: Some(OpenAIMessageContent::Parts(parts)),
+                            tool_calls: None,
                             tool_call_id: None,
                         });
                     } else if !text_parts.is_empty() {

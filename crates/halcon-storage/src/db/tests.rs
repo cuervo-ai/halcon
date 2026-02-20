@@ -236,6 +236,7 @@ use halcon_core::types::{DomainEvent, EventPayload, Session, TokenUsage};
             goal: "Fix the bug".into(),
             steps: vec![
                 halcon_core::traits::PlanStep {
+                    step_id: uuid::Uuid::new_v4(),
                     description: "Read the file".into(),
                     tool_name: Some("read_file".into()),
                     parallel: false,
@@ -244,6 +245,7 @@ use halcon_core::types::{DomainEvent, EventPayload, Session, TokenUsage};
                     outcome: None,
                 },
                 halcon_core::traits::PlanStep {
+                    step_id: uuid::Uuid::new_v4(),
                     description: "Edit the file".into(),
                     tool_name: Some("edit_file".into()),
                     parallel: false,
@@ -322,6 +324,7 @@ use halcon_core::types::{DomainEvent, EventPayload, Session, TokenUsage};
         let original = halcon_core::traits::ExecutionPlan {
             goal: "Original goal".into(),
             steps: vec![halcon_core::traits::PlanStep {
+                step_id: uuid::Uuid::new_v4(),
                 description: "Step A".into(),
                 tool_name: None,
                 parallel: false,
@@ -338,6 +341,7 @@ use halcon_core::types::{DomainEvent, EventPayload, Session, TokenUsage};
         let replan = halcon_core::traits::ExecutionPlan {
             goal: "Replanned goal".into(),
             steps: vec![halcon_core::traits::PlanStep {
+                step_id: uuid::Uuid::new_v4(),
                 description: "Step B (replan)".into(),
                 tool_name: Some("bash".into()),
                 parallel: false,

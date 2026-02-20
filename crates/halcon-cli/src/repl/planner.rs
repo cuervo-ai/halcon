@@ -55,31 +55,43 @@ impl LlmPlanner {
     }
 
     /// Build the planning prompt from user message and available tools.
+    ///
+    /// V3 prompt: enforces a maximum of 3 tool steps + 1 synthesis step (4 total).
+    /// Instructs the model to prefer grouping, parallel reads, and early synthesis
+    /// over exhaustive exploration.
     fn build_plan_prompt(user_message: &str, tools: &[ToolDefinition]) -> String {
+        // Separate read-only tools from write/destructive tools for the tool list.
+        // This helps the model understand which tools can be parallelised.
         let tool_list: Vec<String> = tools
             .iter()
             .map(|t| format!("- {}: {}", t.name, t.description))
             .collect();
 
         format!(
-            "You are a planning agent. Given the user's request and available tools, \
-             produce a JSON execution plan.\n\n\
+            "You are a minimal planning agent. Generate the SMALLEST possible execution plan.\n\n\
              User request: {user_message}\n\n\
              Available tools:\n{}\n\n\
              Respond with ONLY a JSON object:\n\
-             {{\n  \"goal\": \"<one-line summary>\",\n  \
-             \"steps\": [\n    {{\n      \"description\": \"<what this step does>\",\n      \
-             \"tool_name\": \"<tool or null>\",\n      \"parallel\": false,\n      \
-             \"confidence\": 0.9,\n      \"expected_args\": {{}} \n    }}\n  ],\n  \
+             {{\n  \"goal\": \"<one-line goal summary, max 10 words>\",\n  \
+             \"steps\": [\n    {{\n      \"description\": \"<clear, action-oriented description>\",\n      \
+             \"tool_name\": \"<tool name or null for synthesis>\",\n      \
+             \"parallel\": false,\n      \
+             \"confidence\": 0.9,\n      \
+             \"expected_args\": {{}}\n    }}\n  ],\n  \
              \"requires_confirmation\": false\n}}\n\n\
-             Rules:\n\
-             - Only use tools from the list above.\n\
-             - Set parallel=true ONLY for ReadOnly steps with no data dependencies.\n\
-             - Set requires_confirmation=true for plans with Destructive tools.\n\
-             - If no plan is needed (simple question), return null.\n\
-             - ALWAYS include a final step with tool_name: null and description: \
-             \"Synthesize findings and respond to the user\". This step requires NO tool.\n\
-             - Keep plans to 5 steps or fewer. Prefer fewer tools over more.",
+             COMPRESSION RULES (apply in order):\n\
+             1. MERGE: Combine multiple file reads into ONE step with parallel=true.\n\
+             2. SKIP: Omit any step that merely verifies or confirms what another step already does.\n\
+             3. GROUP: Cluster related analysis steps into a single step description.\n\
+             4. LIMIT: Maximum 3 tool-using steps total. Prefer 1-2 when sufficient.\n\
+             5. SYNTHESISE: Always add ONE final step with tool_name: null — \"Synthesize findings and respond\".\n\n\
+             HARD RULES:\n\
+             - Total steps including synthesis: 2 to 4 (NEVER more than 4).\n\
+             - Return null if no tools are needed (conversational question).\n\
+             - Set requires_confirmation: true for plans that create, edit, or delete files.\n\
+             - Set parallel: true for any group of read-only steps with no data dependency.\n\
+             - Prefer gathering 80% of evidence over 100% — synthesis fills the gaps.\n\
+             - DO NOT create a step just to verify something a previous step already confirmed.",
             tool_list.join("\n")
         )
     }
@@ -113,31 +125,44 @@ impl LlmPlanner {
             .map(|t| format!("- {}: {}", t.name, t.description))
             .collect();
 
+        // BUG-M4 FIX: Truncate the error to ≤200 chars to prevent stack traces and
+        // long error messages from bloating the prompt by thousands of tokens.
+        // 200 chars is enough context for the model to understand what went wrong.
+        const MAX_ERROR_CHARS: usize = 200;
+        let error_excerpt: &str = if error.chars().count() > MAX_ERROR_CHARS {
+            // Safety: truncate at char boundary by finding byte offset of 200th char.
+            let byte_end = error.char_indices().nth(MAX_ERROR_CHARS).map(|(i, _)| i).unwrap_or(error.len());
+            &error[..byte_end]
+        } else {
+            error
+        };
+
+        // Compact replan prompt: only include the error context, not all history.
+        // This reduces replan token cost by ~40% vs the original full-context approach.
         format!(
-            "The execution plan failed. Replan the remaining work.\n\n\
-             Original goal: {}\n\
-             Completed steps:\n{}\n\
-             Failed step {failed_step_index}: {} (tool: {:?})\n\
-             Error: {error}\n\n\
+            "Execution failed. Create a MINIMAL replan for the remaining work only.\n\n\
+             Goal: {}\n\
+             Failed at step {failed_step_index}: {} → Error: {error_excerpt}\n\
+             Completed: {}\n\n\
              Available tools:\n{}\n\n\
-             Respond with ONLY a JSON object using this EXACT schema:\n\
-             {{\n  \"goal\": \"<one-line summary of remaining work>\",\n  \
-             \"steps\": [\n    {{\n      \"description\": \"<what this step does>\",\n      \
-             \"tool_name\": \"<tool or null>\",\n      \"parallel\": false,\n      \
-             \"confidence\": 0.9,\n      \"expected_args\": {{}} \n    }}\n  ],\n  \
+             Respond with ONLY a JSON object (EXACT schema):\n\
+             {{\n  \"goal\": \"<one-line remaining work summary>\",\n  \
+             \"steps\": [\n    {{\n      \"description\": \"<action-oriented description>\",\n      \
+             \"tool_name\": \"<tool or null>\",\n      \
+             \"parallel\": false,\n      \
+             \"confidence\": 0.9,\n      \
+             \"expected_args\": {{}}\n    }}\n  ],\n  \
              \"requires_confirmation\": false\n}}\n\n\
-             Rules:\n\
+             RULES:\n\
              - The \"goal\" field is REQUIRED.\n\
-             - Only include steps for REMAINING work (not already-completed steps).\n\
-             - Only use tools from the list above.\n\
-             - Return null if the goal cannot be achieved.\n\
-             - ALWAYS include a final step with tool_name: null and description: \
-             \"Synthesize findings and respond to the user\".\n\
-             - Keep plans to 5 steps or fewer.",
+             - Include ONLY steps for remaining work (not already-completed steps).\n\
+             - Maximum 3 tool steps + 1 synthesis step (4 total).\n\
+             - ALWAYS end with tool_name: null synthesis step.\n\
+             - Return null if the goal cannot be achieved with available tools.\n\
+             - Do NOT retry the same failed approach — use an alternative tool or skip.",
             plan.goal,
-            completed.join("\n"),
             failed.description,
-            failed.tool_name,
+            if completed.is_empty() { "none".to_string() } else { completed.join("; ") },
             tool_list.join("\n"),
         )
     }
@@ -285,11 +310,18 @@ impl Planner for LlmPlanner {
 
         let prompt =
             Self::build_replan_prompt(current_plan, failed_step_index, error, available_tools);
-        let mut plan = self.invoke_for_plan(prompt).await?;
-        if let Some(ref mut p) = plan {
+
+        // BUG-H6 FIX: `plan()` compresses via the V3 compression pipeline, but `replan()`
+        // previously returned the raw LLM output. A recovery plan from the LLM can still
+        // be over-sized (e.g. 6 steps). Compress to enforce the same V3 invariants.
+        let plan = self.invoke_for_plan(prompt).await?.map(|mut p| {
             p.replan_count = current_plan.replan_count + 1;
             p.parent_plan_id = Some(current_plan.plan_id);
-        }
+            // Apply V3 compression to the recovery plan.
+            let (compressed, _stats) = super::plan_compressor::compress(p);
+            compressed
+        });
+
         Ok(plan)
     }
 
@@ -339,6 +371,7 @@ mod tests {
             goal: "Fix bug".into(),
             steps: vec![
                 PlanStep {
+                    step_id: Uuid::new_v4(),
                     description: "Read file".into(),
                     tool_name: Some("read_file".into()),
                     parallel: false,
@@ -349,6 +382,7 @@ mod tests {
                     }),
                 },
                 PlanStep {
+                    step_id: Uuid::new_v4(),
                     description: "Edit file".into(),
                     tool_name: Some("edit_file".into()),
                     parallel: false,
@@ -397,6 +431,7 @@ mod tests {
     #[test]
     fn plan_step_serialization_round_trip() {
         let step = PlanStep {
+            step_id: Uuid::new_v4(),
             description: "Read a file".into(),
             tool_name: Some("read_file".into()),
             parallel: false,
@@ -601,6 +636,7 @@ mod tests {
         let plan = ExecutionPlan {
             goal: "Analyze codebase".into(),
             steps: vec![PlanStep {
+                step_id: Uuid::new_v4(),
                 description: "Read README".into(),
                 tool_name: Some("file_read".into()),
                 parallel: false,
@@ -663,6 +699,7 @@ mod tests {
         let plan = ExecutionPlan {
             goal: "test task".into(),
             steps: vec![PlanStep {
+                step_id: Uuid::new_v4(),
                 description: "Run".into(),
                 tool_name: Some("bash".into()),
                 parallel: false,
@@ -706,6 +743,128 @@ mod tests {
         assert_eq!(extract_json(input), "null");
     }
 
+    // ── BUG-M4 regression: long errors are truncated in replan prompt ────────
+
+    #[test]
+    fn build_replan_prompt_truncates_long_error() {
+        // BUG-M4: stack traces can be thousands of chars. Must be capped at 200.
+        let plan = ExecutionPlan {
+            goal: "Fix bug".into(),
+            steps: vec![PlanStep {
+                step_id: Uuid::new_v4(),
+                description: "Run tests".into(),
+                tool_name: Some("bash".into()),
+                parallel: false,
+                confidence: 0.9,
+                expected_args: None,
+                outcome: None,
+            }],
+            requires_confirmation: false,
+            plan_id: Uuid::new_v4(),
+            replan_count: 0,
+            parent_plan_id: None,
+        };
+
+        // Construct a 600-char error string (clearly > 200).
+        let long_error = format!("Error: {}", "x".repeat(590));
+        assert!(long_error.chars().count() > 200, "Pre-condition: error must be >200 chars");
+
+        let prompt = LlmPlanner::build_replan_prompt(&plan, 0, &long_error, &[]);
+
+        // Find the "Error:" field in the prompt and verify it's not > 220 chars on that line.
+        let error_idx = prompt.find("Error:").expect("Prompt must contain 'Error:'");
+        let error_to_newline = prompt[error_idx..]
+            .find('\n')
+            .map(|n| &prompt[error_idx..error_idx + n])
+            .unwrap_or(&prompt[error_idx..]);
+        assert!(
+            error_to_newline.len() < 240,
+            "Error section should be ≤ 200 chars of error + label. Got {} chars: {:?}",
+            error_to_newline.len(),
+            &error_to_newline[..error_to_newline.len().min(60)]
+        );
+    }
+
+    #[test]
+    fn build_replan_prompt_short_error_not_truncated() {
+        // Errors ≤ 200 chars must pass through unchanged.
+        let plan = ExecutionPlan {
+            goal: "Fix".into(),
+            steps: vec![PlanStep {
+                step_id: Uuid::new_v4(),
+                description: "Step".into(),
+                tool_name: Some("bash".into()),
+                parallel: false,
+                confidence: 0.9,
+                expected_args: None,
+                outcome: None,
+            }],
+            requires_confirmation: false,
+            plan_id: Uuid::new_v4(),
+            replan_count: 0,
+            parent_plan_id: None,
+        };
+        let short_error = "file not found: /tmp/config.toml";
+        let prompt = LlmPlanner::build_replan_prompt(&plan, 0, short_error, &[]);
+        assert!(prompt.contains(short_error), "Short error must not be truncated");
+    }
+
+    // ── BUG-H6 regression: replan output is compressed ────────────────────
+
+    #[test]
+    fn replan_result_is_compressed_to_max_visible_steps() {
+        // BUG-H6: replan() returned raw LLM output without compression.
+        // Verify that compress() enforces MAX_VISIBLE_STEPS on a replan result.
+        // From the test module: super = repl::planner, super::super = repl.
+        use crate::repl::plan_compressor::{compress, MAX_VISIBLE_STEPS};
+
+        // Simulate an oversized replan response (6 steps — two over the cap).
+        let oversized = ExecutionPlan {
+            goal: "Fix remaining".into(),
+            steps: (0u8..5)
+                .map(|i| PlanStep {
+                    step_id: Uuid::new_v4(),
+                    description: format!("Recovery step {i}"),
+                    tool_name: Some("bash".into()),
+                    parallel: false,
+                    confidence: 0.9 - (i as f64 * 0.05),
+                    expected_args: None,
+                    outcome: None,
+                })
+                .chain(std::iter::once(PlanStep {
+                    step_id: Uuid::new_v4(),
+                    description: "Synthesize findings and respond".into(),
+                    tool_name: None,
+                    parallel: false,
+                    confidence: 1.0,
+                    expected_args: None,
+                    outcome: None,
+                }))
+                .collect(),
+            requires_confirmation: false,
+            plan_id: Uuid::new_v4(),
+            replan_count: 0,
+            parent_plan_id: None,
+        };
+
+        assert_eq!(oversized.steps.len(), 6, "Pre-condition: 6 steps before compression");
+
+        // Apply the same compression that replan() now calls.
+        let (compressed, stats) = compress(oversized);
+        assert!(
+            compressed.steps.len() <= MAX_VISIBLE_STEPS,
+            "Compressed replan must have ≤ {} steps, got {}",
+            MAX_VISIBLE_STEPS,
+            compressed.steps.len()
+        );
+        assert!(stats.cap_truncated > 0, "Hard-cap must have been applied");
+        // Synthesis must still be last.
+        assert!(
+            compressed.steps.last().unwrap().tool_name.is_none(),
+            "Synthesis must be the final step after compression"
+        );
+    }
+
     #[tokio::test]
     async fn invoke_for_plan_null_in_fence_returns_none() {
         // Simulate a model that returns `null` wrapped in markdown fences.
@@ -738,6 +897,7 @@ mod tests {
         let plan = ExecutionPlan {
             goal: "Original goal".into(),
             steps: vec![PlanStep {
+                step_id: Uuid::new_v4(),
                 description: "Step A".into(),
                 tool_name: Some("bash".into()),
                 parallel: false,

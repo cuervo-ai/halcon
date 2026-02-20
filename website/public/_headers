@@ -5,7 +5,23 @@
   Referrer-Policy: strict-origin-when-cross-origin
   Permissions-Policy: camera=(), microphone=(), geolocation=()
   Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
-  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://releases.cli.cuervo.cloud; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests
+  Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; img-src 'self' data: https:; connect-src 'self' https://releases.cli.cuervo.cloud; font-src 'self' https://fonts.gstatic.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; worker-src 'self' blob:; upgrade-insecure-requests
+
+/*.wasm
+  Content-Type: application/wasm
+  Cache-Control: public, max-age=31536000, immutable
+
+/sim/*.js
+  Content-Type: text/javascript; charset=utf-8
+  Cache-Control: public, max-age=86400, stale-while-revalidate=604800
+
+# IT3: Material Lab preload hints — signals browser to fetch WASM + 4 sim JS
+# files in parallel with page JS parse (reduces LCP latency on /materials)
+/materials
+  Link: </momoto_ui_core_bg.wasm>; rel=preload; as=fetch; crossorigin, </sim/fire-sim.js>; rel=modulepreload, </sim/fluid-sim.js>; rel=modulepreload, </sim/cloth-sim.js>; rel=modulepreload, </sim/molten-sim.js>; rel=modulepreload
+
+/materials/
+  Link: </momoto_ui_core_bg.wasm>; rel=preload; as=fetch; crossorigin, </sim/fire-sim.js>; rel=modulepreload, </sim/fluid-sim.js>; rel=modulepreload, </sim/cloth-sim.js>; rel=modulepreload, </sim/molten-sim.js>; rel=modulepreload
 
 /install.sh
   Content-Type: text/x-shellscript; charset=utf-8

@@ -6,8 +6,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use crate::error::{McpError, McpResult};
 use crate::transport::StdioTransport;
 use crate::types::{
-    CallToolResult, InitializeResult, JsonRpcRequest, McpToolDefinition, ToolResultContent,
-    CLIENT_NAME, PROTOCOL_VERSION,
+    CallToolResult, InitializeResult, JsonRpcNotification, JsonRpcRequest, McpToolDefinition,
+    ToolResultContent, CLIENT_NAME, PROTOCOL_VERSION,
 };
 
 /// An MCP Host connected to a single MCP server.
@@ -81,13 +81,14 @@ impl McpHost {
 
         self.server_info = Some(result);
 
-        // Send initialized notification (no response expected, but we send it).
-        let notif = JsonRpcRequest {
-            jsonrpc: "2.0".into(),
-            id: self.next_request_id(),
-            method: "notifications/initialized".into(),
-            params: None,
-        };
+        // Send initialized notification (no response expected).
+        //
+        // P1-A fix: use JsonRpcNotification (no `id` field) instead of
+        // JsonRpcRequest (which always includes `id`).  Sending a notification
+        // with an `id` violates JSON-RPC 2.0 §4 and causes strict MCP servers
+        // to log "Unknown method: notifications/initialized" because they
+        // treat it as an unrecognised request.
+        let notif = JsonRpcNotification::new("notifications/initialized");
         // Best-effort: don't fail if notification send fails.
         let _ = self.transport.send(&notif).await;
 

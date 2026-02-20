@@ -36,6 +36,18 @@ impl ToolFailureTracker {
             "unknown_tool".to_string()
         } else if lower.contains("denied by task context") {
             "tbac_denied".to_string()
+        } else if lower.contains("mcp pool call failed")
+            || lower.contains("failed to call")
+            || lower.contains("mcp server is not initialized")
+            || (lower.contains("mcp") && lower.contains("not initialized"))
+            || lower.contains("process start")
+        {
+            // MCP environment errors share a single pattern so the circuit breaker
+            // trips after 3 MCP failures regardless of which server method fails.
+            // NOTE: "not initialized" alone is intentionally NOT matched here — it is
+            // too broad and would misclassify non-MCP errors such as
+            // "Configuration not initialized" or "Database not initialized".
+            "mcp_unavailable".to_string()
         } else {
             // Use first 80 chars as a generic key for unclassified errors.
             lower.chars().take(80).collect()
@@ -68,6 +80,24 @@ impl ToolFailureTracker {
         self.failures.get(&key).copied().unwrap_or(0)
     }
 
+    /// Reset the circuit breaker for a specific tool (all error patterns).
+    ///
+    /// Called when the root cause of repeated failures is confirmed resolved — e.g.,
+    /// the operator granted missing permissions, a file was created, or an MCP server
+    /// was restarted.  Without this, a once-tripped tool stays tripped for the entire
+    /// session even if the environment recovers.
+    pub(crate) fn reset_tool(&mut self, tool_name: &str) {
+        self.failures.retain(|(tool, _), _| tool != tool_name);
+    }
+
+    /// Reset all circuit breakers (wipes every tool's failure history).
+    ///
+    /// Called at the start of a fresh retry attempt or when the overall environment
+    /// is confirmed stable (e.g., all MCP servers reconnected successfully).
+    pub(crate) fn reset_all(&mut self) {
+        self.failures.clear();
+    }
+
     /// Get all tripped tool names for directive injection.
     pub(crate) fn tripped_tools(&self) -> Vec<String> {
         let mut tools: Vec<String> = self
@@ -79,5 +109,139 @@ impl ToolFailureTracker {
         tools.sort();
         tools.dedup();
         tools
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── Basic circuit breaker ──────────────────────────────────────────────
+
+    #[test]
+    fn trips_after_threshold() {
+        let mut t = ToolFailureTracker::new(3);
+        assert!(!t.record("bash", "permission denied"));
+        assert!(!t.record("bash", "permission denied"));
+        assert!(t.record("bash", "permission denied")); // 3rd — trips
+        assert!(t.is_tripped("bash", "permission denied"));
+    }
+
+    #[test]
+    fn does_not_trip_below_threshold() {
+        let mut t = ToolFailureTracker::new(3);
+        t.record("bash", "permission denied");
+        t.record("bash", "permission denied");
+        assert!(!t.is_tripped("bash", "permission denied"));
+    }
+
+    // ── MCP pattern classification ─────────────────────────────────────────
+
+    #[test]
+    fn mcp_pool_call_failed_classified_as_mcp_unavailable() {
+        assert_eq!(
+            ToolFailureTracker::error_pattern("MCP pool call failed: connection refused"),
+            "mcp_unavailable"
+        );
+    }
+
+    #[test]
+    fn mcp_server_is_not_initialized_classified_correctly() {
+        assert_eq!(
+            ToolFailureTracker::error_pattern("mcp server is not initialized"),
+            "mcp_unavailable"
+        );
+    }
+
+    #[test]
+    fn mcp_prefix_plus_not_initialized_classified_correctly() {
+        assert_eq!(
+            ToolFailureTracker::error_pattern("MCP transport not initialized"),
+            "mcp_unavailable"
+        );
+    }
+
+    #[test]
+    fn non_mcp_not_initialized_does_not_classify_as_mcp() {
+        // Regression: "Configuration not initialized" must NOT be classified as MCP.
+        let pat = ToolFailureTracker::error_pattern("Configuration not initialized");
+        assert_ne!(
+            pat, "mcp_unavailable",
+            "non-MCP 'not initialized' must not map to mcp_unavailable"
+        );
+    }
+
+    #[test]
+    fn database_not_initialized_does_not_classify_as_mcp() {
+        let pat = ToolFailureTracker::error_pattern("Database not initialized");
+        assert_ne!(pat, "mcp_unavailable");
+    }
+
+    // ── reset_tool ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn reset_tool_clears_all_patterns_for_that_tool() {
+        let mut t = ToolFailureTracker::new(2);
+        t.record("bash", "permission denied");
+        t.record("bash", "permission denied"); // tripped
+        t.record("bash", "not found");
+        assert!(t.is_tripped("bash", "permission denied"));
+
+        t.reset_tool("bash");
+
+        assert!(!t.is_tripped("bash", "permission denied"), "should be reset");
+        assert_eq!(t.failure_count("bash", "not found"), 0, "all patterns cleared");
+    }
+
+    #[test]
+    fn reset_tool_does_not_affect_other_tools() {
+        let mut t = ToolFailureTracker::new(2);
+        t.record("bash", "permission denied");
+        t.record("bash", "permission denied"); // tripped
+        t.record("grep", "permission denied");
+        t.record("grep", "permission denied"); // also tripped
+
+        t.reset_tool("bash");
+
+        assert!(!t.is_tripped("bash", "permission denied"), "bash reset");
+        assert!(t.is_tripped("grep", "permission denied"), "grep unchanged");
+    }
+
+    #[test]
+    fn reset_tool_on_unknown_tool_is_noop() {
+        let mut t = ToolFailureTracker::new(2);
+        t.record("bash", "permission denied");
+        t.reset_tool("unknown_tool"); // must not panic or corrupt state
+        assert_eq!(t.failure_count("bash", "permission denied"), 1);
+    }
+
+    // ── reset_all ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn reset_all_clears_every_tool() {
+        let mut t = ToolFailureTracker::new(2);
+        t.record("bash", "permission denied");
+        t.record("bash", "permission denied");
+        t.record("grep", "not found");
+        t.record("grep", "not found");
+        assert!(t.is_tripped("bash", "permission denied"));
+        assert!(t.is_tripped("grep", "not found"));
+
+        t.reset_all();
+
+        assert!(!t.is_tripped("bash", "permission denied"), "bash reset");
+        assert!(!t.is_tripped("grep", "not found"), "grep reset");
+        assert!(t.tripped_tools().is_empty(), "no tripped tools after reset_all");
+    }
+
+    #[test]
+    fn tripped_tools_empty_after_reset_all() {
+        let mut t = ToolFailureTracker::new(1);
+        t.record("tool_a", "error");
+        t.record("tool_b", "error");
+        assert_eq!(t.tripped_tools().len(), 2);
+
+        t.reset_all();
+        assert!(t.tripped_tools().is_empty());
     }
 }

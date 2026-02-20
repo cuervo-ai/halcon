@@ -180,6 +180,7 @@ mod tests {
             default_max_retries: 2,
             default_retry_base_ms: 500,
             resume_on_startup: false,
+            strict_enforcement: false,
         }
     }
 
@@ -188,6 +189,7 @@ mod tests {
             goal: "Fix the bug".into(),
             steps: vec![
                 PlanStep {
+                    step_id: Uuid::new_v4(),
                     description: "Read file".into(),
                     tool_name: Some("file_read".into()),
                     parallel: false,
@@ -196,6 +198,7 @@ mod tests {
                     outcome: None,
                 },
                 PlanStep {
+                    step_id: Uuid::new_v4(),
                     description: "Edit file".into(),
                     tool_name: Some("file_edit".into()),
                     parallel: false,
@@ -274,6 +277,7 @@ mod tests {
             default_max_retries: 5,
             default_retry_base_ms: 1000,
             resume_on_startup: true,
+            strict_enforcement: false,
         };
         let json = serde_json::to_string(&config).unwrap();
         let back: TaskFrameworkConfig = serde_json::from_str(&json).unwrap();

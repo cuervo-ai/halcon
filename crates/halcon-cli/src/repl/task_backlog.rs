@@ -373,6 +373,7 @@ mod tests {
             goal: "Test goal".into(),
             steps: vec![
                 halcon_core::traits::PlanStep {
+                    step_id: uuid::Uuid::new_v4(),
                     description: "Step 1".into(),
                     tool_name: Some("file_read".into()),
                     parallel: false,
@@ -381,6 +382,7 @@ mod tests {
                     outcome: None,
                 },
                 halcon_core::traits::PlanStep {
+                    step_id: uuid::Uuid::new_v4(),
                     description: "Step 2".into(),
                     tool_name: Some("bash".into()),
                     parallel: false,

@@ -9,7 +9,9 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
-  # Build without color-science feature (requires local momoto crates)
+  # CI builds without color-science (momoto-* crates are local path deps unavailable in CI).
+  # color-science tests run conditionally when vendor/momoto-ui submodule is initialized.
+  # See Makefile: `make build-ci` / `make test` for the --no-default-features equivalents.
   CARGO_FEATURES: "--no-default-features"
 
 jobs:
@@ -18,11 +20,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: false  # Do not fetch momoto-ui; color-science not needed for check
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
-      - name: Check
+      - name: Check (no color-science)
         run: cargo check --workspace ${{ env.CARGO_FEATURES }}
 
   test:
@@ -33,21 +37,66 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: false
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - name: Run tests
+      - name: Run tests (no color-science)
         run: cargo test --workspace ${{ env.CARGO_FEATURES }}
+
+  # Optional job: runs color-science tests when the momoto-ui submodule is available.
+  # This job does NOT gate the PR — it is informational and may be skipped.
+  # To force it locally: `git submodule update --init vendor/momoto-ui && make test-color-science`
+  test-color-science:
+    name: Test color-science (submodule)
+    runs-on: ubuntu-latest
+    continue-on-error: true  # Non-gating: submodule may not be accessible in forks
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check momoto-ui submodule presence
+        id: submodule_check
+        run: |
+          if [ -f "vendor/momoto-ui/momoto/crates/momoto-core/Cargo.toml" ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+            echo "✅ momoto-ui submodule available — running color-science tests"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "⚠️  momoto-ui submodule not present — skipping color-science tests"
+          fi
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.submodule_check.outputs.present == 'true'
+
+      - uses: Swatinem/rust-cache@v2
+        if: steps.submodule_check.outputs.present == 'true'
+
+      - name: Test color-science (halcon-cli only)
+        if: steps.submodule_check.outputs.present == 'true'
+        run: |
+          cargo test -p halcon-cli --features "color-science,tui" --lib 2>&1 | tail -20
+
+      - name: Report strict perceptual distance (informational)
+        if: steps.submodule_check.outputs.present == 'true'
+        run: |
+          cargo test -p halcon-cli --features "color-science,tui" --lib \
+            strict_perceptual_distance_reporting -- --nocapture 2>&1 || true
 
   clippy:
     name: Clippy
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - name: Clippy
+      - name: Clippy (no color-science)
         run: cargo clippy --workspace ${{ env.CARGO_FEATURES }} -- -D warnings
 
   fmt:
@@ -74,17 +123,65 @@ jobs:
             target: aarch64-apple-darwin
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: false
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
-      - name: Build release
+      - name: Build release (no color-science)
         run: cargo build --release --target ${{ matrix.target }} -p halcon-cli ${{ env.CARGO_FEATURES }}
       - name: Upload binary
         uses: actions/upload-artifact@v4
         with:
           name: halcon-${{ matrix.target }}
           path: target/${{ matrix.target }}/release/halcon
+
+  # ── Website build check (all branches, PRs) ────────────────────────────────
+  build-website:
+    name: Build Website
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: website
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: website/package-lock.json
+      - name: Install deps
+        run: npm ci
+      - name: Build Astro (static)
+        run: npm run build
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: website-dist
+          path: website/dist
+          retention-days: 3
+
+  # ── Cloudflare Pages deploy (main only) ─────────────────────────────────────
+  deploy-website:
+    name: Deploy Website → Cloudflare Pages
+    needs: [check, test, clippy, fmt, build-website]
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Download dist artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: website-dist
+          path: website/dist
+      - name: Deploy via Wrangler
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy dist --project-name=halcon-website
+          workingDirectory: website
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}

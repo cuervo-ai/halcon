@@ -342,7 +342,7 @@ cuervo-cli/
 | **Echo** | Debug/testing | ✅ | ❌ | ❌ |
 | **Replay** | Reproducción de trazas | ✅ | ❌ | ❌ |
 
-### Herramientas Disponibles (23 tools)
+### Herramientas Disponibles (23 herramientas nativas + 33 de plugins)
 | Herramienta | Descripción | Permisos |
 |-------------|-------------|----------|
 | `file_read` | Lectura de archivos | ReadOnly |
@@ -368,6 +368,60 @@ cuervo-cli/
 | `background_start` | Procesos en segundo plano | Destructive |
 | `background_output` | Salida de procesos | ReadOnly |
 | `background_kill` | Terminar procesos | Destructive |
+
+### 🔌 Ecosistema de Plugins (7 plugins — 33 herramientas adicionales)
+
+Los plugins extienden HALCON con herramientas especializadas sin modificar el core. Se instalan en `~/.halcon/plugins/` y se registran automáticamente en cada sesión.
+
+| Plugin | Categoría | Herramientas | Descripción |
+|--------|-----------|-------------|-------------|
+| `halcon-dev-sentinel` | Seguridad | 4 | Análisis de seguridad: secretos, dependencias, SAST, OWASP |
+| `halcon-dependency-auditor` | Seguridad | 4 | Auditoría de dependencias Rust/Node.js, licencias, CVE |
+| `halcon-ui-inspector` | Frontend | 5 | Inspección de componentes UI, accesibilidad, rendimiento |
+| `halcon-perf-analyzer` | Frontend | 5 | Análisis de bundles, lazy loading, recursos bloqueantes, imágenes |
+| `halcon-api-sculptor` | Backend | 5 | Análisis de APIs REST, contratos OpenAPI, seguridad de endpoints |
+| `halcon-schema-oracle` | Backend | 5 | Análisis de esquemas DB, migraciones, índices, patrones SQL |
+| `halcon-otel-tracer` | Arquitectura | 5 | Cobertura de trazado, inventario de métricas, logging estructurado |
+
+**Instalar plugins de ejemplo:**
+```bash
+# Los plugins se activan copiando el .plugin.toml a ~/.halcon/plugins/
+ls ~/.halcon/plugins/*.plugin.toml
+
+# Usar herramientas de plugin directamente (el LLM las invoca automáticamente)
+halcon chat "analiza la observabilidad de este proyecto"
+# → invoca plugin_halcon_otel_tracer_observability_health_report
+
+halcon chat "revisa el schema de la base de datos"
+# → invoca plugin_halcon_schema_oracle_schema_health_report
+```
+
+**Formato de manifest de plugin (`~/.halcon/plugins/<id>.plugin.toml`):**
+```toml
+[meta]
+id       = "mi-plugin"
+name     = "Mi Plugin"
+version  = "1.0.0"
+category = "backend"
+
+[meta.transport]
+type    = "stdio"
+command = "/path/to/plugin.py"
+args    = []
+
+[[capabilities]]
+name                   = "plugin_mi_plugin_mi_herramienta"
+description            = "Descripción de la herramienta para el LLM"
+risk_tier              = "low"
+idempotent             = true
+permission_level       = "read_only"
+budget_tokens_per_call = 600
+
+[supervisor_policy]
+halt_on_failures           = 3
+reward_weight              = 1.0
+requires_explicit_approval = false
+```
 
 ## 🔧 Configuración
 
@@ -513,19 +567,24 @@ python tests/interactive/run_pty_tests.py
 
 ## 📊 Roadmap
 
-### Fase Actual (Q1 2026)
+### Fase Actual (Q1 2026) — COMPLETO
 - [x] CLI básico con REPL interactivo
 - [x] Soporte multi-proveedor (Anthropic, Ollama, OpenAI)
-- [x] Sistema de herramientas básicas
+- [x] Sistema de herramientas nativas (23 herramientas)
 - [x] Almacenamiento persistente con SQLite
 - [x] Sistema de memoria semántica
-- [x] Integración MCP básica
+- [x] Integración MCP nativa
+- [x] **Sistema de plugins V3** — 7 plugins, 33 herramientas especializadas
+- [x] **SOTA meta-cognición** — UCB1, ReasoningEngine, LoopCritic, RoundScorer
+- [x] **TUI multi-panel** con tema fire/amber adaptativo
+- [x] **Multimodal** — análisis de imágenes y audio
 
 ### Próximas Fases
 - [ ] Fine-tuning integrado (Q2 2026)
+- [ ] Plugin sandbox WASM (Extism) para plugins de terceros (Q2 2026)
 - [ ] Orquestación multi-agente avanzada (Q3 2026)
 - [ ] Marketplace de extensiones (Q4 2026)
-- [ ] Cuervo Cloud (auto-hosting gestionado) (2027)
+- [ ] Halcon Cloud (auto-hosting gestionado) (2027)
 - [ ] SDK para desarrolladores (2027)
 
 ## 🤝 Contribuir

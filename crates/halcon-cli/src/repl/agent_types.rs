@@ -22,6 +22,42 @@ pub enum StopCondition {
     ProviderError,
     /// Tool loop guard forced tool withdrawal / synthesis.
     ForcedSynthesis,
+    /// The tool environment (MCP servers / external resources) is persistently unavailable.
+    ///
+    /// Fires when the ToolFailureTracker circuit breaker trips on `mcp_unavailable` patterns
+    /// for every MCP tool in the active batch. Continuing to loop or replan would burn rounds
+    /// against a dead environment — halting immediately gives the UCB1 reward pipeline a clean
+    /// `0.0` signal so the strategy that dispatched MCP tools gets penalized appropriately.
+    EnvironmentError,
+    /// Session USD cost exceeded `AgentLimits.max_cost_usd` before the next round.
+    ///
+    /// Treated identically to `TokenBudget` by the evaluator/reward pipeline (score 0.3):
+    /// the agent produced useful output but ran out of budget before achieving full convergence.
+    CostBudget,
+    /// `SafeEditManager` blocked a file modification because it exceeded `RiskTier::High/Critical`
+    /// and autonomous approval is not enabled.
+    ///
+    /// Score 0.3: the agent performed useful work and produced a valid diff, but governance
+    /// blocked the write. UCB1 gets a partial-credit signal (same tier as CostBudget) so the
+    /// strategy that generated the blocked edit is mildly penalized — not zeroed.
+    SupervisorDenied,
+}
+
+/// Compact critic verdict stored in AgentLoopResult.
+///
+/// Carries the full LoopCritic signal through to mod.rs for the Critic→Retry feedback loop.
+/// The `retry_instruction` field is what actually drives Phase 1.2 in-session retries —
+/// without it the retry had no content and defaulted to a generic message.
+#[derive(Debug, Clone)]
+pub struct CriticVerdictSummary {
+    /// Whether the critic considers the goal achieved.
+    pub achieved: bool,
+    /// Critic's confidence in its verdict (0.0–1.0).
+    pub confidence: f32,
+    /// Specific gaps the critic identified (used in retry instruction).
+    pub gaps: Vec<String>,
+    /// Instruction for the retry invocation. None if critic has no specific guidance.
+    pub retry_instruction: Option<String>,
 }
 
 /// Result of an agent loop execution.
@@ -47,4 +83,64 @@ pub struct AgentLoopResult {
     pub timeline_json: Option<String>,
     /// Returned control channel receiver (Phase 43). Returned so TUI can reuse across messages.
     pub ctrl_rx: Option<ControlReceiver>,
+    /// LoopCritic verdict (Phase 1.2): full structured summary including retry_instruction.
+    /// None when critic was skipped (no plan execution or critic timed out).
+    /// Used by mod.rs for actual in-session retry via reasoning_engine.should_retry().
+    pub critic_verdict: Option<CriticVerdictSummary>,
+    /// Per-round evaluation snapshots from RoundScorer (Phase 2).
+    ///
+    /// Each entry scores one tool-execution round on 8 dimensions (progress, tool efficiency,
+    /// token efficiency, coherence, anomaly flags). Empty when no tool rounds occurred.
+    /// Used by mod.rs post_loop() to compute a richer UCB1 reward signal.
+    pub round_evaluations: Vec<super::round_scorer::RoundEvaluation>,
+    /// Plan completion ratio at loop end (completed_steps / total_steps), clamped to [0, 1].
+    /// Zero when no execution plan was active this session.
+    pub plan_completion_ratio: f32,
+    /// Average semantic drift of all replanned plans from the original goal [0, 1].
+    ///
+    /// Computed as `cumulative_drift_score / drift_replan_count`. Zero when no replanning
+    /// occurred. Fed into `reward_pipeline::RawRewardSignals.plan_coherence_score` so the
+    /// coherence component of the multi-signal reward degrades when the model drifts from
+    /// the original user intent during structural replanning.
+    pub avg_plan_drift: f32,
+    /// Tool-loop oscillation intensity for this session [0, 1].
+    ///
+    /// Derived from `ToolLoopGuard.consecutive_rounds()` as a fraction of the force
+    /// threshold (8 consecutive tool rounds = 1.0 maximum). Fed into
+    /// `reward_pipeline::RawRewardSignals.oscillation_penalty` so the trajectory
+    /// component of the multi-signal reward is discounted when the model loops without
+    /// making progress.
+    pub oscillation_penalty: f32,
+    /// The model ID used in the final (or most recent) agent round.
+    ///
+    /// Populated so `mod.rs` can call `ModelSelector::record_outcome()` with the
+    /// unified reward-pipeline reward instead of the coarse stop-condition mapping
+    /// that was previously computed inside `agent.rs`.  `None` for early-exit paths
+    /// where no model invocation occurred.
+    pub last_model_used: Option<String>,
+    /// Per-plugin cost attribution from this agent loop.
+    ///
+    /// Populated from `PluginRegistry::cost_snapshot()` after loop completion.
+    /// Empty when no plugins were active (all existing tests, non-plugin sessions).
+    /// Used by `mod.rs` to apply `plugin_adjusted_reward()` in the UCB1 feedback path.
+    pub plugin_cost_snapshot: Vec<super::plugin_cost_tracker::PluginCostSnapshot>,
+}
+
+/// Multi-dimensional strategy execution context derived from UCB1 StrategyPlan.
+///
+/// Carried in AgentContext so the agent loop can apply tightness/sensitivity
+/// without re-querying the ReasoningEngine mid-loop.
+#[derive(Debug, Clone)]
+pub struct StrategyContext {
+    pub strategy: super::strategy_selector::ReasoningStrategy,
+    /// Whether to invoke the Reflector after tool batches.
+    pub enable_reflection: bool,
+    /// ToolLoopGuard scaling: 0.0 = relaxed thresholds, 1.0 = tightest.
+    pub loop_guard_tightness: f32,
+    /// Structural replan sensitivity: 0.0 = permissive, 1.0 = hair-trigger.
+    pub replan_sensitivity: f32,
+    /// Optional model routing preference ("fast" | "cheap" | "quality" | None).
+    pub routing_bias: Option<String>,
+    pub task_type: super::task_analyzer::TaskType,
+    pub complexity: super::task_analyzer::TaskComplexity,
 }

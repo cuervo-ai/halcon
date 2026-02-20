@@ -11,8 +11,8 @@ pub mod guardrails;
 pub mod pii;
 
 pub use guardrails::{
-    builtin_guardrails, has_blocking_violation, run_guardrails, Guardrail, GuardrailAction,
-    GuardrailCheckpoint, GuardrailResult, GuardrailRuleConfig, GuardrailsConfig,
+    builtin_guardrails, has_blocking_violation, redact_credentials, run_guardrails, Guardrail,
+    GuardrailAction, GuardrailCheckpoint, GuardrailResult, GuardrailRuleConfig, GuardrailsConfig,
     RegexGuardrail,
 };
-pub use pii::PiiDetector;
+pub use pii::{PiiDetector, PII_DETECTOR};

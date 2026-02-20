@@ -172,6 +172,24 @@ pub trait RenderSink: Send + Sync {
     /// After calling this, use `permissions.get_sudo_password()` to await the result.
     fn sudo_password_request(&self, _tool: &str, _command: &str, _has_cached: bool) {}
 
+    // --- Dev Ecosystem Phase 5: IDE connection status methods ---
+
+    /// Notify that the embedded LSP TCP server is listening on `port`.
+    ///
+    /// In TUI mode: emits `UiEvent::IdeConnected { port }` so the status bar
+    /// shows the `○ LSP:<port>` indicator.
+    fn dev_gateway_ready(&self, _port: u16) {}
+
+    /// Notify that an IDE editor has opened buffers (or buffer count changed).
+    ///
+    /// In TUI mode: emits `UiEvent::IdeBuffersUpdated { count, git_branch }`.
+    fn ide_buffers_updated(&self, _count: usize, _git_branch: Option<&str>) {}
+
+    /// Notify that the LSP server has stopped or no longer has open buffers.
+    ///
+    /// In TUI mode: emits `UiEvent::IdeDisconnected`.
+    fn ide_disconnected(&self) {}
+
     /// Display plan progress with per-step timing data.
     /// Default delegates to `plan_progress` for backward compatibility.
     fn plan_progress_with_timing(
@@ -1110,6 +1128,23 @@ impl RenderSink for TuiSink {
             has_cached,
         });
     }
+
+    // --- Dev Ecosystem Phase 5: IDE connection status ---
+
+    fn dev_gateway_ready(&self, port: u16) {
+        self.send(crate::tui::events::UiEvent::IdeConnected { port });
+    }
+
+    fn ide_buffers_updated(&self, count: usize, git_branch: Option<&str>) {
+        self.send(crate::tui::events::UiEvent::IdeBuffersUpdated {
+            count,
+            git_branch: git_branch.map(String::from),
+        });
+    }
+
+    fn ide_disconnected(&self) {
+        self.send(crate::tui::events::UiEvent::IdeDisconnected);
+    }
 }
 
 #[cfg(test)]
@@ -1254,6 +1289,7 @@ mod tests {
         let sink = ClassicSink::new();
         let steps = vec![
             PlanStep {
+                step_id: uuid::Uuid::new_v4(),
                 description: "Read file".into(),
                 tool_name: Some("file_read".into()),
                 parallel: false,
@@ -1273,6 +1309,7 @@ mod tests {
         let sink = TuiSink::new(tx);
         let steps = vec![
             PlanStep {
+                step_id: uuid::Uuid::new_v4(),
                 description: "Read file".into(),
                 tool_name: Some("file_read".into()),
                 parallel: false,

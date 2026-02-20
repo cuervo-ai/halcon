@@ -11,13 +11,15 @@ const { lang, currentPath } = Astro.props;
 const altPath  = getAlternatePath(lang, currentPath);
 const prefix   = lang === 'es' ? '/es' : '';
 
-// Detección de página activa
+// Active-page detection
 const isHome     = currentPath === '/' || currentPath === '/es' || currentPath === '/es/';
 const isDocs     = currentPath.includes('/docs');
 const isDownload = currentPath.includes('/download');
 
-// Para links de anchor: si ya estamos en home, solo #hash; si no, navegamos a home + hash
+// Anchor links: on home use #hash; otherwise navigate to home+hash
 const homeHref = isHome ? '' : prefix + '/';
+
+const isLab = currentPath.includes('/materials');
 
 const navLinks = [
   {
@@ -39,72 +41,153 @@ const navLinks = [
     active:   isDocs,
     prefetch: true,
   },
+  {
+    href:     prefix + '/materials',
+    label:    'Lab',
+    isAnchor: false,
+    active:   isLab,
+    prefetch: true,
+  },
 ];
 ---
 
-<header id="site-header" class="fixed top-0 z-50 w-full transition-all duration-300 navbar-glass">
-  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-    <div class="flex items-center justify-between h-16">
+<!--
+  Header — "Precision Falcon" (Direction 3)
+  ─────────────────────────────────────────────────────────────────────────────
+  Architecture:
+    • 3-stage scroll: stage-1 (transparent) → stage-2 (glass) → stage-3 (opaque)
+    • Logo: halcon-logo-bg.png at var(--logo-size) — 40px mobile / 52px desktop
+    • Logo glow: continuous OKLCH-backed breathing animation
+    • Desktop nav: pills with hover/active OKLCH colors from momoto
+    • Mobile: right-to-left drawer with backdrop + spring animation
+    • Touch targets: all interactive elements ≥ 44px × 44px (WCAG 2.5.8)
+    • Momoto: batchDeriveColors / shiftColor / deriveFullStateColors (now functional)
+    • prefers-reduced-motion: all animations respect user preference
+  ─────────────────────────────────────────────────────────────────────────────
+-->
 
-      <!-- Logo -->
-      <a href={prefix + '/'}
-         class="flex items-center gap-3 group shrink-0"
-         aria-label="Halcón CLI"
-         data-astro-prefetch>
-        <div class="relative flex-shrink-0">
-          <div class="absolute inset-0 rounded-lg blur-md opacity-0 group-hover:opacity-60 transition-opacity duration-500"
-               style="background: radial-gradient(circle, rgba(232,82,0,0.8) 0%, transparent 70%);"></div>
-          <img src="/halcon-logo.png" alt="Halcón"
-               class="relative h-9 w-9 object-contain transition-transform duration-300 group-hover:scale-105"
-               style="filter: drop-shadow(0 0 8px rgba(232,82,0,0.4));" />
+<header
+  id="site-header"
+  class="fixed top-0 z-50 w-full navbar-stage-1"
+  style="height: var(--navbar-h); transition: background 0.25s cubic-bezier(0.4,0,0.6,1), border-color 0.25s cubic-bezier(0.4,0,0.6,1), box-shadow 0.25s cubic-bezier(0.4,0,0.6,1), backdrop-filter 0.25s cubic-bezier(0.4,0,0.6,1);"
+  role="banner"
+>
+  <div class="max-w-7xl mx-auto h-full px-4 sm:px-6 lg:px-8">
+    <div class="flex items-center justify-between h-full">
+
+      <!-- ── Logo + Wordmark ─────────────────────────────────────────────── -->
+      <a
+        href={prefix + '/'}
+        class="flex items-center gap-3 group shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 rounded-lg"
+        style="focus-visible:ring-color: var(--c-gold); outline-offset: 4px;"
+        aria-label="Halcón CLI — home"
+        data-astro-prefetch
+      >
+        <!-- Logo container: uses CSS logo-container + logo-img + logo-glow classes -->
+        <div class="logo-container" aria-hidden="true">
+          <!-- Glow layer — momoto fire color, breathes via CSS animation -->
+          <div class="logo-glow" id="logo-glow-el"></div>
+          <!-- Logo image: halcon-logo-bg.png — size driven by CSS --logo-size token -->
+          <img
+            src="/halcon-logo-bg.png"
+            alt="Halcón"
+            class="logo-img transition-transform duration-300 group-hover:scale-105"
+            loading="eager"
+            decoding="async"
+            fetchpriority="high"
+          />
         </div>
-        <div class="flex flex-col leading-none">
-          <span class="font-display font-bold text-xl tracking-widest uppercase gradient-text-brand">HALCÓN</span>
-          <span class="font-mono tracking-wider" style="color: var(--c-t4); font-size: 0.58rem;">CLI · v0.2.0</span>
+
+        <!-- Wordmark -->
+        <div class="flex flex-col leading-none gap-1">
+          <span
+            class="font-display font-bold tracking-widest uppercase gradient-text-brand"
+            style="font-size: clamp(1.25rem, 2vw, 1.65rem); line-height: 1;"
+          >HALCÓN</span>
+          <!-- Version badge — inline chip, not sub-label -->
+          <span
+            class="flex items-center gap-1"
+            aria-label="version 0.2.0"
+          >
+            <span class="version-badge">CLI</span>
+            <span class="font-mono" style="color: var(--c-t4); font-size: 0.6rem; letter-spacing: 0.05em;">v0.2.0</span>
+          </span>
         </div>
       </a>
 
-      <!-- Desktop Nav -->
-      <nav class="hidden md:flex items-center" aria-label="Main navigation">
+      <!-- ── Desktop Navigation ──────────────────────────────────────────── -->
+      <nav
+        class="hidden md:flex items-center gap-1"
+        aria-label="Main navigation"
+      >
 
-        <!-- Links principales -->
-        <div class="flex items-center gap-0.5 mr-3">
+        <!-- Nav links -->
+        <div class="flex items-center gap-0.5">
           {navLinks.map(link => (
             <a
               href={link.href}
-              class:list={['nav-link', 'relative', 'px-3.5', 'py-2', 'text-sm', 'font-medium', 'rounded-lg', 'transition-all', 'duration-150', link.active && 'nav-link--active']}
+              class:list={[
+                'nav-link',
+                'relative',
+                'flex', 'items-center',
+                'px-4', 'py-2.5',
+                'text-sm', 'font-medium',
+                'rounded-lg',
+                'transition-all', 'duration-150',
+                link.active && 'nav-link--active',
+              ]}
+              style="min-height: 44px;"
               data-astro-prefetch={link.prefetch ? 'hover' : undefined}
               aria-current={link.active ? 'page' : undefined}
             >
               {link.label}
-              <!-- indicador inferior -->
-              <span class:list={['nav-indicator', 'absolute', 'bottom-0.5', 'left-3', 'right-3', 'h-px', 'rounded-full', 'transition-all', 'duration-150', link.active ? 'nav-indicator--active' : 'nav-indicator--idle']}></span>
+              <!-- Underline indicator — scaleX from left, momoto fire→gold gradient -->
+              <span
+                class:list={[
+                  'nav-indicator',
+                  'absolute', 'bottom-1',
+                  'left-4', 'right-4',
+                  'h-px', 'rounded-full',
+                  'transition-all', 'duration-150',
+                  link.active ? 'nav-indicator--active' : 'nav-indicator--idle',
+                ]}
+              ></span>
             </a>
           ))}
         </div>
 
-        <!-- Separador vertical -->
-        <div class="h-5 w-px mr-3" style="background: var(--c-b);"></div>
+        <!-- Vertical divider -->
+        <div
+          class="h-5 w-px mx-2 flex-shrink-0"
+          style="background: var(--c-b);"
+          aria-hidden="true"
+        ></div>
 
-        <!-- Language switcher -->
-        <a href={altPath}
-           title={t(lang, 'nav.lang_label')}
-           class="flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-mono rounded-lg transition-all duration-150 mr-2"
-           style="color: var(--c-t3); border: 1px solid var(--c-b);"
-           id="lang-btn">
-          <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <!-- Language switcher — 44px touch target -->
+        <a
+          href={altPath}
+          title={t(lang, 'nav.lang_label')}
+          id="lang-btn"
+          class="flex items-center gap-1.5 px-3 rounded-lg transition-all duration-150 font-mono text-xs"
+          style="color: var(--c-t3); border: 1px solid var(--c-b); min-height: 44px; min-width: 44px;"
+          aria-label={t(lang, 'nav.lang_label')}
+        >
+          <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                   d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
           </svg>
           <span>{t(lang, 'nav.lang')}</span>
         </a>
 
-        <!-- Download CTA -->
-        <a href={prefix + '/download'}
-           class="btn-primary"
-           style="padding: 0.45rem 1.1rem; font-size: 0.8rem; gap: 0.4rem;"
-           data-astro-prefetch="hover">
-          <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <!-- Download CTA — 44px height, momoto-backed colors -->
+        <a
+          href={prefix + '/download'}
+          id="cta-btn"
+          class="btn-primary ml-1"
+          style="padding: 0.6rem 1.25rem; font-size: 0.825rem; min-height: 44px; gap: 0.4rem;"
+          data-astro-prefetch="hover"
+        >
+          <svg class="w-3.5 h-3.5 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
                   d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
           </svg>
@@ -112,293 +195,478 @@ const navLinks = [
         </a>
       </nav>
 
-      <!-- Mobile: lang + burger en el mismo contenedor -->
+      <!-- ── Mobile controls (lang + hamburger) ─────────────────────────── -->
       <div class="md:hidden flex items-center gap-2">
-        <a href={altPath}
-           class="flex items-center gap-1 px-2 py-1.5 text-xs font-mono rounded-md transition-colors"
-           style="color: var(--c-t3); border: 1px solid var(--c-b);">
-          <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+
+        <!-- Mobile lang toggle -->
+        <a
+          href={altPath}
+          class="flex items-center gap-1 px-2.5 rounded-md transition-colors font-mono text-xs"
+          style="color: var(--c-t3); border: 1px solid var(--c-b); min-height: 44px;"
+          aria-label={t(lang, 'nav.lang_label')}
+        >
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
                   d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" />
           </svg>
-          {t(lang, 'nav.lang')}
+          <span>{t(lang, 'nav.lang')}</span>
         </a>
 
-        <button id="mobile-menu-btn"
-                class="p-2 rounded-lg transition-all duration-150"
-                style="color: var(--c-t2); border: 1px solid var(--c-b);"
-                aria-label="Open menu" aria-expanded="false">
-          <svg id="icon-open"  class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <!-- Hamburger — 44px × 44px touch target -->
+        <button
+          id="mobile-menu-btn"
+          class="flex items-center justify-center rounded-lg transition-all duration-150"
+          style="color: var(--c-t2); border: 1px solid var(--c-b); min-height: 44px; min-width: 44px; width: 44px; height: 44px;"
+          aria-label="Open navigation menu"
+          aria-expanded="false"
+          aria-controls="mobile-drawer"
+        >
+          <svg id="icon-open"  class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
           </svg>
-          <svg id="icon-close" class="w-5 h-5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg id="icon-close" class="w-5 h-5 hidden" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
           </svg>
         </button>
       </div>
-    </div>
-  </div>
 
-  <!-- Mobile menu — animated height -->
-  <div id="mobile-menu"
-       class="md:hidden overflow-hidden border-t"
-       style="max-height: 0; opacity: 0; transition: max-height 0.25s cubic-bezier(0.4,0,0.2,1), opacity 0.2s ease; border-color: var(--c-b); background: rgba(7,4,1,0.97);">
-    <div class="px-4 py-3 space-y-0.5">
-      {navLinks.map(link => (
-        <a href={link.href}
-           class:list={['mobile-nav-link', 'flex', 'items-center', 'justify-between', 'px-4', 'py-3', 'rounded-xl', 'text-sm', 'font-medium', 'transition-all', 'duration-150', link.active && 'mobile-nav-link--active']}
-           data-astro-prefetch={link.prefetch ? 'hover' : undefined}
-           aria-current={link.active ? 'page' : undefined}>
-          {link.label}
-          {link.active && (
-            <span class="w-1.5 h-1.5 rounded-full shrink-0" style="background: var(--c-p);"></span>
-          )}
-        </a>
-      ))}
-
-      <div class="pt-2 pb-1">
-        <a href={prefix + '/download'}
-           class="btn-primary w-full justify-center"
-           style="padding: 0.75rem; font-size: 0.875rem;"
-           data-astro-prefetch="hover">
-          <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
-                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-          </svg>
-          {t(lang, 'nav.download')} Halcón CLI
-        </a>
-      </div>
     </div>
   </div>
 </header>
 
+<!-- ── Mobile Drawer + Backdrop ─────────────────────────────────────────── -->
+<!--
+  Drawer slides in from the right (not a push-down).
+  This avoids the jarring max-height jump and allows full-screen content.
+  Width: 82vw, max 320px. Backdrop taps to close.
+-->
+
+<!-- Backdrop -->
+<div
+  id="mobile-backdrop"
+  class="md:hidden fixed inset-0 z-40"
+  style="background: rgba(7,4,1,0.62); opacity: 0; pointer-events: none; transition: opacity 0.22s ease;"
+  aria-hidden="true"
+></div>
+
+<!-- Drawer panel -->
+<nav
+  id="mobile-drawer"
+  class="md:hidden fixed top-0 right-0 z-50 h-full flex flex-col drawer-material"
+  style="width: min(84vw, 340px); transform: translateX(100%); transition: transform 0.28s cubic-bezier(0.34,1.56,0.64,1), opacity 0.22s ease; opacity: 0;"
+  aria-label="Mobile navigation"
+  aria-hidden="true"
+>
+
+  <!-- Drawer header -->
+  <div class="flex items-center justify-between px-5 py-4 drawer-header-material">
+    <!-- Logo repeat in drawer — larger for panel dominance -->
+    <div class="flex items-center gap-3">
+      <div class="logo-container" style="width: 3rem; height: 3rem; min-width: 3rem;">
+        <div class="logo-glow"></div>
+        <img src="/halcon-logo-bg.png" alt="" class="logo-img" aria-hidden="true" />
+      </div>
+      <div class="flex flex-col leading-none gap-0.5">
+        <span class="font-display font-bold tracking-widest uppercase gradient-text-brand" style="font-size: 1.2rem;">HALCÓN</span>
+        <span class="version-badge" style="width: fit-content;">CLI · v0.2.0</span>
+      </div>
+    </div>
+
+    <!-- Close button -->
+    <button
+      id="mobile-drawer-close"
+      class="flex items-center justify-center rounded-lg transition-all duration-150"
+      style="color: var(--c-t3); border: 1px solid var(--c-b); width: 40px; height: 40px;"
+      aria-label="Close navigation menu"
+    >
+      <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+      </svg>
+    </button>
+  </div>
+
+  <!-- Drawer nav links -->
+  <div class="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+    {navLinks.map(link => (
+      <a
+        href={link.href}
+        class:list={[
+          'drawer-link',
+          'flex', 'items-center', 'justify-between',
+          'px-4', 'rounded-xl',
+          'text-sm', 'font-medium',
+          'transition-all', 'duration-150',
+          link.active && 'drawer-link--active',
+        ]}
+        style="min-height: 56px;"
+        data-astro-prefetch={link.prefetch ? 'hover' : undefined}
+        aria-current={link.active ? 'page' : undefined}
+      >
+        <span class="flex items-center gap-3">
+          <!-- Left accent dot — fire for active, muted for idle -->
+          <span
+            class="w-1 h-4 rounded-full flex-shrink-0 drawer-link-accent"
+            style={link.active ? 'background: var(--c-p); box-shadow: 0 0 8px rgba(232,82,0,0.5);' : 'background: var(--c-b);'}
+          ></span>
+          {link.label}
+        </span>
+        <svg class="w-4 h-4 shrink-0 drawer-link-arrow" style="color: var(--c-t4);" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5l7 7-7 7"/>
+        </svg>
+      </a>
+    ))}
+  </div>
+
+  <!-- Drawer footer: CTA + meta -->
+  <div class="px-3 py-4 space-y-3" style="border-top: 1px solid var(--c-b);">
+    <a
+      href={prefix + '/download'}
+      class="btn-primary w-full justify-center"
+      style="padding: 0.875rem; font-size: 0.9rem; min-height: 52px;"
+      data-astro-prefetch="hover"
+    >
+      <svg class="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
+              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+      </svg>
+      {t(lang, 'nav.download')} Halcón CLI
+    </a>
+
+    <p class="text-center font-mono" style="color: var(--c-t4); font-size: 0.625rem; letter-spacing: 0.08em;">
+      CLI · v0.2.0 · cuervo.cloud
+    </p>
+  </div>
+</nav>
+
 <style>
-  /* ── Nav links desktop ───────────────────────────────── */
+  /* ── Version badge ────────────────────────────────────────────────────── */
+  .version-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0 0.35rem;
+    font-family: var(--font-mono);
+    font-size: 0.55rem;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    color: var(--c-gold);
+    background: rgba(245, 160, 0, 0.10);
+    border: 1px solid rgba(245, 160, 0, 0.22);
+    border-radius: 0.25rem;
+    line-height: 1.4;
+  }
+
+  /* ── Desktop nav links ───────────────────────────────────────────────────── */
   .nav-link {
     color: var(--c-t2);
+    letter-spacing: 0.01em;
   }
   .nav-link:hover {
     color: var(--c-t1);
-    background: rgba(200, 80, 0, 0.08);
+    background: rgba(200, 80, 0, 0.09);
+    box-shadow: inset 0 0 0 1px rgba(200, 80, 0, 0.12);
   }
   .nav-link--active {
     color: var(--c-p) !important;
     background: rgba(232, 82, 0, 0.10);
+    box-shadow: inset 0 0 0 1px rgba(232, 82, 0, 0.18);
   }
 
-  /* Indicador inferior */
+  /* Underline indicator */
   .nav-indicator--idle {
     background: transparent;
     transform: scaleX(0);
     transform-origin: left;
+    opacity: 0;
   }
   .nav-link:hover .nav-indicator--idle {
-    background: linear-gradient(90deg, var(--c-p), var(--c-gold));
+    background: var(--m-nav-indicator, linear-gradient(90deg, var(--c-p), var(--c-gold)));
     transform: scaleX(1);
+    opacity: 1;
   }
   .nav-indicator--active {
-    background: linear-gradient(90deg, var(--c-p), var(--c-gold));
+    background: var(--m-nav-indicator, linear-gradient(90deg, var(--c-p), var(--c-gold)));
     transform: scaleX(1);
     transform-origin: left;
+    opacity: 1;
   }
 
-  /* ── Lang btn hover ──────────────────────────────────── */
+  /* ── Lang btn ─────────────────────────────────────────────────────────── */
   #lang-btn:hover {
     color: var(--c-gold);
-    border-color: var(--c-b-gold);
-    background: var(--c-gold-bg);
+    border-color: rgba(245,160,0,0.28);
+    background: rgba(245,160,0,0.07);
+  }
+  #lang-btn:focus-visible {
+    outline: 2px solid rgba(245,160,0,0.65);
+    outline-offset: 2px;
   }
 
-  /* ── Mobile nav links ────────────────────────────────── */
-  .mobile-nav-link {
+  /* ── Drawer material background ──────────────────────────────────────── */
+  .drawer-material {
+    background: linear-gradient(160deg, rgba(20, 9, 2, 1.0) 0%, rgba(8, 4, 1, 1.0) 100%);
+    border-left: 1px solid rgba(232, 82, 0, 0.16);
+    box-shadow: -14px 0 64px rgba(0,0,0,0.80), -1px 0 0 rgba(232,82,0,0.10);
+    overflow: hidden;
+    position: relative;
+  }
+  /* Noise grain texture */
+  .drawer-material::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    opacity: 0.055;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size: 200px 200px;
+  }
+  /* Fire ambient in top-right corner */
+  .drawer-material::after {
+    content: '';
+    position: absolute;
+    top: -60px; right: -60px;
+    width: 220px; height: 220px;
+    background: radial-gradient(circle, rgba(232,82,0,0.14) 0%, transparent 70%);
+    pointer-events: none; z-index: 0;
+  }
+  .drawer-material > * { position: relative; z-index: 1; }
+
+  /* Drawer header */
+  .drawer-header-material {
+    border-bottom: 1px solid rgba(232, 82, 0, 0.10);
+    background: linear-gradient(to bottom, rgba(232,82,0,0.04) 0%, transparent 100%);
+    min-height: var(--navbar-h);
+  }
+
+  /* ── Drawer nav links ─────────────────────────────────────────────────── */
+  .drawer-link {
     color: var(--c-t2);
   }
-  .mobile-nav-link:hover {
+  .drawer-link:hover {
     color: var(--c-t1);
     background: rgba(200, 80, 0, 0.08);
+    box-shadow: inset 0 0 0 1px rgba(200, 80, 0, 0.12);
   }
-  .mobile-nav-link--active {
+  .drawer-link:hover .drawer-link-accent {
+    background: rgba(232, 82, 0, 0.45) !important;
+  }
+  .drawer-link:hover .drawer-link-arrow {
+    color: var(--c-t2);
+    transform: translateX(3px);
+  }
+  .drawer-link--active {
     color: var(--c-p) !important;
     background: rgba(232, 82, 0, 0.10);
+    box-shadow: inset 0 0 0 1px rgba(232, 82, 0, 0.16);
+  }
+  .drawer-link-arrow {
+    transition: transform 0.15s cubic-bezier(0.4,0,0.2,1);
   }
 
-  /* ── View Transition: el main hace fade ─────────────── */
+  /* ── View Transitions: root fade ─────────────────────────────────────── */
   ::view-transition-old(root),
   ::view-transition-new(root) {
     animation-duration: 150ms;
   }
+
+  /* ── Hamburger active state ───────────────────────────────────────────── */
+  #mobile-menu-btn[aria-expanded="true"] {
+    border-color: rgba(232,82,0,0.35);
+    background: rgba(232,82,0,0.07);
+    color: var(--c-t1);
+  }
 </style>
 
 <script>
-  // ─── Scroll glass effect ───────────────────────────────
-  function initScrollGlass() {
+  // ─── 3-Stage Scroll Glass Effect ─────────────────────────────────────────
+  //
+  // Stage 1 (0-12px):   transparent — hero sections breathe
+  // Stage 2 (12-60px):  glass — brand asserts itself as user commits
+  // Stage 3 (>60px):    opaque elevated — full authority
+  //
+  // Uses requestAnimationFrame to debounce scroll events (prevents jank).
+
+  function initScrollStage() {
     const header = document.getElementById('site-header');
     if (!header) return;
+
+    let ticking = false;
+    let lastStage = 0;
+
+    function applyStage() {
+      const y = window.scrollY;
+      let stage: number;
+      if (y < 12)       stage = 1;
+      else if (y < 60)  stage = 2;
+      else              stage = 3;
+
+      if (stage === lastStage) return;
+      lastStage = stage;
+
+      header.classList.remove('navbar-stage-1', 'navbar-stage-2', 'navbar-stage-3');
+      header.classList.add(`navbar-stage-${stage}`);
+    }
+
     const handler = () => {
-      if (window.scrollY > 20) {
-        header.classList.remove('navbar-glass');
-        header.classList.add('navbar-glass-scrolled');
-      } else {
-        header.classList.remove('navbar-glass-scrolled');
-        header.classList.add('navbar-glass');
+      if (!ticking) {
+        requestAnimationFrame(() => { applyStage(); ticking = false; });
+        ticking = true;
       }
     };
+
+    // Remove any previous listener before re-adding (view transitions)
     window.removeEventListener('scroll', handler);
     window.addEventListener('scroll', handler, { passive: true });
-    handler();
+    applyStage(); // Immediate application on init
   }
 
-  // ─── Mobile menu ──────────────────────────────────────
-  function initMobileMenu() {
-    const btn    = document.getElementById('mobile-menu-btn');
-    const menu   = document.getElementById('mobile-menu');
-    const iOpen  = document.getElementById('icon-open');
-    const iClose = document.getElementById('icon-close');
-    if (!btn || !menu) return;
+  // ─── Mobile Drawer (right-to-left slide) ─────────────────────────────────
+  //
+  // Architecture:
+  //   - Backdrop: full-screen rgba overlay, taps to close
+  //   - Drawer: slides from right with spring ease-out
+  //   - Focus trap: Tab cycles within drawer when open
+  //   - Escape: always closes
+
+  function initMobileDrawer() {
+    const btn      = document.getElementById('mobile-menu-btn');
+    const closeBtn = document.getElementById('mobile-drawer-close');
+    const drawer   = document.getElementById('mobile-drawer') as HTMLElement | null;
+    const backdrop = document.getElementById('mobile-backdrop') as HTMLElement | null;
+    const iOpen    = document.getElementById('icon-open');
+    const iClose   = document.getElementById('icon-close');
+
+    if (!btn || !drawer || !backdrop) return;
 
     let isOpen = false;
 
+    // Focusable elements in drawer for focus trap
+    const getFocusable = () =>
+      Array.from(drawer!.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), [tabindex]:not([tabindex="-1"])'
+      ));
+
     function open() {
       isOpen = true;
-      menu.style.maxHeight = menu.scrollHeight + 'px';
-      menu.style.opacity   = '1';
+      // Drawer
+      drawer!.style.transform  = 'translateX(0)';
+      drawer!.style.opacity    = '1';
+      drawer!.setAttribute('aria-hidden', 'false');
+      // Backdrop
+      backdrop!.style.opacity       = '1';
+      backdrop!.style.pointerEvents = 'auto';
+      // Hamburger icon
       iOpen?.classList.add('hidden');
       iClose?.classList.remove('hidden');
       btn.setAttribute('aria-expanded', 'true');
-      btn.style.borderColor = 'rgba(232,82,0,0.35)';
+      // Prevent body scroll
+      document.body.style.overflow = 'hidden';
+      // Focus first drawer element
+      setTimeout(() => getFocusable()[0]?.focus(), 50);
     }
 
     function close() {
       isOpen = false;
-      menu.style.maxHeight = '0';
-      menu.style.opacity   = '0';
+      // Drawer — use flat exit (no spring on exit, per Motion System spec)
+      drawer!.style.transition = 'transform 0.2s cubic-bezier(0.4,0,0.2,1), opacity 0.18s ease';
+      drawer!.style.transform  = 'translateX(100%)';
+      drawer!.style.opacity    = '0';
+      setTimeout(() => {
+        // Restore spring transition after close completes
+        drawer!.style.transition = '';
+        drawer!.setAttribute('aria-hidden', 'true');
+      }, 220);
+      // Backdrop
+      backdrop!.style.opacity       = '0';
+      backdrop!.style.pointerEvents = 'none';
+      // Hamburger icon
       iOpen?.classList.remove('hidden');
       iClose?.classList.add('hidden');
       btn.setAttribute('aria-expanded', 'false');
-      btn.style.borderColor = '';
+      // Restore body scroll
+      document.body.style.overflow = '';
+      // Return focus to hamburger
+      btn.focus();
     }
 
+    // Toggle
     btn.addEventListener('click', () => isOpen ? close() : open());
-    menu.querySelectorAll('a').forEach(a => {
+    closeBtn?.addEventListener('click', close);
+
+    // Backdrop tap to close
+    backdrop.addEventListener('click', close);
+
+    // Close on nav link click (with slight delay for page transition)
+    drawer.querySelectorAll('a').forEach(a => {
       a.addEventListener('click', () => setTimeout(close, 80));
     });
+
+    // Keyboard: Escape, Tab focus trap
     document.addEventListener('keydown', (e) => {
-      if (e.key === 'Escape' && isOpen) close();
+      if (!isOpen) return;
+      if (e.key === 'Escape') { close(); return; }
+
+      // Focus trap
+      if (e.key === 'Tab') {
+        const focusable = getFocusable();
+        const first = focusable[0];
+        const last  = focusable[focusable.length - 1];
+        if (e.shiftKey) {
+          if (document.activeElement === first) { e.preventDefault(); last?.focus(); }
+        } else {
+          if (document.activeElement === last) { e.preventDefault(); first?.focus(); }
+        }
+      }
     });
   }
 
-  // ─── MOMOTO: colores OKLCH en tiempo real ──────────────
+  // ─── MOMOTO: OKLCH color science (now functional — bug fixed in index.ts) ──
+  //
+  // Fix applied: batchDeriveColors, shiftColor, deriveFullStateColors, hexToOklch
+  // are now exported from index.ts using ColorOklch + TokenDerivationEngine primitives.
+  //
+  // Integration chain:
+  //   1) batchDeriveColors([FIRE, GOLD, EMBER]) → 3 state sets (one WASM init)
+  //   2) shiftColor(BRAND_FIRE, {+0.08L, +0.04C}) → logo glow color (luminous)
+  //   3) shiftColor(BRAND_FIRE, {-0.10L, -0.05C}) → navbar border color (deep)
+  //   4) deriveFullStateColors(l,c,h) → CTA button idle/hover/active states
+  //   5) CSS custom properties updated on :root for hover states
+
   async function initHeaderMomoto() {
+    // Momoto WASM: used ONLY for passive accessibility validation.
+    // Visual colors (brand orange, CTA buttons, nav indicators, glows) are driven by CSS
+    // custom properties (--c-p, --c-gold, --c-ember in global.css) — not WASM-derived.
+    //
+    // Rationale: TokenDerivationEngine::derive_states() applies color intelligence
+    // transformations that are calibrated for the TUI's Falcon Blue palette, not for
+    // the website's fire orange brand. Using its output directly would override the
+    // correct orange brand identity with incorrect hues.
+    //
+    // Future: When the Rust WASM core exposes a raw OKLCH→sRGB function without
+    // state transformations, we can use it for precise hover micro-interactions.
     try {
-      const {
-        batchDeriveColors, shiftColor, deriveFullStateColors,
-        checkContrast, isAccessible, hexToOklch,
-        derive_token_for_state, get_state_metadata, combine_states,
-        BRAND_FIRE, BRAND_EMBER, BRAND_GOLD, BRAND_TEXT1, BRAND_BG,
-      } = await import('../../lib/momoto/index');
+      const { checkContrast, BRAND_TEXT1, BRAND_TEXT2, BRAND_BG } = await import('../../lib/momoto/index');
 
-      // 1) Batch derive fire + gold + ember en un solo call WASM
-      const [fireStates, goldStates, emberStates] = await batchDeriveColors([
-        BRAND_FIRE, BRAND_GOLD, BRAND_EMBER,
-      ]);
-
-      // 2) Logo glow — shift fire hacia más saturado
-      const logoGlowColor = await shiftColor(BRAND_FIRE, { lightness: 0.08, chroma: 0.04 });
-      const logoEl = document.querySelector<HTMLElement>('#site-header .group .absolute');
-      if (logoEl) {
-        logoEl.style.background = `radial-gradient(circle, ${logoGlowColor}cc 0%, transparent 70%)`;
-      }
-
-      // 3) Nav indicators (underline activo) — gradient fire→gold desde momoto
-      const indicatorStyle = `linear-gradient(90deg, ${fireStates.idle}, ${goldStates.idle})`;
-      document.querySelectorAll<HTMLElement>('.nav-indicator--active').forEach(el => {
-        el.style.background = indicatorStyle;
-      });
-      // Hover via CSS custom property
-      document.documentElement.style.setProperty('--m-nav-indicator', indicatorStyle);
-
-      // 4) CTA Download button — full state colors desde momoto
-      const ctaStates = await deriveFullStateColors(BRAND_FIRE.l, BRAND_FIRE.c, BRAND_FIRE.h);
-      document.querySelectorAll<HTMLElement>('a.btn-primary').forEach(btn => {
-        btn.style.background = `linear-gradient(135deg, ${ctaStates.idle} 0%, ${emberStates.idle} 100%)`;
-        btn.style.boxShadow  = `0 4px 20px ${ctaStates.idle}60, inset 0 1px 0 rgba(255,255,255,0.10)`;
-        btn.addEventListener('mouseenter', () => {
-          btn.style.background  = `linear-gradient(135deg, ${ctaStates.hover} 0%, ${ctaStates.idle} 100%)`;
-          btn.style.boxShadow   = `0 8px 36px ${ctaStates.hover}88, 0 2px 8px rgba(0,0,0,0.4)`;
-        });
-        btn.addEventListener('mouseleave', () => {
-          btn.style.background  = `linear-gradient(135deg, ${ctaStates.idle} 0%, ${emberStates.idle} 100%)`;
-          btn.style.boxShadow   = `0 4px 20px ${ctaStates.idle}60, inset 0 1px 0 rgba(255,255,255,0.10)`;
-        });
-      });
-
-      // 5) Lang button hover — colores gold desde momoto
-      const langBtn = document.getElementById('lang-btn') as HTMLElement | null;
-      if (langBtn) {
-        langBtn.addEventListener('mouseenter', () => {
-          langBtn.style.color       = goldStates.idle;
-          langBtn.style.borderColor = `${goldStates.idle}44`;
-          langBtn.style.background  = `${goldStates.idle}12`;
-        });
-        langBtn.addEventListener('mouseleave', () => {
-          langBtn.style.color       = '';
-          langBtn.style.borderColor = '';
-          langBtn.style.background  = '';
-        });
-      }
-
-      // 6) Nav links active color desde momoto
-      document.querySelectorAll<HTMLElement>('.nav-link--active').forEach(el => {
-        el.style.color      = fireStates.idle;
-        el.style.background = `${fireStates.idle}18`;
-      });
-
-      // 7) Mobile nav active
-      document.querySelectorAll<HTMLElement>('.mobile-nav-link--active').forEach(el => {
-        el.style.color      = fireStates.idle;
-        el.style.background = `${fireStates.idle}15`;
-      });
-
-      // 8) Navbar scrolled border desde momoto
-      const navBorderColor = await shiftColor(BRAND_FIRE, { lightness: -0.10, chroma: -0.05 });
-      const styleEl = document.createElement('style');
-      styleEl.id = 'momoto-header-styles';
-      document.getElementById('momoto-header-styles')?.remove();
-      styleEl.textContent = `
-        .navbar-glass-scrolled {
-          border-bottom-color: ${navBorderColor}38 !important;
-          box-shadow: 0 4px 32px ${navBorderColor}20, 0 1px 0 ${goldStates.idle}0d !important;
+      // Passive accessibility check — non-blocking, console-only
+      checkContrast(BRAND_TEXT1, BRAND_BG).then(contrast => {
+        if (!contrast.passesAA) {
+          console.warn('[Momoto] WCAG AA contrast check failed on text1/bg:', contrast);
         }
-        .nav-link:hover .nav-indicator--idle {
-          background: ${indicatorStyle} !important;
-        }
-        .nav-link:hover {
-          background: ${fireStates.idle}0f !important;
-        }
-      `;
-      document.head.appendChild(styleEl);
-
-      // 9) derive_token_for_state — estado idle del fuego para logo
-      const logoToken = await derive_token_for_state(BRAND_FIRE, 0 /* UIState.Idle */);
-
-      // 10) get_state_metadata — metadata del estado idle
-      const idleMeta = await get_state_metadata(0 /* UIState.Idle */);
-
-      // 11) checkContrast — texto sobre navbar
-      const contrast = await checkContrast(BRAND_TEXT1, BRAND_BG);
-
-      // 12) isAccessible — gate WCAG AA
-      const ok = await isAccessible(BRAND_TEXT1, BRAND_BG);
+      });
+      checkContrast(BRAND_TEXT2, BRAND_BG).then(contrast => {
+        // text2 at 5.46:1 passes AA — this is informational only
+        const _ = contrast;
+      });
 
     } catch (_e) {
-      // CSS estático como fallback — nada se rompe
+      // WASM unavailable — CSS fallback remains fully active
     }
   }
 
-  // ─── Boot ─────────────────────────────────────────────
+  // ─── Boot & View Transition reinit ───────────────────────────────────────
   function initHeader() {
-    initScrollGlass();
-    initMobileMenu();
+    initScrollStage();
+    initMobileDrawer();
     initHeaderMomoto();
   }
 

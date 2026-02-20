@@ -145,6 +145,8 @@ pub fn derive_sub_limits(parent: &AgentLimits, config: &OrchestratorConfig) -> A
         max_parallel_tools: parent.max_parallel_tools,
         max_tool_output_chars: parent.max_tool_output_chars,
         max_concurrent_agents: parent.max_concurrent_agents,
+        max_cost_usd: parent.max_cost_usd,
+        clarification_threshold: parent.clarification_threshold,
     }
 }
 
@@ -370,6 +372,11 @@ pub async fn run_orchestrator(
                         context_manager: None,
                         ctrl_rx: None,
                         speculator: &sub_agent_speculator,
+                        security_config: &halcon_core::types::SecurityConfig::default(),
+                        strategy_context: None,
+                        critic_provider: None,
+                        critic_model: None,
+                        plugin_registry: None,
                     };
 
                     let loop_result = tokio::time::timeout(timeout_dur, agent::run_agent_loop(ctx)).await;

@@ -2821,6 +2821,40 @@ impl TuiApp {
                 self.session_list_selected = 0;
                 self.state.overlay.open(OverlayKind::SessionList);
             }
+
+            // --- Dev Ecosystem Phase 5: IDE/Editor connection events ---
+
+            // LSP server started — show ○ LSP:<port> indicator in status bar.
+            UiEvent::IdeConnected { port } => {
+                self.status.dev_gateway_port = Some(port);
+                self.status.ide_connected = false; // no buffers yet
+                self.activity_model.push_info(
+                    &format!("[dev] LSP server listening on localhost:{port} — connect your IDE extension"),
+                );
+            }
+
+            // LSP server stopped (session teardown).
+            UiEvent::IdeDisconnected => {
+                self.status.dev_gateway_port = None;
+                self.status.ide_connected = false;
+                self.status.open_buffers = 0;
+            }
+
+            // IDE buffer count changed — update ⚡ IDE:N indicator.
+            UiEvent::IdeBuffersUpdated { count, git_branch } => {
+                self.status.open_buffers = count;
+                self.status.ide_connected = count > 0;
+                if count > 0 {
+                    let branch_str = git_branch
+                        .as_deref()
+                        .map(|b| format!(" on {b}"))
+                        .unwrap_or_default();
+                    self.activity_model.push_info(
+                        &format!("[dev] IDE: {count} open buffer{}{branch_str}",
+                            if count == 1 { "" } else { "s" }),
+                    );
+                }
+            }
         }
     }
 
@@ -2968,6 +3002,10 @@ fn event_summary(ev: &UiEvent) -> String {
         UiEvent::HiconCoherence { phi, status, .. } => format!("HICON:Coherence(Φ={phi:.2},{status})"),
         UiEvent::HiconBudgetWarning { predicted_overflow_rounds, .. } => format!("HICON:Budget(overflow:{predicted_overflow_rounds}r)"),
         UiEvent::SudoPasswordRequest { tool, .. } => format!("SudoPasswordRequest({tool})"),
+        // Dev Ecosystem Phase 5
+        UiEvent::IdeConnected { port } => format!("IdeConnected(:{port})"),
+        UiEvent::IdeDisconnected => "IdeDisconnected".into(),
+        UiEvent::IdeBuffersUpdated { count, .. } => format!("IdeBuffers({count})"),
     }
 }
 
@@ -4036,13 +4074,17 @@ mod tests {
             // Phase 45: Status Bar Audit + Session Management
             UiEvent::TokenDelta { round_input: 10, round_output: 5, session_input: 100, session_output: 50 },
             UiEvent::SessionList { sessions: vec![] },
+            // Dev Ecosystem Phase 5
+            UiEvent::IdeConnected { port: 5758 },
+            UiEvent::IdeDisconnected,
+            UiEvent::IdeBuffersUpdated { count: 2, git_branch: Some("main".into()) },
         ];
         for ev in &events {
             let summary = event_summary(ev);
             assert!(!summary.is_empty(), "empty summary for {:?}", ev);
         }
-        // All 45 UiEvent variants covered (43 + 2 Phase 45 variants).
-        assert_eq!(events.len(), 45);
+        // All 48 UiEvent variants covered (45 + 3 Dev Ecosystem Phase 5 variants).
+        assert_eq!(events.len(), 48);
     }
 
     // Phase B1: Expansion Animation Tests

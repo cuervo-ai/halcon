@@ -1,0 +1,898 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout
+  title="Design Playground"
+  description="Live component playground for HALCÓN's Momoto design system — inspect tokens, test header variants, preview across devices"
+  lang="en"
+>
+  <div class="playground-root">
+
+    <!-- ── Page header ─────────────────────────────────────────────────── -->
+    <section class="playground-page-header">
+      <div class="pg-container">
+        <div class="flex items-start justify-between flex-wrap gap-4">
+          <div>
+            <div class="chip-fire mb-3" style="width: fit-content;">
+              <span class="w-1.5 h-1.5 rounded-full" style="background: var(--c-p);"></span>
+              Momoto Design Playground
+            </div>
+            <h1 class="font-display font-bold gradient-text" style="font-size: clamp(2rem, 5vw, 3.5rem); line-height: 1.1; margin-bottom: 0.5rem;">
+              Component<br/>Inspector
+            </h1>
+            <p style="color: var(--c-t3); font-size: 0.9rem; max-width: 520px;">
+              Live inspection of HALCÓN's Momoto-powered design system. Adjust tokens,
+              preview header variants, and inspect the OKLCH color derivation engine in real time.
+            </p>
+          </div>
+          <div class="pg-perf-badge" id="perf-badge">
+            <span class="pg-perf-dot"></span>
+            <span id="perf-label">WASM initializing…</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="pg-container pg-grid">
+
+      <!-- ── LEFT COLUMN: Controls ─────────────────────────────────────── -->
+      <aside class="pg-controls glass" aria-label="Design controls">
+
+        <!-- Logo size -->
+        <div class="pg-control-group">
+          <label class="pg-label">Logo Size</label>
+          <div class="pg-slider-row">
+            <input type="range" id="logo-size-slider" min="32" max="72" value="56" step="4"
+                   class="pg-slider" aria-label="Logo size in pixels" />
+            <span class="pg-value" id="logo-size-val">56px</span>
+          </div>
+          <div class="pg-hint">Desktop: 56px default · Mobile: 44px default</div>
+        </div>
+
+        <!-- Header height -->
+        <div class="pg-control-group">
+          <label class="pg-label">Header Height</label>
+          <div class="pg-slider-row">
+            <input type="range" id="header-h-slider" min="48" max="96" value="76" step="4"
+                   class="pg-slider" aria-label="Header height in pixels" />
+            <span class="pg-value" id="header-h-val">76px</span>
+          </div>
+        </div>
+
+        <!-- Scroll stage -->
+        <div class="pg-control-group">
+          <label class="pg-label">Scroll Stage Override</label>
+          <div class="pg-radio-group" role="radiogroup">
+            <label class="pg-radio"><input type="radio" name="stage" value="1" checked /> Stage 1 — Transparent</label>
+            <label class="pg-radio"><input type="radio" name="stage" value="2" /> Stage 2 — Glass</label>
+            <label class="pg-radio"><input type="radio" name="stage" value="3" /> Stage 3 — Opaque</label>
+          </div>
+        </div>
+
+        <!-- Motion intensity -->
+        <div class="pg-control-group">
+          <label class="pg-label">Motion Intensity</label>
+          <div class="pg-radio-group" role="radiogroup">
+            <label class="pg-radio"><input type="radio" name="motion" value="full" checked /> Full</label>
+            <label class="pg-radio"><input type="radio" name="motion" value="reduced" /> Reduced</label>
+            <label class="pg-radio"><input type="radio" name="motion" value="none" /> None</label>
+          </div>
+        </div>
+
+        <!-- Color mode -->
+        <div class="pg-control-group">
+          <label class="pg-label">Color Mode</label>
+          <div class="pg-radio-group" role="radiogroup">
+            <label class="pg-radio"><input type="radio" name="colormode" value="fire" checked /> Fire (default)</label>
+            <label class="pg-radio"><input type="radio" name="colormode" value="ice" /> Ice (complementary)</label>
+            <label class="pg-radio"><input type="radio" name="colormode" value="mono" /> Monochrome</label>
+          </div>
+        </div>
+
+        <!-- Blur intensity -->
+        <div class="pg-control-group">
+          <label class="pg-label">Backdrop Blur</label>
+          <div class="pg-slider-row">
+            <input type="range" id="blur-slider" min="0" max="48" value="24" step="4"
+                   class="pg-slider" aria-label="Backdrop blur in pixels" />
+            <span class="pg-value" id="blur-val">24px</span>
+          </div>
+        </div>
+
+      </aside>
+
+      <!-- ── RIGHT COLUMN: Preview + Inspector ─────────────────────────── -->
+      <main class="pg-main-col">
+
+        <!-- Header live preview -->
+        <div class="pg-section">
+          <h2 class="pg-section-title">Live Header Preview</h2>
+          <div class="pg-preview-shell" id="preview-shell">
+            <!-- Preview viewport with iframe-like isolation via CSS -->
+            <div class="pg-preview-bar" id="pg-header-preview">
+              <div class="pg-preview-logo" id="preview-logo">
+                <div class="pg-logo-glow" id="pg-logo-glow"></div>
+                <img src="/halcon-logo-bg.png" class="pg-logo-img" alt="Halcón" />
+              </div>
+              <div class="pg-preview-wordmark">
+                <span class="gradient-text-brand pg-wordmark-text">HALCÓN</span>
+                <span class="pg-version-chip">CLI · v0.2.0</span>
+              </div>
+              <nav class="pg-preview-nav" aria-label="Preview navigation">
+                <a class="pg-nav-link" href="#">Providers</a>
+                <a class="pg-nav-link" href="#">Features</a>
+                <a class="pg-nav-link pg-nav-active" href="#">Docs</a>
+              </nav>
+              <a class="pg-cta" id="pg-cta-btn">
+                <svg width="14" height="14" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                </svg>
+                Download
+              </a>
+            </div>
+            <!-- Hero mock so stage-1 transparency is visible -->
+            <div class="pg-hero-mock">
+              <div class="pg-hero-fire-orb"></div>
+              <div>
+                <p class="pg-hero-label">Hero Background Mock</p>
+                <p class="pg-hero-sub">Transparent stage-1 shows hero content through navbar</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Momoto Token Inspector ─────────────────────────────────── -->
+        <div class="pg-section">
+          <h2 class="pg-section-title">Momoto OKLCH Token Inspector</h2>
+          <div class="pg-token-grid" id="token-grid">
+            <div class="pg-token-skeleton">Initializing WASM engine…</div>
+          </div>
+        </div>
+
+        <!-- ── Color Harmony Layers ───────────────────────────────────── -->
+        <div class="pg-section">
+          <h2 class="pg-section-title">Color Harmony Layers</h2>
+          <p class="pg-section-sub">OKLCH-derived 6-state spectrum — each color computed perceptually via momoto-ui-core WASM</p>
+          <div class="pg-harmony-grid" id="harmony-grid">
+            <div class="pg-token-skeleton">Loading color states…</div>
+          </div>
+        </div>
+
+        <!-- ── Contrast Validation ────────────────────────────────────── -->
+        <div class="pg-section">
+          <h2 class="pg-section-title">Accessibility Validation</h2>
+          <div class="pg-contrast-grid" id="contrast-grid">
+            <div class="pg-token-skeleton">Running WCAG checks…</div>
+          </div>
+        </div>
+
+        <!-- ── Motion states ──────────────────────────────────────────── -->
+        <div class="pg-section">
+          <h2 class="pg-section-title">Motion States</h2>
+          <div class="pg-motion-grid">
+            <div class="pg-motion-card" id="mc-glow">
+              <div class="pg-motion-preview">
+                <div class="pg-motion-logo-demo"></div>
+              </div>
+              <p class="pg-motion-label">Logo glow · 3.8s breathe</p>
+              <p class="pg-motion-curve">ease-in-out · amplitude 0.12→0.35</p>
+            </div>
+            <div class="pg-motion-card" id="mc-nav">
+              <div class="pg-motion-preview">
+                <div class="pg-motion-indicator-demo"></div>
+              </div>
+              <p class="pg-motion-label">Nav indicator · scaleX 150ms</p>
+              <p class="pg-motion-curve">cubic-bezier(0.4,0,0.2,1)</p>
+            </div>
+            <div class="pg-motion-card" id="mc-drawer">
+              <div class="pg-motion-preview pg-motion-preview--drawer" id="drawer-preview-btn">
+                <span>Tap to preview</span>
+              </div>
+              <p class="pg-motion-label">Drawer · spring 280ms enter</p>
+              <p class="pg-motion-curve">cubic-bezier(0.34,1.56,0.64,1)</p>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── Device Previews ────────────────────────────────────────── -->
+        <div class="pg-section">
+          <h2 class="pg-section-title">Device Breakpoints</h2>
+          <div class="pg-device-grid">
+            {[
+              { name: 'Ultra-wide', w: '1536px+', logo: '60px', nav: 'Full', h: '76px' },
+              { name: 'Desktop',    w: '1024px',  logo: '56px', nav: 'Full', h: '76px' },
+              { name: 'Tablet',     w: '768px',   logo: '48px', nav: 'Full', h: '64px' },
+              { name: 'Mobile',     w: '390px',   logo: '44px', nav: 'Drawer', h: '60px' },
+            ].map(d => (
+              <div class="pg-device-card glass">
+                <div class="pg-device-name">{d.name}</div>
+                <div class="pg-device-spec"><span>Width</span><span>{d.w}</span></div>
+                <div class="pg-device-spec"><span>Logo</span><span>{d.logo}</span></div>
+                <div class="pg-device-spec"><span>Nav</span><span>{d.nav}</span></div>
+                <div class="pg-device-spec"><span>Header</span><span>{d.h}</span></div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+      </main>
+    </div>
+  </div>
+</Layout>
+
+<style>
+  /* ── Page Layout ─────────────────────────────────────────────────────── */
+  .playground-root {
+    min-height: 100vh;
+    padding-top: var(--navbar-h, 4.75rem);
+    padding-bottom: 4rem;
+  }
+
+  .pg-container {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 0 1.5rem;
+  }
+
+  .pg-grid {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: 2rem;
+    align-items: start;
+    padding-top: 2rem;
+  }
+  @media (max-width: 900px) {
+    .pg-grid { grid-template-columns: 1fr; }
+  }
+
+  /* ── Page Header ─────────────────────────────────────────────────────── */
+  .playground-page-header {
+    padding: 3rem 0 2rem;
+    border-bottom: 1px solid var(--c-b);
+    background: linear-gradient(to bottom, rgba(232,82,0,0.04) 0%, transparent 100%);
+  }
+
+  /* ── Controls sidebar ───────────────────────────────────────────────── */
+  .pg-controls {
+    position: sticky;
+    top: calc(var(--navbar-h, 4.75rem) + 1rem);
+    padding: 1.5rem;
+    border-radius: 1rem;
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+
+  .pg-control-group { display: flex; flex-direction: column; gap: 0.5rem; }
+
+  .pg-label {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--c-t3);
+  }
+
+  .pg-slider-row { display: flex; align-items: center; gap: 0.75rem; }
+
+  .pg-slider {
+    flex: 1;
+    -webkit-appearance: none;
+    height: 3px;
+    background: rgba(200,80,0,0.20);
+    border-radius: 2px;
+    outline: none;
+    cursor: pointer;
+  }
+  .pg-slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: var(--c-p);
+    box-shadow: 0 0 8px rgba(232,82,0,0.5);
+    cursor: pointer;
+    transition: transform 0.15s ease;
+  }
+  .pg-slider::-webkit-slider-thumb:hover { transform: scale(1.25); }
+
+  .pg-value {
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--c-gold);
+    min-width: 3rem;
+    text-align: right;
+  }
+
+  .pg-radio-group { display: flex; flex-direction: column; gap: 0.4rem; }
+
+  .pg-radio {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+    color: var(--c-t2);
+    cursor: pointer;
+    transition: color 0.15s;
+  }
+  .pg-radio:hover { color: var(--c-t1); }
+  .pg-radio input[type="radio"] { accent-color: var(--c-p); }
+
+  .pg-hint { font-size: 0.65rem; color: var(--c-t4); font-family: var(--font-mono); }
+
+  /* ── Sections ────────────────────────────────────────────────────────── */
+  .pg-main-col { display: flex; flex-direction: column; gap: 2rem; }
+
+  .pg-section {
+    background: rgba(17, 8, 3, 0.60);
+    border: 1px solid rgba(200, 80, 0, 0.10);
+    border-radius: 1rem;
+    padding: 1.5rem;
+  }
+
+  .pg-section-title {
+    font-family: var(--font-display);
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--c-t1);
+    letter-spacing: 0.03em;
+    margin-bottom: 0.5rem;
+  }
+  .pg-section-sub {
+    font-size: 0.8rem;
+    color: var(--c-t3);
+    margin-bottom: 1rem;
+    line-height: 1.5;
+  }
+
+  /* ── Performance badge ───────────────────────────────────────────────── */
+  .pg-perf-badge {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.875rem;
+    background: rgba(17,8,3,0.70);
+    border: 1px solid rgba(200,80,0,0.15);
+    border-radius: 9999px;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    color: var(--c-t3);
+    backdrop-filter: blur(12px);
+    align-self: flex-start;
+  }
+  .pg-perf-dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: rgba(200,80,0,0.4);
+    animation: pulse-glow 2s ease-in-out infinite;
+    flex-shrink: 0;
+  }
+  .pg-perf-dot.ready { background: #22c55e; box-shadow: 0 0 6px rgba(34,197,94,0.5); }
+
+  /* ── Header Preview ──────────────────────────────────────────────────── */
+  .pg-preview-shell {
+    border-radius: 0.75rem;
+    overflow: hidden;
+    border: 1px solid rgba(200,80,0,0.12);
+  }
+
+  .pg-preview-bar {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    padding: 0 1.25rem;
+    height: 72px;
+    transition: background 0.25s ease, box-shadow 0.25s ease, border-color 0.25s ease;
+    position: relative;
+    z-index: 1;
+  }
+
+  .pg-preview-logo {
+    position: relative;
+    width: 56px; height: 56px;
+    flex-shrink: 0;
+  }
+  .pg-logo-glow {
+    position: absolute;
+    inset: -6px;
+    border-radius: 0.75rem;
+    background: radial-gradient(circle, rgba(232,82,0,0.6) 0%, transparent 70%);
+    animation: logo-glow-breathe 3.8s ease-in-out infinite;
+  }
+  .pg-logo-img {
+    width: 100%; height: 100%;
+    object-fit: contain;
+    border-radius: 0.5rem;
+    position: relative;
+    z-index: 1;
+  }
+
+  .pg-preview-wordmark {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    margin-right: auto;
+  }
+  .pg-wordmark-text { font-size: 1.35rem; font-family: 'Rajdhani', sans-serif; font-weight: 700; }
+  .pg-version-chip {
+    font-family: var(--font-mono);
+    font-size: 0.55rem;
+    color: var(--c-gold);
+    background: rgba(245,160,0,0.10);
+    border: 1px solid rgba(245,160,0,0.22);
+    border-radius: 0.25rem;
+    padding: 0 0.35rem;
+    line-height: 1.5;
+    width: fit-content;
+  }
+
+  .pg-preview-nav { display: flex; align-items: center; gap: 0.25rem; }
+  .pg-nav-link {
+    padding: 0.5rem 0.875rem;
+    font-size: 0.8rem;
+    color: var(--c-t2);
+    border-radius: 0.5rem;
+    text-decoration: none;
+    transition: all 0.15s;
+  }
+  .pg-nav-link:hover { color: var(--c-t1); background: rgba(200,80,0,0.08); }
+  .pg-nav-active {
+    color: var(--c-p) !important;
+    background: rgba(232,82,0,0.10);
+    box-shadow: inset 0 0 0 1px rgba(232,82,0,0.18);
+  }
+
+  .pg-cta {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.55rem 1rem;
+    background: linear-gradient(135deg, var(--c-p) 0%, var(--c-ember) 100%);
+    color: #fff;
+    font-size: 0.8rem;
+    font-weight: 700;
+    border-radius: 0.5rem;
+    cursor: pointer;
+    text-decoration: none;
+    box-shadow: 0 4px 16px rgba(232,82,0,0.35);
+    transition: all 0.15s;
+    white-space: nowrap;
+  }
+  .pg-cta:hover { transform: translateY(-1px); box-shadow: 0 6px 24px rgba(232,82,0,0.5); }
+
+  /* Hero mock behind the preview bar */
+  .pg-hero-mock {
+    display: flex;
+    align-items: center;
+    gap: 1.5rem;
+    padding: 2rem 1.5rem;
+    background: linear-gradient(135deg, rgba(7,4,1,1) 0%, rgba(20,10,2,1) 100%);
+    position: relative;
+    overflow: hidden;
+  }
+  .pg-hero-fire-orb {
+    width: 80px; height: 80px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(232,82,0,0.5) 0%, transparent 70%);
+    flex-shrink: 0;
+    animation: pulse-glow 3s ease-in-out infinite;
+  }
+  .pg-hero-label { font-size: 0.85rem; color: var(--c-t2); font-weight: 600; }
+  .pg-hero-sub { font-size: 0.75rem; color: var(--c-t4); margin-top: 0.25rem; }
+
+  /* Stage classes for preview */
+  .pg-preview-stage-1 {
+    background: linear-gradient(to bottom, rgba(7,4,1,0.38) 0%, transparent 100%);
+    border-bottom: 1px solid transparent;
+  }
+  .pg-preview-stage-2 {
+    background: rgba(7,4,1,0.72);
+    border-bottom: 1px solid rgba(200,80,0,0.10);
+    backdrop-filter: blur(24px);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), 0 1px 8px rgba(0,0,0,0.3);
+  }
+  .pg-preview-stage-3 {
+    background: rgba(9,5,1,0.97);
+    border-bottom: 1px solid rgba(220,100,0,0.28);
+    box-shadow: 0 8px 48px rgba(0,0,0,0.55), 0 4px 24px rgba(200,60,0,0.18), inset 0 1px 0 rgba(255,255,255,0.055);
+  }
+
+  /* Color mode variants */
+  .pg-mode-ice .pg-cta { background: linear-gradient(135deg, #0088cc 0%, #005577 100%); box-shadow: 0 4px 16px rgba(0,136,204,0.35); }
+  .pg-mode-ice .pg-nav-active { color: #0088cc !important; background: rgba(0,136,204,0.10); box-shadow: inset 0 0 0 1px rgba(0,136,204,0.18); }
+  .pg-mode-mono .pg-cta { background: linear-gradient(135deg, #888 0%, #444 100%); box-shadow: 0 4px 16px rgba(128,128,128,0.35); }
+  .pg-mode-mono .pg-nav-active { color: #aaa !important; background: rgba(128,128,128,0.10); box-shadow: inset 0 0 0 1px rgba(128,128,128,0.18); }
+
+  /* ── Token Grid ──────────────────────────────────────────────────────── */
+  .pg-token-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+    gap: 0.75rem;
+  }
+
+  .pg-token-card {
+    display: flex;
+    flex-direction: column;
+    border-radius: 0.625rem;
+    overflow: hidden;
+    border: 1px solid rgba(200,80,0,0.10);
+    background: rgba(17,8,3,0.60);
+  }
+  .pg-token-swatch { height: 52px; width: 100%; }
+  .pg-token-info { padding: 0.5rem 0.625rem; }
+  .pg-token-name { font-family: var(--font-mono); font-size: 0.62rem; color: var(--c-t3); letter-spacing: 0.04em; }
+  .pg-token-hex  { font-family: var(--font-mono); font-size: 0.7rem; color: var(--c-t1); font-weight: 600; }
+  .pg-token-oklch { font-family: var(--font-mono); font-size: 0.58rem; color: var(--c-t4); }
+
+  /* ── Harmony Grid ────────────────────────────────────────────────────── */
+  .pg-harmony-grid { display: flex; flex-direction: column; gap: 0.75rem; }
+
+  .pg-harmony-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .pg-harmony-label {
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    color: var(--c-t3);
+    width: 4rem;
+    flex-shrink: 0;
+  }
+  .pg-harmony-swatches { display: flex; gap: 3px; flex: 1; }
+  .pg-harmony-swatch {
+    height: 32px;
+    border-radius: 0.25rem;
+    flex: 1;
+    position: relative;
+    cursor: pointer;
+    transition: transform 0.15s;
+  }
+  .pg-harmony-swatch:hover { transform: scaleY(1.3); z-index: 1; }
+  .pg-swatch-tip {
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(7,4,1,0.95);
+    border: 1px solid rgba(200,80,0,0.20);
+    border-radius: 0.25rem;
+    padding: 0.25rem 0.4rem;
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    color: var(--c-t1);
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s;
+  }
+  .pg-harmony-swatch:hover .pg-swatch-tip { opacity: 1; }
+
+  /* ── Contrast Grid ───────────────────────────────────────────────────── */
+  .pg-contrast-grid { display: flex; flex-direction: column; gap: 0.5rem; }
+
+  .pg-contrast-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.625rem 0.875rem;
+    border-radius: 0.5rem;
+    background: rgba(17,8,3,0.50);
+    border: 1px solid rgba(200,80,0,0.08);
+  }
+  .pg-contrast-pair { font-size: 0.8rem; color: var(--c-t2); flex: 1; }
+  .pg-contrast-ratio { font-family: var(--font-mono); font-size: 0.7rem; color: var(--c-t1); font-weight: 700; }
+  .pg-contrast-badge {
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    font-weight: 600;
+    padding: 0.15rem 0.4rem;
+    border-radius: 0.25rem;
+    letter-spacing: 0.05em;
+  }
+  .pg-contrast-pass { background: rgba(34,197,94,0.12); color: #22c55e; border: 1px solid rgba(34,197,94,0.25); }
+  .pg-contrast-fail { background: rgba(239,68,68,0.12); color: #ef4444; border: 1px solid rgba(239,68,68,0.25); }
+
+  /* ── Motion cards ────────────────────────────────────────────────────── */
+  .pg-motion-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; }
+  @media (max-width: 700px) { .pg-motion-grid { grid-template-columns: 1fr; } }
+
+  .pg-motion-card {
+    border-radius: 0.75rem;
+    border: 1px solid rgba(200,80,0,0.10);
+    background: rgba(17,8,3,0.50);
+    overflow: hidden;
+  }
+  .pg-motion-preview {
+    height: 80px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(7,4,1,0.80);
+    border-bottom: 1px solid rgba(200,80,0,0.08);
+  }
+  .pg-motion-preview--drawer {
+    cursor: pointer;
+    font-size: 0.75rem;
+    color: var(--c-t3);
+    transition: background 0.2s;
+  }
+  .pg-motion-preview--drawer:hover { background: rgba(232,82,0,0.06); color: var(--c-t2); }
+  .pg-motion-label { padding: 0.5rem 0.75rem 0; font-size: 0.8rem; color: var(--c-t2); font-weight: 600; }
+  .pg-motion-curve { padding: 0 0.75rem 0.75rem; font-family: var(--font-mono); font-size: 0.6rem; color: var(--c-t4); }
+
+  .pg-motion-logo-demo {
+    width: 40px; height: 40px;
+    border-radius: 0.5rem;
+    background: radial-gradient(circle, rgba(232,82,0,0.6) 20%, rgba(7,4,1,0.8) 100%);
+    animation: logo-glow-breathe 3.8s ease-in-out infinite;
+    box-shadow: 0 0 20px rgba(232,82,0,0.3);
+  }
+  .pg-motion-indicator-demo {
+    width: 80px; height: 2px;
+    background: linear-gradient(90deg, var(--c-p), var(--c-gold));
+    border-radius: 1px;
+    transform-origin: left;
+    animation: indicator-demo 2s cubic-bezier(0.4,0,0.2,1) infinite;
+  }
+  @keyframes indicator-demo {
+    0%, 15% { transform: scaleX(0); opacity: 0; }
+    40%, 60% { transform: scaleX(1); opacity: 1; }
+    85%, 100% { transform: scaleX(0); opacity: 0; }
+  }
+
+  /* ── Device cards ────────────────────────────────────────────────────── */
+  .pg-device-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.75rem; }
+  @media (max-width: 700px) { .pg-device-grid { grid-template-columns: repeat(2, 1fr); } }
+
+  .pg-device-card { border-radius: 0.75rem; padding: 1rem; }
+  .pg-device-name { font-family: var(--font-display); font-weight: 700; font-size: 0.9rem; color: var(--c-t1); margin-bottom: 0.625rem; }
+  .pg-device-spec {
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--font-mono);
+    font-size: 0.65rem;
+    padding: 0.25rem 0;
+    border-top: 1px solid rgba(200,80,0,0.06);
+    color: var(--c-t3);
+  }
+  .pg-device-spec span:last-child { color: var(--c-t1); }
+
+  /* ── Skeleton ────────────────────────────────────────────────────────── */
+  .pg-token-skeleton {
+    padding: 1rem;
+    font-family: var(--font-mono);
+    font-size: 0.75rem;
+    color: var(--c-t4);
+    animation: pulse-glow 1.5s ease-in-out infinite;
+  }
+</style>
+
+<script>
+  import type { StateHexTokens } from '../lib/momoto/index';
+
+  const t0 = performance.now();
+
+  // ── Utility ─────────────────────────────────────────────────────────────
+  function $<T extends HTMLElement = HTMLElement>(id: string): T | null {
+    return document.getElementById(id) as T | null;
+  }
+
+  // ── Preview controls ─────────────────────────────────────────────────────
+  const previewBar  = $('pg-header-preview');
+  const previewLogo = $('preview-logo');
+  const lgGlow      = $('pg-logo-glow');
+
+  // Logo size slider
+  const logoSlider = $<HTMLInputElement>('logo-size-slider');
+  const logoVal    = $('logo-size-val');
+  logoSlider?.addEventListener('input', () => {
+    const v = parseInt(logoSlider.value);
+    if (previewLogo) {
+      previewLogo.style.width  = v + 'px';
+      previewLogo.style.height = v + 'px';
+    }
+    if (logoVal) logoVal.textContent = v + 'px';
+  });
+
+  // Header height slider
+  const hSlider = $<HTMLInputElement>('header-h-slider');
+  const hVal    = $('header-h-val');
+  hSlider?.addEventListener('input', () => {
+    const v = parseInt(hSlider.value);
+    if (previewBar) previewBar.style.height = v + 'px';
+    if (hVal) hVal.textContent = v + 'px';
+  });
+
+  // Blur slider
+  const blurSlider = $<HTMLInputElement>('blur-slider');
+  const blurVal    = $('blur-val');
+  blurSlider?.addEventListener('input', () => {
+    const v = parseInt(blurSlider.value);
+    if (blurVal) blurVal.textContent = v + 'px';
+    // Update stage-2 preview blur
+    const shell = $('preview-shell');
+    if (shell) shell.style.setProperty('--pg-blur', v + 'px');
+  });
+
+  // Stage radio
+  document.querySelectorAll<HTMLInputElement>('input[name="stage"]').forEach(radio => {
+    radio.addEventListener('change', () => {
+      if (!previewBar) return;
+      previewBar.className = previewBar.className
+        .replace(/pg-preview-stage-\d/g, '').trim();
+      previewBar.classList.add(`pg-preview-stage-${radio.value}`);
+    });
+  });
+
+  // Color mode radio
+  document.querySelectorAll<HTMLInputElement>('input[name="colormode"]').forEach(radio => {
+    radio.addEventListener('change', () => {
+      const shell = $('preview-shell');
+      if (!shell) return;
+      shell.className = shell.className.replace(/pg-mode-\w+/g, '').trim();
+      if (radio.value !== 'fire') shell.classList.add(`pg-mode-${radio.value}`);
+    });
+  });
+
+  // Motion intensity radio
+  document.querySelectorAll<HTMLInputElement>('input[name="motion"]').forEach(radio => {
+    radio.addEventListener('change', () => {
+      const intensity = radio.value;
+      const glow = $('pg-logo-glow');
+      const logoDemo = document.querySelector<HTMLElement>('.pg-motion-logo-demo');
+      const indDemo  = document.querySelector<HTMLElement>('.pg-motion-indicator-demo');
+      if (intensity === 'none') {
+        [glow, logoDemo, indDemo].forEach(el => el && (el.style.animation = 'none'));
+      } else if (intensity === 'reduced') {
+        [glow, logoDemo].forEach(el => el && (el.style.animationDuration = '6s'));
+        if (indDemo) indDemo.style.animationDuration = '4s';
+      } else {
+        [glow, logoDemo].forEach(el => el && (el.style.animation = ''));
+        if (indDemo) indDemo.style.animation = '';
+      }
+    });
+  });
+
+  // ── Momoto initialization ──────────────────────────────────────────────
+  async function initPlayground() {
+    const t_wasm_start = performance.now();
+    const {
+      initMomoto, deriveStateColors, checkContrast, batchDeriveColors, shiftColor,
+      BRAND_FIRE, BRAND_GOLD, BRAND_EMBER, BRAND_SPARK, BRAND_BG, BRAND_TEXT1, BRAND_TEXT2, BRAND_TEXT3,
+    } = await import('../lib/momoto/index');
+
+    await initMomoto();
+    const t_wasm_ready = performance.now();
+    const wasmMs = (t_wasm_ready - t_wasm_start).toFixed(1);
+    const totalMs = (t_wasm_ready - t0).toFixed(1);
+
+    // Update perf badge
+    const perfBadge = $('perf-badge');
+    const perfLabel = $('perf-label');
+    const perfDot = perfBadge?.querySelector('.pg-perf-dot');
+    if (perfLabel) perfLabel.textContent = `WASM ready · ${wasmMs}ms · total ${totalMs}ms`;
+    perfDot?.classList.add('ready');
+
+    // ── Token Inspector ──────────────────────────────────────────────────
+    const brands = [
+      { label: 'BRAND_FIRE',  oklch: BRAND_FIRE,  name: '--m-brand-fire' },
+      { label: 'BRAND_GOLD',  oklch: BRAND_GOLD,  name: '--m-brand-gold' },
+      { label: 'BRAND_EMBER', oklch: BRAND_EMBER, name: '--m-brand-ember' },
+      { label: 'BRAND_SPARK', oklch: BRAND_SPARK, name: '--m-brand-spark' },
+      { label: 'BRAND_TEXT1', oklch: BRAND_TEXT1, name: '--m-text1' },
+      { label: 'BRAND_TEXT2', oklch: BRAND_TEXT2, name: '--m-text2' },
+      { label: 'BRAND_TEXT3', oklch: BRAND_TEXT3, name: '--m-text3' },
+      { label: 'BRAND_BG',    oklch: BRAND_BG,    name: '--m-bg' },
+    ];
+
+    const [statesFire, statesGold, statesEmber] = await batchDeriveColors([BRAND_FIRE, BRAND_GOLD, BRAND_EMBER]);
+    const logoGlowHex = await shiftColor(BRAND_FIRE, { lightness: 0.09, chroma: 0.05 });
+
+    // Build token cards
+    const tokenGrid = $('token-grid');
+    if (tokenGrid) {
+      const cards: string[] = [];
+      for (const b of brands) {
+        const states = await deriveStateColors(b.oklch.l, b.oklch.c, b.oklch.h);
+        cards.push(`
+          <div class="pg-token-card">
+            <div class="pg-token-swatch" style="background: ${states.idle};"></div>
+            <div class="pg-token-info">
+              <div class="pg-token-name">${b.label}</div>
+              <div class="pg-token-hex">${states.idle}</div>
+              <div class="pg-token-oklch">oklch(${(b.oklch.l*100).toFixed(0)}% ${b.oklch.c.toFixed(3)} ${b.oklch.h}°)</div>
+            </div>
+          </div>
+        `);
+      }
+      // Extra: logo glow derived
+      cards.push(`
+        <div class="pg-token-card">
+          <div class="pg-token-swatch" style="background: ${logoGlowHex};"></div>
+          <div class="pg-token-info">
+            <div class="pg-token-name">LOGO_GLOW</div>
+            <div class="pg-token-hex">${logoGlowHex}</div>
+            <div class="pg-token-oklch">shiftColor(FIRE +0.09L +0.05C)</div>
+          </div>
+        </div>
+      `);
+      tokenGrid.innerHTML = cards.join('');
+    }
+
+    // Update logo glow in preview with momoto color
+    const pgLogoGlow = $('pg-logo-glow');
+    if (pgLogoGlow) {
+      pgLogoGlow.style.background = `radial-gradient(circle, ${logoGlowHex}c0 0%, transparent 70%)`;
+    }
+
+    // Update CTA button with momoto colors
+    const ctaBtn = $('pg-cta-btn');
+    if (ctaBtn) {
+      ctaBtn.style.background = `linear-gradient(135deg, ${statesFire.idle} 0%, ${statesEmber.idle} 100%)`;
+      ctaBtn.style.boxShadow  = `0 4px 16px ${statesFire.idle}58`;
+      ctaBtn.addEventListener('mouseenter', () => {
+        ctaBtn.style.background = `linear-gradient(135deg, ${statesFire.hover} 0%, ${statesFire.idle} 100%)`;
+        ctaBtn.style.boxShadow  = `0 6px 24px ${statesFire.hover}80`;
+      });
+      ctaBtn.addEventListener('mouseleave', () => {
+        ctaBtn.style.background = `linear-gradient(135deg, ${statesFire.idle} 0%, ${statesEmber.idle} 100%)`;
+        ctaBtn.style.boxShadow  = `0 4px 16px ${statesFire.idle}58`;
+      });
+    }
+
+    // ── Color Harmony Grid ───────────────────────────────────────────────
+    const harmonyGrid = $('harmony-grid');
+    if (harmonyGrid) {
+      const stateNames: (keyof StateHexTokens)[] = ['idle','hover','active','focus','disabled','loading'];
+      const rows: string[] = [];
+      for (const [label, states] of [
+        ['Fire', statesFire], ['Gold', statesGold], ['Ember', statesEmber],
+      ] as [string, StateHexTokens][]) {
+        const swatches = stateNames.map(s => `
+          <div class="pg-harmony-swatch" style="background: ${states[s]};" title="${s}: ${states[s]}">
+            <span class="pg-swatch-tip">${s}<br/>${states[s]}</span>
+          </div>
+        `).join('');
+        rows.push(`
+          <div class="pg-harmony-row">
+            <span class="pg-harmony-label">${label}</span>
+            <div class="pg-harmony-swatches">${swatches}</div>
+          </div>
+        `);
+      }
+      harmonyGrid.innerHTML = rows.join('');
+    }
+
+    // ── Contrast Validation ──────────────────────────────────────────────
+    const contrastGrid = $('contrast-grid');
+    if (contrastGrid) {
+      const pairs = [
+        { label: 'Text1 on BG',       fg: BRAND_TEXT1, bg: BRAND_BG    },
+        { label: 'Text2 on BG',       fg: BRAND_TEXT2, bg: BRAND_BG    },
+        { label: 'Text3 on BG',       fg: BRAND_TEXT3, bg: BRAND_BG    },
+        { label: 'Fire on BG',        fg: BRAND_FIRE,  bg: BRAND_BG    },
+        { label: 'Gold on BG',        fg: BRAND_GOLD,  bg: BRAND_BG    },
+        { label: 'White on Fire',     fg: { l:1, c:0, h:0 }, bg: BRAND_FIRE },
+      ];
+      const rows: string[] = [];
+      for (const p of pairs) {
+        const r = await checkContrast(p.fg, p.bg);
+        const level = r.passesAAA ? 'AAA' : r.passesAA ? 'AA' : 'FAIL';
+        const cls   = (r.passesAA ? 'pg-contrast-pass' : 'pg-contrast-fail');
+        rows.push(`
+          <div class="pg-contrast-row">
+            <span class="pg-contrast-pair">${p.label}</span>
+            <span class="pg-contrast-ratio">${r.wcagRatio.toFixed(2)}:1</span>
+            <span class="pg-contrast-badge ${cls}">${level}</span>
+            <span class="pg-contrast-badge" style="background:rgba(200,80,0,0.08);color:var(--c-t3);border:1px solid rgba(200,80,0,0.12);">APCA ${Math.abs(r.apcaContrast).toFixed(1)}</span>
+          </div>
+        `);
+      }
+      contrastGrid.innerHTML = rows.join('');
+    }
+  }
+
+  initPlayground().catch(e => console.error('[Playground] init failed:', e));
+</script>

@@ -422,6 +422,7 @@ mod tests {
 
     fn make_step(name: &str, tool: &str) -> PlanStep {
         PlanStep {
+            step_id: uuid::Uuid::new_v4(),
             description: name.into(),
             tool_name: Some(tool.into()),
             parallel: false,
@@ -696,6 +697,7 @@ mod tests {
     #[test]
     fn step_without_tool_name_never_matches() {
         let step = PlanStep {
+            step_id: uuid::Uuid::new_v4(),
             description: "Synthesize response".into(),
             tool_name: None,
             parallel: false,

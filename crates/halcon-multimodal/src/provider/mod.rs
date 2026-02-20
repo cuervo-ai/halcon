@@ -35,3 +35,33 @@ pub trait MultimodalProvider: Send + Sync {
     /// Analyze validated media with an optional natural-language prompt.
     async fn analyze(&self, media: &ValidatedMedia, prompt: Option<&str>) -> Result<MediaAnalysis>;
 }
+
+// ── Test-only mock provider ───────────────────────────────────────────────────
+
+/// Test-only mock provider that returns fixed `MediaAnalysis` without any API calls.
+///
+/// Use this in unit tests to avoid requiring real API keys.
+#[cfg(test)]
+pub struct MockMultimodalProvider;
+
+#[cfg(test)]
+#[async_trait]
+impl MultimodalProvider for MockMultimodalProvider {
+    fn name(&self) -> &str { "mock" }
+
+    fn supports_modality(&self, _modality: &str) -> bool { true }
+
+    async fn analyze(&self, media: &ValidatedMedia, _prompt: Option<&str>) -> Result<MediaAnalysis> {
+        let modality = if media.is_image()      { "image" }
+                       else if media.is_audio() { "audio" }
+                       else                     { "video" };
+        Ok(MediaAnalysis {
+            description:   format!("Mock analysis: {} content detected", modality),
+            entities:      vec!["mock-entity".into()],
+            token_estimate: 10,
+            provider_name: "mock".into(),
+            is_local:      true,
+            modality:      modality.into(),
+        })
+    }
+}

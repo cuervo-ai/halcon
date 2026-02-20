@@ -63,18 +63,53 @@ impl Default for StrategyStats {
     }
 }
 
-/// Strategy plan with configured limits.
+/// Strategy plan with configured limits and multi-dimensional parameters.
+///
+/// The 7-dimensional plan replaces the original 3-field version. New fields drive
+/// `ToolLoopGuard` tightness, per-round replan sensitivity, and optional routing bias —
+/// converting UCB1 from a 1-dimensional round-limit oracle into a full execution profile.
 #[derive(Debug, Clone)]
 pub struct StrategyPlan {
     pub strategy: ReasoningStrategy,
     pub max_rounds: usize,
+    /// Whether to invoke the Reflector after each tool batch. DirectExecution defaults false.
     pub enable_reflection: bool,
+    /// Scale ToolLoopGuard thresholds: 0.0 = relaxed (max rounds), 1.0 = tight (min rounds).
+    pub loop_guard_tightness: f32,
+    /// Scale structural replan sensitivity: 0.0 = permissive, 1.0 = hair-trigger.
+    pub replan_sensitivity: f32,
+    /// Optional routing hint for model selection: None | "fast" | "cheap" | "quality".
+    pub routing_bias: Option<String>,
 }
+
+impl Default for StrategyPlan {
+    fn default() -> Self {
+        Self {
+            strategy: ReasoningStrategy::DirectExecution,
+            max_rounds: 10,
+            enable_reflection: true,
+            loop_guard_tightness: 0.5,
+            replan_sensitivity: 0.5,
+            routing_bias: None,
+        }
+    }
+}
+
+/// Minimum exploration factor floor — ensures the selector never becomes
+/// purely exploitative even with extensive experience.
+const C_MIN: f64 = 0.30;
+
+/// Decay rate for the adaptive exploration factor.
+///
+/// Higher values cause faster decay:
+/// - α=0.05, n=100 → C_eff ≈ 0.57 × C_base
+/// - α=0.05, n=400 → C_eff ≈ 0.33 × C_base (near floor)
+const C_DECAY_ALPHA: f64 = 0.05;
 
 /// Selector using UCB1 algorithm.
 pub struct StrategySelector {
     experience: HashMap<(TaskType, ReasoningStrategy), StrategyStats>,
-    exploration_factor: f64, // UCB1 "c" parameter (default 1.4)
+    exploration_factor: f64, // UCB1 "c" base parameter (default 1.4)
 }
 
 impl StrategySelector {
@@ -86,11 +121,30 @@ impl StrategySelector {
         }
     }
 
-    /// Select strategy using UCB1 algorithm.
+    /// Compute the effective exploration factor for a given total experience count.
     ///
-    /// UCB1 formula: avg_score + c * sqrt(ln(total_uses) / strategy_uses)
+    /// Implements a square-root decay schedule:
+    /// ```text
+    /// C_eff(n) = max(C_MIN, C_base / sqrt(1 + α × n))
+    /// ```
+    ///
+    /// Properties:
+    /// - `n=0`:   `C_eff = C_base = 1.4`  (pure exploration at start)
+    /// - `n=100`: `C_eff ≈ 0.57 × C_base` (exploration reduced by ~43%)
+    /// - `n→∞`:   `C_eff → C_MIN = 0.30`  (maintains minimum exploration floor)
+    ///
+    /// This ensures the system exploits known-good strategies more aggressively
+    /// as experience grows, while never becoming fully deterministic.
+    pub fn effective_c(&self, total_uses: usize) -> f64 {
+        let decayed = self.exploration_factor / (1.0 + C_DECAY_ALPHA * total_uses as f64).sqrt();
+        decayed.max(C_MIN)
+    }
+
+    /// Select strategy using UCB1 algorithm with adaptive exploration.
+    ///
+    /// UCB1 formula: avg_score + C_eff(n) * sqrt(ln(total_uses) / strategy_uses)
     /// - avg_score: exploitation (use best known)
-    /// - exploration term: try less-used options
+    /// - exploration term: try less-used options (decays as n grows)
     pub fn select(&self, task: &TaskAnalysis) -> ReasoningStrategy {
         let strategies = [
             ReasoningStrategy::DirectExecution,
@@ -113,7 +167,10 @@ impl StrategySelector {
             return Self::default_for_complexity(task.complexity);
         }
 
-        // UCB1 scoring
+        // Adaptive exploration coefficient: decays as total experience grows.
+        let c_eff = self.effective_c(total_uses);
+
+        // UCB1 scoring with adaptive C
         strategies
             .iter()
             .map(|strategy| {
@@ -128,7 +185,7 @@ impl StrategySelector {
                     f64::INFINITY
                 } else {
                     let exploitation = stats.avg_score;
-                    let exploration = self.exploration_factor
+                    let exploration = c_eff
                         * ((total_uses as f64).ln() / stats.uses as f64).sqrt();
                     exploitation + exploration
                 };
@@ -140,7 +197,7 @@ impl StrategySelector {
             .unwrap_or(Self::default_for_complexity(task.complexity))
     }
 
-    /// Configure strategy with limits based on complexity.
+    /// Configure strategy with limits and multi-dimensional parameters based on complexity.
     pub fn configure(&self, strategy: ReasoningStrategy, complexity: TaskComplexity) -> StrategyPlan {
         let max_rounds = match (strategy, complexity) {
             (ReasoningStrategy::DirectExecution, TaskComplexity::Simple) => 3,
@@ -153,10 +210,34 @@ impl StrategySelector {
 
         let enable_reflection = matches!(strategy, ReasoningStrategy::PlanExecuteReflect);
 
+        // Multi-dimensional parameters — scale with (strategy, complexity):
+        // DirectExecution+Simple:  relaxed (fast, minimal friction)
+        // DirectExecution+Complex: moderate tightness (complex tasks need more guard)
+        // PlanExecuteReflect+Simple: moderate (some structure)
+        // PlanExecuteReflect+Complex: tight (aggressive guard + replan-eager)
+        let (loop_guard_tightness, replan_sensitivity, routing_bias) =
+            match (strategy, complexity) {
+                (ReasoningStrategy::DirectExecution, TaskComplexity::Simple) =>
+                    (0.3, 0.3, Some("fast".to_string())),
+                (ReasoningStrategy::DirectExecution, TaskComplexity::Moderate) =>
+                    (0.5, 0.5, None),
+                (ReasoningStrategy::DirectExecution, TaskComplexity::Complex) =>
+                    (0.6, 0.7, None),
+                (ReasoningStrategy::PlanExecuteReflect, TaskComplexity::Simple) =>
+                    (0.4, 0.4, None),
+                (ReasoningStrategy::PlanExecuteReflect, TaskComplexity::Moderate) =>
+                    (0.6, 0.6, None),
+                (ReasoningStrategy::PlanExecuteReflect, TaskComplexity::Complex) =>
+                    (0.8, 0.8, Some("quality".to_string())),
+            };
+
         StrategyPlan {
             strategy,
             max_rounds,
             enable_reflection,
+            loop_guard_tightness,
+            replan_sensitivity,
+            routing_bias,
         }
     }
 
@@ -181,6 +262,11 @@ impl StrategySelector {
     /// Get current experience stats.
     pub fn get_stats(&self, task_type: TaskType, strategy: ReasoningStrategy) -> Option<&StrategyStats> {
         self.experience.get(&(task_type, strategy))
+    }
+
+    /// Total number of experience entries loaded (across all task_type × strategy pairs).
+    pub fn total_experience_count(&self) -> usize {
+        self.experience.values().map(|s| s.uses).sum()
     }
 
     /// Default strategy for complexity (when no experience).
@@ -304,6 +390,9 @@ mod tests {
         let plan = selector.configure(ReasoningStrategy::DirectExecution, TaskComplexity::Simple);
         assert_eq!(plan.max_rounds, 3);
         assert!(!plan.enable_reflection);
+        // Simple+Direct: relaxed guard, fast routing
+        assert!(plan.loop_guard_tightness < 0.5);
+        assert_eq!(plan.routing_bias.as_deref(), Some("fast"));
     }
 
     #[test]
@@ -312,6 +401,30 @@ mod tests {
         let plan = selector.configure(ReasoningStrategy::PlanExecuteReflect, TaskComplexity::Complex);
         assert_eq!(plan.max_rounds, 15);
         assert!(plan.enable_reflection);
+        // Complex+PlanExecuteReflect: tight guard, quality routing
+        assert!(plan.loop_guard_tightness >= 0.7);
+        assert_eq!(plan.routing_bias.as_deref(), Some("quality"));
+    }
+
+    #[test]
+    fn configure_new_dimensions_present() {
+        let selector = StrategySelector::new(1.4);
+        let plan = selector.configure(ReasoningStrategy::PlanExecuteReflect, TaskComplexity::Moderate);
+        // Verify new fields are populated
+        assert!(plan.loop_guard_tightness > 0.0);
+        assert!(plan.replan_sensitivity > 0.0);
+        // Moderate complexity: no routing bias
+        assert!(plan.routing_bias.is_none());
+    }
+
+    #[test]
+    fn strategy_plan_default_is_stable() {
+        let plan = StrategyPlan::default();
+        assert_eq!(plan.max_rounds, 10);
+        assert!(plan.enable_reflection);
+        assert_eq!(plan.loop_guard_tightness, 0.5);
+        assert_eq!(plan.replan_sensitivity, 0.5);
+        assert!(plan.routing_bias.is_none());
     }
 
     #[test]
@@ -338,5 +451,76 @@ mod tests {
         let selector = StrategySelector::new(1.4);
         let stats = selector.get_stats(TaskType::Research, ReasoningStrategy::DirectExecution);
         assert!(stats.is_none());
+    }
+
+    // ── Phase 6: Adaptive UCB1 exploration factor ────────────────────────────
+
+    #[test]
+    fn adaptive_c_equals_base_with_zero_experience() {
+        let selector = StrategySelector::new(1.4);
+        let c = selector.effective_c(0);
+        assert!(
+            (c - 1.4).abs() < 1e-9,
+            "C at n=0 must equal base exploration factor, got {c}"
+        );
+    }
+
+    #[test]
+    fn adaptive_c_decays_monotonically_with_experience() {
+        let selector = StrategySelector::new(1.4);
+        let c0 = selector.effective_c(0);
+        let c10 = selector.effective_c(10);
+        let c100 = selector.effective_c(100);
+        let c400 = selector.effective_c(400);
+        assert!(c0 > c10, "C must decrease from n=0 to n=10: {c0} vs {c10}");
+        assert!(c10 > c100, "C must decrease from n=10 to n=100: {c10} vs {c100}");
+        // c400 may hit floor, but must not exceed c100
+        assert!(c100 >= c400, "C must not increase past n=100: {c100} vs {c400}");
+    }
+
+    #[test]
+    fn adaptive_c_respects_minimum_floor() {
+        let selector = StrategySelector::new(1.4);
+        // At extreme experience (10_000 uses), C must not go below C_MIN
+        let c_extreme = selector.effective_c(10_000);
+        assert!(
+            c_extreme >= C_MIN,
+            "C must not drop below C_MIN={C_MIN}, got {c_extreme}"
+        );
+    }
+
+    #[test]
+    fn adaptive_c_exploitation_wins_with_extensive_data() {
+        // With 200 total uses, a good strategy should beat a bad one even though
+        // the reduced C_eff still adds some exploration bonus.
+        let analysis = TaskAnalyzer::analyze("write a function");
+        let mut selector = StrategySelector::new(1.4);
+
+        // DirectExecution: excellent score × 100 uses
+        for _ in 0..100 {
+            selector.update(TaskType::CodeGeneration, ReasoningStrategy::DirectExecution, 0.95);
+        }
+        // PlanExecuteReflect: poor score × 100 uses
+        for _ in 0..100 {
+            selector.update(TaskType::CodeGeneration, ReasoningStrategy::PlanExecuteReflect, 0.10);
+        }
+
+        // With adaptive C (reduced at n=200), exploitation signal should win
+        let strategy = selector.select(&analysis);
+        assert_eq!(
+            strategy,
+            ReasoningStrategy::DirectExecution,
+            "At n=200, high-score strategy must win despite reduced exploration bonus"
+        );
+    }
+
+    #[test]
+    fn c_min_constant_is_0_30() {
+        assert_eq!(C_MIN, 0.30, "C_MIN must be 0.30 for SOTA compliance");
+    }
+
+    #[test]
+    fn c_decay_alpha_constant_is_0_05() {
+        assert!((C_DECAY_ALPHA - 0.05).abs() < 1e-10, "C_DECAY_ALPHA must be 0.05");
     }
 }

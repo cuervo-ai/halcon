@@ -147,6 +147,11 @@ pub async fn run_replay(
         context_manager: None,
         ctrl_rx: None,
         speculator: &replay_speculator,
+        security_config: &halcon_core::types::SecurityConfig::default(),
+        strategy_context: None,
+        critic_provider: None,
+        critic_model: None,
+        plugin_registry: None,
     };
 
     let result = agent::run_agent_loop(ctx).await?;

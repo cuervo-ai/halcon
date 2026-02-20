@@ -1494,7 +1494,7 @@ mod audit {
             let reg = crate::full_registry(&config, Some(proc_reg), None, None);
             let defs = reg.tool_definitions();
 
-            assert_eq!(defs.len(), 24, "expected 24 tools in full registry (with background, no search engine)");
+            assert_eq!(defs.len(), 29, "expected 29 tools in full registry (with background, no search engine)");
 
             let mut names: Vec<String> = defs.iter().map(|d| d.name.clone()).collect();
             for name in &names {
@@ -1596,16 +1596,16 @@ mod audit {
             }
         }
 
-        /// Verify default registry has 23 tools and full has 26.
+        /// Verify default registry has 26 tools and full has 29.
         #[test]
         fn registry_counts() {
             let config = ToolsConfig::default();
             let default_reg = crate::default_registry(&config);
-            assert_eq!(default_reg.tool_definitions().len(), 21);
+            assert_eq!(default_reg.tool_definitions().len(), 26);
 
             let proc_reg = Arc::new(ProcessRegistry::new(5));
             let full_reg = crate::full_registry(&config, Some(proc_reg), None, None);
-            assert_eq!(full_reg.tool_definitions().len(), 24);
+            assert_eq!(full_reg.tool_definitions().len(), 29);
         }
 
         /// Verify tool_use_id propagation for ALL tools that can be called without network.

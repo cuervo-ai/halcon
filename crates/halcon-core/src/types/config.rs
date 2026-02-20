@@ -367,6 +367,30 @@ pub struct AppConfig {
     /// Multimodal subsystem configuration.
     #[serde(default)]
     pub multimodal: MultimodalConfig,
+    /// V3 Plugin system configuration.
+    #[serde(default)]
+    pub plugins: PluginsConfig,
+}
+
+/// V3 Plugin system configuration.
+///
+/// Enable via `[plugins] enabled = true` in config.toml.
+/// When enabled, the plugin loader scans `~/.halcon/plugins/*.plugin.toml`
+/// on the first agent-loop message and registers PluginProxyTool instances.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PluginsConfig {
+    /// Master switch.  When false (default) no plugin discovery runs.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Override discovery path (default: ~/.halcon/plugins/).
+    #[serde(default)]
+    pub plugin_dir: Option<String>,
+}
+
+impl Default for PluginsConfig {
+    fn default() -> Self {
+        Self { enabled: false, plugin_dir: None }
+    }
 }
 
 /// Adaptive reasoning and UCB1 strategy learning configuration.
@@ -394,6 +418,53 @@ pub struct ReasoningConfig {
     /// Persist experience across sessions (requires DB).
     #[serde(default = "reasoning_learning_default")]
     pub learning: bool,
+    /// Phase 73 (Phase 5): enable adversarial LoopCritic evaluation after each session.
+    ///
+    /// When `true`, a second LLM call is made after the agent loop to adversarially
+    /// evaluate whether the original goal was truly achieved. Adds ~1–3s latency.
+    /// Disabled by default; enable with `enable_loop_critic = true` in config.toml.
+    #[serde(default)]
+    pub enable_loop_critic: bool,
+    /// Optional separate model for LoopCritic (prevents self-evaluation bias).
+    /// None = use executor model (backward-compatible default).
+    ///
+    /// Example: `critic_model = "gpt-4o-mini"` in `[reasoning]` section.
+    #[serde(default)]
+    pub critic_model: Option<String>,
+    /// Optional separate provider name for LoopCritic.
+    /// None = use executor provider.
+    ///
+    /// Example: `critic_provider = "openai"` in `[reasoning]` section.
+    #[serde(default)]
+    pub critic_provider: Option<String>,
+
+    // ── Phase 3: AgentModelConfig — role-specific model/provider separation ──
+
+    /// Optional model for the LlmPlanner role (plan generation / replan).
+    /// None = use the session's primary execution model.
+    ///
+    /// Example: `planner_model = "deepseek-chat"` in `[reasoning]` section.
+    #[serde(default)]
+    pub planner_model: Option<String>,
+    /// Optional provider for the LlmPlanner role.
+    /// None = use the session's primary provider.
+    ///
+    /// Example: `planner_provider = "deepseek"` in `[reasoning]` section.
+    #[serde(default)]
+    pub planner_provider: Option<String>,
+
+    /// Optional model for the Reflector role (post-execution reflection).
+    /// None = use the session's primary execution model.
+    ///
+    /// Example: `reflector_model = "gpt-4o-mini"` in `[reasoning]` section.
+    #[serde(default)]
+    pub reflector_model: Option<String>,
+    /// Optional provider for the Reflector role.
+    /// None = use the session's primary provider.
+    ///
+    /// Example: `reflector_provider = "openai"` in `[reasoning]` section.
+    #[serde(default)]
+    pub reflector_provider: Option<String>,
 }
 
 fn reasoning_threshold_default() -> f64 { 0.6 }
@@ -409,6 +480,13 @@ impl Default for ReasoningConfig {
             max_retries: reasoning_max_retries_default(),
             exploration_factor: reasoning_exploration_default(),
             learning: reasoning_learning_default(),
+            enable_loop_critic: false,
+            critic_model: None,
+            critic_provider: None,
+            planner_model: None,
+            planner_provider: None,
+            reflector_model: None,
+            reflector_provider: None,
         }
     }
 }
@@ -628,9 +706,15 @@ pub struct ToolsConfig {
     /// 0 = no timeout (blocks indefinitely). Default: 30.
     #[serde(default = "default_prompt_timeout")]
     pub prompt_timeout_secs: u64,
-    /// Auto-approve destructive tools when running in CI environments.
+    /// Auto-approve ReadOnly tools when running in CI environments (non-interactive mode).
     /// Prevents 30-second hangs on permission prompts in CI/CD pipelines.
-    /// Default: true.
+    ///
+    /// **Deprecated (Phase 72c)**: This field now controls ReadOnly tier only.
+    /// Use `allow_write_in_ci` for ReadWrite tier and `allow_destructive_in_ci` for
+    /// Destructive tier. Setting this to `true` no longer auto-approves Destructive tools
+    /// — the `NonInteractivePolicy` now enforces per-level granular control.
+    ///
+    /// Default: true (ReadOnly auto-approved in CI; Destructive still requires opt-in).
     #[serde(default = "default_true")]
     pub auto_approve_in_ci: bool,
     /// Custom command blacklist patterns (regex) for bash tool.
@@ -642,6 +726,22 @@ pub struct ToolsConfig {
     /// Default: false (protection enabled).
     #[serde(default)]
     pub disable_builtin_blacklist: bool,
+    /// Allow ReadWrite tools (file_edit, file_write) in non-interactive/CI mode
+    /// without an interactive permission prompt.
+    /// Deprecated: `auto_approve_in_ci` now maps to allow_write=true only.
+    /// Default: false.
+    #[serde(default)]
+    pub allow_write_in_ci: bool,
+    /// Allow Destructive tools (bash, file_delete, etc.) in non-interactive/CI mode.
+    /// Requires explicit opt-in — use `--allow-destructive` CLI flag or set this to true.
+    /// Default: false.
+    #[serde(default)]
+    pub allow_destructive_in_ci: bool,
+    /// Enforce mandatory dry-run preview before first Destructive tool in a session.
+    /// When true, the first destructive tool shows a preview before executing.
+    /// Default: false.
+    #[serde(default)]
+    pub enforce_dry_run_preview: bool,
 }
 
 /// Configuration for automatic tool retry on transient failures.
@@ -689,6 +789,9 @@ impl Default for ToolsConfig {
             auto_approve_in_ci: true,
             command_blacklist: vec![],
             disable_builtin_blacklist: false,
+            allow_write_in_ci: false,
+            allow_destructive_in_ci: false,
+            enforce_dry_run_preview: false,
         }
     }
 }
@@ -720,12 +823,60 @@ impl Default for SandboxConfig {
     }
 }
 
+/// Action taken when PII is detected in user input.
+///
+/// G2 remediation: replaces the old `pii_action: String` field with a typed enum
+/// so the agent loop can branch without string matching. Deserializes from the
+/// same "warn" / "block" / "redact" TOML values via `serde(rename_all = "lowercase")`.
+///
+/// Named `PiiPolicy` (not `PiiAction`) to avoid ambiguity with the `PiiAction` enum
+/// in `event.rs` which records what action was taken (past tense: Redacted/Blocked/Warned).
+/// This enum expresses what policy to apply (imperative: Warn/Block/Redact).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum PiiPolicy {
+    /// Log a warning and continue — PII reaches the LLM (backward-compatible default).
+    Warn,
+    /// Hard block: agent loop halts with an error message to the user.
+    /// PII never reaches the LLM.
+    Block,
+    /// Best-effort redaction of credential patterns before sending to the LLM.
+    /// Falls back to Warn if the pattern is not a recognizable credential.
+    #[default]
+    Redact,
+}
+
+impl std::fmt::Display for PiiPolicy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PiiPolicy::Warn => write!(f, "warn"),
+            PiiPolicy::Block => write!(f, "block"),
+            PiiPolicy::Redact => write!(f, "redact"),
+        }
+    }
+}
+
+impl std::str::FromStr for PiiPolicy {
+    type Err = ();
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "warn" => Ok(PiiPolicy::Warn),
+            "block" => Ok(PiiPolicy::Block),
+            "redact" => Ok(PiiPolicy::Redact),
+            _ => Ok(PiiPolicy::Redact), // safe default on unknown values
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SecurityConfig {
     /// Enable PII detection in prompts/responses.
     pub pii_detection: bool,
-    /// PII action: "redact", "block", or "warn".
-    pub pii_action: String,
+    /// Policy applied when PII is detected in user input.
+    /// Phase 72c Phase 8.1 (G2): typed PiiPolicy enum, default "redact".
+    /// Backward-compatible with existing config.toml ("warn"/"block"/"redact").
+    #[serde(default)]
+    pub pii_action: PiiPolicy,
     /// Enable audit trail.
     pub audit_enabled: bool,
     /// Guardrails configuration.
@@ -734,6 +885,14 @@ pub struct SecurityConfig {
     /// Enable Task-Based Authorization Control (TBAC).
     #[serde(default)]
     pub tbac_enabled: bool,
+    /// Pre-execution self-critique: ask the LLM to review tool calls before executing.
+    /// Expert mode only. Halts loop if model says NO. Default: false.
+    #[serde(default)]
+    pub pre_execution_critique: bool,
+    /// TTL for session-level "always allow" grants (seconds). 0 = infinite.
+    /// Phase 72c G10: prevents stale grants from being exploited. Default: 300 (5 min).
+    #[serde(default = "default_session_grant_ttl")]
+    pub session_grant_ttl_secs: u64,
 }
 
 /// Guardrails configuration (delegated from halcon-security for serde compat).
@@ -754,6 +913,10 @@ fn guardrails_default_true() -> bool {
     true
 }
 
+fn default_session_grant_ttl() -> u64 {
+    300 // 5 minutes
+}
+
 impl Default for GuardrailsConfig {
     fn default() -> Self {
         Self {
@@ -768,10 +931,14 @@ impl Default for SecurityConfig {
     fn default() -> Self {
         Self {
             pii_detection: true,
-            pii_action: "warn".to_string(),
+            // Phase 72c G2: PiiPolicy::Redact — less disruptive than Block,
+            // still prevents PII from reaching the LLM unfiltered.
+            pii_action: PiiPolicy::Redact,
             audit_enabled: true,
             guardrails: GuardrailsConfig::default(),
             tbac_enabled: false,
+            pre_execution_critique: false,
+            session_grant_ttl_secs: 300,
         }
     }
 }
@@ -944,6 +1111,20 @@ pub struct AgentLimits {
     /// Phase 4: Allows multiple prompts to process concurrently without blocking TUI.
     #[serde(default = "default_max_concurrent_agents")]
     pub max_concurrent_agents: usize,
+    /// Maximum USD cost for this agent session. 0.0 = unlimited.
+    /// When exceeded, the agent loop stops gracefully after the current round.
+    #[serde(default)]
+    pub max_cost_usd: f64,
+    /// Confidence threshold for the clarification gate: when a plan contains destructive
+    /// steps and average confidence is below this threshold, the agent returns a clarification
+    /// request instead of executing immediately. 0.0 = never ask, 1.0 = always ask.
+    /// Default 0.6: ask when plan confidence < 60% and destructive tools are involved.
+    #[serde(default = "default_clarification_threshold")]
+    pub clarification_threshold: f64,
+}
+
+fn default_clarification_threshold() -> f64 {
+    0.6
 }
 
 fn default_provider_timeout() -> u64 {
@@ -973,6 +1154,8 @@ impl Default for AgentLimits {
             max_parallel_tools: default_max_parallel(),
             max_tool_output_chars: default_max_tool_output_chars(),
             max_concurrent_agents: default_max_concurrent_agents(),
+            max_cost_usd: 0.0,
+            clarification_threshold: default_clarification_threshold(),
         }
     }
 }
@@ -1332,6 +1515,11 @@ pub struct TaskFrameworkConfig {
     /// Resume incomplete tasks on startup. Default: false.
     #[serde(default)]
     pub resume_on_startup: bool,
+    /// Expert mode: hard structural enforcement.
+    /// When true: blocked DAG halts the loop, failure cascades halt, planner timeouts propagate.
+    /// Enabled automatically by `--expert` CLI flag. Default: false.
+    #[serde(default)]
+    pub strict_enforcement: bool,
 }
 
 fn default_task_max_retries() -> u32 {
@@ -1350,6 +1538,7 @@ impl Default for TaskFrameworkConfig {
             default_max_retries: default_task_max_retries(),
             default_retry_base_ms: default_task_retry_base_ms(),
             resume_on_startup: false,
+            strict_enforcement: false,
         }
     }
 }
@@ -1857,6 +2046,7 @@ mod tests {
             default_max_retries: 5,
             default_retry_base_ms: 1000,
             resume_on_startup: true,
+            strict_enforcement: true,
         };
         let json = serde_json::to_string(&config).unwrap();
         let roundtrip: TaskFrameworkConfig = serde_json::from_str(&json).unwrap();
@@ -1865,6 +2055,7 @@ mod tests {
         assert_eq!(roundtrip.default_max_retries, 5);
         assert_eq!(roundtrip.default_retry_base_ms, 1000);
         assert!(roundtrip.resume_on_startup);
+        assert!(roundtrip.strict_enforcement);
     }
 
     #[test]
@@ -1904,6 +2095,50 @@ mod tests {
         }"#;
         let config: ToolsConfig = serde_json::from_str(json).unwrap();
         assert!(config.auto_approve_in_ci);
+    }
+
+    // ── Phase 3: AgentModelConfig tests ────────────────────────────────────
+
+    #[test]
+    fn reasoning_config_role_fields_default_to_none() {
+        let cfg = ReasoningConfig::default();
+        assert!(cfg.planner_model.is_none());
+        assert!(cfg.planner_provider.is_none());
+        assert!(cfg.reflector_model.is_none());
+        assert!(cfg.reflector_provider.is_none());
+    }
+
+    #[test]
+    fn reasoning_config_role_fields_can_be_set() {
+        let cfg = ReasoningConfig {
+            enabled: true,
+            planner_model: Some("deepseek-chat".to_string()),
+            planner_provider: Some("deepseek".to_string()),
+            reflector_model: Some("gpt-4o-mini".to_string()),
+            reflector_provider: Some("openai".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(cfg.planner_model.as_deref(), Some("deepseek-chat"));
+        assert_eq!(cfg.planner_provider.as_deref(), Some("deepseek"));
+        assert_eq!(cfg.reflector_model.as_deref(), Some("gpt-4o-mini"));
+        assert_eq!(cfg.reflector_provider.as_deref(), Some("openai"));
+    }
+
+    #[test]
+    fn reasoning_config_role_fields_independent_of_critic() {
+        // Verify planner/reflector fields coexist with existing critic fields.
+        let cfg = ReasoningConfig {
+            critic_model: Some("claude-haiku-4-5".to_string()),
+            critic_provider: Some("anthropic".to_string()),
+            planner_model: Some("deepseek-chat".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(cfg.critic_model.as_deref(), Some("claude-haiku-4-5"));
+        assert_eq!(cfg.critic_provider.as_deref(), Some("anthropic"));
+        assert_eq!(cfg.planner_model.as_deref(), Some("deepseek-chat"));
+        assert!(cfg.planner_provider.is_none());
+        assert!(cfg.reflector_model.is_none());
+        assert!(cfg.reflector_provider.is_none());
     }
 
 }

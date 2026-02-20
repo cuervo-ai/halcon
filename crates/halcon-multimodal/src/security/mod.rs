@@ -149,4 +149,62 @@ mod tests {
         let src = vm.to_image_source().unwrap();
         assert!(matches!(src, ImageSource::Base64 { .. }));
     }
+
+    #[test]
+    fn audio_validated_media_rejects_to_image_source() {
+        // WAV magic: RIFF....WAVE
+        let mut data = vec![0x52, 0x49, 0x46, 0x46]; // RIFF
+        data.extend_from_slice(&[0x00, 0x00, 0x00, 0x00]); // chunk size
+        data.extend_from_slice(b"WAVE"); // format
+        data.extend_from_slice(&[0x66, 0x6D, 0x74, 0x20]); // "fmt " subchunk
+        data.extend_from_slice(&[0x10, 0x00, 0x00, 0x00]); // subchunk size = 16
+        // PCM format
+        data.extend_from_slice(&[0x01, 0x00]); // audio format = PCM
+        data.extend_from_slice(&[0x01, 0x00]); // num channels = 1
+        data.extend_from_slice(&[0x44, 0xAC, 0x00, 0x00]); // sample rate = 44100
+        data.extend_from_slice(&[0x88, 0x58, 0x01, 0x00]); // byte rate
+        data.extend_from_slice(&[0x02, 0x00]); // block align
+        data.extend_from_slice(&[0x10, 0x00]); // bits per sample = 16
+        let vm = validator().validate_bytes(data).unwrap();
+        assert!(vm.is_audio(), "WAV should be detected as audio");
+        let err = vm.to_image_source().unwrap_err();
+        assert!(err.to_string().contains("not an image"),
+            "Audio media should fail to_image_source; got: {err}");
+    }
+
+    #[test]
+    fn exif_stripping_enabled_removes_app1() {
+        // Minimal JPEG with an APP1 marker (0xFF 0xE1) followed by data
+        let data = vec![
+            0xFF, 0xD8,             // SOI
+            0xFF, 0xE1,             // APP1 marker
+            0x00, 0x08,             // length = 8 (includes length field)
+            0x45, 0x78, 0x69, 0x66, // "Exif"
+            0x00, 0x00,             // Exif null padding
+            0xFF, 0xD9,             // EOI
+        ];
+        let v = MediaValidator::new(SecurityLimits::default(), true, false);
+        let vm = v.validate_bytes(data).unwrap();
+        // SOI + EOI should remain; APP1 should be stripped
+        assert!(vm.data.starts_with(&[0xFF, 0xD8]), "SOI preserved");
+        assert!(vm.data.ends_with(&[0xFF, 0xD9]), "EOI preserved");
+        // APP1 marker should be gone
+        let has_app1 = vm.data.windows(2).any(|w| w == [0xFF, 0xE1]);
+        assert!(!has_app1, "APP1 EXIF marker stripped");
+    }
+
+    #[test]
+    fn no_strip_exif_preserves_app1() {
+        let data = vec![
+            0xFF, 0xD8,
+            0xFF, 0xE1,
+            0x00, 0x08,
+            0x45, 0x78, 0x69, 0x66,
+            0x00, 0x00,
+            0xFF, 0xD9,
+        ];
+        let v = MediaValidator::new(SecurityLimits::default(), false, false);
+        let vm = v.validate_bytes(data.clone()).unwrap();
+        assert_eq!(vm.data, data, "Without EXIF stripping data unchanged");
+    }
 }

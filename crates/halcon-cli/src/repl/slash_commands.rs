@@ -527,7 +527,21 @@ impl Repl {
             }
             commands::InspectTarget::Reasoning => {
                 let _ = writeln!(out, "--- Reasoning Engine ---");
-                let _ = writeln!(out, "Reasoning engine has been removed (dead code).");
+                if let Some(ref engine) = self.reasoning_engine {
+                    let summary = engine.inspect_summary();
+                    let _ = write!(out, "{summary}");
+                    // Model quality cache from Phase 3 (session-level tracker).
+                    let cache_size = self.model_quality_cache.len();
+                    if cache_size > 0 {
+                        let _ = writeln!(out, "Quality cache:        {} model(s) tracked this session", cache_size);
+                    } else {
+                        let _ = writeln!(out, "Quality cache:        empty (no completions yet this session)");
+                    }
+                } else {
+                    let _ = writeln!(out, "Enabled:              false");
+                    let _ = writeln!(out, "Activate with:        --full or set reasoning.enabled = true in config");
+                    let _ = writeln!(out, "Quality cache:        {} model(s) tracked this session", self.model_quality_cache.len());
+                }
             }
             commands::InspectTarget::Orchestration => {
                 let _ = writeln!(out, "--- Orchestration ---");

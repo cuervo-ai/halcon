@@ -18,6 +18,7 @@ pub use host::{extract_text, McpHost};
 pub use pool::{McpConnectionHealth, McpPool, McpServerDef};
 pub use server::McpServer;
 pub use transport::StdioTransport;
+pub use types::JsonRpcNotification;
 
 pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")

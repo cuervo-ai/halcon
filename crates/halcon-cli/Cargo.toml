@@ -76,14 +76,17 @@ reqwest = { workspace = true, features = ["blocking"] }
 flate2 = "1"
 tar = "0.4"
 zip = { version = "2", default-features = false, features = ["deflate"] }
+libc = { workspace = true }
+git2 = { workspace = true }
 ratatui = { workspace = true, optional = true }
 tui-textarea = { workspace = true, optional = true }
 arboard = { version = "3.4", optional = true } # Cross-platform clipboard (Phase A3)
+png = { version = "0.17", optional = true }     # PNG encoding for clipboard image paste (Phase 63)
 
 [features]
 default = ["color-science", "tui"]
 color-science = ["momoto-core", "momoto-metrics", "momoto-intelligence"]
-tui = ["ratatui", "tui-textarea", "arboard"]
+tui = ["ratatui", "tui-textarea", "arboard", "png"]
 
 [dev-dependencies]
 assert_cmd = { workspace = true }

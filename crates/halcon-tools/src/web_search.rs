@@ -98,7 +98,11 @@ impl Tool for WebSearchTool {
     }
 
     fn description(&self) -> &str {
-        "Search the web using local FTS5 index. Returns ranked results with BM25 scores, titles, and URLs. Fast (<100ms), cached, zero external API dependencies. Agent can continue gathering information while waiting for results."
+        "Search the LOCAL index (not the internet) using FTS5 full-text search with BM25 ranking. \
+         Returns ranked results from previously crawled/indexed pages. \
+         Zero external API dependencies. Fast (<100ms), cached. \
+         Agent can continue gathering information while waiting for results. \
+         Use native_crawl to populate the index before searching."
     }
 
     fn permission_level(&self) -> PermissionLevel {
@@ -262,10 +266,13 @@ mod tests {
     }
 
     #[test]
-    fn description_mentions_local() {
+    fn description_mentions_local_not_internet() {
         let tool = WebSearchTool::new(None);
         let desc = tool.description();
-        assert!(desc.contains("local") || desc.contains("FTS5"));
+        assert!(desc.contains("LOCAL") || desc.contains("local"), "desc: {desc}");
+        assert!(desc.contains("FTS5") || desc.contains("index"), "desc: {desc}");
+        assert!(desc.to_lowercase().contains("not the internet") || desc.contains("crawled"),
+            "description should clarify this is NOT a web search: {desc}");
     }
 
     #[test]

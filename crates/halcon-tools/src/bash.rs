@@ -27,6 +27,9 @@ static DEFAULT_BLACKLIST: LazyLock<Vec<Regex>> = LazyLock::new(|| {
         r"(?i)^rm\s+(-[rfivRF]+\s+)+/\s*$",                    // rm -rf /
         r"(?i)^rm\s+(-[rfivRF]+\s+)+/\*+\s*$",                // rm -rf /*
         r"(?i)^rm\s+(-[rfivRF]+\s+)+/(bin|etc|usr|var|sys|proc|dev)\b", // rm -rf /etc
+        r"(?i)^rm\s+(-[rfivRF]+\s+)+~/?\s*$",                 // rm -rf ~/ (home directory)
+        r"(?i)^rm\s+(-[rfivRF]+\s+)+\$HOME/?\s*$",            // rm -rf $HOME
+        r"(?i)^rm\s+(-[rfivRF]+\s+)+/Users/\*",               // rm -rf /Users/*
         r":\(\)\{:\|:&\};:",                                   // Fork bomb
         r"(?i)^mkfs\.",                                        // mkfs.ext4
         r"(?i)dd\s+.*\s+of=/dev/[sh]d[a-z]",                  // dd to /dev/sda
@@ -371,5 +374,35 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("command must not be empty"), "Error: {err}");
+    }
+
+    // === Home-directory rm blacklist patterns ===
+
+    #[test]
+    fn blacklist_rm_rf_tilde() {
+        let t = tool();
+        assert!(t.is_command_blacklisted("rm -rf ~/").is_some());
+        assert!(t.is_command_blacklisted("rm -rf ~").is_some());
+    }
+
+    #[test]
+    fn blacklist_rm_rf_home_env() {
+        let t = tool();
+        assert!(t.is_command_blacklisted("rm -rf $HOME").is_some());
+        assert!(t.is_command_blacklisted("rm -rf $HOME/").is_some());
+    }
+
+    #[test]
+    fn blacklist_rm_rf_users_glob() {
+        let t = tool();
+        assert!(t.is_command_blacklisted("rm -rf /Users/*").is_some());
+    }
+
+    #[test]
+    fn blacklist_does_not_block_safe_rm() {
+        // rm -rf on a specific sub-directory should NOT be blocked
+        let t = tool();
+        assert!(t.is_command_blacklisted("rm -rf /tmp/my_build").is_none());
+        assert!(t.is_command_blacklisted("rm -f somefile.txt").is_none());
     }
 }

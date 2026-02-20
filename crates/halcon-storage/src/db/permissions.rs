@@ -280,7 +280,7 @@ impl Database {
             .map_err(|e| HalconError::DatabaseError(format!("prepare load all: {e}")))?;
 
         let rules = stmt
-            .query_map([], |row| parse_permission_rule_row(row))
+            .query_map([], parse_permission_rule_row)
             .map_err(|e| HalconError::DatabaseError(format!("load all: {e}")))?
             .collect::<std::result::Result<Vec<_>, _>>()
             .map_err(|e| HalconError::DatabaseError(format!("collect rules: {e}")))?;

@@ -115,7 +115,7 @@ pub fn config_to_dto(
         },
         security: SecurityConfigDto {
             pii_detection: config.security.pii_detection,
-            pii_action: config.security.pii_action.clone(),
+            pii_action: config.security.pii_action.to_string(),
             audit_enabled: config.security.audit_enabled,
             guardrails_enabled: config.security.guardrails.enabled,
             guardrails_builtins: config.security.guardrails.builtins,
@@ -230,7 +230,7 @@ pub fn apply_dto_update(
 
     if let Some(ref s) = update.security {
         config.security.pii_detection = s.pii_detection;
-        config.security.pii_action = s.pii_action.clone();
+        config.security.pii_action = s.pii_action.parse().unwrap_or_default();
         config.security.audit_enabled = s.audit_enabled;
         config.security.guardrails.enabled = s.guardrails_enabled;
         config.security.guardrails.builtins = s.guardrails_builtins;

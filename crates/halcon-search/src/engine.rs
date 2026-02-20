@@ -69,7 +69,7 @@ impl SearchEngine {
     /// Returns the document ID of the indexed page.
     #[tracing::instrument(skip(self))]
     pub async fn index_url(&self, url: url::Url) -> Result<crate::types::DocumentId> {
-        use crate::types::{ParsedDocument, DocumentMetadata};
+        use crate::types::ParsedDocument;
 
         // Fetch HTML content
         let response = reqwest::get(url.clone())
@@ -84,11 +84,17 @@ impl SearchEngine {
                 format!("Failed to read response body: {}", e)
             ))?;
 
-        // Simple HTML text extraction (strip tags)
-        let text = html_to_text(&html);
-
-        // Extract title from <title> tag
-        let title = extract_title(&html).unwrap_or_else(|| url.to_string());
+        // Parse HTML using the real HTMLParser (scraper-based, excludes script/style)
+        let parser = crate::parse::HTMLParser::new();
+        let (text, title, outlinks, metadata) = match parser.parse(&html, &url) {
+            Ok(doc) => (doc.text, doc.title, doc.outlinks, doc.metadata),
+            Err(_) => {
+                // Fallback: simple tag stripping for robustness
+                let text = html_to_text(&html);
+                let title = extract_title(&html).unwrap_or_else(|| url.to_string());
+                (text, title, Vec::new(), crate::types::DocumentMetadata::default())
+            }
+        };
 
         // Create parsed document
         let doc = ParsedDocument {
@@ -96,9 +102,9 @@ impl SearchEngine {
             title,
             text,
             html: Some(html),
-            metadata: DocumentMetadata::default(),
-            outlinks: Vec::new(),
-            language: Some("en".to_string()),
+            metadata,
+            outlinks,
+            language: None, // detected in HTMLParser::parse; fallback path uses None
         };
 
         // Index the document
@@ -124,10 +130,13 @@ fn html_to_text(html: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// Extract title from <title>...</title> tag.
+/// Extract title from `<title>...</title>` tag (case-insensitive fallback).
 fn extract_title(html: &str) -> Option<String> {
-    let start = html.find("<title>")?;
-    let end = html[start..].find("</title>")?;
+    let lower = html.to_lowercase();
+    let start = lower.find("<title>")?;
+    let end = lower[start..].find("</title>")?;
+    // Slice from the *original* html at the same byte offsets
     let title = &html[start + 7..start + end];
-    Some(title.trim().to_string())
+    let trimmed = title.trim().to_string();
+    if trimmed.is_empty() { None } else { Some(trimmed) }
 }

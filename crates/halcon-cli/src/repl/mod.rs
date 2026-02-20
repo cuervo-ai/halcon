@@ -99,7 +99,21 @@ pub mod self_corrector;
 pub mod speculative;
 pub mod evaluator;
 pub mod reasoning_engine;
+pub mod plan_coherence;
+pub mod capability_index;
+pub mod capability_resolver;
+pub mod plugin_circuit_breaker;
+pub mod plugin_cost_tracker;
+pub mod plugin_manifest;
+pub mod plugin_permission_gate;
+pub mod plugin_registry;
+pub mod plugin_loader;
+pub mod plugin_transport_runtime;
+pub mod plugin_proxy_tool;
+pub mod reward_pipeline;
+pub mod round_scorer;
 pub mod strategy_selector;
+pub mod supervisor;
 pub mod strategy_metrics;
 pub mod task_analyzer;
 pub mod task_backlog;
@@ -110,6 +124,36 @@ pub mod tool_speculation;
 pub mod traceback_parser;
 pub mod code_instrumentation;
 pub mod rollback;
+pub mod risk_tier_classifier;
+pub mod patch_preview_engine;
+pub mod edit_transaction;
+pub mod safe_edit_manager;
+// Phase 2 — Git Context & Branch Awareness
+pub mod git_context;
+pub mod branch_divergence;
+pub mod commit_reward_tracker;
+pub mod git_event_listener;
+// Phase 3 — Test Runner Bridge
+pub mod test_result_parsers;
+pub mod test_runner_bridge;
+// Phase 4 — CI Feedback Loop
+pub mod ci_result_ingestor;
+// Phase 5 — IDE Protocol Handler
+pub mod unsaved_buffer_tracker;
+pub mod ide_protocol_handler;
+pub mod dev_gateway;
+// Phase 6 — AST Symbol Extractor (feature-gated ast-symbols; regex backend compiles always)
+pub mod ast_symbol_extractor;
+// Phase 7 — Runtime Signal Ingestor (OTEL-compatible, feature-gated otel)
+pub mod runtime_signal_ingestor;
+// Phase 8 — Dev Ecosystem Integration Tests (cross-module invariant validation)
+#[cfg(test)]
+pub mod dev_ecosystem_integration_tests;
+
+// Planning V3 — Compression, Macro Feedback, Early Convergence
+pub mod plan_compressor;
+pub mod macro_feedback;
+pub mod early_convergence;
 
 mod slash_commands;
 
@@ -186,6 +230,39 @@ pub struct Repl {
     /// Control channel receiver from TUI (Phase 43). None in classic REPL mode.
     #[cfg(feature = "tui")]
     pub(crate) ctrl_rx: Option<tokio::sync::mpsc::UnboundedReceiver<crate::tui::events::ControlEvent>>,
+    /// Phase 3: Model quality stats cache for session-level persistence.
+    ///
+    /// Snapshot of `ModelSelector.quality_stats` extracted after each agent loop and re-injected
+    /// into the next fresh `ModelSelector` via `with_quality_seeds()`. This ensures `balanced`
+    /// routing uses accumulated quality data across all messages within the session, not just
+    /// the current message (previously reset to neutral every turn because ModelSelector is
+    /// created fresh per message). Tuple: `(success_count, failure_count, total_reward)`.
+    pub(crate) model_quality_cache: std::collections::HashMap<String, (u32, u32, f64)>,
+    /// Phase 4: Whether cross-session quality stats have been loaded from DB this session.
+    ///
+    /// Prevents repeated DB queries (load-once-per-session). Set to true after first load attempt
+    /// (even if the DB returned empty results or was unavailable).
+    pub(crate) model_quality_db_loaded: bool,
+    /// Plugin registry for V3 plugin system. None until plugins are configured.
+    /// Initialized as None in Repl::new() — activated when plugins are loaded.
+    pub(crate) plugin_registry: Option<plugin_registry::PluginRegistry>,
+    /// Transport runtime for V3 plugins (shared handle pool for Stdio/HTTP/Local plugins).
+    /// None until plugins are lazy-initialized on first message with config.plugins.enabled.
+    pub(crate) plugin_transport_runtime: Option<std::sync::Arc<plugin_transport_runtime::PluginTransportRuntime>>,
+    /// Whether plugin UCB1 metrics have been loaded from DB this session (load-once guard).
+    pub(crate) plugin_metrics_db_loaded: bool,
+    /// Phase 5 Dev Ecosystem: DevGateway coordinates IDE buffers, git context, and CI
+    /// feedback into a single `DevContext` snapshot that is injected into the system
+    /// prompt on each message.  The gateway is Arc-backed internally so clone is cheap.
+    pub(crate) dev_gateway: dev_gateway::DevGateway,
+    /// Phase 7 Dev Ecosystem: Rolling observability window for agent-loop telemetry.
+    /// Ingests per-loop spans and exposes p50/p95/p99 + error-rate as a UCB1 reward
+    /// signal.  Shared via Arc so multiple async tasks can ingest without contention.
+    pub(crate) runtime_signals: std::sync::Arc<runtime_signal_ingestor::RuntimeSignalIngestor>,
+    /// Phase 4 Dev Ecosystem: Stop signal for the background CI polling task.
+    /// Set once during `run()` / `run_tui()` when GITHUB_TOKEN is available.
+    /// Notified on session teardown so the polling loop exits gracefully.
+    pub(crate) ci_stop: std::sync::Arc<tokio::sync::Notify>,
 }
 
 impl Repl {
@@ -202,6 +279,8 @@ impl Repl {
             context_pipeline_active: true, // Always active (L0-L4 always present)
             tool_count,
             background_tools_enabled,
+            multimodal_enabled: self.multimodal.is_some(),
+            loop_critic_enabled: self.config.reasoning.enable_loop_critic,
         }
     }
 
@@ -295,14 +374,22 @@ impl Repl {
         }
 
         // Initialize reflexion: Reflector + ReflectionSource.
+        // Phase 3: AgentModelConfig — use dedicated reflector provider/model when configured.
         let reflector = if config.reflexion.enabled {
-            registry
-                .get(&provider)
+            // Resolve reflector provider: explicit config > primary provider.
+            let reflector_prov = config.reasoning.reflector_provider.as_deref()
+                .and_then(|name| registry.get(name))
                 .cloned()
-                .map(|p| {
-                    reflexion::Reflector::new(p, model.clone())
-                        .with_reflect_on_success(config.reflexion.reflect_on_success)
-                })
+                .or_else(|| registry.get(&provider).cloned());
+
+            // Resolve reflector model: explicit config > session model.
+            let reflector_model = config.reasoning.reflector_model.clone()
+                .unwrap_or_else(|| model.clone());
+
+            reflector_prov.map(|p| {
+                reflexion::Reflector::new(p, reflector_model)
+                    .with_reflect_on_success(config.reflexion.reflect_on_success)
+            })
         } else {
             None
         };
@@ -533,8 +620,22 @@ impl Repl {
             mcp_manager,
             playbook_planner: playbook_planner::PlaybookPlanner::from_default_dir(),
             user_display_name: detect_user_display_name(),
+            multimodal: None,
             #[cfg(feature = "tui")]
             ctrl_rx: None,
+            model_quality_cache: std::collections::HashMap::new(),
+            model_quality_db_loaded: false,
+            plugin_registry: None, // V3 plugins: loaded lazily via /plugin install or config.toml
+            plugin_transport_runtime: None,
+            plugin_metrics_db_loaded: false,
+            // Phase 5/7 Dev Ecosystem: initialized fresh per session.
+            // DevGateway is inert until LSP messages arrive via handle_lsp_message().
+            dev_gateway: dev_gateway::DevGateway::new(),
+            runtime_signals: std::sync::Arc::new(
+                runtime_signal_ingestor::RuntimeSignalIngestor::new(512),
+            ),
+            // Phase 4 Dev Ecosystem: stop signal for CI polling (armed in run/run_tui).
+            ci_stop: std::sync::Arc::new(tokio::sync::Notify::new()),
         })
     }
 
@@ -571,12 +672,74 @@ impl Repl {
         Ok(())
     }
 
+    /// Start CI polling in the background when environment variables are present.
+    ///
+    /// Reads `GITHUB_TOKEN` and `GITHUB_REPOSITORY` (format: `owner/repo`).
+    /// When both are set, spawns a background task that polls GitHub Actions every
+    /// 60 s and feeds results into `DevGateway::ingest_ci_event()`.
+    /// The task exits when `self.ci_stop` is notified.
+    fn maybe_start_ci_polling(&self) {
+        use ci_result_ingestor::{CiIngestorConfig, CiResultIngestor, GithubActionsClient};
+        use std::sync::Arc;
+
+        let token = match std::env::var("GITHUB_TOKEN")
+            .or_else(|_| std::env::var("HALCON_CI_TOKEN"))
+        {
+            Ok(t) if !t.is_empty() => t,
+            _ => return, // no token → skip silently
+        };
+
+        let repository = match std::env::var("GITHUB_REPOSITORY")
+            .or_else(|_| std::env::var("HALCON_CI_REPO"))
+        {
+            Ok(r) if !r.is_empty() => r,
+            _ => return, // no repo → skip silently
+        };
+
+        let parts: Vec<&str> = repository.splitn(2, '/').collect();
+        if parts.len() != 2 {
+            tracing::warn!(repo = %repository, "GITHUB_REPOSITORY must be 'owner/repo' — CI polling skipped");
+            return;
+        }
+        let (owner, repo) = (parts[0].to_string(), parts[1].to_string());
+        // Workflow name: optional, falls back to any workflow.
+        let workflow = std::env::var("HALCON_CI_WORKFLOW").unwrap_or_default();
+
+        let client = Arc::new(GithubActionsClient::new(&owner, &repo, &workflow, &token));
+        let ingestor = CiResultIngestor::new(client, CiIngestorConfig::default());
+        let mut rx = ingestor.subscribe();
+        let stop = Arc::clone(&self.ci_stop);
+
+        // Feed CI events into DevGateway so build_context() can include them.
+        let gateway = self.dev_gateway.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::select! {
+                    _ = stop.notified() => break,
+                    result = rx.recv() => {
+                        match result {
+                            Ok(event) => gateway.ingest_ci_event(event).await,
+                            Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+                            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                        }
+                    }
+                }
+            }
+        });
+
+        ingestor.start();
+        tracing::info!(owner = %owner, repo = %repo, "Phase 4: CI polling started (GitHub Actions)");
+    }
+
     /// Run the interactive REPL loop.
     pub async fn run(&mut self) -> Result<()> {
         // Warm L1 cache from L2 on startup.
         if let Some(ref cache) = self.response_cache {
             cache.warm_l1().await;
         }
+
+        // Phase 4 Dev Ecosystem: start CI polling when GitHub credentials are present.
+        self.maybe_start_ci_polling();
 
         self.print_welcome();
 
@@ -752,6 +915,9 @@ impl Repl {
             cache.warm_l1().await;
         }
 
+        // Phase 4 Dev Ecosystem: start CI polling when GitHub credentials are present.
+        self.maybe_start_ci_polling();
+
         // Emit SessionStarted event.
         let _ = self.event_tx.send(DomainEvent::new(EventPayload::SessionStarted {
             session_id: self.session.id,
@@ -764,6 +930,100 @@ impl Repl {
         let (prompt_tx, mut prompt_rx) = tokio_mpsc::unbounded_channel::<String>();
 
         let tui_sink = TuiSink::new(ui_tx.clone());
+
+        // Expert mode: emit SOTA subsystem activation report to TUI activity stream.
+        // This confirms all systems are live before the first prompt is entered.
+        if self.expert_mode {
+            use crate::render::sink::RenderSink as _;
+            let fs = self.build_feature_status(true);
+            tui_sink.info("[expert] SOTA subsystems active:");
+            tui_sink.info(&format!(
+                "  Reasoning/UCB1={} Orchestrator={} TaskFramework={} Reflexion={}",
+                fs.reasoning_enabled,
+                fs.orchestrator_enabled,
+                self.config.task_framework.enabled,
+                self.config.reflexion.enabled,
+            ));
+            tui_sink.info(&format!(
+                "  Multimodal={} LoopCritic={} RoundScorer=on PlanCoherence=on",
+                fs.multimodal_enabled,
+                fs.loop_critic_enabled,
+            ));
+            tui_sink.info("  DevEcosystem=on [LSP:5758 CIPoll=env GitContext=on AST=on]");
+            tracing::info!(
+                reasoning = fs.reasoning_enabled,
+                orchestrator = fs.orchestrator_enabled,
+                multimodal = fs.multimodal_enabled,
+                loop_critic = fs.loop_critic_enabled,
+                task_framework = self.config.task_framework.enabled,
+                reflexion = self.config.reflexion.enabled,
+                "Expert mode: SOTA subsystem activation report"
+            );
+        }
+
+        // Phase 5 Dev Ecosystem: Start embedded TCP LSP server so IDE extensions can
+        // connect while the TUI is running.  The server binds on localhost:5758 and
+        // handles standard LSP JSON-RPC over a line-delimited TCP connection.
+        //
+        // A secondary polling task checks the open-buffer count every 5 s and emits
+        // IdeBuffersUpdated when it changes, keeping the status bar indicator live.
+        {
+            use std::sync::Arc;
+            const LSP_PORT: u16 = 5758;
+            let lsp_addr: std::net::SocketAddr = ([127, 0, 0, 1], LSP_PORT).into();
+            let lsp_gw = Arc::new(self.dev_gateway.clone());
+            let lsp_stop = Arc::clone(&self.ci_stop);
+            // Separate senders: server-done and buffer-poll need distinct clones.
+            let lsp_done_tx = ui_tx.clone(); // moved into LSP server task
+            let poll_gw = self.dev_gateway.clone();
+            let poll_ui_tx = ui_tx.clone(); // moved into polling task
+            // Independent stop signal clone for the polling task so it exits
+            // cleanly when the TUI session ends (avoids the infinite loop leak).
+            let poll_stop = Arc::clone(&self.ci_stop);
+
+            // Start the TCP LSP accept loop in a background task.
+            tokio::spawn(async move {
+                if let Err(e) = lsp_gw.serve_tcp(lsp_addr, lsp_stop).await {
+                    tracing::warn!(error = %e, "Dev ecosystem LSP TCP server stopped");
+                }
+                // Notify TUI that the server has gone away.
+                let _ = lsp_done_tx.try_send(UiEvent::IdeDisconnected);
+            });
+
+            // Notify the TUI immediately that the LSP port is ready.
+            let _ = ui_tx.try_send(UiEvent::IdeConnected { port: LSP_PORT });
+
+            // Poll buffer count every 5 s; emit IdeBuffersUpdated on change.
+            // Exits cleanly when `poll_stop` (= ci_stop) is notified.
+            tokio::spawn(async move {
+                let mut last_count: usize = 0;
+                loop {
+                    // Wait 5 s or until session teardown, whichever comes first.
+                    tokio::select! {
+                        _ = poll_stop.notified() => break,
+                        _ = tokio::time::sleep(tokio::time::Duration::from_secs(5)) => {}
+                    }
+                    let count = poll_gw.buffers.len().await;
+                    if count != last_count {
+                        last_count = count;
+                        // Fetch full dev context to get current git branch.
+                        // build_context() offloads git I/O to spawn_blocking.
+                        let ctx = poll_gw.build_context().await;
+                        // Extract branch name from summary "git:{branch} [{status}] …"
+                        let git_branch = ctx.git_summary.as_deref().and_then(|s| {
+                            s.strip_prefix("git:")
+                                .and_then(|s| s.split_once(" ["))
+                                .map(|(b, _)| b.to_string())
+                                .filter(|b| b != "(detached)")
+                        });
+                        let _ = poll_ui_tx.try_send(UiEvent::IdeBuffersUpdated {
+                            count,
+                            git_branch,
+                        });
+                    }
+                }
+            });
+        }
 
         // Gather banner info for TUI startup display.
         let banner_version = env!("CARGO_PKG_VERSION").to_string();
@@ -1394,6 +1654,28 @@ impl Repl {
             }
         }
 
+        // Phase 5 Dev Ecosystem: inject DevGateway context (open IDE buffers, git branch,
+        // latest CI run) — refreshed on EVERY round so git changes, new CI results, and
+        // buffer edits are always current.  build_context() offloads git I/O to
+        // spawn_blocking so this await is safe inside the async agent loop.
+        {
+            const DEV_ECO_MARKER: &str = "## Dev Ecosystem Context";
+            if let Some(ref mut sys) = request.system {
+                // Remove stale dev context block injected in the previous round.
+                if let Some(idx) = sys.find(&format!("\n\n{DEV_ECO_MARKER}")) {
+                    sys.truncate(idx);
+                } else if sys.starts_with(DEV_ECO_MARKER) {
+                    sys.clear();
+                }
+                // Re-inject fresh snapshot (git branch, open buffers, latest CI run).
+                let dev_ctx = self.dev_gateway.build_context().await;
+                let dev_md = dev_ctx.as_markdown();
+                if !dev_md.is_empty() {
+                    sys.push_str(&format!("\n\n{dev_md}"));
+                }
+            }
+        }
+
         // Look up the active provider.
         let provider: Option<Arc<dyn ModelProvider>> = self.registry.get(&self.provider).cloned();
 
@@ -1427,15 +1709,21 @@ impl Repl {
                     };
 
                 let llm_planner = if self.config.planning.adaptive {
-                    // Fix: resolve the planning model from the active provider rather than
-                    // using config.general.default_model (which may be from a different
-                    // provider, e.g. "claude-sonnet-4-5" when using deepseek).
-                    // Prefer the model the user explicitly requested if valid; otherwise
-                    // fall back to the provider's first tool-supporting model.
-                    let planner_model = if p.validate_model(&self.model).is_ok() {
+                    // Phase 3: AgentModelConfig — use dedicated planner provider/model when configured.
+                    // Fall back to the session's primary provider/model for backward compatibility.
+                    let planner_prov: Arc<dyn halcon_core::traits::ModelProvider> =
+                        self.config.reasoning.planner_provider.as_deref()
+                            .and_then(|name| self.registry.get(name))
+                            .cloned()
+                            .unwrap_or_else(|| Arc::clone(&p));
+
+                    // Resolve planner model: explicit config > validate against planner_prov > best model.
+                    let planner_model = if let Some(ref m) = self.config.reasoning.planner_model {
+                        m.clone()
+                    } else if planner_prov.validate_model(&self.model).is_ok() {
                         self.model.clone()
                     } else {
-                        p.supported_models()
+                        planner_prov.supported_models()
                             .iter()
                             .filter(|m| m.supports_tools)
                             .max_by_key(|m| m.context_window)
@@ -1443,24 +1731,140 @@ impl Repl {
                             .unwrap_or_else(|| self.model.clone())
                     };
                     tracing::debug!(
-                        provider = p.name(),
+                        provider = planner_prov.name(),
                         model = %planner_model,
-                        "LlmPlanner resolved model for provider"
+                        "LlmPlanner resolved model for provider (Phase 3)"
                     );
                     Some(planner::LlmPlanner::new(
-                        Arc::clone(&p),
+                        planner_prov,
                         planner_model,
                     ).with_max_replans(self.config.planning.max_replans))
                 } else {
                     None
                 };
 
+                // Phase 4: Load cross-session model quality stats from DB on first message.
+                // This seeds the ModelSelector with historical quality data so "balanced" routing
+                // exploits learned performance signals from prior sessions (not just the current session).
+                if !self.model_quality_db_loaded {
+                    self.model_quality_db_loaded = true;
+                    if let Some(ref adb) = self.async_db {
+                        match adb.load_model_quality_stats(p.name()).await {
+                            Ok(prior_stats) if !prior_stats.is_empty() => {
+                                for (model_id, success, failure, reward) in prior_stats {
+                                    let cached = self.model_quality_cache
+                                        .entry(model_id)
+                                        .or_insert((0u32, 0u32, 0.0f64));
+                                    // Merge: take prior stats when they show more experience
+                                    // than whatever was already in the in-session cache.
+                                    if success > cached.0 {
+                                        *cached = (success, failure, reward);
+                                    }
+                                }
+                                tracing::info!(
+                                    models = self.model_quality_cache.len(),
+                                    provider = p.name(),
+                                    "Phase 4: cross-session model quality loaded from DB"
+                                );
+                            }
+                            Ok(_) => {
+                                tracing::debug!("Phase 4: no prior model quality stats in DB");
+                            }
+                            Err(e) => {
+                                tracing::warn!(error = %e, "Phase 4: failed to load model quality from DB");
+                            }
+                        }
+                    }
+                }
+
+                // Phase 8-A: Plugin system lazy-init (V3).
+                // Discovers *.plugin.toml manifests from ~/.halcon/plugins/ and registers
+                // PluginProxyTool instances into the session ToolRegistry.  Only runs once
+                // per session (guard: self.plugin_registry.is_none()).
+                //
+                // Auto-activation: if the default plugin directory exists and contains at
+                // least one *.plugin.toml manifest, plugins are activated even when
+                // config.plugins.enabled = false.  This provides zero-config UX: drop a
+                // manifest into ~/.halcon/plugins/ and it activates on next message.
+                let plugins_should_run = self.config.plugins.enabled || {
+                    let default_dir = dirs::home_dir()
+                        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
+                        .join(".halcon")
+                        .join("plugins");
+                    std::fs::read_dir(&default_dir)
+                        .map(|mut entries| {
+                            entries.any(|e| {
+                                e.ok()
+                                    .and_then(|e| e.file_name().into_string().ok())
+                                    .map(|n| n.ends_with(".plugin.toml"))
+                                    .unwrap_or(false)
+                            })
+                        })
+                        .unwrap_or(false)
+                };
+                if self.plugin_registry.is_none() && plugins_should_run {
+                    let loader = plugin_loader::PluginLoader::default();
+                    let mut runtime = plugin_transport_runtime::PluginTransportRuntime::new();
+                    let mut registry = plugin_registry::PluginRegistry::new();
+                    let load_result = loader.load_into(&mut registry, &mut runtime);
+                    if load_result.loaded > 0 {
+                        tracing::info!(
+                            loaded = load_result.loaded,
+                            skipped_invalid = load_result.skipped_invalid,
+                            skipped_checksum = load_result.skipped_checksum,
+                            "Phase 8-A: Plugin system initialised"
+                        );
+                        let runtime_arc = std::sync::Arc::new(runtime);
+                        self.plugin_transport_runtime = Some(runtime_arc.clone());
+                        self.plugin_registry = Some(registry);
+                    } else {
+                        tracing::debug!(
+                            skipped_invalid = load_result.skipped_invalid,
+                            "Phase 8-A: No plugins loaded (dir empty or all invalid)"
+                        );
+                    }
+                }
+
+                // Phase 8-E: Load plugin UCB1 metrics from DB on first message (seed bandit arms).
+                // Follows the same load-once-per-session pattern as model_quality_db_loaded.
+                if !self.plugin_metrics_db_loaded {
+                    self.plugin_metrics_db_loaded = true;
+                    if let (Some(ref adb), Some(ref mut reg)) =
+                        (&self.async_db, &mut self.plugin_registry)
+                    {
+                        match adb.load_plugin_metrics().await {
+                            Ok(records) if !records.is_empty() => {
+                                // records: Vec<PluginMetricsRecord>
+                                let seeds: Vec<(String, i64, f64)> = records
+                                    .iter()
+                                    .map(|r| (r.plugin_id.clone(), r.ucb1_n_uses, r.ucb1_sum_rewards))
+                                    .collect();
+                                reg.seed_ucb1_from_metrics(&seeds);
+                                tracing::info!(
+                                    plugins = records.len(),
+                                    "Phase 8-E: Plugin UCB1 metrics loaded from DB"
+                                );
+                            }
+                            Ok(_) => {
+                                tracing::debug!("Phase 8-E: no prior plugin metrics in DB");
+                            }
+                            Err(e) => {
+                                tracing::warn!(error = %e, "Phase 8-E: failed to load plugin metrics from DB");
+                            }
+                        }
+                    }
+                }
+
                 // Skip model selection when user explicitly set --model on the CLI.
                 let selector = if self.config.agent.model_selection.enabled && !self.explicit_model {
                     let mut sel = model_selector::ModelSelector::new(
                         self.config.agent.model_selection.clone(),
                         &self.registry,
-                    ).with_provider_scope(p.name());
+                    )
+                    .with_provider_scope(p.name())
+                    // Phase 3: Inject accumulated quality stats from prior messages this session
+                    // so "balanced" routing starts with learned quality adjustments (not neutral prior).
+                    .with_quality_seeds(self.model_quality_cache.clone());
 
                     // P3: Provider health routing — populate real p95 latency hints from
                     // the metrics DB so "fast" strategy routes to lowest-latency models.
@@ -1482,6 +1886,44 @@ impl Repl {
                 } else {
                     None
                 };
+
+                // Phase 1.1: Load cross-session UCB1 experience on first use (lazy, one-time per session).
+                // The write path (save_reasoning_experience) runs every turn.
+                // The read path was NEVER called — UCB1 always started naive. This fixes that.
+                if let Some(ref mut engine) = self.reasoning_engine {
+                    if !engine.is_experience_loaded() {
+                        // Convert Debug-format strings ("CodeGeneration") → snake_case ("code_generation")
+                        // needed by TaskType::from_str / ReasoningStrategy::from_str.
+                        fn pascal_to_snake(s: &str) -> String {
+                            let mut out = String::with_capacity(s.len() + 4);
+                            for (i, c) in s.chars().enumerate() {
+                                if c.is_uppercase() && i > 0 { out.push('_'); }
+                                out.extend(c.to_lowercase());
+                            }
+                            out
+                        }
+                        if let Some(ref adb) = self.async_db {
+                            match adb.load_all_reasoning_experiences().await {
+                                Ok(exps) => {
+                                    let parsed: Vec<_> = exps.iter().filter_map(|e| {
+                                        let tt = task_analyzer::TaskType::from_str(&pascal_to_snake(&e.task_type))?;
+                                        let st = strategy_selector::ReasoningStrategy::from_str(&pascal_to_snake(&e.strategy))?;
+                                        Some((tt, st, e.avg_score, e.uses))
+                                    }).collect();
+                                    let count = parsed.len();
+                                    engine.load_experience(parsed); // sets experience_loaded = true
+                                    tracing::info!(entries = count, "UCB1: cross-session experience loaded");
+                                }
+                                Err(e) => {
+                                    tracing::warn!("UCB1 load_experience failed: {e}");
+                                    engine.mark_experience_loaded(); // suppress future retries this session
+                                }
+                            }
+                        } else {
+                            engine.mark_experience_loaded(); // no DB — skip all future attempts
+                        }
+                    }
+                }
 
                 // FASE 3.1: PRE-LOOP reasoning analysis (when reasoning engine enabled).
                 let reasoning_analysis = if let Some(ref mut engine) = self.reasoning_engine {
@@ -1519,6 +1961,25 @@ impl Repl {
                     .as_ref()
                     .map(|a| &a.adjusted_limits)
                     .unwrap_or(&self.config.agent.limits);
+
+                // Build StrategyContext from UCB1 PreLoopAnalysis (Step 9a).
+                let strategy_ctx: Option<agent_types::StrategyContext> =
+                    reasoning_analysis.as_ref().map(|a| agent_types::StrategyContext {
+                        strategy: a.strategy,
+                        enable_reflection: a.plan.enable_reflection,
+                        loop_guard_tightness: a.plan.loop_guard_tightness,
+                        replan_sensitivity: a.plan.replan_sensitivity,
+                        routing_bias: a.plan.routing_bias.clone(),
+                        task_type: a.analysis.task_type,
+                        complexity: a.analysis.complexity,
+                    });
+
+                // Build critic provider/model from config (Step 9b — G2 critic separation).
+                let critic_prov: Option<std::sync::Arc<dyn halcon_core::traits::ModelProvider>> =
+                    self.config.reasoning.critic_provider.as_deref()
+                        .and_then(|name| self.registry.get(name))
+                        .cloned();
+                let critic_mdl: Option<String> = self.config.reasoning.critic_model.clone();
 
                 let ctx = agent::AgentContext {
                     provider: &p,
@@ -1564,6 +2025,11 @@ impl Repl {
                     #[cfg(not(feature = "tui"))]
                     ctrl_rx: None,
                     speculator: &self.speculator,
+                    security_config: &self.config.security,
+                    strategy_context: strategy_ctx.clone(),
+                    critic_provider: critic_prov.clone(),
+                    critic_model: critic_mdl.clone(),
+                    plugin_registry: self.plugin_registry.as_mut(),
                 };
                 // Fix: restore ctrl_rx before propagating any error so TUI controls
                 // (Pause/Step/Cancel) remain functional across agent loop failures.
@@ -1584,10 +2050,52 @@ impl Repl {
                 // Cache timeline for --timeline exit hook.
                 self.last_timeline = result.timeline_json.clone();
 
+                // Phase 1.2: Variables for capturing critic retry decision (must be outside
+                // the reasoning_engine borrow so we can re-borrow self.session etc. for the retry).
+                let mut critic_retry_needed = false;
+                // (confidence, gaps, retry_instruction)
+                let mut critic_retry_info: Option<(f32, Vec<String>, Option<String>)> = None;
+
+                // Phase 2 Causality Enforcement: capture pipeline reward outside the
+                // reasoning_engine borrow so record_outcome() can be called after retry.
+                // None when reasoning engine is disabled (coarse fallback used instead).
+                let mut captured_pipeline_reward: Option<(f64, bool)> = None;
+
                 // FASE 3.1: POST-LOOP reasoning evaluation (when reasoning engine enabled).
+                // Step 9e: Use reward_pipeline::compute_reward() for richer UCB1 signal.
                 if let Some(ref mut engine) = self.reasoning_engine {
                     if let Some(ref analysis) = reasoning_analysis {
-                        let evaluation = engine.post_loop(analysis, &result);
+                        // Build multi-signal reward from all available signals.
+                        let round_scores: Vec<f32> = result.round_evaluations.iter()
+                            .map(|e| e.combined_score)
+                            .collect();
+                        let critic_verdict_tuple = result.critic_verdict.as_ref()
+                            .map(|cv| (cv.achieved, cv.confidence));
+                        let raw_signals = reward_pipeline::RawRewardSignals {
+                            stop_condition: result.stop_condition,
+                            round_scores,
+                            critic_verdict: critic_verdict_tuple,
+                            // Phase 7: wired from agent result (was TODO: 0.0 placeholder).
+                            plan_coherence_score: result.avg_plan_drift,
+                            oscillation_penalty: result.oscillation_penalty,
+                            plan_completion_ratio: result.plan_completion_ratio,
+                            plugin_snapshots: result.plugin_cost_snapshot.clone(),
+                        };
+                        let reward_computation = reward_pipeline::compute_reward(&raw_signals);
+                        // Step 5 plugin blending: apply plugin success rate signal (10% weight).
+                        let blended_reward = reward_pipeline::plugin_adjusted_reward(
+                            reward_computation.final_reward as f64,
+                            &result.plugin_cost_snapshot,
+                        );
+                        let evaluation = engine.post_loop_with_reward(analysis, blended_reward as f64);
+
+                        // Phase 2 Causality Enforcement: capture pipeline reward for unified
+                        // record_outcome() call after retry (reward contamination fix).
+                        // Use blended_reward (includes plugin signal) as the canonical reward.
+                        captured_pipeline_reward = Some((
+                            blended_reward,
+                            evaluation.success,
+                        ));
 
                         // Emit EvaluationCompleted event.
                         let _ = self.event_tx.send(DomainEvent::new(
@@ -1636,6 +2144,279 @@ impl Repl {
                             success = evaluation.success,
                             "Reasoning evaluation complete"
                         );
+
+                        // Phase 1.2 + Phase 7 (Autonomy Validation): LoopCritic verdict → should_retry().
+                        //
+                        // Two independent paths can trigger a retry:
+                        //   A) Score-based:  reward score < success_threshold (engine.should_retry)
+                        //   B) Halt-based:   LoopCritic::should_halt() — !achieved AND
+                        //                    confidence >= HALT_CONFIDENCE_THRESHOLD (0.80)
+                        //
+                        // Path B closes Phase 7: even if the reward score is above threshold
+                        // (e.g. EndTurn scored as 0.70+), a highly confident critic verdict
+                        // of failure overrides the score-based decision and forces a retry.
+                        //
+                        // Extract retry decision into outer variables so we can act on it
+                        // AFTER the reasoning_engine borrow is released (Rust borrow rules).
+                        if let Some(ref cv) = result.critic_verdict {
+                            let score_says_retry = engine.should_retry(evaluation.score, 0);
+                            // Phase 7: LoopCritic::should_halt_raw() — high-confidence failure
+                            // bypass. When the critic is >=80% confident the goal was NOT
+                            // achieved, treat it as a structural halt regardless of reward score.
+                            let critic_halt = supervisor::LoopCritic::should_halt_raw(
+                                cv.achieved,
+                                cv.confidence,
+                            );
+                            if !cv.achieved && (score_says_retry || critic_halt) {
+                                critic_retry_needed = true;
+                                critic_retry_info = Some((
+                                    cv.confidence,
+                                    cv.gaps.clone(),
+                                    cv.retry_instruction.clone(),
+                                ));
+                                tracing::info!(
+                                    critic_confidence = cv.confidence,
+                                    score = evaluation.score,
+                                    score_says_retry,
+                                    critic_halt,
+                                    "LoopCritic+Reasoning: in-session retry warranted"
+                                );
+                            }
+                        }
+                    }
+                }
+
+                // Phase 1.2: Actual in-session LoopCritic retry.
+                // Now that the reasoning_engine borrow has been released, we can mutably
+                // access self.session + self.permissions + self.resilience for the retry.
+                // This is the structural change: previously this was advisory (just logs).
+                // Now it performs a real second agent loop invocation within the same turn.
+                if critic_retry_needed {
+                    if let Some((confidence, gaps, retry_instr)) = critic_retry_info {
+                        let instr = retry_instr.as_deref().unwrap_or(
+                            "Your previous response did not fully complete the task. Please address all missing elements."
+                        );
+                        let retry_text = format!(
+                            "[Critic retry]: Task incomplete. Missing: {}. Instruction: {}",
+                            if gaps.is_empty() { "see previous response".to_string() } else { gaps.join("; ") },
+                            instr
+                        );
+
+                        sink.info(&format!(
+                            "[reasoning] critic retry ({:.0}% confidence) — re-running agent loop",
+                            confidence * 100.0
+                        ));
+
+                        // Inject retry instruction into session (already has agent's first response).
+                        self.session.add_message(ChatMessage {
+                            role: Role::User,
+                            content: MessageContent::Text(retry_text),
+                        });
+
+                        // Rebuild request with updated session messages.
+                        let retry_request = ModelRequest {
+                            model: request.model.clone(),
+                            messages: self.session.messages.clone(),
+                            tools: request.tools.clone(),
+                            max_tokens: request.max_tokens,
+                            temperature: request.temperature,
+                            system: request.system.clone(),
+                            stream: true,
+                        };
+
+                        // Reconstruct AgentContext for the retry invocation.
+                        let retry_ctx = agent::AgentContext {
+                            provider: &p,
+                            session: &mut self.session,
+                            request: &retry_request,
+                            tool_registry: &self.tool_registry,
+                            permissions: &mut self.permissions,
+                            working_dir: &working_dir,
+                            event_tx: &self.event_tx,
+                            trace_db: self.async_db.as_ref(),
+                            limits: agent_limits,
+                            response_cache: self.response_cache.as_ref(),
+                            resilience: &mut self.resilience,
+                            fallback_providers: &fallback_providers,
+                            routing_config: &self.config.agent.routing,
+                            compactor: Some(&compactor),
+                            planner: llm_planner.as_ref().map(|lp| lp as &dyn Planner),
+                            guardrails,
+                            reflector: self.reflector.as_ref(),
+                            render_sink: sink,
+                            replay_tool_executor: None,
+                            phase14: halcon_core::types::Phase14Context::default(),
+                            model_selector: selector.as_ref(),
+                            registry: Some(&self.registry),
+                            episode_id: Some(uuid::Uuid::new_v4()),
+                            planning_config: &self.config.planning,
+                            orchestrator_config: &self.config.orchestrator,
+                            tool_selection_enabled: self.config.context.dynamic_tool_selection,
+                            task_bridge: None, // task_bridge state committed from first loop
+                            context_metrics: Some(&self.context_metrics),
+                            context_manager: self.context_manager.as_mut(),
+                            #[cfg(feature = "tui")]
+                            ctrl_rx: self.ctrl_rx.take(),
+                            #[cfg(not(feature = "tui"))]
+                            ctrl_rx: None,
+                            speculator: &self.speculator,
+                            security_config: &self.config.security,
+                            strategy_context: strategy_ctx.clone(),
+                            critic_provider: critic_prov.clone(),
+                            critic_model: critic_mdl.clone(),
+                            plugin_registry: None, // retry doesn't re-share plugin state
+                        };
+
+                        let mut retry_loop_result = agent::run_agent_loop(retry_ctx).await;
+                        #[cfg(feature = "tui")]
+                        if let Ok(ref mut r) = retry_loop_result {
+                            self.ctrl_rx = r.ctrl_rx.take();
+                        }
+                        if let Ok(retry_r) = retry_loop_result {
+                            // Accumulate tokens from retry into session counters.
+                            self.session.total_usage.input_tokens += retry_r.input_tokens as u32;
+                            self.session.total_usage.output_tokens += retry_r.output_tokens as u32;
+                            tracing::info!(
+                                rounds = retry_r.rounds,
+                                stop = ?retry_r.stop_condition,
+                                "Phase 1.2: LoopCritic in-session retry completed"
+                            );
+                            result = retry_r;
+                        }
+                    }
+                }
+
+                // Phase 2 Causality Enforcement: Unified reward → ModelSelector.record_outcome().
+                //
+                // This is the reward contamination fix. Previously agent.rs called
+                // record_outcome() with a coarse 4-value mapping INSIDE the loop, giving
+                // the quality tracker a completely different (and less accurate) signal than
+                // the 5-signal reward_pipeline used by the UCB1 engine. Now:
+                //   - When reasoning engine is active: use the pipeline reward captured above.
+                //   - When reasoning engine is disabled: compute a coarse formula here once.
+                //
+                // Uses result.last_model_used so we record the model that actually ran the
+                // final round (possibly changed by fallback or ModelSelector mid-session).
+                if let Some(ref sel) = selector {
+                    if let Some(model_id) = result.last_model_used.as_deref() {
+                        let (reward, success) = if let Some((pr, ps)) = captured_pipeline_reward {
+                            // Reasoning engine was active: use 5-signal pipeline reward.
+                            (pr, ps)
+                        } else {
+                            // Coarse fallback: stop-condition mapping (2-level only).
+                            let coarse_success = matches!(
+                                result.stop_condition,
+                                agent_types::StopCondition::EndTurn
+                                    | agent_types::StopCondition::ForcedSynthesis
+                            );
+                            let coarse_reward = match result.stop_condition {
+                                agent_types::StopCondition::EndTurn => 0.85,
+                                agent_types::StopCondition::ForcedSynthesis => 0.65,
+                                agent_types::StopCondition::MaxRounds => 0.40,
+                                agent_types::StopCondition::TokenBudget
+                                | agent_types::StopCondition::DurationBudget
+                                | agent_types::StopCondition::CostBudget
+                                | agent_types::StopCondition::SupervisorDenied => 0.30,
+                                // User-cancelled: partial credit (not a model/task failure).
+                                agent_types::StopCondition::Interrupted => 0.50,
+                                // Hard failures: zero reward so UCB1 avoids bad strategies.
+                                _ => 0.0,
+                            };
+                            (coarse_reward, coarse_success)
+                        };
+                        sel.record_outcome(model_id, reward, success);
+                        tracing::debug!(
+                            model_id,
+                            reward,
+                            success,
+                            via = if captured_pipeline_reward.is_some() { "pipeline" } else { "coarse" },
+                            "Phase 2: ModelSelector quality record unified"
+                        );
+                    }
+                    // Phase 3: Snapshot quality stats back to Repl-level cache so the NEXT
+                    // message starts with informed priors (not neutral 0.5).
+                    self.model_quality_cache = sel.snapshot_quality_stats();
+                    tracing::debug!(
+                        models_tracked = self.model_quality_cache.len(),
+                        "Phase 3: Quality stats snapshot saved for next message"
+                    );
+
+                    // Phase 7: Provider quality gate — warn when all tracked models are degraded.
+                    // Fires after record_outcome() so the new outcome is included in the check.
+                    // Min 5 interactions required to avoid false positives on cold-start.
+                    if let Some(warning) = sel.quality_gate_check(5) {
+                        sink.warning(&warning, None);
+                        tracing::warn!(
+                            provider = p.name(),
+                            "Phase 7: Provider quality degradation detected"
+                        );
+                    }
+
+                    // Phase 4: Persist quality stats to DB (fire-and-forget) for cross-session
+                    // learning. Non-fatal: DB unavailability does not affect the agent loop.
+                    if let Some(ref adb) = self.async_db {
+                        let adb_clone = adb.clone();
+                        let provider_name = p.name().to_string();
+                        let snapshot: Vec<(String, u32, u32, f64)> = self
+                            .model_quality_cache
+                            .iter()
+                            .map(|(k, &(s, f, r))| (k.clone(), s, f, r))
+                            .collect();
+                        tokio::spawn(async move {
+                            if let Err(e) = adb_clone
+                                .save_model_quality_stats(&provider_name, snapshot)
+                                .await
+                            {
+                                tracing::warn!(error = %e, "Phase 4: model quality persist failed");
+                            } else {
+                                tracing::debug!("Phase 4: model quality stats persisted to DB");
+                            }
+                        });
+                    }
+                }
+
+                // Phase 8-D + 8-E: Record per-plugin UCB1 rewards from this agent loop and
+                // fire-and-forget persist to DB.
+                if let Some(ref mut reg) = self.plugin_registry {
+                    for snapshot in &result.plugin_cost_snapshot {
+                        // Derive success rate from calls_made / calls_failed as reward signal.
+                        let rate = if snapshot.calls_made > 0 {
+                            let succeeded =
+                                snapshot.calls_made.saturating_sub(snapshot.calls_failed);
+                            succeeded as f64 / snapshot.calls_made as f64
+                        } else {
+                            0.5 // neutral prior for plugins that were not invoked this round
+                        };
+                        reg.record_reward(&snapshot.plugin_id, rate);
+                    }
+
+                    // Persist updated UCB1 arm stats (fire-and-forget, non-fatal).
+                    if let Some(ref adb) = self.async_db {
+                        let adb_clone = adb.clone();
+                        let snapshot_data: Vec<halcon_storage::db::PluginMetricsRecord> = reg
+                            .ucb1_snapshot()
+                            .into_iter()
+                            .map(|(plugin_id, n_uses, sum_rewards)| {
+                                halcon_storage::db::PluginMetricsRecord {
+                                    plugin_id,
+                                    calls_made: 0,
+                                    calls_failed: 0,
+                                    tokens_used: 0,
+                                    ucb1_n_uses: n_uses as i64,
+                                    ucb1_sum_rewards: sum_rewards,
+                                    updated_at: String::new(),
+                                }
+                            })
+                            .collect();
+                        if !snapshot_data.is_empty() {
+                            tokio::spawn(async move {
+                                if let Err(e) = adb_clone.save_plugin_metrics(snapshot_data).await {
+                                    tracing::warn!(error = %e, "Phase 8-E: plugin metrics persist failed");
+                                } else {
+                                    tracing::debug!("Phase 8-E: plugin metrics persisted to DB");
+                                }
+                            });
+                        }
                     }
                 }
 
@@ -1663,6 +2444,28 @@ impl Repl {
                             );
                         }
                     }
+                }
+
+                // Phase 7 Dev Ecosystem: Record agent-loop span into the rolling telemetry
+                // window so as_reward() can surface latency / error-rate back to UCB1.
+                // fire-and-forget (tokio::spawn) — never blocks the REPL response path.
+                {
+                    let rt_signals = std::sync::Arc::clone(&self.runtime_signals);
+                    let loop_ms = result.latency_ms as f64;
+                    let had_error = matches!(
+                        result.stop_condition,
+                        agent_types::StopCondition::ProviderError
+                            | agent_types::StopCondition::EnvironmentError
+                    );
+                    tokio::spawn(async move {
+                        rt_signals
+                            .ingest(runtime_signal_ingestor::RuntimeSignal::span(
+                                "agent_loop",
+                                loop_ms,
+                                had_error,
+                            ))
+                            .await;
+                    });
                 }
 
                 // FIX P0.1 2026-02-17: Update session token counters from agent loop result

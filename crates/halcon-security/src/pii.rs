@@ -1,4 +1,13 @@
+use std::sync::LazyLock;
+
 use regex::{Regex, RegexSet};
+
+/// Lazily-initialized global PII detector (compiled once at startup, zero per-call cost).
+///
+/// Use `PII_DETECTOR.detect(text)` to scan for PII patterns.
+/// Use `PII_DETECTOR.redact(text)` to redact PII in-place.
+/// Use `PII_DETECTOR.contains_pii(text)` for fast boolean check.
+pub static PII_DETECTOR: LazyLock<PiiDetector> = LazyLock::new(PiiDetector::new);
 
 /// PII detector using compiled regex patterns.
 ///

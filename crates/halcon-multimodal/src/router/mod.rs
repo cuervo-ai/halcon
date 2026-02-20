@@ -102,7 +102,7 @@ impl HybridRouter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::provider::api::ApiMultimodalProvider;
+    use crate::provider::MockMultimodalProvider;
     use crate::security::{ValidatedMedia, mime::DetectedMime};
 
     fn jpeg_media() -> ValidatedMedia {
@@ -113,7 +113,7 @@ mod tests {
         HybridRouter::new(
             RoutingPolicy::default(),
             None,
-            Arc::new(ApiMultimodalProvider::new("test")),
+            Arc::new(MockMultimodalProvider),
             None,
             MultimodalMetrics::new(),
         )
@@ -133,7 +133,7 @@ mod tests {
         let router  = HybridRouter::new(
             RoutingPolicy::default(),
             None,
-            Arc::new(ApiMultimodalProvider::new("test")),
+            Arc::new(MockMultimodalProvider),
             None,
             Arc::clone(&metrics),
         );
@@ -141,6 +141,7 @@ mod tests {
         let snap = metrics.snapshot();
         assert_eq!(snap.requests_total, 1);
         assert_eq!(snap.images_analyzed, 1);
+        // MockMultimodalProvider is the api slot → api_requests incremented
         assert_eq!(snap.api_requests, 1);
     }
 }

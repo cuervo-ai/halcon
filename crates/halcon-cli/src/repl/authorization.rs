@@ -9,10 +9,10 @@
 //!   → Returns PermissionDecision
 //! ```
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::io::{self, BufRead, Write};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use halcon_core::types::{PermissionDecision, PermissionLevel, ToolInput};
 use halcon_storage::AsyncDatabase;
@@ -46,21 +46,37 @@ pub trait AuthorizationPolicy: Send + Sync {
 /// Shared mutable state for session-level authorization decisions.
 #[derive(Debug)]
 pub struct AuthorizationState {
-    /// Tools permanently allowed for this session (via "always" answer).
-    pub always_allowed: HashSet<String>,
+    /// Tools permanently allowed for this session (via "always" answer), with insertion time.
+    ///
+    /// G10 (Phase 72c): entries expire after `always_allowed_ttl` so a user who grants
+    /// session-wide access for a brief task cannot inadvertently leave it active indefinitely.
+    /// Pruned at the start of every `authorize()` call.
+    pub always_allowed: HashMap<String, Instant>,
     /// Tools permanently denied for this session (via "deny always" answer).
     pub always_denied: HashSet<String>,
     /// Whether the session is interactive (has a TTY).
     pub interactive: bool,
+    /// How long "always allow" entries remain valid (default: 300 seconds).
+    pub always_allowed_ttl: Duration,
 }
 
 impl AuthorizationState {
     pub fn new(interactive: bool) -> Self {
         Self {
-            always_allowed: HashSet::new(),
+            always_allowed: HashMap::new(),
             always_denied: HashSet::new(),
             interactive,
+            always_allowed_ttl: Duration::from_secs(300),
         }
+    }
+
+    /// Remove "always allow" entries that have exceeded the TTL.
+    ///
+    /// Called at the start of every `authorize()` invocation so that stale grants
+    /// cannot silently accumulate across a long session.
+    pub fn prune_expired_always_allowed(&mut self) {
+        let ttl = self.always_allowed_ttl;
+        self.always_allowed.retain(|_, granted_at| granted_at.elapsed() < ttl);
     }
 }
 
@@ -127,7 +143,11 @@ impl AuthorizationPolicy for SessionMemoryPolicy {
     ) -> Option<PermissionDecision> {
         if state.always_denied.contains(tool_name) {
             Some(PermissionDecision::Denied)
-        } else if state.always_allowed.contains(tool_name) {
+        } else if state
+            .always_allowed
+            .get(tool_name)
+            .map_or(false, |granted_at| granted_at.elapsed() < state.always_allowed_ttl)
+        {
             Some(PermissionDecision::AllowedAlways)
         } else {
             None
@@ -167,9 +187,14 @@ impl AuthorizationPolicy for PersistentRulesPolicy {
         if let Ok(mut matcher) = self.matcher.lock() {
             matcher.match_rule(tool_name, input, state)
         } else {
-            // Lock poisoned — log and abstain
-            tracing::warn!("RuleMatcher lock poisoned, abstaining from decision");
-            None
+            // Lock poisoned — fail-secure: deny rather than abstain.
+            // An abstain would fall through to interactive prompt which may auto-approve;
+            // a deny is the safe default when internal state is untrustworthy.
+            tracing::error!(
+                "RuleMatcher lock poisoned — failing secure with Denied for tool '{}'",
+                tool_name
+            );
+            Some(PermissionDecision::Denied)
         }
     }
 
@@ -238,6 +263,10 @@ impl AuthorizationMiddleware {
         perm_level: PermissionLevel,
         input: &ToolInput,
     ) -> PermissionDecision {
+        // G10: Prune expired "always allow" entries before evaluating any policy so that
+        // stale grants are invisible to SessionMemoryPolicy this round.
+        self.state.prune_expired_always_allowed();
+
         // Evaluate policy chain (synchronous — policies are cheap).
         for policy in &self.policies {
             if let Some(decision) = policy.evaluate(tool_name, perm_level, input, &self.state) {
@@ -295,7 +324,7 @@ impl AuthorizationMiddleware {
         match answer {
             "y" | "yes" => PermissionDecision::Allowed,
             "a" | "always" => {
-                self.state.always_allowed.insert(tool_name.to_string());
+                self.state.always_allowed.insert(tool_name.to_string(), Instant::now());
                 PermissionDecision::AllowedAlways
             }
             "d" | "deny" => {
@@ -469,7 +498,7 @@ mod tests {
     #[test]
     fn session_allow_always() {
         let mut state = AuthorizationState::new(true);
-        state.always_allowed.insert("bash".to_string());
+        state.always_allowed.insert("bash".to_string(), Instant::now());
         let policy = SessionMemoryPolicy;
         let input = dummy_input(serde_json::json!({}));
         let result = policy.evaluate("bash", PermissionLevel::Destructive, &input, &state);
@@ -491,7 +520,7 @@ mod tests {
         // If both sets contain the tool, deny wins.
         let mut state = AuthorizationState::new(true);
         state.always_denied.insert("bash".to_string());
-        state.always_allowed.insert("bash".to_string());
+        state.always_allowed.insert("bash".to_string(), Instant::now());
         let policy = SessionMemoryPolicy;
         let input = dummy_input(serde_json::json!({}));
         let result = policy.evaluate("bash", PermissionLevel::Destructive, &input, &state);
@@ -514,7 +543,7 @@ mod tests {
         let mut mw = AuthorizationMiddleware::new(true, false, 30);
         let result = mw.apply_answer("bash", "y");
         assert_eq!(result, PermissionDecision::Allowed);
-        assert!(!mw.state.always_allowed.contains("bash"));
+        assert!(!mw.state.always_allowed.contains_key("bash"));
     }
 
     #[test]
@@ -529,7 +558,7 @@ mod tests {
         let mut mw = AuthorizationMiddleware::new(true, false, 30);
         let result = mw.apply_answer("bash", "a");
         assert_eq!(result, PermissionDecision::AllowedAlways);
-        assert!(mw.state.always_allowed.contains("bash"));
+        assert!(mw.state.always_allowed.contains_key("bash"));
     }
 
     #[test]
@@ -659,7 +688,7 @@ mod tests {
     #[test]
     fn needs_prompt_after_always_false() {
         let mut mw = AuthorizationMiddleware::new(true, false, 30);
-        mw.state.always_allowed.insert("bash".to_string());
+        mw.state.always_allowed.insert("bash".to_string(), Instant::now());
         assert!(!mw.needs_prompt("bash", PermissionLevel::Destructive));
     }
 
@@ -895,5 +924,74 @@ mod tests {
         let decision = mw.auto_decide("bash", PermissionLevel::Destructive);
         // Falls through to SessionMemoryPolicy which also abstains, then final deny
         assert_eq!(decision, PermissionDecision::Denied);
+    }
+
+    // --- G10: always_allowed TTL enforcement ---
+
+    #[test]
+    fn always_allowed_fresh_entry_is_valid() {
+        // A freshly-inserted always_allowed entry must be honoured.
+        let mut state = AuthorizationState::new(true);
+        state.always_allowed.insert("bash".to_string(), Instant::now());
+        state.prune_expired_always_allowed();
+        assert!(state.always_allowed.contains_key("bash"), "fresh entry must survive prune");
+        let policy = SessionMemoryPolicy;
+        let input = dummy_input(serde_json::json!({}));
+        let result = policy.evaluate("bash", PermissionLevel::Destructive, &input, &state);
+        assert_eq!(result, Some(PermissionDecision::AllowedAlways));
+    }
+
+    #[test]
+    fn always_allowed_expired_entry_is_pruned() {
+        // An entry backdated beyond the TTL must be removed by prune_expired_always_allowed.
+        let mut state = AuthorizationState::new(true);
+        // Back-date the grant by 400s (TTL default is 300s).
+        let stale = Instant::now() - Duration::from_secs(400);
+        state.always_allowed.insert("bash".to_string(), stale);
+        state.prune_expired_always_allowed();
+        assert!(!state.always_allowed.contains_key("bash"), "expired entry must be pruned");
+        let policy = SessionMemoryPolicy;
+        let input = dummy_input(serde_json::json!({}));
+        let result = policy.evaluate("bash", PermissionLevel::Destructive, &input, &state);
+        assert_eq!(result, None, "expired entry must not grant AllowedAlways");
+    }
+
+    /// Mutex poisoning must produce Denied (fail-secure), not abstain.
+    ///
+    /// We simulate a poisoned lock by panicking inside a thread that holds the
+    /// lock, which marks it as poisoned. The PersistentRulesPolicy evaluate()
+    /// call must then return `Some(Denied)`.
+    #[test]
+    fn persistent_rules_policy_poisoned_lock_denies() {
+        use crate::repl::rule_matcher::RuleMatcher;
+        use halcon_storage::Database;
+        use std::path::PathBuf;
+        use std::sync::{Arc, Mutex};
+
+        let db = Database::open_in_memory().expect("in-memory DB");
+        let async_db = AsyncDatabase::new(Arc::new(db));
+        let matcher = Arc::new(Mutex::new(RuleMatcher::new(PathBuf::from("/tmp"))));
+
+        // Poison the lock by panicking inside a thread that holds it.
+        let matcher_clone = Arc::clone(&matcher);
+        let _ = std::thread::spawn(move || {
+            let _guard = matcher_clone.lock().unwrap();
+            panic!("intentionally poisoning the lock for test");
+        })
+        .join(); // join returns Err(poison) — expected
+
+        assert!(matcher.is_poisoned(), "lock must be poisoned after thread panic");
+
+        let policy = PersistentRulesPolicy::new(matcher, async_db);
+        let state = AuthorizationState::new(true);
+        let input = dummy_input(serde_json::json!({}));
+
+        // Must return Denied (fail-secure), not None (abstain).
+        let decision = policy.evaluate("bash", PermissionLevel::Destructive, &input, &state);
+        assert_eq!(
+            decision,
+            Some(PermissionDecision::Denied),
+            "poisoned lock must produce Denied, not abstain"
+        );
     }
 }

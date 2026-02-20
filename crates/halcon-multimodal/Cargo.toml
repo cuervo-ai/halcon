@@ -10,7 +10,7 @@ publish = false
 default = []
 # Vision via ONNX CLIP (requires ort + ndarray)
 vision-native = ["dep:ndarray"]
-# Audio via Whisper (requires whisper stub — real dep requires whisper-rs which needs C)
+# Audio via Whisper ONNX (requires whisper-rs with C bindings)
 audio-native = []
 # Combined feature gates
 multimodal-api = []
@@ -27,6 +27,7 @@ chrono         = { version = "0.4", features = ["serde"] }
 futures        = "0.3"
 hex            = "0.4"
 rayon          = "1"
+reqwest        = { workspace = true }
 serde          = { version = "1", features = ["derive"] }
 serde_json     = "1"
 sha2           = "0.10"

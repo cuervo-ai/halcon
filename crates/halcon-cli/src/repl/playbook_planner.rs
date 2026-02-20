@@ -189,6 +189,7 @@ impl PlaybookPlanner {
             .steps
             .iter()
             .map(|s| PlanStep {
+                step_id: uuid::Uuid::new_v4(),
                 description: s.description.clone(),
                 tool_name: s.tool_name.clone(),
                 parallel: s.parallel,
@@ -270,6 +271,7 @@ impl PlaybookPlanner {
                 }
 
                 vec![PlanStep {
+                    step_id: uuid::Uuid::new_v4(),
                     description: s.description.clone(),
                     tool_name: s.tool_name.clone(),
                     parallel: s.parallel,

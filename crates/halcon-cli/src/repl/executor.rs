@@ -132,7 +132,8 @@ fn is_transient_error(error: &str) -> bool {
 /// Check if an error is deterministic (will never succeed on retry/replan).
 ///
 /// These errors indicate permanent conditions: missing files, bad permissions,
-/// invalid schemas, billing/auth failures, etc. Retrying will produce the same result.
+/// invalid schemas, billing/auth failures, dead MCP servers, etc.
+/// Retrying or replanning will produce the same result — abort rather than loop.
 pub fn is_deterministic_error(error: &str) -> bool {
     let lower = error.to_lowercase();
     lower.contains("no such file or directory")
@@ -153,6 +154,14 @@ pub fn is_deterministic_error(error: &str) -> bool {
         || lower.contains("authentication")
         || lower.contains("unauthorized")
         || lower.contains("insufficient_quota")
+        // MCP environment errors — the server is dead/unreachable; replanning into
+        // the same dead tools is futile and causes the 20-40 round burn described
+        // in the behavioral audit. Classify all MCP failure modes as deterministic.
+        || lower.contains("mcp pool call failed")
+        || lower.contains("failed to call")
+        || lower.contains("mcp server is not initialized")
+        || lower.contains("not initialized")
+        || lower.contains("process start")
 }
 
 /// Generate diff preview for file_edit operations.
@@ -238,6 +247,7 @@ async fn execute_one_tool(
     idempotency: Option<&super::idempotency::IdempotencyRegistry>,
     retry_config: &ToolRetryConfig,
     render_sink: &dyn RenderSink,
+    plugin_registry: Option<&std::sync::Mutex<super::plugin_registry::PluginRegistry>>,
 ) -> ToolExecResult {
     let Some(tool) = registry.get(&tool_call.name) else {
         return ToolExecResult {
@@ -252,6 +262,21 @@ async fn execute_one_tool(
             was_parallel: false,
         };
     };
+
+    // Step 8: Plugin pre-invoke gate — check circuit breaker, cost budget, and permissions.
+    // When plugin_registry is None (all existing sessions) this entire block is skipped.
+    if let Some(pr_mutex) = plugin_registry {
+        if let Ok(pr) = pr_mutex.try_lock() {
+            if let Some(plugin_id) = pr.plugin_id_for_tool(&tool_call.name).map(str::to_owned) {
+                match pr.pre_invoke_gate(&plugin_id, &tool_call.name, false) {
+                    super::plugin_registry::InvokeGateResult::Deny(reason) => {
+                        return synthetic_plugin_denied_result(tool_call, &reason);
+                    }
+                    super::plugin_registry::InvokeGateResult::Proceed => {}
+                }
+            }
+        }
+    }
 
     // Dry-run mode: skip execution based on mode + permission level.
     match dry_run_mode {
@@ -427,7 +452,40 @@ async fn execute_one_tool(
         });
     }
 
+    // Step 8: Plugin post-invoke — record outcome in circuit breaker and cost tracker.
+    // When plugin_registry is None (all existing sessions) this block is skipped.
+    if let Some(pr_mutex) = plugin_registry {
+        if let Ok(mut pr) = pr_mutex.try_lock() {
+            if let Some(plugin_id) = pr.plugin_id_for_tool(&tool_call.name).map(str::to_owned) {
+                let is_err = matches!(
+                    &exec_result.content_block,
+                    ContentBlock::ToolResult { is_error: true, .. }
+                );
+                pr.post_invoke(&plugin_id, &tool_call.name, 0, 0.0, !is_err, None);
+            }
+        }
+    }
+
     exec_result
+}
+
+/// Build a synthetic ToolExecResult for plugin gate denials.
+///
+/// Returns an `is_error: true` tool result so the agent loop treats the
+/// plugin denial identically to a normal tool failure — the halting
+/// logic (ToolFailureTracker, circuit breaker, etc.) receives a clean signal.
+fn synthetic_plugin_denied_result(tool_call: &CompletedToolUse, reason: &str) -> ToolExecResult {
+    ToolExecResult {
+        tool_use_id: tool_call.id.clone(),
+        tool_name: tool_call.name.clone(),
+        content_block: ContentBlock::ToolResult {
+            tool_use_id: tool_call.id.clone(),
+            content: format!("Plugin gate denied: {reason}"),
+            is_error: true,
+        },
+        duration_ms: 0,
+        was_parallel: false,
+    }
 }
 
 /// Execute the parallel batch concurrently with a concurrency cap.
@@ -446,6 +504,7 @@ pub async fn execute_parallel_batch(
     max_parallel_tools: usize,
     exec_config: &ToolExecutionConfig<'_>,
     render_sink: &dyn RenderSink,
+    plugin_registry: Option<&std::sync::Mutex<super::plugin_registry::PluginRegistry>>,
 ) -> Vec<ToolExecResult> {
     if batch.is_empty() {
         return Vec::new();
@@ -484,7 +543,7 @@ pub async fn execute_parallel_batch(
             let name = tool_call.name.clone();
             let input = tool_call.input.clone();
             render_sink.tool_start(&name, &input);
-            execute_one_tool(tool_call, registry, working_dir, tool_timeout, dry_run_mode, exec_config.idempotency, &exec_config.retry, render_sink)
+            execute_one_tool(tool_call, registry, working_dir, tool_timeout, dry_run_mode, exec_config.idempotency, &exec_config.retry, render_sink, plugin_registry)
         })
         .collect();
 
@@ -561,6 +620,7 @@ pub async fn execute_sequential_tool(
     trace_step_index: &mut u32,
     exec_config: &ToolExecutionConfig<'_>,
     render_sink: &dyn RenderSink,
+    plugin_registry: Option<&std::sync::Mutex<super::plugin_registry::PluginRegistry>>,
 ) -> ToolExecResult {
     let Some(tool) = registry.get(&tool_call.name) else {
         return ToolExecResult {
@@ -812,7 +872,7 @@ pub async fn execute_sequential_tool(
 
     render_sink.tool_start(&tool_call.name, &tool_call.input);
 
-    let result = execute_one_tool(tool_call, registry, working_dir, tool_timeout, exec_config.dry_run_mode, exec_config.idempotency, &exec_config.retry, render_sink).await;
+    let result = execute_one_tool(tool_call, registry, working_dir, tool_timeout, exec_config.dry_run_mode, exec_config.idempotency, &exec_config.retry, render_sink, plugin_registry).await;
     let is_error = matches!(&result.content_block,
         ContentBlock::ToolResult { is_error, .. } if *is_error);
 
@@ -966,6 +1026,7 @@ mod tests {
             10,
             &ToolExecutionConfig::default(),
             &*TEST_SINK,
+            None, // plugin_registry
         )
         .await;
 
@@ -991,6 +1052,7 @@ mod tests {
             10,
             &ToolExecutionConfig::default(),
             &*TEST_SINK,
+            None, // plugin_registry
         )
         .await;
 
@@ -1028,6 +1090,7 @@ mod tests {
             10,
             &ToolExecutionConfig::default(),
             &*TEST_SINK,
+            None, // plugin_registry
         )
         .await;
 
@@ -1056,6 +1119,7 @@ mod tests {
             10,
             &ToolExecutionConfig::default(),
             &*TEST_SINK,
+            None, // plugin_registry
         )
         .await;
 
@@ -1090,6 +1154,7 @@ mod tests {
             10,
             &ToolExecutionConfig::default(),
             &*TEST_SINK,
+            None, // plugin_registry
         )
         .await;
 
@@ -1124,6 +1189,7 @@ mod tests {
             10, // Concurrency cap of 10
             &ToolExecutionConfig::default(),
             &*TEST_SINK,
+            None, // plugin_registry
         )
         .await;
 
@@ -1160,6 +1226,7 @@ mod tests {
             0, // 0 defaults to 1
             &ToolExecutionConfig::default(),
             &*TEST_SINK,
+            None, // plugin_registry
         )
         .await;
 
@@ -1173,7 +1240,7 @@ mod tests {
     async fn dry_run_off_executes_normally() {
         let registry = halcon_tools::default_registry(&Default::default());
         let tool = make_completed("t1", "file_read");
-        let result = execute_one_tool(&tool, &registry, "/tmp", Duration::from_secs(10), DryRunMode::Off, None, &ToolRetryConfig::default(), &*TEST_SINK).await;
+        let result = execute_one_tool(&tool, &registry, "/tmp", Duration::from_secs(10), DryRunMode::Off, None, &ToolRetryConfig::default(), &*TEST_SINK, None).await;
         // file_read on non-existent path produces an error, but it DID execute (not a dry-run skip).
         match &result.content_block {
             ContentBlock::ToolResult { content, .. } => {
@@ -1187,7 +1254,7 @@ mod tests {
     async fn dry_run_full_skips_all_tools() {
         let registry = halcon_tools::default_registry(&Default::default());
         let tool = make_completed("t1", "file_read");
-        let result = execute_one_tool(&tool, &registry, "/tmp", Duration::from_secs(10), DryRunMode::Full, None, &ToolRetryConfig::default(), &*TEST_SINK).await;
+        let result = execute_one_tool(&tool, &registry, "/tmp", Duration::from_secs(10), DryRunMode::Full, None, &ToolRetryConfig::default(), &*TEST_SINK, None).await;
         match &result.content_block {
             ContentBlock::ToolResult { content, is_error, .. } => {
                 assert!(content.contains("[dry-run]"));
@@ -1202,7 +1269,7 @@ mod tests {
     async fn dry_run_full_returns_synthetic_result() {
         let registry = halcon_tools::default_registry(&Default::default());
         let tool = make_completed("t1", "bash");
-        let result = execute_one_tool(&tool, &registry, "/tmp", Duration::from_secs(10), DryRunMode::Full, None, &ToolRetryConfig::default(), &*TEST_SINK).await;
+        let result = execute_one_tool(&tool, &registry, "/tmp", Duration::from_secs(10), DryRunMode::Full, None, &ToolRetryConfig::default(), &*TEST_SINK, None).await;
         assert_eq!(result.duration_ms, 0);
         assert_eq!(result.tool_name, "bash");
         match &result.content_block {
@@ -1217,7 +1284,7 @@ mod tests {
     async fn dry_run_destructive_only_skips_bash() {
         let registry = halcon_tools::default_registry(&Default::default());
         let tool = make_completed("t1", "bash");
-        let result = execute_one_tool(&tool, &registry, "/tmp", Duration::from_secs(10), DryRunMode::DestructiveOnly, None, &ToolRetryConfig::default(), &*TEST_SINK).await;
+        let result = execute_one_tool(&tool, &registry, "/tmp", Duration::from_secs(10), DryRunMode::DestructiveOnly, None, &ToolRetryConfig::default(), &*TEST_SINK, None).await;
         match &result.content_block {
             ContentBlock::ToolResult { content, .. } => {
                 assert!(content.contains("[dry-run]"), "bash should be skipped in DestructiveOnly mode");
@@ -1230,7 +1297,7 @@ mod tests {
     async fn dry_run_destructive_only_allows_read_file() {
         let registry = halcon_tools::default_registry(&Default::default());
         let tool = make_completed("t1", "file_read");
-        let result = execute_one_tool(&tool, &registry, "/tmp", Duration::from_secs(10), DryRunMode::DestructiveOnly, None, &ToolRetryConfig::default(), &*TEST_SINK).await;
+        let result = execute_one_tool(&tool, &registry, "/tmp", Duration::from_secs(10), DryRunMode::DestructiveOnly, None, &ToolRetryConfig::default(), &*TEST_SINK, None).await;
         match &result.content_block {
             ContentBlock::ToolResult { content, .. } => {
                 assert!(!content.contains("[dry-run]"), "file_read should execute in DestructiveOnly mode");
@@ -1300,6 +1367,7 @@ mod tests {
             10,
             &config,
             &*TEST_SINK,
+            None, // plugin_registry
         )
         .await;
 
@@ -1340,6 +1408,7 @@ mod tests {
             &mut idx,
             &config,
             &*TEST_SINK,
+            None, // plugin_registry
         )
         .await;
 
@@ -1379,6 +1448,7 @@ mod tests {
             &mut idx,
             &config,
             &*TEST_SINK,
+            None, // plugin_registry
         )
         .await;
 
@@ -1417,11 +1487,11 @@ mod tests {
         };
 
         // First call: executes and records.
-        let r1 = execute_one_tool(&tool, &registry, "/tmp", Duration::from_secs(10), DryRunMode::Off, Some(&idem), &ToolRetryConfig::default(), &*TEST_SINK).await;
+        let r1 = execute_one_tool(&tool, &registry, "/tmp", Duration::from_secs(10), DryRunMode::Off, Some(&idem), &ToolRetryConfig::default(), &*TEST_SINK, None).await;
         assert_eq!(idem.len(), 1);
 
         // Second call with same args: returns cached result.
-        let r2 = execute_one_tool(&tool, &registry, "/tmp", Duration::from_secs(10), DryRunMode::Off, Some(&idem), &ToolRetryConfig::default(), &*TEST_SINK).await;
+        let r2 = execute_one_tool(&tool, &registry, "/tmp", Duration::from_secs(10), DryRunMode::Off, Some(&idem), &ToolRetryConfig::default(), &*TEST_SINK, None).await;
         assert_eq!(idem.len(), 1); // No new record.
 
         // Both should have the same content.
@@ -1448,8 +1518,8 @@ mod tests {
             input: serde_json::json!({"path": "/tmp/bbb"}),
         };
 
-        execute_one_tool(&tool1, &registry, "/tmp", Duration::from_secs(10), DryRunMode::Off, Some(&idem), &ToolRetryConfig::default(), &*TEST_SINK).await;
-        execute_one_tool(&tool2, &registry, "/tmp", Duration::from_secs(10), DryRunMode::Off, Some(&idem), &ToolRetryConfig::default(), &*TEST_SINK).await;
+        execute_one_tool(&tool1, &registry, "/tmp", Duration::from_secs(10), DryRunMode::Off, Some(&idem), &ToolRetryConfig::default(), &*TEST_SINK, None).await;
+        execute_one_tool(&tool2, &registry, "/tmp", Duration::from_secs(10), DryRunMode::Off, Some(&idem), &ToolRetryConfig::default(), &*TEST_SINK, None).await;
         assert_eq!(idem.len(), 2); // Two distinct entries.
     }
 
@@ -1464,7 +1534,7 @@ mod tests {
         let exec_id = compute_execution_id("file_read", &serde_json::json!({}), "");
 
         assert!(idem.lookup(&exec_id).is_none());
-        execute_one_tool(&tool, &registry, "/tmp", Duration::from_secs(10), DryRunMode::Off, Some(&idem), &ToolRetryConfig::default(), &*TEST_SINK).await;
+        execute_one_tool(&tool, &registry, "/tmp", Duration::from_secs(10), DryRunMode::Off, Some(&idem), &ToolRetryConfig::default(), &*TEST_SINK, None).await;
         assert!(idem.lookup(&exec_id).is_some());
     }
 
@@ -1486,7 +1556,7 @@ mod tests {
         });
 
         let tool = make_completed("t1", "file_read");
-        let result = execute_one_tool(&tool, &registry, "/tmp", Duration::from_secs(10), DryRunMode::Off, Some(&idem), &ToolRetryConfig::default(), &*TEST_SINK).await;
+        let result = execute_one_tool(&tool, &registry, "/tmp", Duration::from_secs(10), DryRunMode::Off, Some(&idem), &ToolRetryConfig::default(), &*TEST_SINK, None).await;
         match &result.content_block {
             ContentBlock::ToolResult { content, .. } => {
                 assert_eq!(content, "cached output");
@@ -1500,7 +1570,7 @@ mod tests {
         let registry = halcon_tools::default_registry(&Default::default());
         let tool = make_completed("t1", "file_read");
         // No idempotency (None) — should execute normally.
-        let result = execute_one_tool(&tool, &registry, "/tmp", Duration::from_secs(10), DryRunMode::Off, None, &ToolRetryConfig::default(), &*TEST_SINK).await;
+        let result = execute_one_tool(&tool, &registry, "/tmp", Duration::from_secs(10), DryRunMode::Off, None, &ToolRetryConfig::default(), &*TEST_SINK, None).await;
         match &result.content_block {
             ContentBlock::ToolResult { content, .. } => {
                 assert!(!content.contains("cached output"));
@@ -1518,11 +1588,11 @@ mod tests {
 
         let tool = make_completed("t1", "file_read");
         // Round 1.
-        execute_one_tool(&tool, &registry, "/tmp", Duration::from_secs(10), DryRunMode::Off, Some(&idem), &ToolRetryConfig::default(), &*TEST_SINK).await;
+        execute_one_tool(&tool, &registry, "/tmp", Duration::from_secs(10), DryRunMode::Off, Some(&idem), &ToolRetryConfig::default(), &*TEST_SINK, None).await;
         // Round 2 (same tool).
-        execute_one_tool(&tool, &registry, "/tmp", Duration::from_secs(10), DryRunMode::Off, Some(&idem), &ToolRetryConfig::default(), &*TEST_SINK).await;
+        execute_one_tool(&tool, &registry, "/tmp", Duration::from_secs(10), DryRunMode::Off, Some(&idem), &ToolRetryConfig::default(), &*TEST_SINK, None).await;
         // Round 3 (same tool).
-        execute_one_tool(&tool, &registry, "/tmp", Duration::from_secs(10), DryRunMode::Off, Some(&idem), &ToolRetryConfig::default(), &*TEST_SINK).await;
+        execute_one_tool(&tool, &registry, "/tmp", Duration::from_secs(10), DryRunMode::Off, Some(&idem), &ToolRetryConfig::default(), &*TEST_SINK, None).await;
         assert_eq!(idem.len(), 1); // Still just 1 entry.
     }
 
@@ -1535,7 +1605,7 @@ mod tests {
 
         let tool = make_completed("t1", "file_read");
         // Dry-run full: should NOT record to idempotency (tool didn't execute).
-        execute_one_tool(&tool, &registry, "/tmp", Duration::from_secs(10), DryRunMode::Full, Some(&idem), &ToolRetryConfig::default(), &*TEST_SINK).await;
+        execute_one_tool(&tool, &registry, "/tmp", Duration::from_secs(10), DryRunMode::Full, Some(&idem), &ToolRetryConfig::default(), &*TEST_SINK, None).await;
         assert!(idem.is_empty(), "dry-run should not record to idempotency registry");
     }
 
@@ -1552,11 +1622,11 @@ mod tests {
             name: "file_read".to_string(),
             input: serde_json::json!({"path": "/tmp/nonexistent_xyz_987654"}),
         };
-        let r1 = execute_one_tool(&tool, &registry, "/tmp", Duration::from_secs(10), DryRunMode::Off, Some(&idem), &ToolRetryConfig::default(), &*TEST_SINK).await;
+        let r1 = execute_one_tool(&tool, &registry, "/tmp", Duration::from_secs(10), DryRunMode::Off, Some(&idem), &ToolRetryConfig::default(), &*TEST_SINK, None).await;
         assert_eq!(idem.len(), 1);
 
         // Second call returns cached error.
-        let r2 = execute_one_tool(&tool, &registry, "/tmp", Duration::from_secs(10), DryRunMode::Off, Some(&idem), &ToolRetryConfig::default(), &*TEST_SINK).await;
+        let r2 = execute_one_tool(&tool, &registry, "/tmp", Duration::from_secs(10), DryRunMode::Off, Some(&idem), &ToolRetryConfig::default(), &*TEST_SINK, None).await;
         let e1 = matches!(&r1.content_block, ContentBlock::ToolResult { is_error, .. } if *is_error);
         let e2 = matches!(&r2.content_block, ContentBlock::ToolResult { is_error, .. } if *is_error);
         assert_eq!(e1, e2);
@@ -1594,6 +1664,7 @@ mod tests {
         let results = execute_parallel_batch(
             &batch, &registry, "/tmp", Duration::from_secs(10),
             &event_tx, None, uuid::Uuid::new_v4(), &mut idx, 10, &config, &*TEST_SINK,
+            None, // plugin_registry
         ).await;
 
         assert_eq!(results.len(), 2);
@@ -1657,7 +1728,7 @@ mod tests {
 
         let result = execute_one_tool(
             &tool, &registry, "/tmp", Duration::from_secs(10),
-            DryRunMode::Off, None, &no_retry, &*TEST_SINK,
+            DryRunMode::Off, None, &no_retry, &*TEST_SINK, None,
         ).await;
 
         // Unknown tool should return error (no retries attempted).
@@ -1737,7 +1808,7 @@ mod tests {
             let result = execute_one_tool(
                 &tool_call, &registry, dir.path().to_str().unwrap(),
                 Duration::from_secs(10), DryRunMode::Off, None,
-                &ToolRetryConfig::default(), &*TEST_SINK,
+                &ToolRetryConfig::default(), &*TEST_SINK, None,
             ).await;
 
             assert_eq!(result.tool_use_id, unique_id);
@@ -1764,7 +1835,7 @@ mod tests {
             let result = execute_one_tool(
                 &tool_call, &registry, "/tmp",
                 Duration::from_secs(10), DryRunMode::Off, None,
-                &ToolRetryConfig::default(), &*TEST_SINK,
+                &ToolRetryConfig::default(), &*TEST_SINK, None,
             ).await;
 
             assert_eq!(result.tool_use_id, unique_id);
@@ -1786,7 +1857,7 @@ mod tests {
             let result = execute_one_tool(
                 &tool_call, &registry, "/tmp",
                 Duration::from_secs(10), DryRunMode::Off, None,
-                &ToolRetryConfig::default(), &*TEST_SINK,
+                &ToolRetryConfig::default(), &*TEST_SINK, None,
             ).await;
 
             assert_eq!(result.tool_use_id, unique_id);
@@ -1814,7 +1885,7 @@ mod tests {
             let result = execute_one_tool(
                 &tool_call, &registry, "/tmp",
                 Duration::from_secs(10), DryRunMode::Off, None,
-                &ToolRetryConfig::default(), &*TEST_SINK,
+                &ToolRetryConfig::default(), &*TEST_SINK, None,
             ).await;
 
             assert_eq!(result.tool_use_id, "toolu_poisoned");
@@ -1846,7 +1917,7 @@ mod tests {
             let result = execute_one_tool(
                 &tool_call, &registry, "/tmp",
                 Duration::from_secs(10), DryRunMode::Off, None,
-                &ToolRetryConfig::default(), &*TEST_SINK,
+                &ToolRetryConfig::default(), &*TEST_SINK, None,
             ).await;
 
             match &result.content_block {
@@ -1881,6 +1952,7 @@ mod tests {
                 Duration::from_secs(10), &event_tx, None,
                 uuid::Uuid::new_v4(), &mut idx, 10,
                 &ToolExecutionConfig::default(), &*TEST_SINK,
+                None, // plugin_registry
             ).await;
 
             assert_eq!(results.len(), 2);
@@ -1919,6 +1991,7 @@ mod tests {
                 Duration::from_secs(10), &event_tx, None,
                 uuid::Uuid::new_v4(), &mut idx, 10,
                 &ToolExecutionConfig::default(), &*TEST_SINK,
+                None, // plugin_registry
             ).await;
 
             assert_eq!(results.len(), 2);
@@ -1960,6 +2033,7 @@ mod tests {
                 Duration::from_secs(10), &event_tx, None,
                 uuid::Uuid::new_v4(), &mut idx, 10,
                 &ToolExecutionConfig::default(), &*TEST_SINK,
+                None, // plugin_registry
             ).await;
 
             assert_eq!(results.len(), 1);
@@ -1980,7 +2054,7 @@ mod tests {
             let result = execute_one_tool(
                 &tool_call, &registry, "/tmp",
                 Duration::from_secs(10), DryRunMode::Off, None,
-                &ToolRetryConfig::default(), &*TEST_SINK,
+                &ToolRetryConfig::default(), &*TEST_SINK, None,
             ).await;
 
             assert_eq!(result.tool_name, "bash");
@@ -2009,7 +2083,7 @@ mod tests {
             let result = execute_one_tool(
                 &tool_call, &registry, dir.path().to_str().unwrap(),
                 Duration::from_secs(10), DryRunMode::Off, None,
-                &ToolRetryConfig::default(), &*TEST_SINK,
+                &ToolRetryConfig::default(), &*TEST_SINK, None,
             ).await;
 
             match &result.content_block {
@@ -2037,7 +2111,7 @@ mod tests {
             let write_result = execute_one_tool(
                 &write_call, &registry, dir.path().to_str().unwrap(),
                 Duration::from_secs(10), DryRunMode::Off, None,
-                &ToolRetryConfig::default(), &*TEST_SINK,
+                &ToolRetryConfig::default(), &*TEST_SINK, None,
             ).await;
 
             match &write_result.content_block {
@@ -2054,7 +2128,7 @@ mod tests {
             let read_result = execute_one_tool(
                 &read_call, &registry, dir.path().to_str().unwrap(),
                 Duration::from_secs(10), DryRunMode::Off, None,
-                &ToolRetryConfig::default(), &*TEST_SINK,
+                &ToolRetryConfig::default(), &*TEST_SINK, None,
             ).await;
 
             match &read_result.content_block {
@@ -2088,6 +2162,7 @@ mod tests {
                 Duration::from_secs(10), &event_tx, None,
                 uuid::Uuid::new_v4(), &mut idx, 10,
                 &ToolExecutionConfig::default(), &*TEST_SINK,
+                None, // plugin_registry
             ).await;
 
             assert_eq!(results.len(), 3);
@@ -2126,6 +2201,7 @@ mod tests {
                 Duration::from_secs(10), &event_tx, None,
                 uuid::Uuid::new_v4(), &mut idx, 10,
                 &ToolExecutionConfig::default(), &*TEST_SINK,
+                None, // plugin_registry
             ).await;
 
             // Every result ID must match an input ID.
@@ -2157,6 +2233,7 @@ mod tests {
                 Duration::from_secs(10), &event_tx, None,
                 uuid::Uuid::new_v4(), &mut idx, 10,
                 &ToolExecutionConfig::default(), &*TEST_SINK,
+                None, // plugin_registry
             ).await;
 
             // Should have received at least one event.
@@ -2223,6 +2300,18 @@ mod tests {
             assert!(is_deterministic_error("Permission Denied"));
             assert!(is_deterministic_error("Is A Directory"));
             assert!(is_deterministic_error("Path Traversal"));
+        }
+
+        #[test]
+        fn deterministic_mcp_environment_errors() {
+            // P0-A: MCP failures are deterministic — the server is dead, replanning is futile.
+            assert!(is_deterministic_error("MCP pool call failed: connection refused to server"));
+            assert!(is_deterministic_error("failed to call 'filesystem/read_file' after 5 attempts"));
+            assert!(is_deterministic_error("MCP server is not initialized"));
+            assert!(is_deterministic_error("not initialized: call ensure_initialized first"));
+            assert!(is_deterministic_error("process start failed: no such executable"));
+            // Verify transient "connection reset" is still NOT deterministic.
+            assert!(!is_deterministic_error("connection reset by peer"));
         }
 
         // === Phase 27 Stress Tests ===

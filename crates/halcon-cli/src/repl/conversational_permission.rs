@@ -131,6 +131,38 @@ impl ConversationalPermissionHandler {
     ) -> PermissionDecision {
         use std::io::{self, Write};
 
+        // G7 HARD VETO: blacklisted commands are denied unconditionally before any prompt.
+        // The user cannot override this by pressing 'y' — it is a non-interactive hard block.
+        if tool == "bash" {
+            if let Some(cmd) = input.arguments.get("command").and_then(|v| v.as_str()) {
+                let analysis = super::command_blacklist::analyze_command(cmd);
+                if analysis.is_blacklisted {
+                    let pattern_name = analysis
+                        .matched_pattern
+                        .as_ref()
+                        .map(|p| p.name)
+                        .unwrap_or("unknown");
+                    let reason = analysis
+                        .matched_pattern
+                        .as_ref()
+                        .map(|p| p.reason)
+                        .unwrap_or("dangerous command");
+                    eprintln!(
+                        "\n🚫 HARD VETO: Command blocked by security policy.\n   Pattern: {}\n   Reason: {}",
+                        pattern_name, reason
+                    );
+                    tracing::error!(
+                        tool = tool,
+                        command = cmd,
+                        pattern = pattern_name,
+                        reason = reason,
+                        "G7 hard veto: blacklisted command blocked unconditionally"
+                    );
+                    return PermissionDecision::Denied;
+                }
+            }
+        }
+
         let mut user_response: Option<String> = None;
         let mut iteration_count = 0;
         const MAX_ITERATIONS: usize = 10; // Prevent infinite loops
@@ -873,5 +905,79 @@ mod tests {
         );
         // Safe rm is still High (Destructive level), not Critical
         assert_eq!(risk, RiskLevel::High);
+    }
+
+    // ── G7 hard veto tests ──────────────────────────────────────────────────
+
+    fn make_tool_input(args: serde_json::Value) -> ToolInput {
+        ToolInput {
+            tool_use_id: "test-id".into(),
+            arguments: args,
+            working_directory: "/tmp".into(),
+        }
+    }
+
+    #[tokio::test]
+    async fn g7_hard_veto_rm_rf_root_denied_without_prompt() {
+        // Even with interactive=true, blacklisted command is denied immediately.
+        let mut handler = ConversationalPermissionHandler::new(true);
+        let input = make_tool_input(json!({"command": "rm -rf /"}));
+        let result = handler
+            .authorize("bash", halcon_core::types::PermissionLevel::Destructive, &input)
+            .await;
+        assert_eq!(result, PermissionDecision::Denied);
+    }
+
+    #[tokio::test]
+    async fn g7_hard_veto_fork_bomb_denied() {
+        let mut handler = ConversationalPermissionHandler::new(false); // non-interactive
+        let input = make_tool_input(json!({"command": ":(){ :|:& };:"}));
+        let result = handler
+            .authorize("bash", halcon_core::types::PermissionLevel::Destructive, &input)
+            .await;
+        assert_eq!(result, PermissionDecision::Denied);
+    }
+
+    #[tokio::test]
+    async fn g7_hard_veto_mkfs_denied() {
+        let mut handler = ConversationalPermissionHandler::new(true);
+        let input = make_tool_input(json!({"command": "mkfs.ext4 /dev/sda1"}));
+        let result = handler
+            .authorize("bash", halcon_core::types::PermissionLevel::Destructive, &input)
+            .await;
+        assert_eq!(result, PermissionDecision::Denied);
+    }
+
+    #[tokio::test]
+    async fn g7_safe_command_not_vetoed() {
+        // Safe bash commands bypass the hard veto path entirely.
+        let mut handler = ConversationalPermissionHandler::new(false); // auto-approve
+        let input = make_tool_input(json!({"command": "echo hello"}));
+        let result = handler
+            .authorize("bash", halcon_core::types::PermissionLevel::ReadOnly, &input)
+            .await;
+        // Non-interactive auto-approves safe commands
+        assert_eq!(result, PermissionDecision::Allowed);
+    }
+
+    #[tokio::test]
+    async fn g7_non_bash_tool_not_vetoed() {
+        // Hard veto only applies to the "bash" tool.
+        let mut handler = ConversationalPermissionHandler::new(false);
+        let input = make_tool_input(json!({"path": "/etc/passwd"}));
+        let result = handler
+            .authorize("file_read", halcon_core::types::PermissionLevel::ReadOnly, &input)
+            .await;
+        assert_eq!(result, PermissionDecision::Allowed);
+    }
+
+    #[tokio::test]
+    async fn g7_dd_disk_wipe_denied() {
+        let mut handler = ConversationalPermissionHandler::new(true);
+        let input = make_tool_input(json!({"command": "dd if=/dev/zero of=/dev/sda"}));
+        let result = handler
+            .authorize("bash", halcon_core::types::PermissionLevel::Destructive, &input)
+            .await;
+        assert_eq!(result, PermissionDecision::Denied);
     }
 }

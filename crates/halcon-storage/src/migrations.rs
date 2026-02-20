@@ -30,6 +30,9 @@ const MIGRATIONS: &[(u32, &str, &str)] = &[
     (26, "session_messages_compression", MIGRATION_026),
     (27, "media_cache", MIGRATION_027),
     (28, "media_index", MIGRATION_028),
+    (29, "palette_optimization_history", MIGRATION_029),
+    (30, "model_quality_stats", MIGRATION_030),
+    (31, "plugin_system", MIGRATION_031),
 ];
 
 const MIGRATION_001: &str = r#"
@@ -1032,6 +1035,70 @@ CREATE INDEX IF NOT EXISTS idx_media_index_modality ON media_index(modality);
 CREATE INDEX IF NOT EXISTS idx_media_index_session  ON media_index(session_id);
 "#;
 
+const MIGRATION_031: &str = r#"
+-- M31: plugin_system — V3 plugin registry persistence.
+-- installed_plugins stores manifest metadata for each registered plugin.
+-- plugin_metrics stores per-plugin call counts and UCB1 reward signals for
+-- cross-session bandit learning.
+CREATE TABLE IF NOT EXISTS installed_plugins (
+    plugin_id     TEXT NOT NULL,
+    name          TEXT NOT NULL,
+    version       TEXT NOT NULL,
+    category      TEXT NOT NULL DEFAULT 'custom',
+    manifest_toml TEXT NOT NULL DEFAULT '',
+    installed_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    trust_level   TEXT NOT NULL DEFAULT 'local',
+    PRIMARY KEY (plugin_id)
+);
+CREATE TABLE IF NOT EXISTS plugin_metrics (
+    plugin_id        TEXT    NOT NULL,
+    calls_made       INTEGER NOT NULL DEFAULT 0,
+    calls_failed     INTEGER NOT NULL DEFAULT 0,
+    tokens_used      INTEGER NOT NULL DEFAULT 0,
+    ucb1_n_uses      INTEGER NOT NULL DEFAULT 0,
+    ucb1_sum_rewards REAL    NOT NULL DEFAULT 0.0,
+    updated_at       TEXT    NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (plugin_id)
+);
+"#;
+
+const MIGRATION_030: &str = r#"
+-- M30: model_quality_stats — cross-session ModelPerformanceTracker persistence.
+-- Stores per-model (success_count, failure_count, total_reward) so the ModelSelector
+-- balanced routing strategy learns which models perform well across sessions.
+CREATE TABLE IF NOT EXISTS model_quality_stats (
+    model_id      TEXT    NOT NULL,
+    provider      TEXT    NOT NULL,
+    success_count INTEGER NOT NULL DEFAULT 0,
+    failure_count INTEGER NOT NULL DEFAULT 0,
+    total_reward  REAL    NOT NULL DEFAULT 0.0,
+    updated_at    INTEGER NOT NULL,
+    PRIMARY KEY (model_id, provider)
+);
+CREATE INDEX IF NOT EXISTS idx_model_quality_provider ON model_quality_stats(provider, updated_at DESC);
+"#;
+
+const MIGRATION_029: &str = r#"
+-- M29: palette_optimization_history — cross-session warm-start for adaptive optimizer.
+-- Append-only: each optimization run is recorded for future sessions to warm-start from.
+CREATE TABLE IF NOT EXISTS palette_optimization_history (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id          TEXT    NOT NULL,
+    base_hue            REAL    NOT NULL,
+    initial_quality     REAL    NOT NULL,
+    final_quality       REAL    NOT NULL,
+    quality_delta       REAL    NOT NULL,
+    iterations          INTEGER NOT NULL,
+    convergence_status  TEXT    NOT NULL,
+    duration_ms         INTEGER NOT NULL,
+    steps_json          TEXT    NOT NULL DEFAULT '[]',
+    created_at          TEXT    NOT NULL
+);
+-- Index for warm-start queries: hue bucket lookup (most recent first, best quality first).
+CREATE INDEX IF NOT EXISTS idx_pal_opt_hue ON palette_optimization_history(base_hue, final_quality DESC);
+CREATE INDEX IF NOT EXISTS idx_pal_opt_session ON palette_optimization_history(session_id, created_at DESC);
+"#;
+
 /// Run all pending migrations.
 pub fn run_migrations(conn: &Connection) -> Result<(), halcon_core::error::HalconError> {
     // Ensure migrations table exists
@@ -1086,7 +1153,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(version, 28);
+        assert_eq!(version, 31);
     }
 
     #[test]
@@ -1100,7 +1167,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(count, 28);
+        assert_eq!(count, 31);
     }
 
     #[test]

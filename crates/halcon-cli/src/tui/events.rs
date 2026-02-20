@@ -278,6 +278,22 @@ pub enum UiEvent {
         current_tokens: u64,
         projected_tokens: u64,
     },
+
+    // --- Dev Ecosystem Phase 5: IDE/Editor Connection Events ---
+
+    /// Embedded LSP TCP server is listening and ready for IDE connections.
+    ///
+    /// Emitted once when `serve_tcp()` binds successfully. The IDE extension
+    /// connects to `localhost:<port>` and sends standard LSP notifications.
+    IdeConnected { port: u16 },
+
+    /// IDE/editor disconnected or LSP server stopped.
+    IdeDisconnected,
+
+    /// Number of open IDE buffers changed (after didOpen / didClose).
+    ///
+    /// Emitted by the periodic buffer-count polling task in `run_tui()`.
+    IdeBuffersUpdated { count: usize, git_branch: Option<String> },
 }
 
 /// Summary of a past session for the session browser overlay.

@@ -44,6 +44,10 @@ pub struct FeatureStatus {
     pub context_pipeline_active: bool,
     pub tool_count: usize,
     pub background_tools_enabled: bool,
+    /// Whether the multimodal subsystem (image/audio/video analysis) is active.
+    pub multimodal_enabled: bool,
+    /// Whether LoopCritic adversarial evaluation is active (adds ~1-3s per loop).
+    pub loop_critic_enabled: bool,
 }
 
 impl Default for FeatureStatus {
@@ -55,6 +59,8 @@ impl Default for FeatureStatus {
             context_pipeline_active: true,
             tool_count: 23,
             background_tools_enabled: true,
+            multimodal_enabled: false,
+            loop_critic_enabled: false,
         }
     }
 }
@@ -202,11 +208,12 @@ pub fn render_startup_with_features(
 
         let _ = writeln!(
             out,
-            "  {}  {}  {}  {}  {muted}{tools_lbl}{r}",
+            "  {}  {}  {}  {}  {}  {muted}{tools_lbl}{r}",
             dot(features.tui_active, "TUI"),
             dot(features.context_pipeline_active, "L0-L4"),
             dot(features.reasoning_enabled, "Reasoning"),
             dot(features.orchestrator_enabled, "Orchestrator"),
+            dot(features.multimodal_enabled, "Multimodal"),
         );
     }
 
@@ -340,6 +347,8 @@ mod tests {
             context_pipeline_active: true,
             tool_count: 23,
             background_tools_enabled: true,
+            multimodal_enabled: true,
+            loop_critic_enabled: true,
         };
         render_startup_with_features(
             "0.2.0",
@@ -363,6 +372,8 @@ mod tests {
             context_pipeline_active: true,
             tool_count: 20,
             background_tools_enabled: false,
+            multimodal_enabled: false,
+            loop_critic_enabled: false,
         };
         render_startup_with_features(
             "0.2.0",

@@ -44,6 +44,21 @@ impl FeatureFlags {
         if self.full || self.reflexion {
             config.reflexion.enabled = true;
         }
+        if self.full {
+            // Activate UCB1 strategy learning + metacognitive ReasoningEngine.
+            // Without this, reasoning_engine is None even with --full --expert,
+            // so UCB1, LoopCritic wiring, and strategy selection are all dead.
+            config.reasoning.enabled = true;
+            // Activate multimodal subsystem (image/audio analysis).
+            // Requires API key (ANTHROPIC_API_KEY / OPENAI_API_KEY) at runtime;
+            // init is non-fatal if unavailable.
+            config.multimodal.enabled = true;
+        }
+        if self.full || self.expert {
+            // Activate LoopCritic adversarial post-loop evaluation.
+            // Adds ~1-3s latency per agent loop but closes the G2 self-evaluation gap.
+            config.reasoning.enable_loop_critic = true;
+        }
     }
 
     /// Determine if background tools should be enabled.
@@ -244,6 +259,25 @@ pub async fn run(
 
     // Set expert mode (from --expert flag, --full flag, or config.toml display.ui_mode = "expert").
     repl.expert_mode = flags.expert || flags.full || config.display.ui_mode == "expert";
+
+    // Initialize multimodal subsystem when --full enables it.
+    // Non-fatal: if no API key is present or DB is unavailable, subsystem is simply absent.
+    if config.multimodal.enabled {
+        if let Some(ref db_arc) = repl.async_db {
+            let db_clone = db_arc.clone();
+            match halcon_multimodal::MultimodalSubsystem::init(&config.multimodal, Arc::new(db_clone)) {
+                Ok(sys) => {
+                    tracing::info!("Multimodal subsystem initialized (--full)");
+                    repl.multimodal = Some(Arc::new(sys));
+                }
+                Err(e) => {
+                    tracing::warn!("Multimodal subsystem init failed (non-fatal): {e}");
+                }
+            }
+        } else {
+            tracing::debug!("Multimodal enabled but no database available — skipping init");
+        }
+    }
 
     match prompt {
         Some(p) => {
@@ -514,6 +548,9 @@ mod tests {
         assert!(config.task_framework.enabled, "full should enable task_framework");
         assert!(config.reflexion.enabled, "full should enable reflexion");
         assert!(config.planning.adaptive, "full should enable adaptive planning (orchestrator dependency)");
+        assert!(config.reasoning.enabled, "full should enable reasoning/UCB1");
+        assert!(config.multimodal.enabled, "full should enable multimodal");
+        assert!(config.reasoning.enable_loop_critic, "full should enable loop_critic");
     }
 
     #[test]
@@ -824,5 +861,54 @@ mod tests {
             ..Default::default()
         };
         assert!(flags.trace_in.is_some());
+    }
+
+    // --- Phase 75: Activation tests ---
+
+    #[test]
+    fn full_flag_enables_multimodal() {
+        let mut config = AppConfig::default();
+        assert!(!config.multimodal.enabled, "multimodal defaults to disabled");
+        let flags = FeatureFlags { full: true, ..Default::default() };
+        flags.apply(&mut config);
+        assert!(config.multimodal.enabled, "--full must enable multimodal");
+    }
+
+    #[test]
+    fn full_flag_enables_loop_critic() {
+        let mut config = AppConfig::default();
+        assert!(!config.reasoning.enable_loop_critic, "loop_critic defaults to false");
+        let flags = FeatureFlags { full: true, ..Default::default() };
+        flags.apply(&mut config);
+        assert!(config.reasoning.enable_loop_critic, "--full must enable loop_critic");
+    }
+
+    #[test]
+    fn expert_flag_enables_loop_critic() {
+        let mut config = AppConfig::default();
+        assert!(!config.reasoning.enable_loop_critic, "loop_critic defaults to false");
+        let flags = FeatureFlags { expert: true, ..Default::default() };
+        flags.apply(&mut config);
+        assert!(config.reasoning.enable_loop_critic, "--expert must enable loop_critic");
+    }
+
+    #[test]
+    fn expert_only_does_not_enable_multimodal() {
+        // Multimodal requires --full (heavier subsystem with API costs).
+        // --expert alone only activates loop_critic (latency-only overhead).
+        let mut config = AppConfig::default();
+        let flags = FeatureFlags { expert: true, ..Default::default() };
+        flags.apply(&mut config);
+        assert!(!config.multimodal.enabled, "--expert alone must NOT enable multimodal");
+    }
+
+    #[test]
+    fn full_flag_enables_reasoning_for_ucb1() {
+        let mut config = AppConfig::default();
+        // Verify that reasoning (UCB1 engine) is enabled by --full.
+        config.reasoning.enabled = false; // ensure starting state
+        let flags = FeatureFlags { full: true, ..Default::default() };
+        flags.apply(&mut config);
+        assert!(config.reasoning.enabled, "--full must enable reasoning (UCB1/ReasoningEngine)");
     }
 }

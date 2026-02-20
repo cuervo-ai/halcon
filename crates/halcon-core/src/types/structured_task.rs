@@ -683,6 +683,7 @@ mod tests {
     #[test]
     fn from_plan_step_preserves_fields() {
         let step = PlanStep {
+            step_id: uuid::Uuid::new_v4(),
             description: "Edit the main file".into(),
             tool_name: Some("file_edit".into()),
             parallel: false,

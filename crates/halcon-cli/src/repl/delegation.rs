@@ -227,6 +227,7 @@ mod tests {
 
     fn make_step(desc: &str, tool: Option<&str>, confidence: f64) -> PlanStep {
         PlanStep {
+            step_id: uuid::Uuid::new_v4(),
             description: desc.into(),
             tool_name: tool.map(|t| t.into()),
             parallel: false,
@@ -238,6 +239,7 @@ mod tests {
 
     fn make_parallel_step(desc: &str, tool: &str, confidence: f64) -> PlanStep {
         PlanStep {
+            step_id: uuid::Uuid::new_v4(),
             description: desc.into(),
             tool_name: Some(tool.into()),
             parallel: true,

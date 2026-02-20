@@ -34,10 +34,10 @@ impl Tokenizer {
     fn is_stopword(&self, word: &str) -> bool {
         matches!(
             word,
-            "the" | "a" | "an" | "and" | "or" | "but" | "in" | "on" | "at" | "to" | "for" | "of"
-                | "with" | "by" | "from" | "as" | "is" | "was" | "are" | "were" | "be" | "been"
-                | "this" | "that" | "these" | "those" | "it" | "its" | "he" | "she" | "they"
-                | "we" | "you" | "i" | "me" | "my" | "your" | "their" | "his" | "her"
+            "the" | "a" | "an" | "am" | "and" | "or" | "but" | "in" | "on" | "at" | "to" | "for"
+                | "of" | "with" | "by" | "from" | "as" | "is" | "was" | "are" | "were" | "be"
+                | "been" | "this" | "that" | "these" | "those" | "it" | "its" | "he" | "she"
+                | "they" | "we" | "you" | "i" | "me" | "my" | "your" | "their" | "his" | "her"
         )
     }
 }

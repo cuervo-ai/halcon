@@ -63,14 +63,16 @@ impl ContextCompactor {
     /// uses its stale config value (default 200K), causing compaction to trigger at
     /// 80% × 200K = 160K — never firing for providers like DeepSeek (64K context window).
     ///
-    /// Threshold: 70% of `pipeline_budget`. At 70% of 80% = 56% of the model's total context
-    /// window, which provides comfortable room for output tokens and safety margin.
+    /// Threshold: 60% of `pipeline_budget`. At 60% of 80% = 48% of the model's total context
+    /// window, which reserves 40% of the pipeline budget for output tokens plus a 10% safety
+    /// margin above the old 70% threshold. This prevents the agent from invoking the model
+    /// when insufficient headroom remains for a non-truncated response.
     pub fn needs_compaction_with_budget(&self, messages: &[ChatMessage], pipeline_budget: u32) -> bool {
         if !self.config.enabled || pipeline_budget == 0 {
             return false;
         }
         let current = Self::estimate_message_tokens(messages);
-        let threshold = (pipeline_budget as f32 * 0.70) as usize;
+        let threshold = (pipeline_budget as f32 * 0.60) as usize;
         current >= threshold
     }
 
@@ -326,21 +328,21 @@ mod tests {
     fn compaction_with_budget_fires_for_small_context_window() {
         // Compactor configured with stale 200K (old default).
         let compactor = ContextCompactor::new(make_config(true, 0.80, 4, 200_000));
-        // ~14K tokens = 56K chars (> 70% of 51.2K pipeline_budget for 64K model).
+        // ~14K tokens = 56K chars (> 60% of 51.2K pipeline_budget for 64K model).
         let big_text = "x".repeat(56_000);
         let messages = vec![text_msg(Role::User, &big_text)];
 
         // Old method: threshold = 80% × 200K = 160K → NOT triggered (14K < 160K).
         assert!(!compactor.needs_compaction(&messages));
 
-        // Fix B method: threshold = 70% × 51200 = 35840 → TRIGGERED (14K > 35840? No)
-        // 56000 chars / 4 = 14000 tokens. Threshold = 70% × 51200 = 35840. 14K < 35840.
-        // Need bigger text: 36K tokens = 144K chars.
-        let big_text2 = "x".repeat(144_001);
+        // Fix B method: threshold = 60% × 51200 = 30720 → TRIGGERED (36K > 30.7K).
+        // 56000 chars / 4 = 14000 tokens. Threshold = 60% × 51200 = 30720. 14K < 30720.
+        // Need bigger text: 31K tokens = 124K chars.
+        let big_text2 = "x".repeat(124_001);
         let messages2 = vec![text_msg(Role::User, &big_text2)];
         let pipeline_budget = (64_000_u32 as f64 * 0.80) as u32; // 51200
         assert!(compactor.needs_compaction_with_budget(&messages2, pipeline_budget),
-            "Should trigger compaction: 36K tokens > 70% × 51.2K = 35.8K threshold");
+            "Should trigger compaction: 31K tokens > 60% × 51.2K = 30.7K threshold");
     }
 
     #[test]
@@ -353,20 +355,20 @@ mod tests {
     }
 
     #[test]
-    fn compaction_with_budget_70_percent_threshold() {
+    fn compaction_with_budget_60_percent_threshold() {
         let compactor = ContextCompactor::new(make_config(true, 0.80, 4, 10_000));
-        // pipeline_budget = 8000 tokens. 70% threshold = (8000 * 0.70) as usize = 5600 tokens.
+        // pipeline_budget = 8000 tokens. 60% threshold = (8000 * 0.60) as usize = 4800 tokens.
         // estimate_tokens uses div_ceil(4): N chars → ceil(N/4) tokens.
-        // For 5599 tokens: need chars where ceil(chars/4) = 5599 → chars ≤ 22396 (22396 → 5599).
-        // For 5600 tokens: need chars where ceil(chars/4) = 5600 → chars = 22400 → ceil = 5600.
-        let just_below = "x".repeat(22_396); // ceil(22396/4) = 5599 tokens — below threshold
-        let just_above = "x".repeat(22_400); // ceil(22400/4) = 5600 tokens — at threshold
+        // For 4799 tokens: need chars where ceil(chars/4) = 4799 → chars ≤ 19196 (19196 → 4799).
+        // For 4800 tokens: need chars where ceil(chars/4) = 4800 → chars = 19200 → ceil = 4800.
+        let just_below = "x".repeat(19_196); // ceil(19196/4) = 4799 tokens — below threshold
+        let just_above = "x".repeat(19_200); // ceil(19200/4) = 4800 tokens — at threshold
         let msgs_below = vec![text_msg(Role::User, &just_below)];
         let msgs_above = vec![text_msg(Role::User, &just_above)];
         assert!(!compactor.needs_compaction_with_budget(&msgs_below, 8000),
-            "5599 tokens < 5600 threshold — should NOT compact");
+            "4799 tokens < 4800 threshold — should NOT compact");
         assert!(compactor.needs_compaction_with_budget(&msgs_above, 8000),
-            "5600 tokens >= 5600 threshold — should compact");
+            "4800 tokens >= 4800 threshold — should compact");
     }
 
     #[test]

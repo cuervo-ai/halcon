@@ -24,13 +24,16 @@ impl StopConditionEvaluator {
 
     fn evaluate(condition: &StopCondition) -> f64 {
         match condition {
-            StopCondition::EndTurn => 1.0,            // Perfect: model chose to stop
-            StopCondition::ForcedSynthesis => 0.7,   // Good: loop guard intervened
-            StopCondition::Interrupted => 0.5,        // Neutral: user cancelled
-            StopCondition::MaxRounds => 0.4,          // Suboptimal: hit round limit
-            StopCondition::TokenBudget => 0.3,        // Suboptimal: hit token budget
-            StopCondition::DurationBudget => 0.3,     // Suboptimal: hit time budget
-            StopCondition::ProviderError => 0.0,      // Failure
+            StopCondition::EndTurn => 1.0,             // Perfect: model chose to stop
+            StopCondition::ForcedSynthesis => 0.7,    // Good: loop guard intervened
+            StopCondition::Interrupted => 0.5,         // Neutral: user cancelled
+            StopCondition::MaxRounds => 0.4,           // Suboptimal: hit round limit
+            StopCondition::TokenBudget => 0.3,         // Suboptimal: hit token budget
+            StopCondition::DurationBudget => 0.3,      // Suboptimal: hit time budget
+            StopCondition::ProviderError => 0.0,       // Failure: provider error
+            StopCondition::EnvironmentError => 0.0,    // Failure: MCP/env unavailable
+            StopCondition::CostBudget => 0.3,          // Suboptimal: hit cost limit
+            StopCondition::SupervisorDenied => 0.3,    // Governance gate: valid work, blocked write
         }
     }
 }
@@ -269,5 +272,53 @@ mod tests {
         // Score = 0.5 (from test above)
         assert!(!CompositeEvaluator::is_success(&outcome, 0.6));
         assert!(CompositeEvaluator::is_success(&outcome, 0.5));
+    }
+
+    // --- Coverage for stop conditions added in Phase 77 / 77b ---
+
+    #[test]
+    fn stop_condition_environment_error_scores_zero() {
+        // EnvironmentError (MCP persistently dead) must score 0.0 — UCB1 must penalise
+        // strategies that dispatch tools into a dead environment.
+        let score = StopConditionEvaluator::evaluate(&StopCondition::EnvironmentError);
+        assert_eq!(score, 0.0);
+    }
+
+    #[test]
+    fn stop_condition_cost_budget_scores_point_three() {
+        // CostBudget must score 0.3 — suboptimal (agent ran out of money before converging)
+        // but not a hard failure, matching TokenBudget / DurationBudget treatment.
+        let score = StopConditionEvaluator::evaluate(&StopCondition::CostBudget);
+        assert_eq!(score, 0.3);
+    }
+
+    #[test]
+    fn composite_environment_error_never_success() {
+        // EnvironmentError (0.0) * 0.5 + efficiency * 0.2 + no output (0.0) * 0.3
+        // = 0.0*0.5 + 0.7*0.2 + 0.0*0.3 = 0.14 — well below any success threshold.
+        let outcome = AgentLoopOutcome {
+            stop_condition: StopCondition::EnvironmentError,
+            rounds_used: 3,
+            max_rounds: 10,
+            has_output: false,
+        };
+        let score = CompositeEvaluator::evaluate(&outcome);
+        assert!((score - 0.14).abs() < 0.01);
+        assert!(!CompositeEvaluator::is_success(&outcome, 0.6));
+    }
+
+    #[test]
+    fn composite_cost_budget_with_output_below_success_threshold() {
+        // CostBudget (0.3) * 0.5 + (1 - 8/10) * 0.2 + 1.0 * 0.3
+        // = 0.15 + 0.04 + 0.30 = 0.49 — below the default 0.6 threshold.
+        let outcome = AgentLoopOutcome {
+            stop_condition: StopCondition::CostBudget,
+            rounds_used: 8,
+            max_rounds: 10,
+            has_output: true,
+        };
+        let score = CompositeEvaluator::evaluate(&outcome);
+        assert!((score - 0.49).abs() < 0.01);
+        assert!(!CompositeEvaluator::is_success(&outcome, 0.6));
     }
 }

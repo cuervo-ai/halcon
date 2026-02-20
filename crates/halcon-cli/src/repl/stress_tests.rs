@@ -136,6 +136,9 @@ static TEST_ORCH_CONFIG: std::sync::LazyLock<halcon_core::types::OrchestratorCon
 static TEST_SPECULATOR: std::sync::LazyLock<super::tool_speculation::ToolSpeculator> =
     std::sync::LazyLock::new(super::tool_speculation::ToolSpeculator::new);
 
+static TEST_SECURITY_CONFIG: std::sync::LazyLock<halcon_core::types::SecurityConfig> =
+    std::sync::LazyLock::new(halcon_core::types::SecurityConfig::default);
+
 fn make_tool_registry() -> ToolRegistry {
     let config = ToolsConfig {
         allowed_directories: vec!["/tmp".into(), "/private/tmp".into()],
@@ -206,6 +209,11 @@ fn test_ctx<'a>(
         context_manager: None,
         ctrl_rx: None,
         speculator: &*TEST_SPECULATOR,
+        security_config: &*TEST_SECURITY_CONFIG,
+        strategy_context: None,
+        critic_provider: None,
+        critic_model: None,
+        plugin_registry: None,
     }
 }
 
@@ -285,6 +293,7 @@ async fn parallel_tool_batch_10_concurrent() {
         10,
         &exec_config,
         &*TEST_SINK,
+        None,
     )
     .await;
 
@@ -343,6 +352,7 @@ async fn large_tool_output_truncation() {
         1,
         &exec_config,
         &*TEST_SINK,
+        None,
     )
     .await;
 
@@ -700,6 +710,7 @@ async fn empty_malformed_tool_results() {
         4,
         &exec_config,
         &*TEST_SINK,
+        None,
     )
     .await;
 

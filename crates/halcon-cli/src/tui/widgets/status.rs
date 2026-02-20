@@ -65,6 +65,12 @@ pub struct StatusState {
     pub agent_running: bool,
     /// Phase 45D: Full session UUID for clipboard copy (abbreviated in display).
     pub full_session_id: String,
+    /// Dev Ecosystem Phase 5: Whether the embedded LSP server is listening.
+    pub dev_gateway_port: Option<u16>,
+    /// Dev Ecosystem Phase 5: Whether an IDE/editor client is connected and has open buffers.
+    pub ide_connected: bool,
+    /// Dev Ecosystem Phase 5: Number of open IDE buffers being tracked.
+    pub open_buffers: usize,
 }
 
 impl StatusState {
@@ -98,6 +104,9 @@ impl StatusState {
             search_total: 0, // Phase 3 SRCH-003
             agent_running: false, // Phase 45C
             full_session_id: String::new(), // Phase 45D
+            dev_gateway_port: None, // Dev Ecosystem Phase 5
+            ide_connected: false, // Dev Ecosystem Phase 5
+            open_buffers: 0, // Dev Ecosystem Phase 5
         }
     }
 
@@ -406,6 +415,24 @@ impl StatusState {
                     "[Space] resume  [N] step  [Esc] cancel",
                     Style::default().fg(c_muted),
                 ));
+            }
+
+            // Dev Ecosystem Phase 5: IDE connection indicator.
+            // Shows ⚡ IDE:N when an editor is connected with N open buffers,
+            // or ○ LSP:port when server is listening but no buffers are open.
+            if let Some(port) = self.dev_gateway_port {
+                spans.push(sep.clone());
+                if self.ide_connected {
+                    spans.push(Span::styled(
+                        format!("\u{26a1} IDE:{}", self.open_buffers), // ⚡ IDE:N
+                        Style::default().fg(c_success).add_modifier(Modifier::BOLD),
+                    ));
+                } else {
+                    spans.push(Span::styled(
+                        format!("\u{25cb} LSP:{port}"), // ○ LSP:port
+                        Style::default().fg(c_muted),
+                    ));
+                }
             }
 
             // Context Servers button (always visible on right side)
@@ -802,6 +829,27 @@ mod tests {
             reason: "timeout".into(),
         };
         assert!(matches!(status.provider_health, ProviderHealthStatus::Unhealthy { .. }));
+    }
+
+    // --- Dev Ecosystem Phase 5: IDE indicator tests ---
+
+    #[test]
+    fn ide_indicator_defaults_off() {
+        let status = StatusState::new();
+        assert!(status.dev_gateway_port.is_none());
+        assert!(!status.ide_connected);
+        assert_eq!(status.open_buffers, 0);
+    }
+
+    #[test]
+    fn ide_indicator_can_be_enabled() {
+        let mut status = StatusState::new();
+        status.dev_gateway_port = Some(5758);
+        status.ide_connected = true;
+        status.open_buffers = 3;
+        assert_eq!(status.dev_gateway_port, Some(5758));
+        assert!(status.ide_connected);
+        assert_eq!(status.open_buffers, 3);
     }
 
     #[test]

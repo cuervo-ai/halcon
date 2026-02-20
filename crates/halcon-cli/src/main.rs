@@ -170,6 +170,13 @@ enum Commands {
         action: ToolsAction,
     },
 
+    /// Start a Language Server Protocol (LSP) server over stdio
+    ///
+    /// IDE extensions launch this process and communicate via the standard
+    /// Content-Length framing protocol. Supports textDocument/* notifications
+    /// and custom $/halcon/* methods for context injection.
+    Lsp,
+
     /// Start an MCP server over stdio (for IDE sidecar integration)
     #[command(name = "mcp-server")]
     McpServer {
@@ -209,6 +216,12 @@ enum Commands {
         /// Install a specific version (e.g., "v0.3.0")
         #[arg(long, short = 'V', value_name = "VERSION")]
         version: Option<String>,
+    },
+
+    /// Manage V3 plugins
+    Plugin {
+        #[command(subcommand)]
+        action: PluginAction,
     },
 }
 
@@ -319,6 +332,27 @@ enum ToolsAction {
         #[arg(short, long)]
         force: bool,
     },
+}
+
+#[derive(Subcommand)]
+enum PluginAction {
+    /// List all installed plugins in ~/.halcon/plugins/
+    List,
+    /// Install a plugin from a .plugin.toml manifest file
+    Install {
+        /// Path to the .plugin.toml manifest to install
+        source: String,
+    },
+    /// Remove an installed plugin by ID
+    Remove {
+        /// Plugin ID (e.g. "git-enhanced")
+        id: String,
+        /// Skip confirmation prompt
+        #[arg(short, long)]
+        force: bool,
+    },
+    /// Show plugin system status (directory, manifest count)
+    Status,
 }
 
 #[derive(Subcommand)]
@@ -548,6 +582,9 @@ async fn main() -> Result<()> {
                 commands::tools::remove_tool(&name, force)
             }
         },
+        Some(Commands::Lsp) => {
+            commands::lsp::run_lsp_server().await
+        }
         Some(Commands::McpServer { working_dir }) => {
             commands::mcp_server::run(&config, working_dir.as_deref()).await
         }
@@ -557,6 +594,12 @@ async fn main() -> Result<()> {
         Some(Commands::Update { check, force, version }) => {
             commands::update::run(commands::update::UpdateArgs { check, force, version })
         }
+        Some(Commands::Plugin { action }) => match action {
+            PluginAction::List => commands::plugin::list(&config),
+            PluginAction::Install { source } => commands::plugin::install(&config, &source),
+            PluginAction::Remove { id, force } => commands::plugin::remove(&config, &id, force),
+            PluginAction::Status => commands::plugin::status(&config),
+        },
         Some(Commands::Serve { host, port, token }) => {
             commands::serve::run(&host, port, token).await
         }

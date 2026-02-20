@@ -21,6 +21,10 @@ pub enum StepOutcome {
 /// A step in an execution plan.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlanStep {
+    /// Stable identity for this step across replans and rounds.
+    /// Auto-generated on deserialization when not present (LLM-generated plans).
+    #[serde(default = "uuid::Uuid::new_v4")]
+    pub step_id: uuid::Uuid,
     /// Human-readable description of what this step does.
     pub description: String,
     /// Tool name to invoke (if this step uses a tool).
@@ -35,6 +39,21 @@ pub struct PlanStep {
     /// Outcome after execution: None until executed.
     #[serde(default)]
     pub outcome: Option<StepOutcome>,
+}
+
+
+impl Default for PlanStep {
+    fn default() -> Self {
+        Self {
+            step_id: uuid::Uuid::new_v4(),
+            description: String::new(),
+            tool_name: None,
+            parallel: false,
+            confidence: 1.0,
+            expected_args: None,
+            outcome: None,
+        }
+    }
 }
 
 /// An execution plan generated before tool invocation.
@@ -55,6 +74,20 @@ pub struct ExecutionPlan {
     /// Original plan ID if this is a replan.
     #[serde(default)]
     pub parent_plan_id: Option<uuid::Uuid>,
+}
+
+impl ExecutionPlan {
+    /// Average confidence across all plan steps.
+    ///
+    /// Returns `1.0` for empty plans (no steps → no uncertainty).
+    /// Used by the `NeedsClarification` gate to decide whether to pause
+    /// and ask the user before executing destructive steps.
+    pub fn avg_confidence(&self) -> f64 {
+        if self.steps.is_empty() {
+            return 1.0;
+        }
+        self.steps.iter().map(|s| s.confidence).sum::<f64>() / self.steps.len() as f64
+    }
 }
 
 /// Formal status of a tracked plan step (FSM).
@@ -182,6 +215,49 @@ pub trait Planner: Send + Sync {
 mod tests {
     use super::*;
 
+    fn make_step(confidence: f64) -> PlanStep {
+        PlanStep {
+            step_id: uuid::Uuid::new_v4(),
+            description: "step".into(),
+            tool_name: None,
+            parallel: false,
+            confidence,
+            expected_args: None,
+            outcome: None,
+        }
+    }
+
+    fn make_plan(steps: Vec<PlanStep>) -> ExecutionPlan {
+        ExecutionPlan {
+            goal: "test goal".into(),
+            steps,
+            requires_confirmation: false,
+            plan_id: uuid::Uuid::new_v4(),
+            replan_count: 0,
+            parent_plan_id: None,
+        }
+    }
+
+    #[test]
+    fn avg_confidence_empty_returns_one() {
+        let plan = make_plan(vec![]);
+        assert_eq!(plan.avg_confidence(), 1.0,
+            "Empty plan has no uncertainty — should return 1.0");
+    }
+
+    #[test]
+    fn avg_confidence_computed_correctly() {
+        let plan = make_plan(vec![
+            make_step(0.8),
+            make_step(0.6),
+            make_step(1.0),
+        ]);
+        let expected = (0.8 + 0.6 + 1.0) / 3.0;
+        let diff = (plan.avg_confidence() - expected).abs();
+        assert!(diff < 1e-10,
+            "avg_confidence should be {expected:.4}, got {:.4}", plan.avg_confidence());
+    }
+
     #[test]
     fn task_status_pending_to_running() {
         assert_eq!(
@@ -279,6 +355,7 @@ mod tests {
     fn tracked_step_serde_roundtrip() {
         let ts = TrackedStep {
             step: PlanStep {
+                step_id: uuid::Uuid::new_v4(),
                 description: "Read file".into(),
                 tool_name: Some("file_read".into()),
                 parallel: false,
@@ -321,6 +398,7 @@ mod tests {
         let task_id = uuid::Uuid::new_v4();
         let ts = TrackedStep {
             step: PlanStep {
+                step_id: uuid::Uuid::new_v4(),
                 description: "Edit file".into(),
                 tool_name: Some("file_edit".into()),
                 parallel: false,

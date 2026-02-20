@@ -40,11 +40,33 @@ pub struct OpenAIChatMessage {
     pub tool_call_id: Option<String>,
 }
 
-/// Message content: either a plain string or structured parts.
+/// Message content: either a plain string or structured parts (vision).
 #[derive(Debug, Clone, Serialize)]
 #[serde(untagged)]
 pub enum OpenAIMessageContent {
     Text(String),
+    /// Multi-part message containing text and/or image_url blocks (OpenAI Vision API).
+    Parts(Vec<OpenAIContentPart>),
+}
+
+/// A single part in a multi-part message.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type")]
+pub enum OpenAIContentPart {
+    #[serde(rename = "text")]
+    Text { text: String },
+    #[serde(rename = "image_url")]
+    ImageUrl { image_url: OpenAIImageUrl },
+}
+
+/// OpenAI vision image URL (base64 data URI or remote URL).
+#[derive(Debug, Clone, Serialize)]
+pub struct OpenAIImageUrl {
+    /// Either `"data:image/jpeg;base64,..."` or a remote `https://...` URL.
+    pub url: String,
+    /// Resolution hint: `"auto"`, `"low"`, or `"high"`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -23,6 +23,33 @@ impl JsonRpcRequest {
     }
 }
 
+/// JSON-RPC 2.0 notification — a request with NO `id` field.
+///
+/// Per JSON-RPC 2.0 §4, a notification MUST NOT include an `id`.
+/// Use this type (not `JsonRpcRequest`) when sending one-way messages
+/// like `notifications/initialized`.
+///
+/// Added in P1-A to fix the MCP protocol violation where the client was
+/// sending `notifications/initialized` as a request (with `id`), causing
+/// servers to log "Unknown method: notifications/initialized".
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JsonRpcNotification {
+    pub jsonrpc: String,
+    pub method: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub params: Option<serde_json::Value>,
+}
+
+impl JsonRpcNotification {
+    pub fn new(method: impl Into<String>) -> Self {
+        Self {
+            jsonrpc: "2.0".into(),
+            method: method.into(),
+            params: None,
+        }
+    }
+}
+
 /// JSON-RPC 2.0 response.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct JsonRpcResponse {

@@ -1,8 +1,49 @@
 # FASE 4 — Extensibilidad y Plataforma
 
-> **Versión**: 1.0.0 | **Fecha**: 2026-02-06
+> **Versión**: 2.0.0 | **Última actualización**: 2026-02-19
 > **Autores**: Staff Engineer, Developer Tooling
-> **Estado**: Design Complete — Ready for Implementation Review
+> **Estado**: ✅ Plugin System V3 IMPLEMENTADO — 7 plugins, 33 herramientas en producción
+
+## Estado de Implementación (Feb 2026)
+
+El sistema de plugins V3 está completamente implementado y operacional. La siguiente tabla muestra el estado real vs el diseño original:
+
+| Componente | Diseño Original | Estado Real |
+|------------|----------------|-------------|
+| Plugin manifest | `cuervo-plugin.json` (TypeScript) | ✅ `*.plugin.toml` (TOML, más simple) |
+| Plugin transport | V8 isolates / Node.js | ✅ Stdio JSON-RPC 2.0 (cualquier lenguaje) |
+| Plugin sandbox | Docker / V8 | ✅ `subprocess_allowed=false` + `timeout_ms` + `max_memory_mb` |
+| Plugin registry | Registry service | ✅ `plugin_registry.rs` + UCB1 bandit |
+| Circuit breaker | Diseñado | ✅ `plugin_circuit_breaker.rs` (3 fallos → Open, 60s → HalfOpen) |
+| Cost tracking | Diseñado | ✅ `plugin_cost_tracker.rs` + tokens_per_call budget |
+| Permission gate | Diseñado | ✅ `plugin_permission_gate.rs` por risk_tier |
+| Capability search | No diseñado | ✅ `capability_index.rs` (BM25 + exact_match) |
+| WASM sandbox | ADR-E01 (V8) | 🔄 Futuro: Extism/WASM para plugins de terceros (Q2 2026) |
+
+### Plugins Instalados (Producción)
+
+| Plugin | Categoría | Herramientas | Estado |
+|--------|-----------|-------------|--------|
+| `halcon-dev-sentinel` | security | 4 | ✅ Activo |
+| `halcon-dependency-auditor` | security | 4 | ✅ Activo |
+| `halcon-ui-inspector` | frontend | 5 | ✅ Activo |
+| `halcon-perf-analyzer` | frontend | 5 | ✅ Activo |
+| `halcon-api-sculptor` | backend | 5 | ✅ Activo |
+| `halcon-schema-oracle` | backend | 5 | ✅ Activo |
+| `halcon-otel-tracer` | architecture | 5 | ✅ Activo |
+
+### Hallazgos de Smoke Tests (Feb 19, 2026)
+
+| Plugin | Target | Resultado |
+|--------|--------|-----------|
+| `perf_health_report` | `website/src` | **Grade A (98/100)** — Excelente |
+| `schema_health_report` | `.` | **Grade D (42/100)** — SQL embebido en Rust, correcto |
+| `observability_health_report` | `crates/halcon-cli/src` | **Grade D (16/100)** — Real gap: 0% OTel, 1% tracing, 18 println! |
+| `trace_coverage_scan` | `crates/halcon-cli/src` | 3/205 archivos instrumentados, 134 uninstrumentados |
+
+**Acción requerida**: El resultado del `otel-tracer` es un hallazgo real — HALCON CLI necesita añadir `#[tracing::instrument]` a funciones críticas del agent loop y migrar de `println!` a `tracing::info!`.
+
+---
 
 ---
 
@@ -88,6 +129,45 @@ La plataforma de extensibilidad de Cuervo permite que desarrolladores internos, 
 
 ### 2.2 Plugin Manifest
 
+> **Nota**: El diseño original usaba `cuervo-plugin.json` (TypeScript). La implementación real usa `*.plugin.toml` (TOML). Ver `plugin_manifest.rs` para la definición Rust.
+
+**Formato real implementado** (`~/.halcon/plugins/<id>.plugin.toml`):
+```toml
+[meta]
+id       = "halcon-schema-oracle"
+name     = "HALCON Schema Oracle"
+version  = "1.0.0"
+category = "backend"
+
+[meta.transport]
+type    = "stdio"
+command = "/Users/user/.halcon/plugins/halcon-schema-oracle.py"
+args    = []
+
+[[capabilities]]
+name                   = "plugin_halcon_schema_oracle_db_schema_analyzer"
+description            = "Analyze database schema from SQL files..."
+risk_tier              = "low"
+idempotent             = true
+permission_level       = "read_only"
+budget_tokens_per_call = 800
+
+[permissions]
+env_read  = false
+db_write  = false
+
+[sandbox]
+subprocess_allowed = false
+timeout_ms         = 60000
+max_memory_mb      = 256
+
+[supervisor_policy]
+halt_on_failures           = 3
+reward_weight              = 1.0
+requires_explicit_approval = false
+```
+
+**Diseño original (referencia histórica)**:
 ```typescript
 // Plugin manifest: cuervo-plugin.json (at plugin root)
 
@@ -1120,31 +1200,38 @@ interface PluginUsage {
 | # | Decisión | Alternativa Descartada | Justificación |
 |---|----------|----------------------|---------------|
 | ADR-E01 | **Plugin sandbox via V8 isolates (vm2/isolated-vm)** | Docker containers per plugin | V8 isolates son ligeros (~10ms startup vs ~1s), low memory, sufficient isolation para JavaScript. Docker overkill para CLI. |
+| ADR-E01b ✅ | **Implementado: Stdio JSON-RPC 2.0 con timeout/memory limits** | V8 isolates | Más simple, language-agnostic (Python, Bash, cualquier binario). `subprocess_allowed=false` previene re-spawning. `timeout_ms` + `max_memory_mb` en manifest. WASM (Extism) planeado para Q2 2026 para untrusted plugins. |
 | ADR-E02 | **REST API como API pública principal** | GraphQL-only | REST es más simple, mejor tooling, más accesible. GraphQL como futuro add-on, no como reemplazo. |
 | ADR-E03 | **SSE para streaming** | WebSocket | SSE es unidireccional (suficiente para streaming respuestas), funciona sobre HTTP/2, mejor con proxies/firewalls. WebSocket overkill para nuestro caso. |
 | ADR-E04 | **Activation events (lazy loading)** | Eager loading de todos los plugins | Lazy loading reduce startup time. Un plugin de Docker no se carga hasta que el usuario ejecuta un comando Docker. |
+| ADR-E04b ✅ | **Implementado: lazy-init en primer mensaje** | Eager loading al arrancar | `PluginLoader::load_into()` se llama en `handle_message_with_sink()` solo si `config.plugins.enabled && plugin_registry.is_none()`. Cero overhead si plugins deshabilitados. |
 | ADR-E05 | **JSON Schema para validación** | TypeScript types solo | JSON Schema es runtime-validable, language-agnostic, auto-genera UI forms, usado por OpenAPI/JSON Schema standards. |
+| ADR-E05b ✅ | **Implementado: TOML manifest con serde** | JSON Schema runtime | TOML es más legible para humanos, serde hace validación en compile-time en Rust. Plugin authors editan TOML directamente. |
 | ADR-E06 | **YAML para automations** | JavaScript/TypeScript automations | YAML es declarativo, más seguro (no es código ejecutable), más accesible para non-developers, versionable en git. |
 | ADR-E07 | **Marketplace con review process** | Open publication | Security es crítica. Plugins untrusted pueden exfiltrar datos. Review process añade fricción pero protege usuarios. |
+| ADR-E08 ✅ | **UCB1 bandit per-plugin para selección adaptativa** | Round-robin o static priority | UCB1 balancea exploración/explotación. Plugins con mejor historial de éxito reciben más invocaciones. Cross-session via SQLite `plugin_metrics` table. |
 
 ---
 
 ## 11. Plan de Implementación (Extensibility)
 
-| Sprint | Entregable | Dependencias |
-|--------|-----------|-------------|
-| S1-S2 | Plugin manifest schema + plugin loader | Project setup |
-| S3-S4 | Plugin host + V8 sandbox runtime | Plugin loader |
-| S5-S6 | Plugin API surface (context, storage, events, UI) | Plugin host |
-| S7-S8 | Command registration + tool registration | Plugin API |
-| S9-S10 | Plugin lifecycle management (install, enable, disable, uninstall) | Plugin host |
-| S11-S12 | Public REST API (sessions, messages, context) | Core platform |
-| S13-S14 | SSE streaming API | REST API |
-| S15-S16 | Public SDK (`@cuervo/sdk`) | REST API |
-| S17-S18 | Connector SDK (`@cuervo/connector-sdk`) | Integration Fabric |
-| S19-S20 | CLI plugin commands + dev mode (hot-reload) | Plugin lifecycle |
-| S21-S22 | Automation engine + YAML parser | Event bus |
-| S23-S24 | Webhook dispatcher (outgoing) | Event bus |
-| S25-S26 | Marketplace backend + plugin submission pipeline | Plugin lifecycle |
-| S27-S28 | Plugin billing/metering | Billing infrastructure |
-| S29-S30 | Plugin security audit automation | Security team |
+| Sprint | Entregable | Estado |
+|--------|-----------|--------|
+| S1-S2 | Plugin manifest schema + plugin loader | ✅ `plugin_manifest.rs` + `plugin_loader.rs` |
+| S3-S4 | Plugin host + sandbox runtime | ✅ Stdio JSON-RPC 2.0 via `plugin_transport_runtime.rs` |
+| S5-S6 | Plugin API surface | ✅ `plugin_permission_gate.rs` + `plugin_cost_tracker.rs` |
+| S7-S8 | Tool registration + proxy tools | ✅ `plugin_proxy_tool.rs` + ToolRegistry wiring |
+| S9-S10 | Plugin lifecycle (circuit breaker, UCB1) | ✅ `plugin_circuit_breaker.rs` + UCB1 en `plugin_registry.rs` |
+| S10b | Capability search (BM25 + exact_match) | ✅ `capability_index.rs` + `capability_resolver.rs` |
+| S10c | Plugin CLI commands | ✅ `commands/plugin.rs` (list, install, remove, status) |
+| S10d | Plugin persistence (M031) | ✅ `db/plugins.rs` + `installed_plugins` + `plugin_metrics` tables |
+| S11-S12 | Public REST API | 🔄 Parcial via `halcon-api` crate |
+| S13-S14 | SSE streaming API | 🔄 Parcial |
+| S15-S16 | Public SDK (`@halcon/sdk`) | 🔄 Pendiente |
+| S17-S18 | Connector SDK | 🔄 Pendiente |
+| S19-S20 | Plugin dev mode (hot-reload) | 🔄 Pendiente (Q2 2026) |
+| S21-S22 | Automation engine + YAML parser | 🔄 Pendiente |
+| S23-S24 | Webhook dispatcher | 🔄 Pendiente |
+| S25-S26 | Marketplace backend | 🔄 Pendiente (Q4 2026) |
+| S27-S28 | Plugin billing/metering | 🔄 Pendiente |
+| S29-S30 | Plugin WASM sandbox (Extism) | 🔄 Pendiente (Q2 2026) |

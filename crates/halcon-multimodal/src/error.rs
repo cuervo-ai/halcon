@@ -40,6 +40,9 @@ pub enum MultimodalError {
     #[error("local inference error: {0}")]
     LocalInferenceError(String),
 
+    #[error("native ONNX model not available: {0}")]
+    NativeModelNotAvailable(String),
+
     #[error("provider timeout after {ms}ms")]
     Timeout { ms: u64 },
 

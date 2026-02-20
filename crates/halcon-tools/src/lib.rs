@@ -5,7 +5,9 @@
 
 pub mod background;
 pub mod bash;
+pub mod diff_apply;
 pub mod directory_tree;
+pub mod env_inspect;
 pub mod execute_test;
 pub mod file_delete;
 pub mod file_edit;
@@ -18,10 +20,13 @@ pub mod git;
 pub mod glob_tool;
 pub mod grep;
 pub mod http_request;
+pub mod json_schema_validate;
 pub mod native_crawl;
 pub mod native_index_query;
 pub mod native_search;
 pub mod path_security;
+pub mod port_check;
+pub mod process_list;
 pub mod registry;
 pub mod sandbox;
 pub mod symbol_search;
@@ -88,6 +93,13 @@ pub fn full_registry(
     reg.register(Arc::new(fuzzy_find::FuzzyFindTool::new()));
     reg.register(Arc::new(symbol_search::SymbolSearchTool::new()));
     reg.register(Arc::new(http_request::HttpRequestTool::new()));
+
+    // Phase 5 new tools: diff, environment inspection, process/port utilities, JSON validation.
+    reg.register(Arc::new(diff_apply::DiffApplyTool::new(fs.clone())));
+    reg.register(Arc::new(env_inspect::EnvInspectTool::new()));
+    reg.register(Arc::new(process_list::ProcessListTool::new()));
+    reg.register(Arc::new(port_check::PortCheckTool::new()));
+    reg.register(Arc::new(json_schema_validate::JsonSchemaValidateTool::new()));
 
     // Native semantic search suite (halcon-search: BM25 + PageRank + freshness + semantic).
     // When available, replaces web_search as the sole search interface.
@@ -166,6 +178,11 @@ mod contract_tests {
             Arc::new(git::GitLogTool::new()),
             Arc::new(git::GitAddTool::new()),
             Arc::new(git::GitCommitTool::new()),
+            Arc::new(diff_apply::DiffApplyTool::new(fs.clone())),
+            Arc::new(env_inspect::EnvInspectTool::new()),
+            Arc::new(process_list::ProcessListTool::new()),
+            Arc::new(port_check::PortCheckTool::new()),
+            Arc::new(json_schema_validate::JsonSchemaValidateTool::new()),
             Arc::new(background::BackgroundStartTool::new(proc_reg.clone())),
             Arc::new(background::BackgroundOutputTool::new(proc_reg.clone())),
             Arc::new(background::BackgroundKillTool::new(proc_reg)),
@@ -228,7 +245,7 @@ mod contract_tests {
         let config = ToolsConfig::default();
         let reg = default_registry(&config);
         let defs = reg.tool_definitions();
-        assert_eq!(defs.len(), 21, "expected 21 tools in default registry (no background, no search engine)");
+        assert_eq!(defs.len(), 26, "expected 26 tools in default registry (no background, no search engine)");
 
         assert!(reg.get("file_read").is_some());
         assert!(reg.get("file_write").is_some());
@@ -250,6 +267,11 @@ mod contract_tests {
         assert!(reg.get("symbol_search").is_some());
         assert!(reg.get("web_search").is_some());
         assert!(reg.get("http_request").is_some());
+        assert!(reg.get("diff_apply").is_some());
+        assert!(reg.get("env_inspect").is_some());
+        assert!(reg.get("process_list").is_some());
+        assert!(reg.get("port_check").is_some());
+        assert!(reg.get("json_schema_validate").is_some());
     }
 
     #[test]
@@ -258,7 +280,7 @@ mod contract_tests {
         let proc_reg = Arc::new(background::ProcessRegistry::new(5));
         let reg = full_registry(&config, Some(proc_reg), None, None);
         let defs = reg.tool_definitions();
-        assert_eq!(defs.len(), 24, "expected 24 tools in full registry (with background, no search engine)");
+        assert_eq!(defs.len(), 29, "expected 29 tools in full registry (with background, no search engine)");
 
         assert!(reg.get("background_start").is_some());
         assert!(reg.get("background_output").is_some());

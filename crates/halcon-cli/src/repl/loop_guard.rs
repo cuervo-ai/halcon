@@ -1,3 +1,14 @@
+/// Classification of a single agent loop round for cross-type oscillation detection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum RoundType {
+    /// Round had at least one tool call.
+    Tool,
+    /// Round was text-only (model produced output without calling tools).
+    Text,
+    /// Round produced neither tools nor useful text (empty).
+    Empty,
+}
+
 /// What action the tool loop guard recommends after a tool round.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LoopAction {
@@ -67,6 +78,8 @@ pub(crate) struct ToolLoopGuard {
     current_plan_hash: Option<u64>,
     /// Last detected anomaly (for self-correction in agent loop).
     last_anomaly: Option<AnomalyResult>,
+    /// Sliding window of last 8 round types for cross-type oscillation detection.
+    round_types: std::collections::VecDeque<RoundType>,
 }
 
 /// Known read-only tool names. Tools in this set gather information but don't
@@ -103,6 +116,7 @@ impl ToolLoopGuard {
             recent_errors: Vec::new(),
             current_plan_hash: None,
             last_anomaly: None,
+            round_types: std::collections::VecDeque::new(),
         }
     }
 
@@ -113,6 +127,21 @@ impl ToolLoopGuard {
     pub(crate) fn record_round(&mut self, tools: &[(String, u64)]) -> LoopAction {
         self.history.push(tools.to_vec());
         self.consecutive_rounds += 1;
+
+        // Track round type for cross-type oscillation detection.
+        self.round_types.push_back(RoundType::Tool);
+        if self.round_types.len() > 8 {
+            self.round_types.pop_front();
+        }
+
+        // Cross-type oscillation check BEFORE Bayesian anomaly detection.
+        if self.detect_cross_type_oscillation() {
+            tracing::warn!(
+                round = self.consecutive_rounds,
+                "Loop guard: cross-type Tool↔Text oscillation detected — forcing break"
+            );
+            return LoopAction::Break;
+        }
 
         // HICON: Run Bayesian anomaly detection FIRST
         let bayesian_result = self.check_bayesian_anomalies(tools);
@@ -235,6 +264,65 @@ impl ToolLoopGuard {
             );
             self.consecutive_rounds = 0;
         }
+    }
+
+    /// Record a text-only round and track its type for cross-type oscillation detection.
+    ///
+    /// Call this INSTEAD OF `reset_on_text_round()` at all text-round sites in agent.rs.
+    /// Internally calls `reset_on_text_round()` to preserve existing counter-reset semantics,
+    /// and additionally records `RoundType::Text` in the sliding window.
+    ///
+    /// Use `detect_cross_type_oscillation()` AFTER this call to check for Tool↔Text alternation.
+    pub(crate) fn record_text_round(&mut self) {
+        self.round_types.push_back(RoundType::Text);
+        if self.round_types.len() > 8 {
+            self.round_types.pop_front();
+        }
+        self.reset_on_text_round(); // existing behavior preserved
+    }
+
+    /// Detect cross-type oscillation: Tool↔Text alternation pattern over the last 4 rounds.
+    ///
+    /// Pattern matches: `Tool→Text→Tool→Text` OR `Text→Tool→Text→Tool` (and any 4-entry
+    /// window where all adjacent entries alternate AND both Tool and Text appear).
+    ///
+    /// Returns `false` when fewer than 4 round-type samples have been collected.
+    pub(crate) fn detect_cross_type_oscillation(&self) -> bool {
+        if self.round_types.len() < 4 {
+            return false;
+        }
+        // Collect last 4 entries (most recent last → rev().take(4) = most-recent-first).
+        let last4: Vec<&RoundType> = self.round_types.iter().rev().take(4).collect();
+        // All adjacent pairs must differ (alternating pattern).
+        let alternates = last4.windows(2).all(|w| w[0] != w[1]);
+        // Pattern must span both Tool and Text (not just Empty alternating).
+        let has_tool = last4.iter().any(|&&t| t == RoundType::Tool);
+        let has_text = last4.iter().any(|&&t| t == RoundType::Text);
+        alternates && has_tool && has_text
+    }
+
+    /// Scale `synthesis_threshold` and `force_threshold` based on UCB1 `StrategyContext` tightness.
+    ///
+    /// - `tightness = 0.0`: thresholds at base values (6, 10) — relaxed, max rounds before action
+    /// - `tightness = 1.0`: thresholds at minimum values (3, 5) — tight, early synthesis/withdrawal
+    ///
+    /// Linear interpolation: `value = (1 - t) * base + t * min`
+    pub(crate) fn set_tightness(&mut self, tightness: f32) {
+        const BASE_SYNTHESIS: usize = 6;
+        const BASE_FORCE: usize = 10;
+        const MIN_SYNTHESIS: usize = 3;
+        const MIN_FORCE: usize = 5;
+        let scale = tightness.clamp(0.0, 1.0) as f64;
+        self.synthesis_threshold =
+            ((1.0 - scale) * BASE_SYNTHESIS as f64 + scale * MIN_SYNTHESIS as f64) as usize;
+        self.force_threshold =
+            ((1.0 - scale) * BASE_FORCE as f64 + scale * MIN_FORCE as f64) as usize;
+        tracing::debug!(
+            tightness,
+            synthesis_threshold = self.synthesis_threshold,
+            force_threshold = self.force_threshold,
+            "ToolLoopGuard thresholds scaled by UCB1 strategy tightness"
+        );
     }
 
     /// Reset state after successful plan regeneration — fresh start with new strategy (Sprint 3).

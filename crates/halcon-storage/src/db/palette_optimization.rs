@@ -33,6 +33,7 @@ pub struct PaletteOptimizationRecord {
 }
 
 /// Insert a new palette optimization result.
+#[allow(clippy::too_many_arguments)]
 pub fn save_palette_optimization(
     conn: &Connection,
     session_id: &str,
