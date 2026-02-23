@@ -82,6 +82,13 @@ fn classify_info_chip(text: &str) -> (Option<char>, &str) {
         ("[task] ",              '▣'),
         ("[context] ",           '⊟'),
         ("[round] ",             '○'),
+        // Planning V3 convergence signals
+        ("[convergence] ",       '⊙'),
+        // Multi-agent orchestration
+        ("[orchestrator] ",      '⬡'),   // hexagonal cluster — orchestration
+        ("[sub-agent] ",         '◎'),   // concentric circles — sub-agent instance
+        // Multimodal analysis
+        ("[media] ",             '◫'),   // film frame — multimodal image/audio analysis
     ];
 
     for (prefix, chip) in CHIPS {
@@ -118,6 +125,30 @@ fn classify_warning_chip(message: &str) -> (char, &str) {
     }
 
     ('⚠', message)
+}
+
+// ── Macro step line parser ──────────────────────────────────────────────────────
+
+/// Parse a Planning V3 macro-step feedback line: `[N/M] {rest}`.
+///
+/// Matches lines emitted by `MacroPlanView::format_start()` and `MacroStep::done_line()`.
+///
+/// # Returns
+/// `Some((n, m, rest))` where `rest` is the text after `[N/M] `, e.g. `"✓ Description"`.
+/// `None` if the text does not start with a valid `[N/M]` counter.
+fn parse_macro_step_prefix(text: &str) -> Option<(usize, usize, &str)> {
+    let inner = text.strip_prefix('[')?;
+    let slash = inner.find('/')?;
+    let n: usize = inner.get(..slash)?.parse().ok()?;
+    let after_slash = inner.get(slash + 1..)?;
+    let bracket = after_slash.find(']')?;
+    let m: usize = after_slash.get(..bracket)?.parse().ok()?;
+    // Sanity: n in [1, m+1] and m >= 1
+    if n == 0 || m == 0 || n > m + 1 {
+        return None;
+    }
+    let rest = after_slash.get(bracket + 1..)?.trim_start_matches(' ');
+    Some((n, m, rest))
 }
 
 // ── LRU span cache ─────────────────────────────────────────────────────────────
@@ -580,43 +611,108 @@ impl ActivityRenderer {
                 lines.push(Line::from(Span::styled("  └───", Style::default().fg(c_muted))));
             }
 
-            // ── Info — chip-based rendering ──────────────────────────────────
+            // ── Info — hierarchical + chip-based rendering ───────────────────
             ActivityLine::Info(text) => {
-                let (chip, rest) = classify_info_chip(text);
+                // ── [N/M] macro step feedback — tree-connector style ──────────
+                if let Some((n, m, rest)) = parse_macro_step_prefix(text) {
+                    let is_last = n == m;
+                    let connector = if is_last { "  └─ " } else { "  ├─ " };
+                    let counter = format!(" [{n}/{m}] ");
 
-                match chip {
-                    None => {
-                        // Suppress entirely (e.g. [model] — already in status bar)
-                    }
-                    Some('·') => {
-                        // Plain subtle bullet — no bracket prefix
-                        lines.push(Line::from(vec![
-                            Span::styled(
-                                format!("  · {rest}"),
-                                Style::default()
-                                    .fg(c_muted)
-                                    .add_modifier(Modifier::DIM)
-                                    .bg(bg.unwrap_or(Color::Reset)),
-                            ),
-                        ]));
-                    }
-                    Some(ch) => {
-                        // Chip indicator: icon (accent) + rest (muted/dim)
-                        lines.push(Line::from(vec![
-                            Span::styled(
-                                format!("  {ch} "),
-                                Style::default()
-                                    .fg(c_accent)
-                                    .add_modifier(Modifier::DIM),
-                            ),
-                            Span::styled(
-                                rest.to_string(),
-                                Style::default()
-                                    .fg(c_muted)
-                                    .add_modifier(Modifier::DIM)
-                                    .bg(bg.unwrap_or(Color::Reset)),
-                            ),
-                        ]));
+                    let (icon, icon_color, desc, dim_desc) =
+                        if let Some(d) = rest.strip_prefix("✓ ") {
+                            ('✓', c_success, d, true)
+                        } else if let Some(d) = rest.strip_prefix("✗ ") {
+                            ('✗', c_error, d, false)
+                        } else {
+                            // Starting / in-progress
+                            ('▸', c_running, rest, false)
+                        };
+
+                    let desc_style = if dim_desc {
+                        Style::default().fg(c_muted).add_modifier(Modifier::DIM)
+                    } else {
+                        Style::default().fg(c_text)
+                    };
+
+                    lines.push(Line::from(vec![
+                        Span::styled(
+                            connector.to_string(),
+                            Style::default().fg(c_muted).add_modifier(Modifier::DIM),
+                        ),
+                        Span::styled(
+                            format!("{icon}"),
+                            Style::default().fg(icon_color).add_modifier(Modifier::BOLD),
+                        ),
+                        Span::styled(
+                            counter,
+                            Style::default().fg(c_muted).add_modifier(Modifier::DIM),
+                        ),
+                        Span::styled(desc.to_string(), desc_style),
+                    ]));
+
+                // ── "Plan: A → B → C" summary — planning color ───────────────
+                } else if let Some(rest) = text.strip_prefix("Plan: ") {
+                    let c_planning = theme::active().palette.planning_ratatui();
+                    lines.push(Line::from(vec![
+                        Span::styled(
+                            "  ◈ ".to_string(),
+                            Style::default().fg(c_planning).add_modifier(Modifier::BOLD),
+                        ),
+                        Span::styled(
+                            rest.to_string(),
+                            Style::default().fg(c_muted),
+                        ),
+                    ]));
+
+                // ── Standard chip rendering ───────────────────────────────────
+                } else {
+                    let (chip, rest) = classify_info_chip(text);
+
+                    // Convergence signals get accent color (not dim) — they are
+                    // important routing decisions from the ConvergenceDetector.
+                    let is_convergence = text.starts_with("[convergence]");
+
+                    match chip {
+                        None => {
+                            // Suppress entirely (e.g. [model] — already in status bar)
+                        }
+                        Some('·') => {
+                            lines.push(Line::from(vec![
+                                Span::styled(
+                                    format!("  · {rest}"),
+                                    Style::default()
+                                        .fg(c_muted)
+                                        .add_modifier(Modifier::DIM)
+                                        .bg(bg.unwrap_or(Color::Reset)),
+                                ),
+                            ]));
+                        }
+                        Some(ch) => {
+                            let chip_color = if is_convergence { c_accent } else { c_accent };
+                            let chip_modifier = if is_convergence {
+                                Modifier::BOLD
+                            } else {
+                                Modifier::DIM
+                            };
+                            lines.push(Line::from(vec![
+                                Span::styled(
+                                    format!("  {ch} "),
+                                    Style::default().fg(chip_color).add_modifier(chip_modifier),
+                                ),
+                                Span::styled(
+                                    rest.to_string(),
+                                    Style::default()
+                                        .fg(if is_convergence { c_text } else { c_muted })
+                                        .add_modifier(if is_convergence {
+                                            Modifier::empty()
+                                        } else {
+                                            Modifier::DIM
+                                        })
+                                        .bg(bg.unwrap_or(Color::Reset)),
+                                ),
+                            ]));
+                        }
                     }
                 }
             }
@@ -675,58 +771,36 @@ impl ActivityRenderer {
                 ]));
             }
 
-            // ── Plan overview ────────────────────────────────────────────────
+            // ── Plan overview — HALCÓN hierarchical tree ────────────────────
             ActivityLine::PlanOverview { goal, steps, current_step } => {
-                // HALCÓN plan header — precision targeting
-                lines.push(Line::from(vec![
-                    Span::styled(
-                        "  ◈ ".to_string(),
-                        Style::default().fg(c_running).add_modifier(Modifier::BOLD),
-                    ),
-                    Span::styled(
-                        goal.clone(),
-                        Style::default().fg(c_text).add_modifier(Modifier::BOLD),
-                    ),
-                ]));
+                use crate::tui::events::PlanStepDisplayStatus;
+                // momoto planning color: deep violet for plan structure
+                let c_planning = theme::active().palette.planning_ratatui();
+                let n_steps = steps.len();
 
                 if is_expanded {
-                    // Expanded: full step list with status icons
-                    for (i, step) in steps.iter().enumerate() {
-                        use crate::tui::events::PlanStepDisplayStatus;
-                        let (icon, color) = match step.status {
-                            PlanStepDisplayStatus::Succeeded => ("✓", c_success),
-                            PlanStepDisplayStatus::Failed    => ("✗", c_error),
-                            PlanStepDisplayStatus::InProgress => ("⚙", c_running),
-                            PlanStepDisplayStatus::Skipped   => ("─", c_muted),
-                            PlanStepDisplayStatus::Pending   => ("○", c_muted),
-                        };
-                        let is_current = i == *current_step
-                            && step.status == PlanStepDisplayStatus::InProgress;
-                        let tool_hint = step
-                            .tool_name
-                            .as_deref()
-                            .map(|t| format!("  {t}"))
-                            .unwrap_or_default();
-                        let current_mark = if is_current { "  ◀" } else { "" };
+                    // ── Expanded: tree with connectors ────────────────────────
+                    // Header: "  ◈ Plan  Goal description" in planning color
+                    lines.push(Line::from(vec![
+                        Span::styled(
+                            "  ◈ ".to_string(),
+                            Style::default().fg(c_planning).add_modifier(Modifier::BOLD),
+                        ),
+                        Span::styled(
+                            "Plan  ".to_string(),
+                            Style::default()
+                                .fg(c_planning)
+                                .add_modifier(Modifier::BOLD | Modifier::DIM),
+                        ),
+                        Span::styled(
+                            goal.clone(),
+                            Style::default().fg(c_text).add_modifier(Modifier::BOLD),
+                        ),
+                    ]));
 
-                        lines.push(Line::from(vec![
-                            Span::styled(
-                                format!("    {icon} "),
-                                Style::default().fg(color).add_modifier(Modifier::BOLD),
-                            ),
-                            Span::styled(
-                                format!("{}{tool_hint}{current_mark}", step.description),
-                                Style::default().fg(color),
-                            ),
-                        ]));
-                    }
-                } else {
-                    // Collapsed: inline horizontal flow  ✓ Step1 → ⚙ Step2 → ○ Step3  ▸
-                    let mut flow: Vec<Span<'static>> = vec![Span::styled("  ", Style::default())];
-
+                    // Steps with tree connectors: ├─ or └─ (last step)
                     for (i, step) in steps.iter().enumerate() {
-                        use crate::tui::events::PlanStepDisplayStatus;
-                        let (icon_ch, step_color) = match step.status {
+                        let (icon, icon_color) = match step.status {
                             PlanStepDisplayStatus::Succeeded  => ("✓", c_success),
                             PlanStepDisplayStatus::Failed     => ("✗", c_error),
                             PlanStepDisplayStatus::InProgress => ("⚙", c_running),
@@ -734,37 +808,105 @@ impl ActivityRenderer {
                             PlanStepDisplayStatus::Pending    => ("○", c_muted),
                         };
 
-                        // First word of step description, capped at 12 chars (char-safe).
-                        let label_raw = step.description.split_whitespace().next().unwrap_or("Step");
-                        let label_owned: String;
-                        let label = if label_raw.chars().count() > 12 {
-                            label_owned = label_raw.chars().take(12).collect();
-                            label_owned.as_str()
+                        let is_current = i == *current_step
+                            && step.status == PlanStepDisplayStatus::InProgress;
+                        let connector = if i + 1 == n_steps { "  └─ " } else { "  ├─ " };
+                        let counter = format!("[{}/{}] ", i + 1, n_steps);
+                        let tool_hint = step
+                            .tool_name
+                            .as_deref()
+                            .map(|t| format!("  {t}"))
+                            .unwrap_or_default();
+                        let current_mark = if is_current { "  ◀" } else { "" };
+
+                        // Active step: full brightness; done: dim; pending: muted
+                        let (desc_style, meta_style) = if is_current {
+                            (
+                                Style::default().fg(c_running),
+                                Style::default().fg(c_muted),
+                            )
+                        } else if matches!(step.status, PlanStepDisplayStatus::Succeeded) {
+                            (
+                                Style::default().fg(c_muted).add_modifier(Modifier::DIM),
+                                Style::default().fg(c_muted).add_modifier(Modifier::DIM),
+                            )
                         } else {
-                            label_raw
+                            (
+                                Style::default().fg(c_muted),
+                                Style::default().fg(c_muted).add_modifier(Modifier::DIM),
+                            )
                         };
 
-                        flow.push(Span::styled(
-                            format!("{icon_ch} "),
-                            Style::default().fg(step_color).add_modifier(Modifier::BOLD),
-                        ));
-                        flow.push(Span::styled(label.to_string(), Style::default().fg(step_color)));
-
-                        if i + 1 < steps.len() {
-                            flow.push(Span::styled(
-                                " → ".to_string(),
-                                Style::default().fg(c_muted),
-                            ));
-                        }
+                        lines.push(Line::from(vec![
+                            Span::styled(
+                                connector.to_string(),
+                                Style::default().fg(c_muted).add_modifier(Modifier::DIM),
+                            ),
+                            Span::styled(
+                                format!("{icon} "),
+                                Style::default().fg(icon_color).add_modifier(Modifier::BOLD),
+                            ),
+                            Span::styled(
+                                counter,
+                                Style::default().fg(c_muted).add_modifier(Modifier::DIM),
+                            ),
+                            Span::styled(step.description.clone(), desc_style),
+                            Span::styled(tool_hint, meta_style),
+                            Span::styled(
+                                current_mark.to_string(),
+                                Style::default().fg(c_running).add_modifier(Modifier::BOLD),
+                            ),
+                        ]));
                     }
+                } else {
+                    // ── Collapsed: goal + live progress badge ─────────────────
+                    // "  ◈ Goal text  ·  ⚙ [2/4]  ▸"
+                    let (progress_icon, progress_color) = steps
+                        .get(*current_step)
+                        .map(|s| match s.status {
+                            PlanStepDisplayStatus::Succeeded  => ("✓", c_success),
+                            PlanStepDisplayStatus::Failed     => ("✗", c_error),
+                            PlanStepDisplayStatus::InProgress => ("⚙", c_running),
+                            PlanStepDisplayStatus::Skipped    => ("─", c_muted),
+                            PlanStepDisplayStatus::Pending    => ("○", c_muted),
+                        })
+                        .unwrap_or(("◈", c_muted));
 
-                    // Expand hint
-                    flow.push(Span::styled(
-                        "  ▸".to_string(),
-                        Style::default().fg(c_muted).add_modifier(Modifier::DIM),
-                    ));
+                    let n = (*current_step + 1).min(n_steps);
 
-                    lines.push(Line::from(flow));
+                    // Truncate goal if long to leave room for progress badge
+                    let goal_display: String = if goal.chars().count() > 34 {
+                        format!("{}…", goal.chars().take(33).collect::<String>())
+                    } else {
+                        goal.clone()
+                    };
+
+                    lines.push(Line::from(vec![
+                        Span::styled(
+                            "  ◈ ".to_string(),
+                            Style::default().fg(c_planning).add_modifier(Modifier::BOLD),
+                        ),
+                        Span::styled(
+                            goal_display,
+                            Style::default().fg(c_text).add_modifier(Modifier::BOLD),
+                        ),
+                        Span::styled(
+                            "  ·  ".to_string(),
+                            Style::default().fg(c_muted),
+                        ),
+                        Span::styled(
+                            format!("{progress_icon} "),
+                            Style::default().fg(progress_color).add_modifier(Modifier::BOLD),
+                        ),
+                        Span::styled(
+                            format!("[{n}/{n_steps}]"),
+                            Style::default().fg(c_muted).add_modifier(Modifier::DIM),
+                        ),
+                        Span::styled(
+                            "  ▸".to_string(),
+                            Style::default().fg(c_muted).add_modifier(Modifier::DIM),
+                        ),
+                    ]));
                 }
 
                 lines.push(Line::from(""));
@@ -773,18 +915,24 @@ impl ActivityRenderer {
             // ── Agent thinking skeleton ──────────────────────────────────────
             ActivityLine::AgentThinking => {
                 let card_bg = theme::active().palette.bg_assistant_ratatui();
-                // 4-phase dot animation driven by spinner_frame (ticked every 100ms)
-                let dots = match state.spinner_frame % 4 {
+                let c_primary = theme::active().palette.primary_ratatui();
+                // Falcon eye cycling: ○ ◎ ◉ ● ◉ ◎  (6-frame loop)
+                let eye_frames = ["○", "◎", "◉", "●", "◉", "◎"];
+                let eye = eye_frames[state.spinner_frame % 6];
+                // Breathing dots (slowed: advance every 2 eye frames)
+                let dots = match (state.spinner_frame / 2) % 4 {
                     0 => "·    ",
                     1 => "· ·  ",
                     2 => "· · ·",
                     _ => "     ",
                 };
                 lines.push(Line::from(vec![
+                    Span::raw("  "),
                     Span::styled(
-                        " ◈ ".to_string(),
-                        Style::default().fg(c_muted).bg(card_bg),
+                        eye.to_string(),
+                        Style::default().fg(c_primary).bg(card_bg).add_modifier(Modifier::BOLD),
                     ),
+                    Span::raw("  "),
                     Span::styled(
                         dots.to_string(),
                         Style::default()
@@ -794,6 +942,67 @@ impl ActivityRenderer {
                     ),
                 ]));
                 lines.push(Line::from("".to_string()));
+            }
+
+            // ── Thinking bubble (persistent CoT summary) ─────────────────────
+            ActivityLine::ThinkingBubble { char_count, preview } => {
+                let pal = &theme::active().palette;
+                let c_dim = pal.muted_ratatui();
+                let kchars = if *char_count >= 1000 {
+                    format!("{:.1}K", *char_count as f64 / 1000.0)
+                } else {
+                    char_count.to_string()
+                };
+                let snippet = if preview.len() > 80 {
+                    format!("{}...", &preview[..80])
+                } else {
+                    preview.clone()
+                };
+                lines.push(Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(
+                        format!("⟨ razonando · {kchars} chars ⟩  \"{snippet}\""),
+                        Style::default().fg(c_dim).add_modifier(Modifier::DIM | Modifier::ITALIC),
+                    ),
+                ]));
+            }
+
+            // ── Phase indicator skeleton (planning / reasoning / reflecting) ─
+            ActivityLine::PhaseIndicator { phase, label } => {
+                use super::activity_types::AgentPhase;
+                let pal = &theme::active().palette;
+                let (icon, phase_color) = match phase {
+                    AgentPhase::Planning    => ('⊡', pal.planning_ratatui()),
+                    AgentPhase::Reasoning   => ('◉', pal.reasoning_ratatui()),
+                    AgentPhase::Reflecting  => ('◎', pal.reasoning_ratatui()),
+                    AgentPhase::Searching   => ('≋', pal.accent_ratatui()),
+                    AgentPhase::Delegating { .. } => ('⬡', pal.delegated_ratatui()),
+                };
+                // Line 1: icon + label
+                lines.push(Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(
+                        icon.to_string(),
+                        Style::default().fg(phase_color).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::raw("  "),
+                    Span::styled(label.clone(), Style::default().fg(phase_color)),
+                ]));
+                // Line 2: shimmer bar sweeping left→right driven by spinner_frame
+                let pos = state.spinner_frame % 12;
+                let mut bar = vec![Span::raw("     ")];
+                for i in 0usize..12 {
+                    let (ch, modifier) = match i.abs_diff(pos) {
+                        0 => ('▓', Modifier::BOLD),
+                        1 => ('▒', Modifier::empty()),
+                        _ => ('░', Modifier::DIM),
+                    };
+                    bar.push(Span::styled(
+                        ch.to_string(),
+                        Style::default().fg(phase_color).add_modifier(modifier),
+                    ));
+                }
+                lines.push(Line::from(bar));
             }
 
             // ── Tool execution ───────────────────────────────────────────────
@@ -920,6 +1129,122 @@ impl ActivityRenderer {
                     }
                 }
             }
+
+            // ── Orchestrator header ──────────────────────────────────────────
+            ActivityLine::OrchestratorHeader { task_count, wave_count } => {
+                let pal = &theme::active().palette;
+                let c_delegated = pal.delegated_ratatui();
+                lines.push(Line::from(vec![
+                    Span::styled(
+                        "  ● ".to_string(),
+                        Style::default().fg(c_delegated).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled(
+                        "Orchestrator".to_string(),
+                        Style::default().fg(c_delegated).add_modifier(Modifier::BOLD),
+                    ),
+                    Span::styled("  ·  ".to_string(), Style::default().fg(c_muted)),
+                    Span::styled(
+                        format!("{task_count} tasks"),
+                        Style::default().fg(c_text),
+                    ),
+                    Span::styled("  ·  ".to_string(), Style::default().fg(c_muted)),
+                    Span::styled(
+                        format!("Wave 1/{wave_count}"),
+                        Style::default().fg(c_muted).add_modifier(Modifier::DIM),
+                    ),
+                ]));
+            }
+
+            // ── Sub-agent task pill ──────────────────────────────────────────
+            ActivityLine::SubAgentTask {
+                step_index,
+                total_steps,
+                description,
+                status,
+                rounds: _,
+                tools_used,
+                summary,
+                ..
+            } => {
+                use super::activity_types::SubAgentStatus;
+
+                let (icon, icon_color) = match status {
+                    SubAgentStatus::Running => ("⟳", c_running),
+                    SubAgentStatus::Success { .. } => ("✓", c_success),
+                    SubAgentStatus::Failed { .. } => ("✗", c_error),
+                };
+
+                let duration_str = match status {
+                    SubAgentStatus::Running => String::new(),
+                    SubAgentStatus::Success { latency_ms } | SubAgentStatus::Failed { latency_ms } => {
+                        format!("  ·  {:.1}s", *latency_ms as f64 / 1000.0)
+                    }
+                };
+
+                if !state.show_sub_agent_detail {
+                    // ── Collapsed pill ────────────────────────────────────────
+                    let tools_pill = if tools_used.is_empty() {
+                        String::new()
+                    } else {
+                        format!("  ·  {}", tools_used.join(" "))
+                    };
+
+                    let desc_short: String = description.chars().take(48).collect();
+
+                    lines.push(Line::from(vec![
+                        Span::styled(
+                            format!("  {icon} "),
+                            Style::default().fg(icon_color).add_modifier(Modifier::BOLD),
+                        ),
+                        Span::styled(
+                            format!("[{step_index}/{total_steps}]"),
+                            Style::default().fg(c_muted).add_modifier(Modifier::DIM),
+                        ),
+                        Span::raw("  "),
+                        Span::styled(desc_short, Style::default().fg(c_text)),
+                        Span::styled(tools_pill, Style::default().fg(c_muted)),
+                        Span::styled(duration_str, Style::default().fg(c_muted).add_modifier(Modifier::DIM)),
+                    ]));
+                } else {
+                    // ── Expanded detail ────────────────────────────────────────
+                    // Header line
+                    let desc_short: String = description.chars().take(48).collect();
+                    lines.push(Line::from(vec![
+                        Span::styled(
+                            format!("  {icon} "),
+                            Style::default().fg(icon_color).add_modifier(Modifier::BOLD),
+                        ),
+                        Span::styled(
+                            format!("[{step_index}/{total_steps}]"),
+                            Style::default().fg(c_muted).add_modifier(Modifier::DIM),
+                        ),
+                        Span::raw("  "),
+                        Span::styled(desc_short, Style::default().fg(c_text).add_modifier(Modifier::BOLD)),
+                        Span::styled(duration_str, Style::default().fg(c_muted).add_modifier(Modifier::DIM)),
+                    ]));
+
+                    // Tool rows
+                    for tool in tools_used.iter() {
+                        lines.push(Line::from(vec![
+                            Span::styled("      └ ".to_string(), Style::default().fg(c_muted)),
+                            Span::styled(tool.clone(), Style::default().fg(c_accent)),
+                        ]));
+                    }
+
+                    // Summary row
+                    if !summary.is_empty() {
+                        let summary_display: String = summary.chars().take(100).collect();
+                        lines.push(Line::from(vec![
+                            Span::styled("      └ ".to_string(), Style::default().fg(c_muted)),
+                            Span::styled(
+                                format!("\"{summary_display}\""),
+                                Style::default().fg(c_muted).add_modifier(Modifier::ITALIC),
+                            ),
+                        ]));
+                    }
+                }
+            }
         }
 
         lines
@@ -975,6 +1300,17 @@ impl ActivityRenderer {
                 }
 
                 ActivityLine::AgentThinking => 2, // indicator line + blank
+                ActivityLine::PhaseIndicator { .. } => 2, // icon+label line + shimmer bar
+                ActivityLine::ThinkingBubble { .. } => 1, // single dim bubble line
+                ActivityLine::OrchestratorHeader { .. } => 1, // single header line
+                ActivityLine::SubAgentTask { tools_used, summary, .. } => {
+                    if state.show_sub_agent_detail {
+                        let summary_line = if summary.is_empty() { 0 } else { 1 };
+                        1 + tools_used.len() + summary_line // header + tool rows + summary
+                    } else {
+                        1 // collapsed pill
+                    }
+                }
 
                 ActivityLine::ToolExec { result, .. } => {
                     match result {
@@ -1301,5 +1637,94 @@ mod tests {
         let (chip, rest) = classify_info_chip("[cache hit] l3_semantic");
         assert_eq!(chip, Some('≋'));
         assert_eq!(rest, "l3_semantic");
+    }
+
+    // ── parse_macro_step_prefix tests ──────────────────────────────────────
+
+    #[test]
+    fn parse_macro_step_prefix_start_line() {
+        let result = parse_macro_step_prefix("[1/3] Analysing project");
+        assert_eq!(result, Some((1, 3, "Analysing project")));
+    }
+
+    #[test]
+    fn parse_macro_step_prefix_done_line() {
+        // done_line() produces "[N/M] ✓ Description"
+        let result = parse_macro_step_prefix("[2/3] ✓ Apply fixes");
+        assert_eq!(result, Some((2, 3, "✓ Apply fixes")));
+    }
+
+    #[test]
+    fn parse_macro_step_prefix_failed_line() {
+        let result = parse_macro_step_prefix("[1/2] ✗ Build failed");
+        assert_eq!(result, Some((1, 2, "✗ Build failed")));
+    }
+
+    #[test]
+    fn parse_macro_step_prefix_last_step() {
+        let result = parse_macro_step_prefix("[3/3] Synthesise report");
+        assert_eq!(result, Some((3, 3, "Synthesise report")));
+    }
+
+    #[test]
+    fn parse_macro_step_prefix_single_step() {
+        let result = parse_macro_step_prefix("[1/1] Only step");
+        assert_eq!(result, Some((1, 1, "Only step")));
+    }
+
+    #[test]
+    fn parse_macro_step_prefix_leading_space_stripped() {
+        // rest must have leading space stripped
+        let result = parse_macro_step_prefix("[1/5]   spaced text");
+        assert_eq!(result, Some((1, 5, "spaced text")));
+    }
+
+    #[test]
+    fn parse_macro_step_prefix_rejects_plain_text() {
+        assert!(parse_macro_step_prefix("plain text").is_none());
+    }
+
+    #[test]
+    fn parse_macro_step_prefix_rejects_convergence_brackets() {
+        // "[convergence]" must NOT be parsed as a macro step
+        assert!(parse_macro_step_prefix("[convergence] something").is_none());
+    }
+
+    #[test]
+    fn parse_macro_step_prefix_rejects_planning_bracket() {
+        assert!(parse_macro_step_prefix("[planning] ...").is_none());
+    }
+
+    #[test]
+    fn parse_macro_step_prefix_rejects_zero_n() {
+        // n=0 is invalid
+        assert!(parse_macro_step_prefix("[0/3] Zero step").is_none());
+    }
+
+    #[test]
+    fn parse_macro_step_prefix_rejects_zero_m() {
+        // m=0 is invalid
+        assert!(parse_macro_step_prefix("[1/0] No steps").is_none());
+    }
+
+    #[test]
+    fn parse_macro_step_prefix_rejects_n_too_large() {
+        // n > m+1 is invalid
+        assert!(parse_macro_step_prefix("[5/2] Overflow").is_none());
+    }
+
+    // ── convergence chip classification ────────────────────────────────────
+
+    #[test]
+    fn classify_info_chip_convergence() {
+        let (chip, rest) = classify_info_chip("[convergence] EvidenceThreshold: 80%");
+        assert_eq!(chip, Some('⊙'));
+        assert_eq!(rest, "EvidenceThreshold: 80%");
+    }
+
+    #[test]
+    fn classify_info_chip_convergence_diminishing() {
+        let (chip, _) = classify_info_chip("[convergence] DiminishingReturns after 2 rounds");
+        assert_eq!(chip, Some('⊙'));
     }
 }

@@ -23,6 +23,20 @@ pub struct InstalledPlugin {
     pub trust_level: String,
 }
 
+/// Persisted circuit breaker state for one plugin (M34).
+///
+/// Enables plugins with historical failures to restart in `degraded` state
+/// rather than `clean`, preventing repeated invocations of broken plugins
+/// across cold restarts.
+#[derive(Debug, Clone)]
+pub struct CircuitBreakerStateRow {
+    pub plugin_id: String,
+    /// One of: "clean" | "degraded" | "suspended" | "failed"
+    pub state: String,
+    pub failure_count: i64,
+    pub last_failure_at: Option<String>,
+}
+
 /// Per-plugin UCB1 and call metrics for cross-session learning.
 #[derive(Debug, Clone)]
 pub struct PluginMetricsRecord {
@@ -70,6 +84,69 @@ impl Database {
     pub fn load_plugin_metrics(&self) -> Result<Vec<PluginMetricsRecord>> {
         let conn = self.conn.lock().unwrap();
         load_plugin_metrics_conn(&conn)
+    }
+
+    /// Upsert circuit breaker state for a batch of plugins (M34).
+    ///
+    /// Called post-loop to persist the current in-memory circuit state so that
+    /// the next session can restore it via `load_circuit_breaker_states()`.
+    pub fn save_circuit_breaker_states(
+        &self,
+        rows: &[CircuitBreakerStateRow],
+    ) -> halcon_core::error::Result<()> {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().to_rfc3339();
+        for row in rows {
+            conn.execute(
+                "INSERT INTO plugin_circuit_state
+                 (plugin_id, state, failure_count, last_failure_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5)
+                 ON CONFLICT(plugin_id) DO UPDATE SET
+                     state           = ?2,
+                     failure_count   = ?3,
+                     last_failure_at = ?4,
+                     updated_at      = ?5",
+                params![
+                    row.plugin_id,
+                    row.state,
+                    row.failure_count,
+                    row.last_failure_at,
+                    now,
+                ],
+            )
+            .map_err(|e| halcon_core::error::HalconError::DatabaseError(format!("save_circuit_breaker_states: {e}")))?;
+        }
+        Ok(())
+    }
+
+    /// Load all persisted circuit breaker states (M34).
+    ///
+    /// Called at startup to seed plugin states; plugins with historical failures
+    /// are initialized in `degraded` state rather than `clean`.
+    pub fn load_circuit_breaker_states(
+        &self,
+    ) -> halcon_core::error::Result<Vec<CircuitBreakerStateRow>> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT plugin_id, state, failure_count, last_failure_at
+                 FROM plugin_circuit_state
+                 ORDER BY plugin_id ASC",
+            )
+            .map_err(|e| halcon_core::error::HalconError::DatabaseError(format!("prepare load_circuit_breaker_states: {e}")))?;
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(CircuitBreakerStateRow {
+                    plugin_id:       row.get(0)?,
+                    state:           row.get(1)?,
+                    failure_count:   row.get(2)?,
+                    last_failure_at: row.get(3)?,
+                })
+            })
+            .map_err(|e| halcon_core::error::HalconError::DatabaseError(format!("query load_circuit_breaker_states: {e}")))?
+            .filter_map(|r| r.ok())
+            .collect();
+        Ok(rows)
     }
 }
 
@@ -300,5 +377,65 @@ mod tests {
         let db = make_db();
         assert!(db.load_installed_plugins().unwrap().is_empty());
         assert!(db.load_plugin_metrics().unwrap().is_empty());
+        assert!(db.load_circuit_breaker_states().unwrap().is_empty());
+    }
+
+    #[test]
+    fn save_and_load_circuit_breaker_state() {
+        let db = make_db();
+        let rows = vec![
+            CircuitBreakerStateRow {
+                plugin_id: "alpha".to_string(),
+                state: "degraded".to_string(),
+                failure_count: 2,
+                last_failure_at: Some("2026-02-21T00:00:00Z".to_string()),
+            },
+            CircuitBreakerStateRow {
+                plugin_id: "beta".to_string(),
+                state: "clean".to_string(),
+                failure_count: 0,
+                last_failure_at: None,
+            },
+        ];
+        db.save_circuit_breaker_states(&rows).unwrap();
+
+        let loaded = db.load_circuit_breaker_states().unwrap();
+        assert_eq!(loaded.len(), 2);
+
+        let alpha = loaded.iter().find(|r| r.plugin_id == "alpha").unwrap();
+        assert_eq!(alpha.state, "degraded");
+        assert_eq!(alpha.failure_count, 2);
+        assert_eq!(alpha.last_failure_at.as_deref(), Some("2026-02-21T00:00:00Z"));
+
+        let beta = loaded.iter().find(|r| r.plugin_id == "beta").unwrap();
+        assert_eq!(beta.state, "clean");
+        assert_eq!(beta.failure_count, 0);
+        assert!(beta.last_failure_at.is_none());
+    }
+
+    #[test]
+    fn circuit_state_upsert_updates_on_conflict() {
+        let db = make_db();
+        let initial = vec![CircuitBreakerStateRow {
+            plugin_id: "my-plugin".to_string(),
+            state: "clean".to_string(),
+            failure_count: 0,
+            last_failure_at: None,
+        }];
+        db.save_circuit_breaker_states(&initial).unwrap();
+
+        // Now update to degraded after a failure
+        let updated = vec![CircuitBreakerStateRow {
+            plugin_id: "my-plugin".to_string(),
+            state: "degraded".to_string(),
+            failure_count: 1,
+            last_failure_at: Some("2026-02-21T01:00:00Z".to_string()),
+        }];
+        db.save_circuit_breaker_states(&updated).unwrap();
+
+        let loaded = db.load_circuit_breaker_states().unwrap();
+        assert_eq!(loaded.len(), 1, "upsert must not duplicate");
+        assert_eq!(loaded[0].state, "degraded");
+        assert_eq!(loaded[0].failure_count, 1);
     }
 }

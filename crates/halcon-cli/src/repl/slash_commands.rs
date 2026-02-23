@@ -304,6 +304,7 @@ impl Repl {
             guardrails,
             self.config.tools.confirm_destructive,
             self.config.security.tbac_enabled,
+            None, // perm_awaiter: slash commands run outside TUI
         )
         .await
         {
@@ -1164,6 +1165,7 @@ impl Repl {
             guardrails,
             self.config.tools.confirm_destructive,
             self.config.security.tbac_enabled,
+            None, // perm_awaiter: slash commands run outside TUI
         )
         .await
         {

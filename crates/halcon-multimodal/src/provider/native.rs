@@ -253,6 +253,120 @@ pub fn extract_image_meta(data: &[u8]) -> Option<ImageMeta> {
 
 // ── Audio metadata extraction ─────────────────────────────────────────────────
 
+/// Extract a human-readable audio description from raw audio bytes without
+/// requiring any API key. Supports WAV (RIFF) and MP3 (ID3/sync-word) formats.
+///
+/// Used as a graceful fallback when OpenAI Whisper is not configured — provides
+/// basic metadata (format, sample rate, channels, bitrate) instead of a blank
+/// response that would otherwise give the user no useful information.
+pub fn describe_audio_metadata(data: &[u8]) -> Option<String> {
+    // Try WAV first (most information-rich).
+    if let Some(meta) = parse_wav_meta(data) {
+        let ch_label = match meta.channels {
+            1 => "mono".to_string(),
+            2 => "stereo".to_string(),
+            n => format!("{n}-channel"),
+        };
+        let duration_secs = meta.duration_ms as f64 / 1000.0;
+        return Some(format!(
+            "WAV audio file: {duration_secs:.1}s, {} Hz, {ch_label}",
+            meta.sample_rate
+        ));
+    }
+    // Try MP3 frame header.
+    if let Some(meta) = parse_mp3_meta(data) {
+        let ch_label = match meta.channels {
+            1 => "mono",
+            _ => "stereo",
+        };
+        return Some(format!(
+            "MP3 audio file: {} kbps, {} Hz, {ch_label}",
+            meta.bitrate_kbps, meta.sample_rate
+        ));
+    }
+    // Generic audio fallback (OGG, FLAC, AAC, OPUS — format only).
+    let format = detect_audio_format(data)?;
+    Some(format!("{format} audio file"))
+}
+
+/// Basic MP3 metadata extracted from the first valid MPEG frame header.
+#[derive(Debug)]
+struct Mp3Meta {
+    bitrate_kbps: u32,
+    sample_rate:  u32,
+    channels:     u32, // 1 = mono, 2 = stereo/joint-stereo
+}
+
+/// MP3 MPEG-1/2 bitrate table (kbps) indexed by [version][layer][index].
+/// Layer values: 1=LayerI, 2=LayerII, 3=LayerIII (MP3 = MPEG Layer 3).
+static MP3_BITRATE_V1_L3: &[u32] = &[0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0];
+static MP3_SAMPLERATE_V1: &[u32] = &[44100, 48000, 32000, 0];
+
+/// Parse the first valid MPEG audio frame header in `data`.
+///
+/// Scans for the sync word (0xFF 0xEn where n ≥ 0xE0) and interprets the
+/// MPEG-1 Layer III (MP3) frame header to extract bitrate, sample rate, and
+/// channel mode.
+fn parse_mp3_meta(data: &[u8]) -> Option<Mp3Meta> {
+    // Skip ID3v2 tag if present ("ID3" header).
+    let start = if data.len() >= 10 && &data[0..3] == b"ID3" {
+        // ID3v2 size is syncsafe (7 bits per byte) in bytes 6-9.
+        let sz = ((data[6] as usize) << 21)
+            | ((data[7] as usize) << 14)
+            | ((data[8] as usize) << 7)
+            | (data[9] as usize);
+        10 + sz
+    } else {
+        0
+    };
+
+    // Scan for MP3 sync word: 0xFF followed by 0xE0-0xFF.
+    let search = data.get(start..).unwrap_or(&[]);
+    let (_, after) = search.split_at(
+        search.windows(2).position(|w| w[0] == 0xFF && (w[1] & 0xE0) == 0xE0)?,
+    );
+    if after.len() < 4 { return None; }
+
+    let h = u32::from_be_bytes(after[0..4].try_into().ok()?);
+
+    // MPEG version: bits 20-19: 11=MPEG1, 10=MPEG2, 01=reserved, 00=MPEG2.5
+    let version_bits = (h >> 19) & 0x3;
+    if version_bits != 0b11 { return None; } // Only MPEG-1 for now
+
+    // Layer: bits 18-17: 01=LayerIII(MP3)
+    let layer_bits = (h >> 17) & 0x3;
+    if layer_bits != 0b01 { return None; } // Only Layer III
+
+    // Bitrate index: bits 15-12
+    let bitrate_idx = ((h >> 12) & 0xF) as usize;
+    let bitrate_kbps = *MP3_BITRATE_V1_L3.get(bitrate_idx)?;
+    if bitrate_kbps == 0 { return None; }
+
+    // Sample rate index: bits 11-10
+    let sr_idx = ((h >> 10) & 0x3) as usize;
+    let sample_rate = *MP3_SAMPLERATE_V1.get(sr_idx)?;
+    if sample_rate == 0 { return None; }
+
+    // Channel mode: bits 7-6: 11=mono, else stereo-variant
+    let channel_mode = (h >> 6) & 0x3;
+    let channels = if channel_mode == 0b11 { 1 } else { 2 };
+
+    Some(Mp3Meta { bitrate_kbps, sample_rate, channels })
+}
+
+/// Detect audio container format from magic bytes.
+///
+/// Returns a short format name (e.g., "OGG", "FLAC") or `None` if not recognized.
+fn detect_audio_format(data: &[u8]) -> Option<&'static str> {
+    if data.len() < 4 { return None; }
+    if data.starts_with(b"OggS")            { return Some("OGG"); }
+    if data.starts_with(b"fLaC")            { return Some("FLAC"); }
+    if data.starts_with(b"\xFF\xF1")        { return Some("AAC (ADTS)"); }
+    if data.starts_with(b"\xFF\xF9")        { return Some("AAC (ADTS)"); }
+    if data.len() >= 8 && &data[4..8] == b"ftyp" { return Some("M4A/AAC"); }
+    None
+}
+
 /// Basic WAV metadata.
 #[derive(Debug)]
 struct WavMeta {
@@ -609,5 +723,127 @@ mod tests {
     #[test]
     fn extract_image_meta_returns_none_for_empty() {
         assert!(extract_image_meta(&[]).is_none());
+    }
+
+    // ── describe_audio_metadata ───────────────────────────────────────────────
+
+    #[test]
+    fn describe_audio_metadata_wav_mono() {
+        let data = minimal_wav();
+        let desc = describe_audio_metadata(&data).expect("should produce description");
+        assert!(desc.contains("1.0s"), "should include duration; got: {desc}");
+        assert!(desc.contains("44100"), "should include sample rate; got: {desc}");
+        assert!(desc.contains("mono"), "should include channel label; got: {desc}");
+    }
+
+    #[test]
+    fn describe_audio_metadata_stereo_label() {
+        // Build a 2-channel (stereo) WAV header.
+        let channels: u16 = 2;
+        let sample_rate: u32 = 22050;
+        let bits: u16 = 16;
+        let byte_rate = sample_rate * channels as u32 * (bits as u32 / 8);
+        let data_size: u32 = byte_rate * 2; // 2 seconds
+        let total_size: u32 = 36 + data_size;
+        let mut bytes = vec![];
+        bytes.extend_from_slice(b"RIFF");
+        bytes.extend_from_slice(&total_size.to_le_bytes());
+        bytes.extend_from_slice(b"WAVE");
+        bytes.extend_from_slice(b"fmt ");
+        bytes.extend_from_slice(&16u32.to_le_bytes());
+        bytes.extend_from_slice(&1u16.to_le_bytes());      // PCM
+        bytes.extend_from_slice(&channels.to_le_bytes());
+        bytes.extend_from_slice(&sample_rate.to_le_bytes());
+        bytes.extend_from_slice(&byte_rate.to_le_bytes());
+        bytes.extend_from_slice(&(channels * bits / 8).to_le_bytes()); // block align
+        bytes.extend_from_slice(&bits.to_le_bytes());
+        bytes.extend_from_slice(b"data");
+        bytes.extend_from_slice(&data_size.to_le_bytes());
+
+        let desc = describe_audio_metadata(&bytes).expect("should parse stereo WAV");
+        assert!(desc.contains("stereo"), "should label 2-channel as stereo; got: {desc}");
+        assert!(desc.contains("2.0s"), "2 seconds duration; got: {desc}");
+    }
+
+    #[test]
+    fn describe_audio_metadata_returns_none_for_garbage() {
+        assert!(describe_audio_metadata(&[0x00, 0x01, 0x02, 0x03]).is_none());
+    }
+
+    #[test]
+    fn describe_audio_metadata_returns_none_for_empty() {
+        assert!(describe_audio_metadata(&[]).is_none());
+    }
+
+    // ── MP3 metadata ─────────────────────────────────────────────────────────
+
+    /// Build a minimal MPEG-1 Layer III frame header for 128 kbps, 44100 Hz, stereo.
+    /// Header format (32 bits, big-endian):
+    ///  - sync:       0xFFEB (11 sync + MPEG1 + LayerIII + no CRC)
+    ///  - bitrate idx 9 = 128 kbps, sample rate idx 0 = 44100, padding=0, private=0
+    ///  - channel mode 01 = joint stereo
+    fn minimal_mp3_frame() -> Vec<u8> {
+        // 0xFFEB = sync(11) + version=11(MPEG1) + layer=01(LayerIII) + no_crc=1
+        // byte 2: bitrate=9 (1001)<<4 | sr=0 (00)<<2 | pad=0<<1 | private=0 = 0x90
+        // byte 3: channel_mode=01 (joint stereo) <<6 = 0x40
+        vec![0xFF, 0xFB, 0x90, 0x40]
+    }
+
+    #[test]
+    fn mp3_meta_parsed_from_frame_header() {
+        let data = minimal_mp3_frame();
+        let meta = parse_mp3_meta(&data).expect("should parse MPEG-1 Layer III header");
+        assert_eq!(meta.bitrate_kbps, 128, "bitrate index 9 = 128 kbps");
+        assert_eq!(meta.sample_rate, 44100, "sample rate index 0 = 44100 Hz");
+        assert_eq!(meta.channels, 2, "joint stereo = 2 channels");
+    }
+
+    #[test]
+    fn mp3_describe_audio_metadata_returns_format() {
+        let data = minimal_mp3_frame();
+        let desc = describe_audio_metadata(&data).expect("should produce description for MP3");
+        assert!(desc.contains("MP3"), "should identify format; got: {desc}");
+        assert!(desc.contains("128"), "should include bitrate; got: {desc}");
+        assert!(desc.contains("44100"), "should include sample rate; got: {desc}");
+        assert!(desc.contains("stereo"), "should include channel; got: {desc}");
+    }
+
+    #[test]
+    fn ogg_format_detected() {
+        let ogg_magic = b"OggS\x00\x02\x00\x00\x00\x00";
+        let desc = describe_audio_metadata(ogg_magic).expect("OGG should get description");
+        assert!(desc.contains("OGG"), "should identify OGG format; got: {desc}");
+    }
+
+    #[test]
+    fn flac_format_detected() {
+        let flac_magic = b"fLaC\x00\x00\x00\x22";
+        let desc = describe_audio_metadata(flac_magic).expect("FLAC should get description");
+        assert!(desc.contains("FLAC"), "should identify FLAC format; got: {desc}");
+    }
+
+    #[test]
+    fn mp3_with_id3_tag_still_parsed() {
+        // ID3v2 header: "ID3" + version(2) + revision(0) + flags(0) + syncsafe size(0,0,0,10)
+        // 10-byte ID3 tag, then immediately an MP3 frame.
+        let mut data = vec![0x49, 0x44, 0x33, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0A];
+        data.extend_from_slice(&[0u8; 10]); // padding for ID3 body (10 bytes as declared)
+        data.extend_from_slice(&minimal_mp3_frame());
+        let desc = describe_audio_metadata(&data);
+        assert!(desc.is_some(), "MP3 with ID3 header should be detected");
+    }
+
+    // ── VideoConfig defaults ──────────────────────────────────────────────────
+
+    #[test]
+    fn video_config_default_max_frames_is_25() {
+        let cfg = super::super::super::video::VideoConfig::default();
+        assert_eq!(cfg.max_frames, 25, "max_frames should be 25 for good temporal coverage");
+    }
+
+    #[test]
+    fn video_config_default_timeout_is_300s() {
+        let cfg = super::super::super::video::VideoConfig::default();
+        assert_eq!(cfg.timeout_secs, 300, "timeout should be 300s for long videos");
     }
 }

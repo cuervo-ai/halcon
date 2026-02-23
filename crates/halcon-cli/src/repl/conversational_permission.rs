@@ -129,7 +129,8 @@ impl ConversationalPermissionHandler {
         level: halcon_core::types::PermissionLevel,
         input: &ToolInput,
     ) -> PermissionDecision {
-        use std::io::{self, Write};
+        use std::io::Write;
+        use tokio::io::AsyncBufReadExt as _;
 
         // G7 HARD VETO: blacklisted commands are denied unconditionally before any prompt.
         // The user cannot override this by pressing 'y' — it is a non-interactive hard block.
@@ -199,10 +200,11 @@ impl ConversationalPermissionHandler {
 
                     // Re-prompt for decision
                     eprint!("Tool '{}' requires permission. [y]es [n]o [?]details: ", tool);
-                    io::stderr().flush().ok();
+                    std::io::stderr().flush().ok();
 
                     let mut buffer = String::new();
-                    match io::stdin().read_line(&mut buffer) {
+                    let mut reader = tokio::io::BufReader::new(tokio::io::stdin());
+                    match reader.read_line(&mut buffer).await {
                         Ok(_) => {
                             user_response = Some(buffer.trim().to_string());
                         }
@@ -229,10 +231,11 @@ impl ConversationalPermissionHandler {
 
                     // Re-prompt for decision
                     eprint!("Tool '{}' requires permission. [y]es [n]o: ", tool);
-                    io::stderr().flush().ok();
+                    std::io::stderr().flush().ok();
 
                     let mut buffer = String::new();
-                    match io::stdin().read_line(&mut buffer) {
+                    let mut reader = tokio::io::BufReader::new(tokio::io::stdin());
+                    match reader.read_line(&mut buffer).await {
                         Ok(_) => {
                             user_response = Some(buffer.trim().to_string());
                         }
@@ -550,6 +553,19 @@ impl ConversationalPermissionHandler {
         rx: tokio::sync::mpsc::UnboundedReceiver<Option<String>>,
     ) {
         self.checker.set_sudo_channel(rx);
+    }
+
+    /// Set the TUI notification channel for permission timeout events.
+    ///
+    /// When set, `authorize()` sends a `UiEvent::Warning` to the TUI activity panel
+    /// whenever the permission timeout fires. Wire this with the same `ui_tx` used
+    /// by `TuiSink` so the user sees a visible explanation for denied tools.
+    #[cfg(feature = "tui")]
+    pub fn set_notification_tx(
+        &mut self,
+        tx: tokio::sync::mpsc::UnboundedSender<crate::tui::events::UiEvent>,
+    ) {
+        self.checker.set_notification_tx(tx);
     }
 
     /// Await the sudo password from the TUI modal.

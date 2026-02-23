@@ -287,10 +287,34 @@ impl ToolLoopGuard {
     /// window where all adjacent entries alternate AND both Tool and Text appear).
     ///
     /// Returns `false` when fewer than 4 round-type samples have been collected.
+    ///
+    /// **PlanExecuteReflect exception**: The strategy inherently produces `Tool→Text→Tool→Text`
+    /// alternation (tool round → synthesis/reflection text round → next tool round → ...).
+    /// This is NOT an oscillation bug — it is the correct working pattern. The detector
+    /// therefore suppresses the alarm when `plan_progress.completed > 0`, meaning at least
+    /// one plan step has been recorded as done. A plan that is actively advancing must not be
+    /// terminated on the very pattern that proves it is working.
     pub(crate) fn detect_cross_type_oscillation(&self) -> bool {
         if self.round_types.len() < 4 {
             return false;
         }
+
+        // PlanExecuteReflect guard: if any plan step has been completed, the Tool↔Text
+        // alternation is the expected control-flow pattern, not a stuck loop.
+        // Only treat it as a problem when the plan has made zero progress AND we have an
+        // active plan tracker (plan_progress == None means no plan at all; without a plan,
+        // alternation is always suspicious because there is nothing to drive convergence).
+        if let Some(progress) = self.plan_progress {
+            if progress.completed > 0 {
+                tracing::trace!(
+                    completed = progress.completed,
+                    total = progress.total,
+                    "Loop guard: cross-type oscillation suppressed — plan is advancing"
+                );
+                return false;
+            }
+        }
+
         // Collect last 4 entries (most recent last → rev().take(4) = most-recent-first).
         let last4: Vec<&RoundType> = self.round_types.iter().rev().take(4).collect();
         // All adjacent pairs must differ (alternating pattern).
@@ -900,5 +924,63 @@ mod tests {
         // Should be ReplanRequired, NOT InjectSynthesis
         // (even though consecutive_rounds == 3 == synthesis_threshold)
         assert_eq!(action, LoopAction::ReplanRequired);
+    }
+
+    // === PlanExecuteReflect oscillation suppression tests ===
+
+    #[test]
+    fn cross_type_oscillation_suppressed_when_plan_advancing() {
+        // When at least one plan step is completed, the Tool→Text alternation is the
+        // expected PlanExecuteReflect pattern and must NOT be flagged as oscillation.
+        let mut guard = ToolLoopGuard::new();
+        guard.update_plan_progress(1, 5, 3000); // 1 step completed → plan is advancing
+
+        // Build Tool→Text→Tool→Text via public API (PlanExecuteReflect pattern).
+        guard.record_round(&[("file_read".into(), 1u64)]);
+        guard.record_text_round();
+        guard.record_round(&[("grep".into(), 2u64)]);
+        guard.record_text_round(); // round_types = [Tool, Text, Tool, Text]
+
+        // With progress.completed > 0, oscillation must be suppressed.
+        assert!(
+            !guard.detect_cross_type_oscillation(),
+            "PlanExecuteReflect Tool↔Text alternation must not be flagged when plan advances"
+        );
+    }
+
+    #[test]
+    fn cross_type_oscillation_fires_when_plan_has_zero_progress() {
+        // When plan exists but no step has been completed (completed==0), the Tool↔Text
+        // alternation is a stuck loop and SHOULD be flagged.
+        let mut guard = ToolLoopGuard::new();
+        guard.update_plan_progress(0, 5, 3000); // 0 steps completed → plan stalled
+
+        guard.record_round(&[("file_read".into(), 1u64)]);
+        guard.record_text_round();
+        guard.record_round(&[("grep".into(), 2u64)]);
+        guard.record_text_round(); // round_types = [Tool, Text, Tool, Text]
+
+        assert!(
+            guard.detect_cross_type_oscillation(),
+            "Tool↔Text alternation with 0% plan progress must be flagged as oscillation"
+        );
+    }
+
+    #[test]
+    fn cross_type_oscillation_fires_when_no_plan_tracker() {
+        // When there is no plan at all (plan_progress == None), Tool↔Text alternation
+        // is always suspicious — nothing drives convergence.
+        let mut guard = ToolLoopGuard::new();
+        // No update_plan_progress() call.
+
+        guard.record_round(&[("file_read".into(), 1u64)]);
+        guard.record_text_round();
+        guard.record_round(&[("grep".into(), 2u64)]);
+        guard.record_text_round();
+
+        assert!(
+            guard.detect_cross_type_oscillation(),
+            "Tool↔Text alternation without any plan tracker must still be flagged"
+        );
     }
 }

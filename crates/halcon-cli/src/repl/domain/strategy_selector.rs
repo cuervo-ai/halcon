@@ -185,8 +185,10 @@ impl StrategySelector {
                     f64::INFINITY
                 } else {
                     let exploitation = stats.avg_score;
+                    // Defensive .max(1) ensures the denominator is never exactly 0 even if
+                    // the guard above is ever accidentally bypassed during refactoring.
                     let exploration = c_eff
-                        * ((total_uses as f64).ln() / stats.uses as f64).sqrt();
+                        * ((total_uses as f64).ln() / (stats.uses.max(1) as f64)).sqrt();
                     exploitation + exploration
                 };
 
@@ -205,7 +207,10 @@ impl StrategySelector {
             (ReasoningStrategy::DirectExecution, TaskComplexity::Complex) => 8,
             (ReasoningStrategy::PlanExecuteReflect, TaskComplexity::Simple) => 5,
             (ReasoningStrategy::PlanExecuteReflect, TaskComplexity::Moderate) => 10,
-            (ReasoningStrategy::PlanExecuteReflect, TaskComplexity::Complex) => 15,
+            // Reduced from 15: Complex tasks get 8 rounds maximum.
+            // 15 rounds × ~7k tokens + 2 replans = 111k+ token burn for a single task.
+            // 8 rounds still allows 3–4 tool cycles + synthesis with headroom for 1 replan.
+            (ReasoningStrategy::PlanExecuteReflect, TaskComplexity::Complex) => 8,
         };
 
         let enable_reflection = matches!(strategy, ReasoningStrategy::PlanExecuteReflect);
@@ -215,21 +220,30 @@ impl StrategySelector {
         // DirectExecution+Complex: moderate tightness (complex tasks need more guard)
         // PlanExecuteReflect+Simple: moderate (some structure)
         // PlanExecuteReflect+Complex: tight (aggressive guard + replan-eager)
-        let (loop_guard_tightness, replan_sensitivity, routing_bias) =
+        // routing_bias is intentionally NOT set here — ModelRouter has primary authority
+        // (D2 fix). The bias is always computed from the IntentProfile by ModelRouter in
+        // reasoning_engine::pre_loop(), which has richer signal than the static
+        // strategy×complexity table.
+        let (loop_guard_tightness, replan_sensitivity) =
             match (strategy, complexity) {
                 (ReasoningStrategy::DirectExecution, TaskComplexity::Simple) =>
-                    (0.3, 0.3, Some("fast".to_string())),
+                    (0.3, 0.3),
                 (ReasoningStrategy::DirectExecution, TaskComplexity::Moderate) =>
-                    (0.5, 0.5, None),
+                    (0.5, 0.5),
                 (ReasoningStrategy::DirectExecution, TaskComplexity::Complex) =>
-                    (0.6, 0.7, None),
+                    (0.6, 0.7),
                 (ReasoningStrategy::PlanExecuteReflect, TaskComplexity::Simple) =>
-                    (0.4, 0.4, None),
+                    (0.4, 0.4),
                 (ReasoningStrategy::PlanExecuteReflect, TaskComplexity::Moderate) =>
-                    (0.6, 0.6, None),
+                    (0.6, 0.6),
+                // replan_sensitivity reduced 0.8→0.4: effective_rounds = max(1, floor(3*(1-0.4*0.6)))
+                // = max(1, floor(3*0.76)) = max(1,2) = 2 rounds below threshold trigger replan.
+                // Old 0.8: 1 single bad round triggered a replan (~3k token planning call).
+                // New 0.4: requires 2 consecutive bad rounds — eliminates hair-trigger replanning.
                 (ReasoningStrategy::PlanExecuteReflect, TaskComplexity::Complex) =>
-                    (0.8, 0.8, Some("quality".to_string())),
+                    (0.8, 0.4),
             };
+        let routing_bias = None; // Always delegated to ModelRouter via reasoning_engine.
 
         StrategyPlan {
             strategy,
@@ -392,18 +406,24 @@ mod tests {
         assert!(!plan.enable_reflection);
         // Simple+Direct: relaxed guard, fast routing
         assert!(plan.loop_guard_tightness < 0.5);
-        assert_eq!(plan.routing_bias.as_deref(), Some("fast"));
+        // routing_bias is always None from configure() — ModelRouter has primary authority.
+        assert!(plan.routing_bias.is_none());
     }
 
     #[test]
-    fn configure_complex_plan_15_rounds() {
+    fn configure_complex_plan_8_rounds() {
+        // max_rounds reduced from 15→8: prevents 111k+ token burn on Complex tasks.
+        // 8 rounds = 3-4 tool cycles + synthesis + headroom for 1 replan.
         let selector = StrategySelector::new(1.4);
         let plan = selector.configure(ReasoningStrategy::PlanExecuteReflect, TaskComplexity::Complex);
-        assert_eq!(plan.max_rounds, 15);
+        assert_eq!(plan.max_rounds, 8);
         assert!(plan.enable_reflection);
-        // Complex+PlanExecuteReflect: tight guard, quality routing
+        // Complex+PlanExecuteReflect: tight loop guard, quality routing.
         assert!(plan.loop_guard_tightness >= 0.7);
-        assert_eq!(plan.routing_bias.as_deref(), Some("quality"));
+        // routing_bias is always None from configure() — ModelRouter has primary authority.
+        assert!(plan.routing_bias.is_none());
+        // replan_sensitivity reduced from 0.8→0.4: requires 2 consecutive bad rounds, not 1.
+        assert!(plan.replan_sensitivity <= 0.5);
     }
 
     #[test]

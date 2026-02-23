@@ -1,5 +1,6 @@
 use halcon_core::types::AppConfig;
 use halcon_runtime::runtime::HalconRuntime;
+use halcon_storage::AsyncDatabase;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
@@ -18,6 +19,8 @@ pub struct AppState {
     pub tool_states: Arc<RwLock<HashMap<String, ToolState>>>,
     pub task_executions: Arc<RwLock<HashMap<Uuid, crate::types::task::TaskExecution>>>,
     pub config: Arc<RwLock<AppConfig>>,
+    /// Optional database for real metrics. `None` when server starts without a DB path.
+    pub db: Option<Arc<AsyncDatabase>>,
 }
 
 /// Tracked state for a tool (enable/disable, execution count).
@@ -40,7 +43,17 @@ impl AppState {
             tool_states: Arc::new(RwLock::new(HashMap::new())),
             task_executions: Arc::new(RwLock::new(HashMap::new())),
             config: Arc::new(RwLock::new(AppConfig::default())),
+            db: None,
         }
+    }
+
+    /// Attach a database for real metrics queries.
+    ///
+    /// Builder-pattern: `AppState::new(...).with_db(db)`.
+    /// If not called, all metrics endpoints return zeros/empty (backward compatible).
+    pub fn with_db(mut self, db: Arc<AsyncDatabase>) -> Self {
+        self.db = Some(db);
+        self
     }
 
     /// Broadcast a WebSocket event to all connected clients.

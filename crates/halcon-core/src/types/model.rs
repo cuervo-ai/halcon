@@ -144,8 +144,13 @@ pub struct ToolDefinition {
 /// A chunk from a streaming model response.
 #[derive(Debug, Clone)]
 pub enum ModelChunk {
-    /// A text delta.
+    /// A text delta (visible answer tokens).
     TextDelta(String),
+    /// Chain-of-thought / thinking tokens from reasoning models (deepseek-reasoner, o1, o3-mini).
+    ///
+    /// Distinct from `TextDelta` — represents the model's internal reasoning process.
+    /// Rendered with visual distinction (dim/italic) but NOT accumulated into episodic memory.
+    ThinkingDelta(String),
     /// A tool use content block has started (emitted on content_block_start).
     ToolUseStart {
         index: u32,
@@ -185,6 +190,10 @@ pub struct TokenUsage {
     pub output_tokens: u32,
     pub cache_read_tokens: Option<u32>,
     pub cache_creation_tokens: Option<u32>,
+    /// Tokens consumed by chain-of-thought reasoning (deepseek-reasoner, o1, o3-mini).
+    /// Billed as output tokens; tracked separately for cost transparency.
+    #[serde(default)]
+    pub reasoning_tokens: Option<u32>,
 }
 
 impl TokenUsage {
@@ -198,4 +207,60 @@ impl TokenUsage {
 pub struct TokenCost {
     pub estimated_input_tokens: u32,
     pub estimated_cost_usd: f64,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn thinking_delta_variant_exists() {
+        // Verify ThinkingDelta is a distinct ModelChunk variant (not aliased to TextDelta).
+        let chunk = ModelChunk::ThinkingDelta("test reasoning".into());
+        match chunk {
+            ModelChunk::ThinkingDelta(t) => assert_eq!(t, "test reasoning"),
+            _ => panic!("Expected ThinkingDelta"),
+        }
+    }
+
+    #[test]
+    fn token_usage_reasoning_tokens_defaults_to_none() {
+        let usage = TokenUsage { input_tokens: 10, output_tokens: 5, ..Default::default() };
+        assert!(usage.reasoning_tokens.is_none());
+    }
+
+    #[test]
+    fn token_usage_reasoning_tokens_can_be_set() {
+        let usage = TokenUsage {
+            input_tokens: 50,
+            output_tokens: 1500,
+            reasoning_tokens: Some(1200),
+            ..Default::default()
+        };
+        assert_eq!(usage.reasoning_tokens, Some(1200));
+        // reasoning_tokens are billed as output_tokens — total() reflects the full bill.
+        assert_eq!(usage.total(), 1550);
+    }
+
+    #[test]
+    fn token_usage_serde_roundtrip_with_reasoning() {
+        let original = TokenUsage {
+            input_tokens: 100,
+            output_tokens: 800,
+            reasoning_tokens: Some(600),
+            cache_read_tokens: None,
+            cache_creation_tokens: None,
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let restored: TokenUsage = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.reasoning_tokens, Some(600));
+    }
+
+    #[test]
+    fn token_usage_serde_missing_reasoning_tokens_defaults_none() {
+        // Old serialised form without reasoning_tokens must still deserialise cleanly.
+        let json = r#"{"input_tokens":10,"output_tokens":5}"#;
+        let usage: TokenUsage = serde_json::from_str(json).unwrap();
+        assert!(usage.reasoning_tokens.is_none());
+    }
 }

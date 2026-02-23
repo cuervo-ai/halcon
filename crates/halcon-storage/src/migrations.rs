@@ -33,6 +33,9 @@ const MIGRATIONS: &[(u32, &str, &str)] = &[
     (29, "palette_optimization_history", MIGRATION_029),
     (30, "model_quality_stats", MIGRATION_030),
     (31, "plugin_system", MIGRATION_031),
+    (32, "audit_hmac_key", MIGRATION_032),
+    (33, "media_index_description", MIGRATION_033),
+    (34, "plugin_circuit_state", MIGRATION_034),
 ];
 
 const MIGRATION_001: &str = r#"
@@ -1099,6 +1102,41 @@ CREATE INDEX IF NOT EXISTS idx_pal_opt_hue ON palette_optimization_history(base_
 CREATE INDEX IF NOT EXISTS idx_pal_opt_session ON palette_optimization_history(session_id, created_at DESC);
 "#;
 
+const MIGRATION_032: &str = r#"
+-- M32: audit_hmac_key — per-database HMAC-SHA256 signing key for audit chain integrity.
+-- Stores a single 256-bit key (hex-encoded) used to sign each audit log entry.
+-- Without the key, an adversary who compromises the database cannot recompute valid hashes
+-- to cover tampered entries (unlike bare SHA-256 which only requires the previous hash).
+-- The key is generated on first open and never leaves the database host.
+CREATE TABLE IF NOT EXISTS audit_hmac_key (
+    key_id   INTEGER PRIMARY KEY CHECK(key_id = 1),
+    key_hex  TEXT    NOT NULL,
+    created_at TEXT  NOT NULL
+);
+"#;
+
+const MIGRATION_033: &str = r#"
+-- M33: media_index_description — add human-readable description to media_index.
+-- Existing rows receive NULL (no re-analysis required).
+-- New entries store the analysis description so MediaContextSource.gather() can
+-- return useful chunk content without a separate cache lookup.
+ALTER TABLE media_index ADD COLUMN description TEXT;
+"#;
+
+const MIGRATION_034: &str = r#"
+-- M34: plugin_circuit_state — persist plugin circuit breaker state across sessions.
+-- Plugins with historical failures restart in 'degraded' state (not 'clean'), preventing
+-- repeated invocations of broken plugins across cold restarts.
+-- state TEXT: clean | degraded | suspended | failed
+CREATE TABLE IF NOT EXISTS plugin_circuit_state (
+    plugin_id TEXT PRIMARY KEY,
+    state TEXT NOT NULL DEFAULT 'clean' CHECK(state IN ('clean', 'degraded', 'suspended', 'failed')),
+    failure_count INTEGER NOT NULL DEFAULT 0,
+    last_failure_at TEXT,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+"#;
+
 /// Run all pending migrations.
 pub fn run_migrations(conn: &Connection) -> Result<(), halcon_core::error::HalconError> {
     // Ensure migrations table exists
@@ -1153,7 +1191,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(version, 31);
+        assert_eq!(version, 34);
     }
 
     #[test]
@@ -1167,7 +1205,69 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(count, 31);
+        assert_eq!(count, 34);
+    }
+
+    #[test]
+    fn migration_033_adds_description_column_to_media_index() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+
+        // Verify the description column exists by inserting a row with it.
+        conn.execute(
+            "INSERT INTO media_index (content_hash, modality, embedding_data, embedding_dim, created_at, description)
+             VALUES ('test_hash', 'image', X'00', 1, datetime('now'), 'test description')",
+            [],
+        ).expect("should insert row with description column");
+
+        let desc: Option<String> = conn
+            .query_row(
+                "SELECT description FROM media_index WHERE content_hash = 'test_hash'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(desc.as_deref(), Some("test description"));
+    }
+
+    #[test]
+    fn migration_034_creates_plugin_circuit_state_table() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+
+        // Verify the table exists.
+        let table_exists: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='plugin_circuit_state'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(table_exists, "plugin_circuit_state table must exist after M34");
+
+        // Verify insert with valid state works.
+        conn.execute(
+            "INSERT INTO plugin_circuit_state (plugin_id, state, failure_count, last_failure_at)
+             VALUES ('test-plugin', 'degraded', 3, '2026-02-21T00:00:00Z')",
+            [],
+        ).expect("should insert into plugin_circuit_state");
+
+        let (state, count): (String, i32) = conn
+            .query_row(
+                "SELECT state, failure_count FROM plugin_circuit_state WHERE plugin_id = 'test-plugin'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(state, "degraded");
+        assert_eq!(count, 3);
+
+        // Verify state CHECK constraint rejects invalid values.
+        let bad_insert = conn.execute(
+            "INSERT INTO plugin_circuit_state (plugin_id, state, failure_count) VALUES ('bad', 'unknown_state', 0)",
+            [],
+        );
+        assert!(bad_insert.is_err(), "invalid state must be rejected by CHECK constraint");
     }
 
     #[test]

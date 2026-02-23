@@ -380,17 +380,20 @@ impl GitBranchTool {
 }
 
 fn parse_ahead_behind(desc: &str) -> (u32, u32) {
+    // Format: "[origin/main: ahead 3, behind 1]" or "[gone]" or "[origin/main]"
     let mut ahead = 0u32;
     let mut behind = 0u32;
     if let Some(start) = desc.find('[') {
-        if let Some(end) = desc.find(']') {
+        if let Some(end) = desc.rfind(']') {
             let inner = &desc[start + 1..end];
-            for part in inner.split(',') {
+            // Skip the remote ref name (everything up to ": ").
+            let status_part = inner.find(": ").map(|i| &inner[i + 2..]).unwrap_or(inner);
+            for part in status_part.split(',') {
                 let p = part.trim();
-                if p.starts_with("ahead ") {
-                    ahead = p[6..].trim().parse().unwrap_or(0);
-                } else if p.starts_with("behind ") {
-                    behind = p[7..].trim().parse().unwrap_or(0);
+                if let Some(rest) = p.strip_prefix("ahead ") {
+                    ahead = rest.trim().parse().unwrap_or(0);
+                } else if let Some(rest) = p.strip_prefix("behind ") {
+                    behind = rest.trim().parse().unwrap_or(0);
                 }
             }
         }

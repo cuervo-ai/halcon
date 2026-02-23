@@ -46,6 +46,70 @@ pub struct VideoAnalysis {
     pub provider_name: String,
 }
 
+impl VideoAnalysis {
+    /// Construct a degraded analysis result (e.g., when FFmpeg is unavailable).
+    pub fn degraded(reason: impl Into<String>) -> Self {
+        Self {
+            frame_count:   0,
+            frames:        vec![],
+            transcript:    None,
+            summary:       reason.into(),
+            duration_secs: 0.0,
+            provider_name: "none".into(),
+        }
+    }
+
+    /// Convert this video analysis into a `MediaAnalysis` for the context pipeline.
+    ///
+    /// Called after successful FFmpeg frame extraction + vision analysis.
+    pub fn to_media_analysis(&self) -> crate::provider::MediaAnalysis {
+        // Deduplicate entities across frames via a stable ordered set.
+        let mut seen = std::collections::HashSet::new();
+        let entities: Vec<String> = self.frames.iter()
+            .flat_map(|f| f.entities.iter().cloned())
+            .filter(|e| seen.insert(e.clone()))
+            .collect();
+
+        let description = if self.frame_count == 0 {
+            self.summary.clone()
+        } else {
+            format!(
+                "Video ({:.1}s, {} frames analyzed):\n{}",
+                self.duration_secs,
+                self.frame_count,
+                self.summary,
+            )
+        };
+
+        crate::provider::MediaAnalysis {
+            description,
+            entities,
+            token_estimate: (self.summary.len() as u32 / 4).max(20),
+            provider_name:  self.provider_name.clone(),
+            is_local:       true, // FFmpeg is local inference
+            modality:       "video".into(),
+        }
+    }
+}
+
+/// Check if `ffmpeg` is available in PATH.
+///
+/// Result is cached per-process via `OnceLock` — subsequent calls are O(1).
+pub async fn is_ffmpeg_available() -> bool {
+    use tokio::sync::OnceCell;
+    static CACHED: OnceCell<bool> = OnceCell::const_new();
+    *CACHED.get_or_init(|| async {
+        tokio::process::Command::new("ffmpeg")
+            .arg("-version")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .await
+            .map(|s| s.success())
+            .unwrap_or(false)
+    }).await
+}
+
 /// Analysis of a single extracted video frame.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct FrameAnalysis {
@@ -77,12 +141,12 @@ pub struct VideoConfig {
 impl Default for VideoConfig {
     fn default() -> Self {
         Self {
-            max_frames:        10,
-            target_fps:        1,
-            max_duration_secs: 60,
+            max_frames:        25,  // up from 10: better temporal coverage
+            target_fps:        2,   // up from 1: captures motion at 0.5s granularity
+            max_duration_secs: 120, // up from 60: handles longer clips
             ffmpeg_path:       "ffmpeg".into(),
             ffprobe_path:      "ffprobe".into(),
-            timeout_secs:      120,
+            timeout_secs:      300, // up from 120: 5 min for long videos
         }
     }
 }
@@ -91,6 +155,14 @@ impl Default for VideoConfig {
 pub struct VideoPipeline {
     config:   VideoConfig,
     provider: Arc<dyn MultimodalProvider>,
+}
+
+impl std::fmt::Debug for VideoPipeline {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("VideoPipeline")
+            .field("config", &self.config)
+            .finish()
+    }
 }
 
 impl VideoPipeline {
@@ -425,10 +497,32 @@ mod tests {
     #[test]
     fn video_config_defaults() {
         let cfg = VideoConfig::default();
-        assert_eq!(cfg.max_frames, 10);
-        assert_eq!(cfg.target_fps, 1);
-        assert_eq!(cfg.max_duration_secs, 60);
+        assert_eq!(cfg.max_frames, 25,        "Phase 85: bumped from 10 for better temporal coverage");
+        assert_eq!(cfg.target_fps, 2,         "Phase 85: bumped from 1 for 0.5s granularity");
+        assert_eq!(cfg.max_duration_secs, 120,"Phase 85: bumped from 60 to handle longer clips");
+        assert_eq!(cfg.timeout_secs, 300,     "Phase 85: bumped from 120 for 5-min video budget");
         assert_eq!(cfg.ffmpeg_path, "ffmpeg");
+    }
+
+    #[test]
+    fn degraded_analysis_has_zero_frames() {
+        let a = VideoAnalysis::degraded("FFmpeg not installed");
+        assert_eq!(a.frame_count, 0);
+        assert!(a.frames.is_empty());
+        assert!(a.transcript.is_none());
+        assert_eq!(a.duration_secs, 0.0);
+        assert_eq!(a.provider_name, "none");
+        assert!(a.summary.contains("FFmpeg"));
+    }
+
+    #[tokio::test]
+    async fn is_ffmpeg_available_returns_bool() {
+        // Smoke test: verify the function completes without panicking.
+        // The actual value depends on the test environment (FFmpeg may or may not be installed).
+        let result = is_ffmpeg_available().await;
+        // Call again — cached result must be identical.
+        let result2 = is_ffmpeg_available().await;
+        assert_eq!(result, result2, "cached result must be deterministic");
     }
 
     #[test]

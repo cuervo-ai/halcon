@@ -1525,6 +1525,7 @@ checksum = "9ed9a281f7bc9b7576e61468ba615a66a5c8cfdff42420a70aa82701a3b1e292"
 dependencies = [
  "block-buffer",
  "crypto-common",
+ "subtle",
 ]
 
 [[package]]
@@ -2383,6 +2384,37 @@ dependencies = [
 ]
 
 [[package]]
+name = "halcon-agent-core"
+version = "0.3.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "criterion",
+ "fastembed",
+ "futures",
+ "halcon-core",
+ "halcon-providers",
+ "halcon-security",
+ "halcon-storage",
+ "halcon-tools",
+ "instant-distance",
+ "lru",
+ "proptest",
+ "rand 0.9.2",
+ "regex",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "uuid",
+ "zstd",
+]
+
+[[package]]
 name = "halcon-api"
 version = "0.3.0"
 dependencies = [
@@ -2392,7 +2424,9 @@ dependencies = [
  "futures-util",
  "halcon-core",
  "halcon-runtime",
+ "halcon-storage",
  "halcon-tools",
+ "rand 0.9.2",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -2432,6 +2466,7 @@ dependencies = [
  "arboard",
  "assert_cmd",
  "async-trait",
+ "base64 0.22.1",
  "chrono",
  "clap",
  "criterion",
@@ -2593,6 +2628,7 @@ dependencies = [
  "axum",
  "cron-parser",
  "halcon-core",
+ "keyring",
  "reqwest",
  "serde",
  "serde_json",
@@ -2683,6 +2719,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "halcon-sandbox"
+version = "0.3.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "halcon-core",
+ "libc",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "halcon-search"
 version = "0.3.0"
 dependencies = [
@@ -2736,10 +2788,13 @@ dependencies = [
  "chrono",
  "halcon-core",
  "hex",
+ "hmac",
+ "rand 0.9.2",
  "rusqlite",
  "serde",
  "serde_json",
  "sha2",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
@@ -2763,11 +2818,14 @@ dependencies = [
  "libc",
  "regex",
  "reqwest",
+ "rusqlite",
  "serde",
  "serde_json",
+ "serde_yaml",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "toml",
  "tracing",
  "url",
 ]
@@ -2879,6 +2937,15 @@ dependencies = [
  "thiserror 2.0.18",
  "ureq",
  "windows-sys 0.60.2",
+]
+
+[[package]]
+name = "hmac"
+version = "0.12.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6c49c37c09c17a53d937dfbb742eb3a961d65a994e6bcdcf37e7399d0cc8ab5e"
+dependencies = [
+ "digest",
 ]
 
 [[package]]
@@ -3191,7 +3258,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "525e9ff3e1a4be2fbea1fdf0e98686a6d98b4d8f937e1bf7402245af1909e8c3"
 dependencies = [
  "byteorder-lite",
- "quick-error",
+ "quick-error 2.0.1",
 ]
 
 [[package]]
@@ -3258,6 +3325,19 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "instant-distance"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "8c619cdaa30bb84088963968bee12a45ea5fbbf355f2c021bcd15589f5ca494a"
+dependencies = [
+ "num_cpus",
+ "ordered-float",
+ "parking_lot",
+ "rand 0.8.5",
+ "rayon",
 ]
 
 [[package]]
@@ -3808,11 +3888,14 @@ dependencies = [
 
 [[package]]
 name = "momoto-core"
-version = "6.0.0"
+version = "7.1.0"
+dependencies = [
+ "arrayvec",
+]
 
 [[package]]
 name = "momoto-intelligence"
-version = "6.0.0"
+version = "7.1.0"
 dependencies = [
  "momoto-core",
  "momoto-metrics",
@@ -3822,7 +3905,7 @@ dependencies = [
 
 [[package]]
 name = "momoto-metrics"
-version = "6.0.0"
+version = "7.1.0"
 dependencies = [
  "momoto-core",
 ]
@@ -4477,6 +4560,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "ordered-float"
+version = "3.9.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f1e1c390732d15f1d48471625cd92d154e66db2c56645e29a9cd26f4699f72dc"
+dependencies = [
+ "num-traits",
+]
+
+[[package]]
 name = "ort"
 version = "2.0.0-rc.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4862,6 +4954,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "proptest"
+version = "1.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "37566cb3fdacef14c0737f9546df7cfeadbfbc9fef10991038bf5015d0c80532"
+dependencies = [
+ "bit-set",
+ "bit-vec 0.8.0",
+ "bitflags 2.10.0",
+ "num-traits",
+ "rand 0.9.2",
+ "rand_chacha 0.9.0",
+ "rand_xorshift",
+ "regex-syntax",
+ "rusty-fork",
+ "tempfile",
+ "unarray",
+]
+
+[[package]]
 name = "pulldown-cmark"
 version = "0.12.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4897,6 +5008,12 @@ checksum = "7f6d64c71eb498fe9eae14ce4ec935c555749aef511cca85b5568910d6e48001"
 dependencies = [
  "bytemuck",
 ]
+
+[[package]]
+name = "quick-error"
+version = "1.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a1d01941d82fa2ab50be1e79e6714289dd7cde78eba4c074bc5a4374f650dfe0"
 
 [[package]]
 name = "quick-error"
@@ -5062,6 +5179,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "rand_xorshift"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "513962919efc330f829edb2535844d1b912b0fbe2ca165d613e4e8788bb05a5a"
+dependencies = [
+ "rand_core 0.9.5",
+]
+
+[[package]]
 name = "rangemap"
 version = "1.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5132,7 +5258,7 @@ dependencies = [
  "avif-serialize",
  "imgref",
  "loop9",
- "quick-error",
+ "quick-error 2.0.1",
  "rav1e",
  "rayon",
  "rgb",
@@ -5481,6 +5607,18 @@ name = "rustversion"
 version = "1.0.22"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b39cdef0fa800fc44525c84ccb54a029961a8215f9619753635a9c0d2538d46d"
+
+[[package]]
+name = "rusty-fork"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cc6bf79ff24e648f6da1f8d1f011e9cac26491b619e6b9280f2b47f1774e6ee2"
+dependencies = [
+ "fnv",
+ "quick-error 1.2.3",
+ "tempfile",
+ "wait-timeout",
+]
 
 [[package]]
 name = "ryu"
@@ -6231,7 +6369,7 @@ dependencies = [
  "fax",
  "flate2",
  "half",
- "quick-error",
+ "quick-error 2.0.1",
  "weezl",
  "zune-jpeg 0.4.21",
 ]
@@ -6712,6 +6850,12 @@ name = "typenum"
 version = "1.19.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "562d481066bde0658276a35467c4af00bdc6ee726305698a55b86e61d7ad82bb"
+
+[[package]]
+name = "unarray"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "eaea85b334db583fe3274d12b4cd1880032beab409c0d774be044d4480ab9a94"
 
 [[package]]
 name = "unicase"

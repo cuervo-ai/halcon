@@ -22,47 +22,83 @@ use planning_source::PlanningSource;
 use resilience::ResilienceManager;
 use response_cache::ResponseCache;
 
-pub mod accumulator;
+// === AGENT ORCHESTRATION ===
+// Main agent loop coordinator. Previously a single 9000-line file;
+// now a directory module (agent/mod.rs) ready for further decomposition.
 pub mod agent;
+
+// Agent support types and utilities — part of the agent orchestration layer.
 pub mod agent_comm;
 pub mod agent_task_manager;
 pub mod agent_types;
 pub mod agent_utils;
+pub mod accumulator;
+
+// === INFRASTRUCTURE LAYER ===
+// I/O-bound modules: tool execution, storage, context assembly, resilience.
+// Future extraction candidates for a `halcon-infra` crate.
+
+/// Tool execution pipeline — file I/O, shell, risk scoring, permission gates.
+pub mod executor;
+pub(crate) mod plan_state_diagnostics;
+pub(crate) mod subagent_contract_validator;
+/// Runtime bridge: connects CLI tool execution to the halcon-runtime DAG executor.
+/// Provides `CliToolRuntime` — a `HalconRuntime` pre-populated with `LocalToolAgent`
+/// wrappers for every `ToolRegistry` entry. Parallel tool batches become single-wave
+/// `TaskDAG`s, executed concurrently via `RuntimeExecutor`.
+pub(crate) mod runtime_bridge;
+/// Multi-agent wave orchestration — parallel task scheduling with dependency resolution.
+pub mod orchestrator;
+pub mod orchestrator_metrics;
+
+// Anomaly detection and loop integrity.
 pub mod anomaly_detector;
 pub mod arima_predictor;
 pub mod metacognitive_loop;
+pub mod loop_guard;
+
+// Context assembly and management.
 pub mod artifact_store;
-pub mod authorization;
-pub mod backpressure;
-pub mod ci_detection;
-pub mod circuit_breaker;
-pub mod command_blacklist;
-pub mod commands;
-pub mod compaction;
-pub mod console;
 pub mod context_governance;
 pub mod context_manager;
 pub mod context_metrics;
-pub mod delegation;
 pub mod episodic_source;
+pub mod hybrid_retriever;
+pub mod memory_consolidator;
+pub mod memory_source;
+pub mod reflection_source;
+pub mod reflexion;
+pub mod repo_map_source;
+
+// Commands and authorization and security.
+pub mod commands;
+pub mod authorization;
+pub mod backpressure;
+pub mod circuit_breaker;
+pub mod command_blacklist;
+pub mod permissions;
+pub mod permission_lifecycle;
+pub mod output_risk_scorer;
+
+// Session and resilience.
+pub mod ci_detection;
+pub mod compaction;
+pub mod console;
+pub mod delegation;
 pub mod execution_tracker;
-pub mod executor;
 pub mod failure_tracker;
 pub mod health;
 pub mod idempotency;
-pub mod hybrid_retriever;
 pub mod integration_decision;
-pub mod loop_guard;
 pub mod mcp_manager;
-pub mod memory_consolidator;
 pub mod metrics_store;
-pub mod memory_source;
 pub mod model_selector;
 pub mod optimizer;
-pub mod orchestrator;
-pub mod orchestrator_metrics;
-pub mod permissions;
-pub mod permission_lifecycle;
+pub mod resilience;
+pub mod response_cache;
+pub mod router;
+
+// Communication and protocol.
 pub mod rule_matcher;
 pub mod conversation_protocol;
 pub mod conversation_state;
@@ -70,6 +106,12 @@ pub mod input_normalizer;
 pub mod adaptive_prompt;
 pub mod validation;
 pub mod conversational_permission;
+
+// Session persistence — FASE F clean architecture extraction.
+// Contains: auto_save, save, summarize_to_memory as testable free functions.
+pub mod session_manager;
+
+// Planning infrastructure.
 pub mod planner;
 pub mod playbook_planner;
 pub mod planning_metrics;
@@ -77,9 +119,6 @@ pub mod tool_manifest;
 pub mod planning_source;
 pub mod provenance_tracker;
 mod prompt;
-pub mod reflection_source;
-pub mod reflexion;
-pub mod repo_map_source;
 pub mod requirements_server;
 pub mod architecture_server;
 pub mod codebase_server;
@@ -91,17 +130,20 @@ pub mod support_server;
 pub mod sdlc_phase_detector;
 pub mod replay_executor;
 pub mod replay_runner;
-pub mod resilience;
-pub mod response_cache;
-pub mod router;
 pub mod search_engine_global;
 pub mod self_corrector;
 pub mod speculative;
 pub mod evaluator;
-pub mod reasoning_engine;
+// === APPLICATION LAYER ===
+// Orchestration and metacognition — coordinates domain services, no direct I/O.
+pub mod application;
+// Backward-compat re-export so `super::reasoning_engine::*` paths remain valid:
+pub use application::reasoning_engine;
 pub mod plan_coherence;
 pub mod capability_index;
+pub mod capability_orchestrator;
 pub mod capability_resolver;
+pub(crate) mod provider_normalization;
 pub mod plugin_circuit_breaker;
 pub mod plugin_cost_tracker;
 pub mod plugin_manifest;
@@ -112,13 +154,12 @@ pub mod plugin_transport_runtime;
 pub mod plugin_proxy_tool;
 pub mod reward_pipeline;
 pub mod round_scorer;
-pub mod strategy_selector;
 pub mod supervisor;
 pub mod strategy_metrics;
-pub mod task_analyzer;
 pub mod task_backlog;
 pub mod task_bridge;
 pub mod task_scheduler;
+pub mod schema_validator;
 pub mod tool_selector;
 pub mod tool_speculation;
 pub mod traceback_parser;
@@ -154,6 +195,29 @@ pub mod dev_ecosystem_integration_tests;
 pub mod plan_compressor;
 pub mod macro_feedback;
 pub mod early_convergence;
+
+// Phase 94 — Project Onboarding System
+pub mod project_inspector;
+pub mod onboarding;
+
+// Phase 95 — Plugin Auto-Implantation & Suggestion
+pub mod plugin_recommendation;
+pub mod plugin_auto_bootstrap;
+
+// === DOMAIN LAYER ===
+// Pure domain types and algorithms — zero infrastructure dependencies.
+// Future extraction candidate: could become a standalone `halcon-domain` crate.
+pub mod domain;
+// Backward-compatible re-exports so all existing `super::X` import paths remain valid:
+pub use domain::intent_scorer;
+pub use domain::convergence_controller;
+pub use domain::model_router;
+pub use domain::strategy_selector;
+pub use domain::task_analyzer;
+pub(crate) use domain::text_utils;
+pub use domain::round_feedback;
+pub use domain::termination_oracle;
+pub use domain::adaptive_policy;
 
 mod slash_commands;
 
@@ -244,8 +308,9 @@ pub struct Repl {
     /// (even if the DB returned empty results or was unavailable).
     pub(crate) model_quality_db_loaded: bool,
     /// Plugin registry for V3 plugin system. None until plugins are configured.
+    /// Wrapped in Arc<Mutex<>> so it can be shared safely with the parallel executor.
     /// Initialized as None in Repl::new() — activated when plugins are loaded.
-    pub(crate) plugin_registry: Option<plugin_registry::PluginRegistry>,
+    pub(crate) plugin_registry: Option<std::sync::Arc<std::sync::Mutex<plugin_registry::PluginRegistry>>>,
     /// Transport runtime for V3 plugins (shared handle pool for Stdio/HTTP/Local plugins).
     /// None until plugins are lazy-initialized on first message with config.plugins.enabled.
     pub(crate) plugin_transport_runtime: Option<std::sync::Arc<plugin_transport_runtime::PluginTransportRuntime>>,
@@ -263,6 +328,167 @@ pub struct Repl {
     /// Set once during `run()` / `run_tui()` when GITHUB_TOKEN is available.
     /// Notified on session teardown so the polling loop exits gracefully.
     pub(crate) ci_stop: std::sync::Arc<tokio::sync::Notify>,
+    /// Phase 94: One-time onboarding check performed on first message.
+    /// Set to true after the check runs (prevents repeated file-existence checks).
+    pub(crate) onboarding_checked: bool,
+    /// Phase 95: One-time plugin recommendation check on first message.
+    pub(crate) plugin_recommendation_done: bool,
+}
+
+// ── Multimodal helper ─────────────────────────────────────────────────────────
+
+/// Extract file paths from user message text that point to media files.
+///
+/// Scans whitespace-separated tokens, strips surrounding quotes/brackets,
+/// checks extension against known media types, and verifies file existence.
+/// Returns deduplicated, canonicalized paths only.
+fn extract_media_paths(text: &str) -> Vec<std::path::PathBuf> {
+    const MEDIA_EXTS: &[&str] = &[
+        // Images
+        "jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff", "tif", "avif",
+        // Audio
+        "mp3", "wav", "ogg", "m4a", "flac", "aac", "opus",
+        // Video
+        "mp4", "webm", "mkv", "mov", "avi",
+    ];
+    let mut seen = std::collections::HashSet::new();
+    let mut paths = Vec::new();
+    for token in text.split_whitespace() {
+        let cleaned = token.trim_matches(|c| matches!(c, '"' | '\'' | '(' | ')' | '[' | ']'));
+        let lower = cleaned.to_lowercase();
+        let is_media = MEDIA_EXTS.iter().any(|ext| lower.ends_with(&format!(".{ext}")));
+        if !is_media {
+            continue;
+        }
+        let p = std::path::PathBuf::from(cleaned);
+        if !p.exists() {
+            continue;
+        }
+        if let Ok(canon) = p.canonicalize() {
+            if seen.insert(canon.clone()) {
+                paths.push(canon);
+            }
+        }
+    }
+    paths
+}
+
+/// Build all context sources from config and database.
+///
+/// Extracted from `Repl::new()` to keep the constructor under 80 LOC.
+/// Handles: base sources, memory, reflexion, all 8 SDLC context servers.
+fn build_context_sources(
+    config: &AppConfig,
+    async_db: &Option<AsyncDatabase>,
+) -> Vec<Box<dyn ContextSource>> {
+    let mut sources: Vec<Box<dyn ContextSource>> = vec![
+        Box::new(halcon_context::InstructionSource::new()),
+        Box::new(repo_map_source::RepoMapSource::default()),
+    ];
+
+    if config.planning.enabled {
+        sources.push(Box::new(PlanningSource::new(&config.planning)));
+    }
+
+    if config.memory.enabled {
+        if let Some(ref adb) = async_db {
+            if config.memory.episodic {
+                let retriever = hybrid_retriever::HybridRetriever::new(adb.clone())
+                    .with_rrf_k(config.memory.rrf_k)
+                    .with_decay_half_life(config.memory.decay_half_life_days);
+                sources.push(Box::new(episodic_source::EpisodicSource::new(
+                    retriever,
+                    config.memory.retrieval_top_k,
+                    config.memory.retrieval_token_budget,
+                )));
+            } else {
+                sources.push(Box::new(MemorySource::new(
+                    adb.clone(),
+                    config.memory.retrieval_top_k,
+                    config.memory.retrieval_token_budget,
+                )));
+            }
+        }
+    }
+
+    if config.reflexion.enabled {
+        if let Some(ref adb) = async_db {
+            sources.push(Box::new(reflection_source::ReflectionSource::new(
+                adb.clone(),
+                config.reflexion.max_reflections,
+            )));
+        }
+    }
+
+    if config.context_servers.enabled {
+        if let Some(ref adb) = async_db {
+            if config.context_servers.requirements.enabled {
+                sources.push(Box::new(requirements_server::RequirementsServer::new(adb.clone(), config.context_servers.requirements.priority, config.context_servers.requirements.token_budget)));
+            }
+            if config.context_servers.architecture.enabled {
+                sources.push(Box::new(architecture_server::ArchitectureServer::new(adb.clone(), config.context_servers.architecture.priority, config.context_servers.architecture.token_budget)));
+            }
+            if config.context_servers.workflow.enabled {
+                sources.push(Box::new(workflow_server::WorkflowServer::new(adb.clone(), config.context_servers.workflow.priority, config.context_servers.workflow.token_budget)));
+            }
+            if config.context_servers.testing.enabled {
+                sources.push(Box::new(test_results_server::TestResultsServer::new(adb.clone(), config.context_servers.testing.priority, config.context_servers.testing.token_budget)));
+            }
+            if config.context_servers.runtime.enabled {
+                sources.push(Box::new(runtime_metrics_server::RuntimeMetricsServer::new(adb.clone(), config.context_servers.runtime.priority, config.context_servers.runtime.token_budget)));
+            }
+            if config.context_servers.security.enabled {
+                sources.push(Box::new(security_server::SecurityServer::new(adb.clone(), config.context_servers.security.priority, config.context_servers.security.token_budget)));
+            }
+            if config.context_servers.support.enabled {
+                sources.push(Box::new(support_server::SupportServer::new(adb.clone(), config.context_servers.support.priority, config.context_servers.support.token_budget)));
+            }
+        }
+        if config.context_servers.codebase.enabled {
+            let working_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+            sources.push(Box::new(codebase_server::CodebaseServer::new(
+                working_dir,
+                config.context_servers.codebase.priority,
+                config.context_servers.codebase.token_budget,
+            )));
+        }
+    }
+
+    sources
+}
+
+/// Initialize the reflector for reflexion-based learning.
+fn init_reflector(
+    config: &AppConfig,
+    registry: &ProviderRegistry,
+    provider: &str,
+    model: &str,
+) -> Option<reflexion::Reflector> {
+    if !config.reflexion.enabled { return None; }
+    let reflector_prov = config.reasoning.reflector_provider.as_deref()
+        .and_then(|name| registry.get(name))
+        .cloned()
+        .or_else(|| registry.get(provider).cloned())?;
+    let reflector_model = config.reasoning.reflector_model.clone().unwrap_or_else(|| model.to_owned());
+    Some(reflexion::Reflector::new(reflector_prov, reflector_model)
+        .with_reflect_on_success(config.reflexion.reflect_on_success))
+}
+
+/// Initialize the resilience manager and register all known providers.
+fn init_resilience(
+    config: &AppConfig,
+    registry: &ProviderRegistry,
+    async_db: &Option<AsyncDatabase>,
+    event_tx: EventSender,
+) -> ResilienceManager {
+    let mut resilience = ResilienceManager::new(config.resilience.clone()).with_event_tx(event_tx);
+    if let Some(ref adb) = async_db {
+        resilience = resilience.with_db(adb.clone());
+    }
+    for name in registry.list() {
+        resilience.register_provider(name);
+    }
+    resilience
 }
 
 impl Repl {
@@ -271,6 +497,13 @@ impl Repl {
         let tool_count = self.tool_registry.tool_definitions().len();
         // Background tools enabled if tool count is 23 (20 core + 3 background)
         let background_tools_enabled = tool_count >= 23;
+
+        // Phase 94: Quick project config check for banner display.
+        let cwd = std::env::current_dir().unwrap_or_default();
+        let project_configured = matches!(
+            onboarding::OnboardingCheck::run(&cwd),
+            onboarding::OnboardingStatus::Configured { .. }
+        );
 
         crate::render::banner::FeatureStatus {
             tui_active,
@@ -281,6 +514,7 @@ impl Repl {
             background_tools_enabled,
             multimodal_enabled: self.multimodal.is_some(),
             loop_critic_enabled: self.config.reasoning.enable_loop_critic,
+            project_config: project_configured,
         }
     }
 
@@ -340,185 +574,21 @@ impl Repl {
         // Build async database wrapper (for async call sites).
         let async_db = db.as_ref().map(|db_ref| AsyncDatabase::new(Arc::clone(db_ref)));
 
-        // Build context sources.
-        let mut context_sources: Vec<Box<dyn ContextSource>> = vec![
-            Box::new(halcon_context::InstructionSource::new()),
-            Box::new(repo_map_source::RepoMapSource::default()),
-        ];
+        // Build context sources (memory, reflexion, all 8 SDLC servers) — extracted helper.
+        let context_sources = build_context_sources(config, &async_db);
 
-        if config.planning.enabled {
-            context_sources.push(Box::new(PlanningSource::new(&config.planning)));
-        }
-
-        if config.memory.enabled {
-            if let Some(ref adb) = async_db {
-                if config.memory.episodic {
-                    // Episodic memory with hybrid retrieval (BM25 + RRF + temporal decay).
-                    let retriever = hybrid_retriever::HybridRetriever::new(adb.clone())
-                        .with_rrf_k(config.memory.rrf_k)
-                        .with_decay_half_life(config.memory.decay_half_life_days);
-                    context_sources.push(Box::new(episodic_source::EpisodicSource::new(
-                        retriever,
-                        config.memory.retrieval_top_k,
-                        config.memory.retrieval_token_budget,
-                    )));
-                } else {
-                    // Legacy BM25-only memory source.
-                    context_sources.push(Box::new(MemorySource::new(
-                        adb.clone(),
-                        config.memory.retrieval_top_k,
-                        config.memory.retrieval_token_budget,
-                    )));
-                }
-            }
-        }
-
-        // Initialize reflexion: Reflector + ReflectionSource.
-        // Phase 3: AgentModelConfig — use dedicated reflector provider/model when configured.
-        let reflector = if config.reflexion.enabled {
-            // Resolve reflector provider: explicit config > primary provider.
-            let reflector_prov = config.reasoning.reflector_provider.as_deref()
-                .and_then(|name| registry.get(name))
-                .cloned()
-                .or_else(|| registry.get(&provider).cloned());
-
-            // Resolve reflector model: explicit config > session model.
-            let reflector_model = config.reasoning.reflector_model.clone()
-                .unwrap_or_else(|| model.clone());
-
-            reflector_prov.map(|p| {
-                reflexion::Reflector::new(p, reflector_model)
-                    .with_reflect_on_success(config.reflexion.reflect_on_success)
-            })
-        } else {
-            None
-        };
-
-        if config.reflexion.enabled {
-            if let Some(ref adb) = async_db {
-                context_sources.push(Box::new(reflection_source::ReflectionSource::new(
-                    adb.clone(),
-                    config.reflexion.max_reflections,
-                )));
-            }
-        }
-
-        // Initialize SDLC context servers (opt-in via config).
-        if config.context_servers.enabled {
-            if let Some(ref adb) = async_db {
-                // Server 1: Requirements & Product (Discovery phase)
-                if config.context_servers.requirements.enabled {
-                    context_sources.push(Box::new(requirements_server::RequirementsServer::new(
-                        adb.clone(),
-                        config.context_servers.requirements.priority,
-                        config.context_servers.requirements.token_budget,
-                    )));
-                }
-
-                // Server 2: Architecture & Design (Planning phase)
-                if config.context_servers.architecture.enabled {
-                    context_sources.push(Box::new(architecture_server::ArchitectureServer::new(
-                        adb.clone(),
-                        config.context_servers.architecture.priority,
-                        config.context_servers.architecture.token_budget,
-                    )));
-                }
-            }
-        }
-
-        // Server 3: Codebase Context (Implementation phase) - no DB needed
-        if config.context_servers.enabled && config.context_servers.codebase.enabled {
-            let working_dir = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
-            context_sources.push(Box::new(codebase_server::CodebaseServer::new(
-                working_dir,
-                config.context_servers.codebase.priority,
-                config.context_servers.codebase.token_budget,
-            )));
-        }
-
-        // Server 4: Workflow & CI/CD Context (Testing/Deployment phase)
-        if config.context_servers.enabled {
-            if let Some(ref adb) = async_db {
-                if config.context_servers.workflow.enabled {
-                    context_sources.push(Box::new(workflow_server::WorkflowServer::new(
-                        adb.clone(),
-                        config.context_servers.workflow.priority,
-                        config.context_servers.workflow.token_budget,
-                    )));
-                }
-            }
-        }
-
-        // Server 5: Test Results & Coverage Context (Testing phase)
-        if config.context_servers.enabled {
-            if let Some(ref adb) = async_db {
-                if config.context_servers.testing.enabled {
-                    context_sources.push(Box::new(test_results_server::TestResultsServer::new(
-                        adb.clone(),
-                        config.context_servers.testing.priority,
-                        config.context_servers.testing.token_budget,
-                    )));
-                }
-            }
-        }
-
-        // Server 6: Runtime Metrics & Monitoring Context (Monitoring phase)
-        if config.context_servers.enabled {
-            if let Some(ref adb) = async_db {
-                if config.context_servers.runtime.enabled {
-                    context_sources.push(Box::new(runtime_metrics_server::RuntimeMetricsServer::new(
-                        adb.clone(),
-                        config.context_servers.runtime.priority,
-                        config.context_servers.runtime.token_budget,
-                    )));
-                }
-            }
-        }
-
-        // Server 7: Security & Compliance Context (Security/Review phase)
-        if config.context_servers.enabled {
-            if let Some(ref adb) = async_db {
-                if config.context_servers.security.enabled {
-                    context_sources.push(Box::new(security_server::SecurityServer::new(
-                        adb.clone(),
-                        config.context_servers.security.priority,
-                        config.context_servers.security.token_budget,
-                    )));
-                }
-            }
-        }
-
-        // Server 8: Support & Incidents Context (Support phase)
-        if config.context_servers.enabled {
-            if let Some(ref adb) = async_db {
-                if config.context_servers.support.enabled {
-                    context_sources.push(Box::new(support_server::SupportServer::new(
-                        adb.clone(),
-                        config.context_servers.support.priority,
-                        config.context_servers.support.token_budget,
-                    )));
-                }
-            }
-        }
+        // Initialize reflexion (extracted helper).
+        let reflector = init_reflector(config, &registry, &provider, &model);
 
         // Initialize response cache when DB is available and cache is enabled.
         let response_cache = if config.cache.enabled {
-            async_db.as_ref().map(|adb| {
-                ResponseCache::new(adb.clone(), config.cache.clone())
-            })
+            async_db.as_ref().map(|adb| ResponseCache::new(adb.clone(), config.cache.clone()))
         } else {
             None
         };
 
-        // Initialize resilience manager and register ALL providers from the registry.
-        let mut resilience =
-            ResilienceManager::new(config.resilience.clone()).with_event_tx(event_tx.clone());
-        if let Some(ref adb) = async_db {
-            resilience = resilience.with_db(adb.clone());
-        }
-        for name in registry.list() {
-            resilience.register_provider(name);
-        }
+        // Initialize resilience manager (extracted helper).
+        let resilience = init_resilience(config, &registry, &async_db, event_tx.clone());
 
         // Create ContextManager for unified context assembly from all sources (Phase 38 + Context Servers).
         let context_manager = if !context_sources.is_empty() {
@@ -636,6 +706,10 @@ impl Repl {
             ),
             // Phase 4 Dev Ecosystem: stop signal for CI polling (armed in run/run_tui).
             ci_stop: std::sync::Arc::new(tokio::sync::Notify::new()),
+            // Phase 94: Project onboarding check runs once on first message.
+            onboarding_checked: false,
+            // Phase 95: Plugin recommendation check runs once on first message.
+            plugin_recommendation_done: false,
         })
     }
 
@@ -871,6 +945,72 @@ impl Repl {
                                 self.handle_analyze().await;
                                 continue;
                             }
+                            // Phase 94: /init not interactive in classic mode — suggest TUI.
+                            commands::CommandResult::Init { .. } => {
+                                crate::render::feedback::user_error(
+                                    "/init is best used in TUI mode",
+                                    Some("Run: halcon chat --tui, then type /init"),
+                                );
+                                continue;
+                            }
+                            // Phase 95: /plugins — show suggestion to use TUI for rich view.
+                            commands::CommandResult::Plugins(subcmd) => {
+                                use commands::PluginsSubcmd;
+                                match subcmd {
+                                    PluginsSubcmd::Status => {
+                                        if let Some(ref arc_pr) = self.plugin_registry {
+                                            if let Ok(reg) = arc_pr.lock() {
+                                                let ids: Vec<String> = reg.loaded_plugin_ids().map(|s| s.to_string()).collect();
+                                                if ids.is_empty() {
+                                                    println!("[plugins] No plugins loaded.");
+                                                } else {
+                                                    for id in &ids {
+                                                        println!("[plugins] {} — {}", id, reg.plugin_state_str(id));
+                                                    }
+                                                }
+                                            }
+                                        } else {
+                                            println!("[plugins] Plugin system not active. Use --full to enable.");
+                                        }
+                                    }
+                                    PluginsSubcmd::Suggest => {
+                                        if let Some(ref arc_pr) = self.plugin_registry {
+                                            if let Ok(reg) = arc_pr.lock() {
+                                                let cwd = std::env::current_dir().unwrap_or_default();
+                                                let analysis = project_inspector::ProjectInspector::analyze(&cwd);
+                                                let loaded: std::collections::HashSet<String> = reg.loaded_plugin_ids().map(|s| s.to_string()).collect();
+                                                let rewards = reg.ucb1_rewards_snapshot();
+                                                drop(reg);
+                                                let recs = plugin_recommendation::PluginRecommendationEngine::recommend(&analysis, &loaded, &rewards);
+                                                println!("{}", plugin_recommendation::PluginRecommendationEngine::format_report(&recs));
+                                            }
+                                        } else {
+                                            println!("[plugins] Plugin system not active. Use --full to enable.");
+                                        }
+                                    }
+                                    PluginsSubcmd::Auto { dry_run } => {
+                                        println!("[plugins] Auto-bootstrap{} — use TUI for interactive mode.", if dry_run { " (dry-run)" } else { "" });
+                                        println!("[plugins] Run: halcon chat --tui, then type /plugins auto");
+                                    }
+                                    PluginsSubcmd::Disable(id) => {
+                                        if let Some(ref arc_pr) = self.plugin_registry {
+                                            if let Ok(mut reg) = arc_pr.lock() {
+                                                reg.auto_disable(&id, "disabled by user", std::time::Duration::ZERO);
+                                                println!("[plugins] {} — suspended", id);
+                                            }
+                                        }
+                                    }
+                                    PluginsSubcmd::Enable(id) => {
+                                        if let Some(ref arc_pr) = self.plugin_registry {
+                                            if let Ok(mut reg) = arc_pr.lock() {
+                                                reg.clear_cooling(&id);
+                                                println!("[plugins] {} — resumed", id);
+                                            }
+                                        }
+                                    }
+                                }
+                                continue;
+                            }
                         }
                     }
                     self.handle_message(trimmed).await?;
@@ -924,9 +1064,11 @@ impl Repl {
         }));
 
         // Create channels: UiEvents (agent → TUI) and prompts (TUI → agent).
-        // FIX: Increased buffer from 1024 to 16384 to handle high-throughput streaming
-        // from fast models (e.g., DeepSeek) without dropping events.
-        let (ui_tx, ui_rx) = tokio_mpsc::channel::<UiEvent>(16384);
+        // UNBOUNDED channel: prevents PermissionAwaiting from being dropped when LLM
+        // floods the channel with StreamChunk events during large outputs (e.g. 8K token
+        // game generation). The old bounded try_send silently dropped critical events
+        // → modal never showed → 60s timeout → tool denied with no user feedback.
+        let (ui_tx, ui_rx) = tokio_mpsc::unbounded_channel::<UiEvent>();
         let (prompt_tx, mut prompt_rx) = tokio_mpsc::unbounded_channel::<String>();
 
         let tui_sink = TuiSink::new(ui_tx.clone());
@@ -950,6 +1092,14 @@ impl Repl {
                 fs.loop_critic_enabled,
             ));
             tui_sink.info("  DevEcosystem=on [LSP:5758 CIPoll=env GitContext=on AST=on]");
+            // Multimodal subsystem detailed status (Phase 62 wiring).
+            if let Some(ref mm) = self.multimodal {
+                let snap = mm.metrics_snapshot();
+                tui_sink.info(&format!(
+                    "  [multimodal] READY — cache_hits={} | index=active",
+                    snap.cache_hits
+                ));
+            }
             tracing::info!(
                 reasoning = fs.reasoning_enabled,
                 orchestrator = fs.orchestrator_enabled,
@@ -987,11 +1137,11 @@ impl Repl {
                     tracing::warn!(error = %e, "Dev ecosystem LSP TCP server stopped");
                 }
                 // Notify TUI that the server has gone away.
-                let _ = lsp_done_tx.try_send(UiEvent::IdeDisconnected);
+                let _ = lsp_done_tx.send(UiEvent::IdeDisconnected);
             });
 
             // Notify the TUI immediately that the LSP port is ready.
-            let _ = ui_tx.try_send(UiEvent::IdeConnected { port: LSP_PORT });
+            let _ = ui_tx.send(UiEvent::IdeConnected { port: LSP_PORT });
 
             // Poll buffer count every 5 s; emit IdeBuffersUpdated on change.
             // Exits cleanly when `poll_stop` (= ci_stop) is notified.
@@ -1016,12 +1166,123 @@ impl Repl {
                                 .map(|(b, _)| b.to_string())
                                 .filter(|b| b != "(detached)")
                         });
-                        let _ = poll_ui_tx.try_send(UiEvent::IdeBuffersUpdated {
+                        let _ = poll_ui_tx.send(UiEvent::IdeBuffersUpdated {
                             count,
                             git_branch,
                         });
                     }
                 }
+            });
+        }
+
+        // Phase 96: Startup Probe — proactive project analysis at TUI launch.
+        // Pre-mark flags so handle_message_with_sink() doesn't double-fire on first message.
+        self.onboarding_checked = true;
+        self.plugin_recommendation_done = true;
+        {
+            let probe_tx = ui_tx.clone();
+            let probe_cwd = std::env::current_dir().unwrap_or_default();
+            let probe_plugins_enabled = self.config.plugins.enabled;
+            let probe_registry = self.plugin_registry.clone();
+            let probe_expert = self.expert_mode;
+            tokio::spawn(async move {
+                // Short delay so the banner renders before flooding the activity feed.
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+                // Analyze project (sync I/O) via spawn_blocking.
+                let analysis = tokio::task::spawn_blocking(move || {
+                    project_inspector::ProjectInspector::analyze(&probe_cwd)
+                })
+                .await
+                .unwrap_or_else(|_| project_inspector::ProjectAnalysis::default());
+
+                // Emit git branch immediately (don't wait 5 s for IDE polling).
+                if let Some(ref branch) = analysis.git_branch {
+                    let remote_hint = if analysis.git_remote.is_some() { " ·remote" } else { "" };
+                    let _ = probe_tx.send(UiEvent::Info(format!(
+                        "[git] {branch}{remote_hint} — {}", analysis.project_type
+                    )));
+                }
+
+                // Emit project context summary.
+                let mut ctx_parts: Vec<String> = Vec::new();
+                if let Some(ref name) = analysis.package_name {
+                    ctx_parts.push(format!("pkg:{name}"));
+                }
+                if !analysis.manifest_files.is_empty() {
+                    ctx_parts.push(format!("{} manifests", analysis.manifest_files.len()));
+                }
+                if analysis.has_project_halcon_md {
+                    ctx_parts.push("HALCON.md ✓".to_string());
+                }
+                if !ctx_parts.is_empty() {
+                    let _ = probe_tx.send(UiEvent::Info(format!(
+                        "[proyecto] {}",
+                        ctx_parts.join(" · ")
+                    )));
+                }
+
+                // Onboarding hint.
+                let onboarding_status = onboarding::OnboardingCheck::run(&analysis.root);
+                match onboarding_status {
+                    onboarding::OnboardingStatus::NotConfigured { .. } => {
+                        let _ = probe_tx.send(UiEvent::Info(
+                            "[onboarding] Sin HALCON.md de proyecto — escribe /init para configurar".to_string(),
+                        ));
+                    }
+                    onboarding::OnboardingStatus::Configured { ref path } => {
+                        let name = path
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("HALCON.md");
+                        let _ = probe_tx.send(UiEvent::Info(format!(
+                            "[config] {name} cargado"
+                        )));
+                    }
+                    onboarding::OnboardingStatus::Unknown => {}
+                }
+
+                // Plugin recommendations.
+                if probe_plugins_enabled {
+                    if let Some(ref arc_pr) = probe_registry {
+                        if let Ok(reg) = arc_pr.lock() {
+                            let loaded: std::collections::HashSet<String> =
+                                reg.loaded_plugin_ids().map(|s| s.to_string()).collect();
+                            let rewards = reg.ucb1_rewards_snapshot();
+                            drop(reg);
+                            let recs = plugin_recommendation::PluginRecommendationEngine::recommend(
+                                &analysis, &loaded, &rewards,
+                            );
+                            let total_new =
+                                recs.iter().filter(|r| !r.already_installed).count();
+                            let essential = recs
+                                .iter()
+                                .filter(|r| {
+                                    !r.already_installed
+                                        && r.tier
+                                            == plugin_recommendation::RecommendationTier::Essential
+                                })
+                                .count();
+                            if total_new > 0 {
+                                let _ = probe_tx.send(UiEvent::Info(format!(
+                                    "[plugins] {total_new} recomendados ({essential} esenciales) — /plugins suggest"
+                                )));
+                            }
+                        }
+                    }
+                }
+
+                // Expert: brief tool summary.
+                if probe_expert {
+                    let _ = probe_tx.send(UiEvent::Info(
+                        "[herramientas] 58 disponibles · /tools list para ver todo".to_string(),
+                    ));
+                }
+
+                // Final: ready prompt.
+                let _ = probe_tx.send(UiEvent::Info(
+                    "◈  Listo. Escribe tu pregunta o /help para ver comandos.".to_string(),
+                ));
             });
         }
 
@@ -1059,6 +1320,8 @@ impl Repl {
         // while the agent loop is blocked on tool execution.
         let (perm_tx, perm_rx) = tokio::sync::mpsc::unbounded_channel::<halcon_core::types::PermissionDecision>();
         self.permissions.set_tui_channel(perm_rx);
+        // Wire notification channel so permission timeouts appear in TUI activity panel.
+        self.permissions.set_notification_tx(ui_tx.clone());
 
         // Sudo password channel: TuiApp → executor's get_sudo_password().
         // Kept separate from perm_tx because PermissionDecision is Copy and cannot
@@ -1290,6 +1553,7 @@ impl Repl {
                                 let _ = ui_tx.send(UiEvent::Info("/status      Live system status".into()));
                                 let _ = ui_tx.send(UiEvent::Info("/metrics     Token/cost metrics".into()));
                                 let _ = ui_tx.send(UiEvent::Info("/clear       Clear activity zone".into()));
+                                let _ = ui_tx.send(UiEvent::Info("/init        Setup project config (HALCON.md)".into()));
                                 let _ = ui_tx.send(UiEvent::Info("/quit        Exit halcon".into()));
                                 let _ = ui_tx.send(UiEvent::Info("────────────".into()));
                             }
@@ -1340,6 +1604,162 @@ impl Repl {
                             self.session.total_latency_ms as f64 / 1000.0,
                         );
                         let _ = ui_tx.send(UiEvent::Info(info));
+                    }
+                    commands::CommandResult::Init { dry_run, .. } => {
+                        // Phase 94: Open the init wizard overlay (step 0 = analyzing).
+                        let _ = ui_tx.send(UiEvent::OpenInitWizard { dry_run });
+                        // Run ProjectInspector in background so TUI stays responsive.
+                        let ui_tx2 = ui_tx.clone();
+                        let cwd = std::env::current_dir().unwrap_or_default();
+                        tokio::spawn(async move {
+                            let cwd2 = cwd.clone();
+                            let analysis = tokio::task::spawn_blocking(move || {
+                                project_inspector::ProjectInspector::analyze(&cwd2)
+                            })
+                            .await
+                            .unwrap_or_default();
+                            let preview =
+                                project_inspector::ProjectInspector::generate_halcon_md(&analysis);
+                            let save_path = analysis
+                                .suggested_halcon_md_path
+                                .to_string_lossy()
+                                .into_owned();
+                            let _ = ui_tx2.send(UiEvent::ProjectAnalysisComplete {
+                                root: analysis.root.to_string_lossy().into_owned(),
+                                project_type: analysis.project_type,
+                                package_name: analysis.package_name,
+                                has_git: analysis.git_remote.is_some(),
+                                preview,
+                                save_path,
+                            });
+                        });
+                    }
+                    // Phase 95: /plugins subcommands.
+                    commands::CommandResult::Plugins(subcmd) => {
+                        use commands::PluginsSubcmd;
+                        match subcmd {
+                            PluginsSubcmd::Status => {
+                                // Show plugin status lines in activity feed.
+                                if let Some(ref arc_pr) = self.plugin_registry {
+                                    if let Ok(reg) = arc_pr.lock() {
+                                        let ids: Vec<String> = reg.loaded_plugin_ids().map(|s| s.to_string()).collect();
+                                        if ids.is_empty() {
+                                            let _ = ui_tx.send(UiEvent::Info("[plugins] No plugins loaded.".into()));
+                                        } else {
+                                            for id in &ids {
+                                                let state = reg.plugin_state_str(id);
+                                                let _ = ui_tx.send(UiEvent::Info(format!("[plugins] {id} — {state}")));
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    let _ = ui_tx.send(UiEvent::Info("[plugins] Plugin system not active. Use --full to enable.".into()));
+                                }
+                            }
+                            PluginsSubcmd::Suggest => {
+                                // Open suggestion overlay after async analysis.
+                                let ui_tx2 = ui_tx.clone();
+                                let arc_pr_clone = self.plugin_registry.clone();
+                                tokio::spawn(async move {
+                                    let cwd = std::env::current_dir().unwrap_or_default();
+                                    let analysis = tokio::task::spawn_blocking(move || {
+                                        project_inspector::ProjectInspector::analyze(&cwd)
+                                    })
+                                    .await
+                                    .unwrap_or_default();
+                                    let (loaded, rewards) = if let Some(ref arc_pr) = arc_pr_clone {
+                                        if let Ok(reg) = arc_pr.lock() {
+                                            let l: std::collections::HashSet<String> = reg.loaded_plugin_ids().map(|s| s.to_string()).collect();
+                                            let r = reg.ucb1_rewards_snapshot();
+                                            (l, r)
+                                        } else {
+                                            Default::default()
+                                        }
+                                    } else {
+                                        Default::default()
+                                    };
+                                    let recs = plugin_recommendation::PluginRecommendationEngine::recommend(&analysis, &loaded, &rewards);
+                                    let suggestions: Vec<crate::tui::events::PluginSuggestionItem> = recs.iter().map(|r| {
+                                        crate::tui::events::PluginSuggestionItem {
+                                            plugin_id: r.plugin_id.clone(),
+                                            display_name: r.display_name.clone(),
+                                            rationale: r.rationale.clone(),
+                                            tier: format!("{:?}", r.tier),
+                                            already_installed: r.already_installed,
+                                        }
+                                    }).collect();
+                                    let _ = ui_tx2.send(UiEvent::PluginSuggestionReady { suggestions, dry_run: false });
+                                });
+                            }
+                            PluginsSubcmd::Auto { dry_run } => {
+                                // Bootstrap plugins in background.
+                                let ui_tx2 = ui_tx.clone();
+                                let arc_pr_clone = self.plugin_registry.clone();
+                                tokio::spawn(async move {
+                                    let cwd = std::env::current_dir().unwrap_or_default();
+                                    let analysis = tokio::task::spawn_blocking(move || {
+                                        project_inspector::ProjectInspector::analyze(&cwd)
+                                    })
+                                    .await
+                                    .unwrap_or_default();
+                                    let (loaded, rewards) = if let Some(ref arc_pr) = arc_pr_clone {
+                                        if let Ok(reg) = arc_pr.lock() {
+                                            let l: std::collections::HashSet<String> = reg.loaded_plugin_ids().map(|s| s.to_string()).collect();
+                                            let r = reg.ucb1_rewards_snapshot();
+                                            (l, r)
+                                        } else {
+                                            Default::default()
+                                        }
+                                    } else {
+                                        Default::default()
+                                    };
+                                    let recs = plugin_recommendation::PluginRecommendationEngine::recommend(&analysis, &loaded, &rewards);
+                                    let count = recs.iter().filter(|r| !r.already_installed).count();
+                                    let _ = ui_tx2.send(UiEvent::PluginBootstrapStarted { count, dry_run });
+                                    let opts = plugin_auto_bootstrap::BootstrapOptions {
+                                        dry_run,
+                                        ..Default::default()
+                                    };
+                                    let result = tokio::task::spawn_blocking(move || {
+                                        plugin_auto_bootstrap::AutoPluginBootstrap::bootstrap(&recs, &opts)
+                                    })
+                                    .await
+                                    .unwrap_or(plugin_auto_bootstrap::BootstrapResult {
+                                        installed: vec![],
+                                        skipped: vec![],
+                                        failed: vec![("unknown".into(), "spawn error".into())],
+                                        dry_run,
+                                    });
+                                    let _ = ui_tx2.send(UiEvent::PluginBootstrapComplete {
+                                        installed: result.installed.len(),
+                                        skipped: result.skipped.len(),
+                                        failed: result.failed.len(),
+                                    });
+                                });
+                            }
+                            PluginsSubcmd::Disable(id) => {
+                                if let Some(ref arc_pr) = self.plugin_registry {
+                                    if let Ok(mut reg) = arc_pr.lock() {
+                                        reg.auto_disable(&id, "disabled by user", std::time::Duration::ZERO);
+                                        let _ = ui_tx.send(UiEvent::PluginStatusChanged {
+                                            plugin_id: id.clone(),
+                                            new_status: "suspended".into(),
+                                        });
+                                    }
+                                }
+                            }
+                            PluginsSubcmd::Enable(id) => {
+                                if let Some(ref arc_pr) = self.plugin_registry {
+                                    if let Ok(mut reg) = arc_pr.lock() {
+                                        reg.clear_cooling(&id);
+                                        let _ = ui_tx.send(UiEvent::PluginStatusChanged {
+                                            plugin_id: id.clone(),
+                                            new_status: "active".into(),
+                                        });
+                                    }
+                                }
+                            }
+                        }
                     }
                     _ => {
                         let _ = ui_tx.send(UiEvent::Warning {
@@ -1571,11 +1991,267 @@ impl Repl {
         input: &str,
         sink: &dyn crate::render::sink::RenderSink,
     ) -> Result<()> {
+        // Phase 94: One-time onboarding check (fast — file existence only, <1ms).
+        if !self.onboarding_checked {
+            self.onboarding_checked = true;
+            let cwd = std::env::current_dir().unwrap_or_default();
+            match onboarding::OnboardingCheck::run(&cwd) {
+                onboarding::OnboardingStatus::Configured { path } => {
+                    sink.project_config_loaded(&path.to_string_lossy());
+                }
+                onboarding::OnboardingStatus::NotConfigured { root, project_type } => {
+                    sink.onboarding_suggestion(
+                        &root.to_string_lossy(),
+                        &project_type,
+                    );
+                }
+                onboarding::OnboardingStatus::Unknown => {}
+            }
+        }
+
+        // Phase 95: Auto-resume plugins with expired cooling periods (fast, sync).
+        {
+            if let Some(ref arc_pr) = self.plugin_registry {
+                if let Ok(mut reg) = arc_pr.lock() {
+                    reg.maybe_resume_plugins();
+                }
+            }
+        }
+
+        // Phase 95: One-time plugin recommendation on first message.
+        if !self.plugin_recommendation_done && self.config.plugins.enabled {
+            self.plugin_recommendation_done = true;
+            if let Some(ref arc_pr) = self.plugin_registry {
+                if let Ok(reg) = arc_pr.lock() {
+                    let cwd = std::env::current_dir().unwrap_or_default();
+                    let analysis = project_inspector::ProjectInspector::analyze(&cwd);
+                    let loaded: std::collections::HashSet<String> =
+                        reg.loaded_plugin_ids().map(|s| s.to_string()).collect();
+                    let rewards = reg.ucb1_rewards_snapshot();
+                    drop(reg); // release lock before calling sink
+                    let recs = plugin_recommendation::PluginRecommendationEngine::recommend(
+                        &analysis,
+                        &loaded,
+                        &rewards,
+                    );
+                    let total_new: usize = recs.iter().filter(|r| !r.already_installed).count();
+                    let essential: usize = recs
+                        .iter()
+                        .filter(|r| {
+                            !r.already_installed
+                                && r.tier
+                                    == plugin_recommendation::RecommendationTier::Essential
+                        })
+                        .count();
+                    if total_new > 0 {
+                        sink.plugin_suggestion(total_new, essential);
+                    }
+                }
+            }
+        }
+
         // Record user message in session.
         self.session.add_message(ChatMessage {
             role: Role::User,
             content: MessageContent::Text(input.to_string()),
         });
+
+        // ── Multimodal: detect & analyze media files referenced in user message ─────
+        // Runs only when `--full` activated the multimodal subsystem.
+        // Results: (a) inject "## Media Context" description into system prompt,
+        //          (b) replace session message Text → Blocks(text + image blocks).
+        let mut _media_context = String::new();
+        let mut _had_media = false;
+        if let Some(mm_sys) = self.multimodal.clone() {
+            let paths = extract_media_paths(input);
+            if !paths.is_empty() {
+                use crate::render::sink::RenderSink as _;
+                sink.media_analysis_started(paths.len());
+                let session_id = self.session.id.to_string();
+                let mut ctx = String::from("## Media Context\n");
+                let mut img_blocks: Vec<halcon_core::types::ContentBlock> = Vec::new();
+                let mut analyzed_count: usize = 0;
+                let mut total_tokens_estimated: u32 = 0;
+                // ── Phase 1: Sequential file reads ───────────────────────
+                let mut read_data: Vec<Option<(std::path::PathBuf, Vec<u8>)>> =
+                    Vec::with_capacity(paths.len());
+                for path in &paths {
+                    let path_str = path.to_string_lossy().to_string();
+                    match tokio::fs::read(path).await {
+                        Ok(data) => read_data.push(Some((path.clone(), data))),
+                        Err(e) => {
+                            tracing::warn!(path = %path_str, error = %e, "Cannot read media file");
+                            read_data.push(None);
+                        }
+                    }
+                }
+
+                // ── Phase 2: Audio fallback check (sequential — needs sink) ──
+                let base_timeout_ms = self.config.multimodal.api_timeout_ms;
+                let mut analysis_items: Vec<(usize, std::path::PathBuf, Vec<u8>)> = Vec::new();
+                let mut ctx_parts: Vec<Option<String>> = vec![None; paths.len()];
+
+                for (idx, entry) in read_data.into_iter().enumerate() {
+                    let Some((path, data)) = entry else { continue };
+                    let path_str = path.to_string_lossy().to_string();
+                    let fname = path
+                        .file_name()
+                        .map(|n| n.to_string_lossy().into_owned())
+                        .unwrap_or_else(|| path_str.clone());
+                    // Audio fallback: warn early if OPENAI_API_KEY is not set.
+                    let modality_hint =
+                        halcon_multimodal::MultimodalSubsystem::peek_modality(&data);
+                    if modality_hint == "audio" && !mm_sys.supports_audio() {
+                        sink.warning(
+                            &format!(
+                                "[media] Audio transcription unavailable for '{fname}': set OPENAI_API_KEY"
+                            ),
+                            Some(
+                                "Audio analysis requires OpenAI Whisper — OPENAI_API_KEY not set",
+                            ),
+                        );
+                        // Include native audio metadata (WAV/MP3: duration, rate, channels).
+                        let native_meta = halcon_multimodal::MultimodalSubsystem::native_audio_description(&data)
+                            .unwrap_or_else(|| "Audio file — transcription unavailable. Set OPENAI_API_KEY to enable Whisper.".into());
+                        ctx_parts[idx] = Some(format!("\n### {fname}\n{native_meta}\n"));
+                        continue;
+                    }
+                    analysis_items.push((idx, path, data));
+                }
+
+                // ── Phase 3: Parallel media analysis (network-bound) ──────────
+                // All API calls are dispatched concurrently — on 5 images at
+                // 30 s each this cuts wall-clock time from 150 s → ~30 s.
+                let analysis_futures: Vec<_> = analysis_items
+                    .into_iter()
+                    .map(|(idx, path, data)| {
+                        let mm       = Arc::clone(&mm_sys);
+                        let sid      = session_id.clone();
+                        let path_str = path.to_string_lossy().to_string();
+                        let fname    = path
+                            .file_name()
+                            .map(|n| n.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| path_str.clone());
+                        // Adaptive timeout: base + 5 s buffer + 2 s per MB of media.
+                        let size_mb = (data.len() / (1024 * 1024)) as u64;
+                        let adaptive_ms = base_timeout_ms
+                            .saturating_add(5_000)
+                            .saturating_add(size_mb * 2_000);
+                        async move {
+                            let timeout_dur = std::time::Duration::from_millis(adaptive_ms);
+                            let result = tokio::time::timeout(
+                                timeout_dur,
+                                mm.analyze_bytes_with_provenance(
+                                    &data,
+                                    None,
+                                    Some(sid),
+                                    Some(path_str.clone()),
+                                ),
+                            )
+                            .await;
+                            let outcome = match result {
+                                Ok(Ok(analysis)) => {
+                                    let img_block = if analysis.modality == "image" {
+                                        use base64::Engine as _;
+                                        let encoded = base64::engine::general_purpose::STANDARD
+                                            .encode(&data);
+                                        let media_type =
+                                            halcon_core::types::ImageMediaType::from_magic(&data)
+                                                .unwrap_or(
+                                                    halcon_core::types::ImageMediaType::Jpeg,
+                                                );
+                                        Some(halcon_core::types::ContentBlock::Image {
+                                            source: halcon_core::types::ImageSource::Base64 {
+                                                media_type,
+                                                data: encoded,
+                                            },
+                                        })
+                                    } else {
+                                        None
+                                    };
+                                    Ok((analysis, img_block))
+                                }
+                                Ok(Err(e)) => Err(format!("{e}")),
+                                Err(_elapsed) => {
+                                    Err(format!("timed out after {}s", adaptive_ms / 1_000))
+                                }
+                            };
+                            (idx, fname, path_str, outcome)
+                        }
+                    })
+                    .collect();
+
+                // Await all concurrently — API calls inflight simultaneously.
+                let analysis_results =
+                    futures::future::join_all(analysis_futures).await;
+
+                // ── Phase 4: Collect results (sequential — needs sink) ────────
+                for (idx, fname, path_str, outcome) in analysis_results {
+                    match outcome {
+                        Ok((analysis, img_block)) => {
+                            ctx_parts[idx] = Some(format!(
+                                "\n### {fname}\n{}\n",
+                                analysis.description
+                            ));
+                            if let Some(block) = img_block {
+                                img_blocks.push(block);
+                            }
+                            analyzed_count += 1;
+                            total_tokens_estimated += analysis.token_estimate;
+                            sink.media_analysis_complete(&fname, analysis.token_estimate);
+                            tracing::info!(
+                                path = %path_str,
+                                modality = %analysis.modality,
+                                tokens = analysis.token_estimate,
+                                "Multimodal analysis complete"
+                            );
+                        }
+                        Err(msg) => {
+                            sink.warning(
+                                &format!("Media analysis failed for '{fname}': {msg}"),
+                                None,
+                            );
+                            tracing::warn!(
+                                path = %path_str,
+                                error = %msg,
+                                "Media analysis error"
+                            );
+                        }
+                    }
+                }
+
+                // ── Phase 5: Assemble ctx in original path order ──────────────
+                for part in ctx_parts.into_iter().flatten() {
+                    ctx.push_str(&part);
+                }
+                // Emit final summary if at least one file was analyzed.
+                if analyzed_count > 0 {
+                    sink.info(&format!(
+                        "[media] {analyzed_count}/{} file{} analyzed — ~{total_tokens_estimated} tokens added to context",
+                        paths.len(),
+                        if paths.len() == 1 { "" } else { "s" },
+                    ));
+                }
+                // Update last session message: Text → Blocks(text + images).
+                if !img_blocks.is_empty() {
+                    if let Some(last) = self.session.messages.last_mut() {
+                        if matches!(last.role, Role::User) {
+                            let mut blocks =
+                                vec![halcon_core::types::ContentBlock::Text {
+                                    text: input.to_string(),
+                                }];
+                            blocks.extend(img_blocks);
+                            last.content = MessageContent::Blocks(blocks);
+                            _had_media = true;
+                        }
+                    }
+                }
+                if ctx != "## Media Context\n" {
+                    _media_context = ctx;
+                }
+            }
+        }
+        // ── End multimodal block ──────────────────────────────────────────────────────
 
         // Assemble context from all sources (instructions + memory).
         let working_dir = self
@@ -1674,6 +2350,22 @@ impl Repl {
                     sys.push_str(&format!("\n\n{dev_md}"));
                 }
             }
+        }
+
+        // Inject media analysis context into system prompt (idempotent via marker).
+        const MEDIA_CTX_MARKER: &str = "## Media Context";
+        if !_media_context.is_empty() {
+            if let Some(ref mut sys) = request.system {
+                if !sys.contains(MEDIA_CTX_MARKER) {
+                    sys.push_str(&format!("\n\n{}", _media_context));
+                }
+            } else {
+                request.system = Some(_media_context.clone());
+            }
+        }
+        // Sync request.messages with updated session (now has image blocks).
+        if _had_media {
+            request.messages = self.session.messages.clone();
         }
 
         // Look up the active provider.
@@ -1803,7 +2495,13 @@ impl Repl {
                         .unwrap_or(false)
                 };
                 if self.plugin_registry.is_none() && plugins_should_run {
-                    let loader = plugin_loader::PluginLoader::default();
+                    // P9: Honour config.plugins.plugin_dir override; fall back to default
+                    // ~/.halcon/plugins/ when not set.
+                    let loader = if let Some(ref dir) = self.config.plugins.plugin_dir {
+                        plugin_loader::PluginLoader::new(vec![std::path::PathBuf::from(dir)])
+                    } else {
+                        plugin_loader::PluginLoader::default()
+                    };
                     let mut runtime = plugin_transport_runtime::PluginTransportRuntime::new();
                     let mut registry = plugin_registry::PluginRegistry::new();
                     let load_result = loader.load_into(&mut registry, &mut runtime);
@@ -1815,8 +2513,41 @@ impl Repl {
                             "Phase 8-A: Plugin system initialised"
                         );
                         let runtime_arc = std::sync::Arc::new(runtime);
+
+                        // Phase 8-A (P1 fix): Create one PluginProxyTool per capability and
+                        // register it in the session ToolRegistry so the model can see and
+                        // invoke plugin tools exactly like built-in tools.
+                        //
+                        // BEFORE this fix: PluginRegistry was populated but ToolRegistry was
+                        // never updated, making all plugin tools invisible to the model.
+                        let mut proxy_count = 0usize;
+                        for (plugin_id, manifest) in registry.loaded_plugins() {
+                            let timeout_ms = if manifest.sandbox.timeout_ms > 0 {
+                                manifest.sandbox.timeout_ms
+                            } else {
+                                30_000
+                            };
+                            for cap in &manifest.capabilities {
+                                let proxy = plugin_proxy_tool::PluginProxyTool::new(
+                                    cap.name.clone(),
+                                    plugin_id.to_string(),
+                                    cap.clone(),
+                                    runtime_arc.clone(),
+                                    timeout_ms,
+                                );
+                                self.tool_registry.register(std::sync::Arc::new(proxy));
+                                proxy_count += 1;
+                            }
+                        }
+                        tracing::info!(
+                            proxy_tools = proxy_count,
+                            "Phase 8-A: Plugin proxy tools registered in ToolRegistry"
+                        );
+
                         self.plugin_transport_runtime = Some(runtime_arc.clone());
-                        self.plugin_registry = Some(registry);
+                        self.plugin_registry = Some(std::sync::Arc::new(
+                            std::sync::Mutex::new(registry)
+                        ));
                     } else {
                         tracing::debug!(
                             skipped_invalid = load_result.skipped_invalid,
@@ -1829,8 +2560,8 @@ impl Repl {
                 // Follows the same load-once-per-session pattern as model_quality_db_loaded.
                 if !self.plugin_metrics_db_loaded {
                     self.plugin_metrics_db_loaded = true;
-                    if let (Some(ref adb), Some(ref mut reg)) =
-                        (&self.async_db, &mut self.plugin_registry)
+                    if let (Some(ref adb), Some(ref arc_reg)) =
+                        (&self.async_db, &self.plugin_registry)
                     {
                         match adb.load_plugin_metrics().await {
                             Ok(records) if !records.is_empty() => {
@@ -1839,7 +2570,9 @@ impl Repl {
                                     .iter()
                                     .map(|r| (r.plugin_id.clone(), r.ucb1_n_uses, r.ucb1_sum_rewards))
                                     .collect();
-                                reg.seed_ucb1_from_metrics(&seeds);
+                                if let Ok(mut reg) = arc_reg.lock() {
+                                    reg.seed_ucb1_from_metrics(&seeds);
+                                }
                                 tracing::info!(
                                     plugins = records.len(),
                                     "Phase 8-E: Plugin UCB1 metrics loaded from DB"
@@ -1927,7 +2660,16 @@ impl Repl {
 
                 // FASE 3.1: PRE-LOOP reasoning analysis (when reasoning engine enabled).
                 let reasoning_analysis = if let Some(ref mut engine) = self.reasoning_engine {
-                    let analysis = engine.pre_loop(input, &self.config.agent.limits);
+                    sink.phase_started("reasoning", "Selecting optimal strategy...");
+                    // P0-1: pass provider models so ModelRouter can classify tiers from real
+                    // metadata instead of hardcoded DeepSeek names.
+                    let provider_models: Vec<halcon_core::types::ModelInfo> = self
+                        .registry
+                        .get(&self.provider)
+                        .map(|p| p.supported_models().to_vec())
+                        .unwrap_or_default();
+                    let analysis = engine.pre_loop(input, &self.config.agent.limits, &provider_models);
+                    sink.phase_ended();
 
                     // Emit ReasoningStarted event.
                     let _ = self.event_tx.send(DomainEvent::new(EventPayload::ReasoningStarted {
@@ -2029,7 +2771,8 @@ impl Repl {
                     strategy_context: strategy_ctx.clone(),
                     critic_provider: critic_prov.clone(),
                     critic_model: critic_mdl.clone(),
-                    plugin_registry: self.plugin_registry.as_mut(),
+                    plugin_registry: self.plugin_registry.clone(),
+                    is_sub_agent: false,
                 };
                 // Fix: restore ctrl_rx before propagating any error so TUI controls
                 // (Pause/Step/Cancel) remain functional across agent loop failures.
@@ -2126,17 +2869,24 @@ impl Repl {
 
                         // P3 FIX: Persist reasoning experience to SQLite for cross-session UCB1 learning.
                         if let Some(ref adb) = self.async_db {
-                            let _ = adb.save_reasoning_experience(
+                            match adb.save_reasoning_experience(
                                 &format!("{:?}", evaluation.task_type),
                                 &format!("{:?}", evaluation.strategy),
                                 evaluation.score,
-                            ).await;
-                            tracing::debug!(
-                                task_type = %format!("{:?}", evaluation.task_type),
-                                strategy = %format!("{:?}", evaluation.strategy),
-                                score = evaluation.score,
-                                "P3: Reasoning experience persisted"
-                            );
+                            ).await {
+                                Ok(()) => tracing::debug!(
+                                    task_type = %format!("{:?}", evaluation.task_type),
+                                    strategy = %format!("{:?}", evaluation.strategy),
+                                    score = evaluation.score,
+                                    "P3: Reasoning experience persisted"
+                                ),
+                                Err(e) => tracing::warn!(
+                                    error = %e,
+                                    task_type = %format!("{:?}", evaluation.task_type),
+                                    strategy = %format!("{:?}", evaluation.strategy),
+                                    "UCB1: failed to persist reasoning experience — cross-session learning degraded"
+                                ),
+                            }
                         }
 
                         tracing::info!(
@@ -2265,6 +3015,7 @@ impl Repl {
                             critic_provider: critic_prov.clone(),
                             critic_model: critic_mdl.clone(),
                             plugin_registry: None, // retry doesn't re-share plugin state
+                            is_sub_agent: false,
                         };
 
                         let mut retry_loop_result = agent::run_agent_loop(retry_ctx).await;
@@ -2377,38 +3128,42 @@ impl Repl {
 
                 // Phase 8-D + 8-E: Record per-plugin UCB1 rewards from this agent loop and
                 // fire-and-forget persist to DB.
-                if let Some(ref mut reg) = self.plugin_registry {
-                    for snapshot in &result.plugin_cost_snapshot {
-                        // Derive success rate from calls_made / calls_failed as reward signal.
-                        let rate = if snapshot.calls_made > 0 {
-                            let succeeded =
-                                snapshot.calls_made.saturating_sub(snapshot.calls_failed);
-                            succeeded as f64 / snapshot.calls_made as f64
+                if let Some(ref arc_reg) = self.plugin_registry {
+                    let snapshot_data: Vec<halcon_storage::db::PluginMetricsRecord> =
+                        if let Ok(mut reg) = arc_reg.lock() {
+                            for snapshot in &result.plugin_cost_snapshot {
+                                // Derive success rate from calls_made / calls_failed as reward signal.
+                                let rate = if snapshot.calls_made > 0 {
+                                    let succeeded =
+                                        snapshot.calls_made.saturating_sub(snapshot.calls_failed);
+                                    succeeded as f64 / snapshot.calls_made as f64
+                                } else {
+                                    0.5 // neutral prior for plugins that were not invoked this round
+                                };
+                                reg.record_reward(&snapshot.plugin_id, rate);
+                            }
+                            reg.ucb1_snapshot()
+                                .into_iter()
+                                .map(|(plugin_id, n_uses, sum_rewards)| {
+                                    halcon_storage::db::PluginMetricsRecord {
+                                        plugin_id,
+                                        calls_made: 0,
+                                        calls_failed: 0,
+                                        tokens_used: 0,
+                                        ucb1_n_uses: n_uses as i64,
+                                        ucb1_sum_rewards: sum_rewards,
+                                        updated_at: String::new(),
+                                    }
+                                })
+                                .collect()
                         } else {
-                            0.5 // neutral prior for plugins that were not invoked this round
+                            vec![]
                         };
-                        reg.record_reward(&snapshot.plugin_id, rate);
-                    }
 
                     // Persist updated UCB1 arm stats (fire-and-forget, non-fatal).
-                    if let Some(ref adb) = self.async_db {
-                        let adb_clone = adb.clone();
-                        let snapshot_data: Vec<halcon_storage::db::PluginMetricsRecord> = reg
-                            .ucb1_snapshot()
-                            .into_iter()
-                            .map(|(plugin_id, n_uses, sum_rewards)| {
-                                halcon_storage::db::PluginMetricsRecord {
-                                    plugin_id,
-                                    calls_made: 0,
-                                    calls_failed: 0,
-                                    tokens_used: 0,
-                                    ucb1_n_uses: n_uses as i64,
-                                    ucb1_sum_rewards: sum_rewards,
-                                    updated_at: String::new(),
-                                }
-                            })
-                            .collect();
-                        if !snapshot_data.is_empty() {
+                    if !snapshot_data.is_empty() {
+                        if let Some(ref adb) = self.async_db {
+                            let adb_clone = adb.clone();
                             tokio::spawn(async move {
                                 if let Err(e) = adb_clone.save_plugin_metrics(snapshot_data).await {
                                     tracing::warn!(error = %e, "Phase 8-E: plugin metrics persist failed");
@@ -2557,112 +3312,41 @@ impl Repl {
     }
 
     /// Fire-and-forget async session save (crash protection after each message).
+    /// Async session save — called after each message turn in the interactive loop.
+    ///
+    /// Delegates to [`session_manager::auto_save`] (FASE F extraction).
     async fn auto_save_session(&self) {
-        if self.session.messages.is_empty() {
-            return;
-        }
         if let Some(ref adb) = self.async_db {
-            if let Err(e) = adb.save_session(&self.session).await {
-                tracing::warn!("Auto-save session failed: {e}");
-                crate::render::feedback::user_warning(
-                    &format!("session auto-save failed — {e}"),
-                    Some("Session data may be lost if process exits"),
-                );
-            }
+            session_manager::auto_save(&self.session, adb).await;
         }
     }
 
+    /// Sync session save — called at teardown and from `/save` command.
+    ///
+    /// Delegates to [`session_manager::save`] (FASE F extraction).
     fn save_session(&self) {
-        if self.session.messages.is_empty() {
-            return;
-        }
-        if let Some(db) = &self.db {
-            if let Err(e) = db.save_session(&self.session) {
-                crate::render::feedback::user_warning(
-                    &format!("failed to save session — {e}"),
-                    None,
-                );
-            } else {
-                tracing::debug!("Session {} saved", self.session.id);
-            }
-
-            // Auto-summarize session to memory (extractive, no LLM call).
-            if self.config.memory.enabled && self.config.memory.auto_summarize {
-                self.summarize_session_to_memory(db);
-            }
+        if let Some(ref db) = self.db {
+            session_manager::save(
+                &self.session,
+                db,
+                &self.model,
+                &self.provider,
+                &self.config,
+            );
         }
     }
 
+    /// Extract session summary and write to memory DB.
+    ///
+    /// Delegates to [`session_manager::summarize_to_memory`] (FASE F extraction).
     fn summarize_session_to_memory(&self, db: &Database) {
-        use halcon_storage::{MemoryEntry, MemoryEntryType};
-        use sha2::{Digest, Sha256};
-
-        // Build an extractive summary from user messages.
-        let user_messages: Vec<&str> = self
-            .session
-            .messages
-            .iter()
-            .filter(|m| m.role == Role::User)
-            .filter_map(|m| match &m.content {
-                MessageContent::Text(t) => Some(t.as_str()),
-                _ => None,
-            })
-            .collect();
-
-        if user_messages.is_empty() {
-            return;
-        }
-
-        let topic_preview: String = user_messages
-            .iter()
-            .take(3)
-            .map(|m| {
-                let trimmed: String = m.chars().take(100).collect();
-                trimmed.replace('\n', " ")
-            })
-            .collect::<Vec<_>>()
-            .join("; ");
-
-        let summary = format!(
-            "Session {}: {} messages, {} user turns. Topics: {}",
-            &self.session.id.to_string()[..8],
-            self.session.messages.len(),
-            user_messages.len(),
-            topic_preview,
+        session_manager::summarize_to_memory(
+            &self.session,
+            db,
+            &self.model,
+            &self.provider,
+            &self.config,
         );
-
-        let hash = hex::encode(Sha256::digest(summary.as_bytes()));
-
-        let entry = MemoryEntry {
-            entry_id: uuid::Uuid::new_v4(),
-            session_id: Some(self.session.id),
-            entry_type: MemoryEntryType::SessionSummary,
-            content: summary,
-            content_hash: hash,
-            metadata: serde_json::json!({
-                "model": self.model,
-                "provider": self.provider,
-                "message_count": self.session.messages.len(),
-                "tokens": self.session.total_usage.input_tokens + self.session.total_usage.output_tokens,
-            }),
-            created_at: chrono::Utc::now(),
-            expires_at: self.config.memory.default_ttl_days.map(|days| {
-                chrono::Utc::now() + chrono::Duration::days(days as i64)
-            }),
-            relevance_score: 0.8,
-        };
-
-        match db.insert_memory(&entry) {
-            Ok(true) => {
-                tracing::debug!("Session summary stored in memory");
-            }
-            Ok(false) => {
-                tracing::debug!("Session summary already exists (duplicate hash)");
-            }
-            Err(e) => {
-                tracing::warn!("Failed to store session summary: {e}");
-            }
-        }
     }
 
 
@@ -3224,5 +3908,162 @@ mod tests {
         // Should succeed with echo provider even through resilience.
         repl.handle_message("integration test").await.unwrap();
         assert_eq!(repl.message_count(), 2); // user + assistant
+    }
+}
+
+// ── Multimodal extract_media_paths tests ─────────────────────────────────────
+
+#[cfg(test)]
+mod media_tests {
+    use super::extract_media_paths;
+    use std::fs;
+    use tempfile::TempDir;
+
+    fn make_tmp(dir: &TempDir, name: &str) -> std::path::PathBuf {
+        let p = dir.path().join(name);
+        fs::write(&p, b"data").unwrap();
+        p
+    }
+
+    #[test]
+    fn empty_message_returns_no_paths() {
+        assert!(extract_media_paths("").is_empty());
+    }
+
+    #[test]
+    fn plain_text_returns_no_paths() {
+        assert!(extract_media_paths("hello world").is_empty());
+    }
+
+    #[test]
+    fn nonexistent_file_ignored() {
+        assert!(extract_media_paths("/does/not/exist.jpg").is_empty());
+    }
+
+    #[test]
+    fn detects_jpg() {
+        let d = TempDir::new().unwrap();
+        let p = make_tmp(&d, "a.jpg");
+        let paths = extract_media_paths(&p.to_string_lossy());
+        assert_eq!(paths.len(), 1);
+    }
+
+    #[test]
+    fn detects_png() {
+        let d = TempDir::new().unwrap();
+        let p = make_tmp(&d, "a.png");
+        let paths = extract_media_paths(&p.to_string_lossy());
+        assert_eq!(paths.len(), 1);
+    }
+
+    #[test]
+    fn detects_wav() {
+        let d = TempDir::new().unwrap();
+        let p = make_tmp(&d, "a.wav");
+        let paths = extract_media_paths(&p.to_string_lossy());
+        assert_eq!(paths.len(), 1);
+    }
+
+    #[test]
+    fn detects_mp4() {
+        let d = TempDir::new().unwrap();
+        let p = make_tmp(&d, "v.mp4");
+        let paths = extract_media_paths(&p.to_string_lossy());
+        assert_eq!(paths.len(), 1);
+    }
+
+    #[test]
+    fn strips_quotes() {
+        let d = TempDir::new().unwrap();
+        let p = make_tmp(&d, "a.png");
+        let msg = format!("\"{}\"", p.display());
+        let paths = extract_media_paths(&msg);
+        assert_eq!(paths.len(), 1);
+    }
+
+    #[test]
+    fn deduplicates() {
+        let d = TempDir::new().unwrap();
+        let p = make_tmp(&d, "a.jpg");
+        let msg = format!("{0} {0}", p.display());
+        let paths = extract_media_paths(&msg);
+        assert_eq!(paths.len(), 1);
+    }
+
+    #[test]
+    fn multiple_files() {
+        let d = TempDir::new().unwrap();
+        let p1 = make_tmp(&d, "a.jpg");
+        let p2 = make_tmp(&d, "b.png");
+        let msg = format!("{} {}", p1.display(), p2.display());
+        let paths = extract_media_paths(&msg);
+        assert_eq!(paths.len(), 2);
+    }
+
+    #[test]
+    fn mixed_media_and_text() {
+        let d = TempDir::new().unwrap();
+        let p = make_tmp(&d, "a.jpg");
+        let msg = format!("analyze this {} please", p.display());
+        let paths = extract_media_paths(&msg);
+        assert_eq!(paths.len(), 1);
+    }
+
+    #[test]
+    fn case_insensitive_extension() {
+        let d = TempDir::new().unwrap();
+        let p = make_tmp(&d, "a.JPG");
+        let paths = extract_media_paths(&p.to_string_lossy());
+        assert_eq!(paths.len(), 1);
+    }
+
+    #[test]
+    fn txt_file_ignored() {
+        let d = TempDir::new().unwrap();
+        let p = make_tmp(&d, "a.txt");
+        let paths = extract_media_paths(&p.to_string_lossy());
+        assert!(paths.is_empty());
+    }
+
+    // Phase 84 — video + audio extension coverage
+
+    #[test]
+    fn extract_media_paths_detects_video_extensions() {
+        let d = TempDir::new().unwrap();
+        let mp4  = make_tmp(&d, "clip.mp4");
+        let webm = make_tmp(&d, "clip.webm");
+        let mkv  = make_tmp(&d, "clip.mkv");
+        let msg  = format!("{} {} {}", mp4.display(), webm.display(), mkv.display());
+        let paths = extract_media_paths(&msg);
+        assert_eq!(paths.len(), 3, "mp4/webm/mkv must all be detected");
+    }
+
+    #[test]
+    fn nonexistent_video_files_return_empty() {
+        // Non-existent files are filtered out regardless of extension.
+        assert!(extract_media_paths("/no/such/video.mp4").is_empty());
+        assert!(extract_media_paths("/no/such/clip.webm").is_empty());
+        assert!(extract_media_paths("/no/such/film.mkv").is_empty());
+    }
+
+    #[test]
+    fn extract_media_paths_detects_audio_extensions() {
+        let d = TempDir::new().unwrap();
+        let wav = make_tmp(&d, "speech.wav");
+        let mp3 = make_tmp(&d, "music.mp3");
+        let msg = format!("{} {}", wav.display(), mp3.display());
+        let paths = extract_media_paths(&msg);
+        assert_eq!(paths.len(), 2, "wav/mp3 must be detected for audio fallback logic");
+    }
+
+    #[test]
+    fn video_and_audio_mixed_with_image() {
+        let d = TempDir::new().unwrap();
+        let img  = make_tmp(&d, "photo.png");
+        let vid  = make_tmp(&d, "demo.mp4");
+        let aud  = make_tmp(&d, "voice.wav");
+        let msg  = format!("check {} and {} and {}", img.display(), vid.display(), aud.display());
+        let paths = extract_media_paths(&msg);
+        assert_eq!(paths.len(), 3, "image + video + audio should all be detected together");
     }
 }

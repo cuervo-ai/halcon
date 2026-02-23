@@ -335,14 +335,20 @@ impl ModelSelector {
                 .take(REPETITION_WINDOW)
                 .all(|id| id == &current.model_id);
 
+        let current_reward = self.avg_reward_for(&current.model_id);
+
         let result = if should_diversify {
-            // Find the best alternative (highest avg_reward above floor, excluding current).
+            // Find the best alternative (highest avg_reward, above the quality floor AND
+            // strictly better than the repeating model). The second condition prevents
+            // swapping from a proven high-reward model (e.g. 0.95) to an untracked model
+            // with the neutral prior (0.5) — which would cause A→B→A oscillation when both
+            // models get selected consecutively enough to re-trigger the guard.
             let alternative = candidates
                 .iter()
                 .filter(|m| m.id != current.model_id)
                 .filter_map(|m| {
                     let reward = self.avg_reward_for(&m.id);
-                    if reward >= DIVERSITY_MIN_REWARD {
+                    if reward >= DIVERSITY_MIN_REWARD && reward > current_reward {
                         Some((m, reward))
                     } else {
                         None

@@ -48,6 +48,8 @@ pub struct FeatureStatus {
     pub multimodal_enabled: bool,
     /// Whether LoopCritic adversarial evaluation is active (adds ~1-3s per loop).
     pub loop_critic_enabled: bool,
+    /// Whether a project-level HALCON.md was found in the working directory.
+    pub project_config: bool,
 }
 
 impl Default for FeatureStatus {
@@ -61,6 +63,7 @@ impl Default for FeatureStatus {
             background_tools_enabled: true,
             multimodal_enabled: false,
             loop_critic_enabled: false,
+            project_config: false,
         }
     }
 }
@@ -208,12 +211,13 @@ pub fn render_startup_with_features(
 
         let _ = writeln!(
             out,
-            "  {}  {}  {}  {}  {}  {muted}{tools_lbl}{r}",
+            "  {}  {}  {}  {}  {}  {}  {muted}{tools_lbl}{r}",
             dot(features.tui_active, "TUI"),
             dot(features.context_pipeline_active, "L0-L4"),
             dot(features.reasoning_enabled, "Reasoning"),
             dot(features.orchestrator_enabled, "Orchestrator"),
             dot(features.multimodal_enabled, "Multimodal"),
+            dot(features.project_config, "project cfg"),
         );
     }
 
@@ -349,6 +353,7 @@ mod tests {
             background_tools_enabled: true,
             multimodal_enabled: true,
             loop_critic_enabled: true,
+            project_config: true,
         };
         render_startup_with_features(
             "0.2.0",
@@ -374,6 +379,7 @@ mod tests {
             background_tools_enabled: false,
             multimodal_enabled: false,
             loop_critic_enabled: false,
+            project_config: false,
         };
         render_startup_with_features(
             "0.2.0",

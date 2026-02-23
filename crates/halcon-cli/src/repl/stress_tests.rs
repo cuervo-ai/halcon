@@ -125,7 +125,10 @@ fn test_event_tx() -> (halcon_core::EventSender, halcon_core::EventReceiver) {
     halcon_core::event_bus(64)
 }
 
-static TEST_SINK: std::sync::LazyLock<SilentSink> = std::sync::LazyLock::new(SilentSink::new);
+// NOTE: TEST_SINK removed (FASE H / Parallelism Hardening).
+// SilentSink.stream_reset() calls self.text.lock().unwrap().clear() — clearing
+// the shared text buffer for all concurrent tests.  Box::leak per test_ctx call.
+// See agent/tests.rs comment for full rationale.
 
 static TEST_PLANNING_CONFIG: std::sync::LazyLock<halcon_core::types::PlanningConfig> =
     std::sync::LazyLock::new(halcon_core::types::PlanningConfig::default);
@@ -133,8 +136,9 @@ static TEST_PLANNING_CONFIG: std::sync::LazyLock<halcon_core::types::PlanningCon
 static TEST_ORCH_CONFIG: std::sync::LazyLock<halcon_core::types::OrchestratorConfig> =
     std::sync::LazyLock::new(halcon_core::types::OrchestratorConfig::default);
 
-static TEST_SPECULATOR: std::sync::LazyLock<super::tool_speculation::ToolSpeculator> =
-    std::sync::LazyLock::new(super::tool_speculation::ToolSpeculator::new);
+// NOTE: TEST_SPECULATOR removed (FASE H / Parallelism Hardening).
+// See agent/tests.rs comment for full rationale. test_ctx now uses
+// Box::leak(Box::new(ToolSpeculator::new())) for per-call isolation.
 
 static TEST_SECURITY_CONFIG: std::sync::LazyLock<halcon_core::types::SecurityConfig> =
     std::sync::LazyLock::new(halcon_core::types::SecurityConfig::default);
@@ -195,7 +199,7 @@ fn test_ctx<'a>(
         planner: None,
         guardrails: &[],
         reflector: None,
-        render_sink: &*TEST_SINK,
+        render_sink: Box::leak(Box::new(SilentSink::new())),
         replay_tool_executor: None,
         phase14: Phase14Context::default(),
         model_selector: None,
@@ -208,12 +212,13 @@ fn test_ctx<'a>(
         context_metrics: None,
         context_manager: None,
         ctrl_rx: None,
-        speculator: &*TEST_SPECULATOR,
+        speculator: Box::leak(Box::new(super::tool_speculation::ToolSpeculator::new())),
         security_config: &*TEST_SECURITY_CONFIG,
         strategy_context: None,
         critic_provider: None,
         critic_model: None,
         plugin_registry: None,
+        is_sub_agent: false,
     }
 }
 
@@ -281,6 +286,7 @@ async fn parallel_tool_batch_10_concurrent() {
         })
         .collect();
 
+    let batch_sink = SilentSink::new(); // fresh per-call sink (FASE H)
     let results = executor::execute_parallel_batch(
         &batch,
         &tool_reg,
@@ -292,7 +298,7 @@ async fn parallel_tool_batch_10_concurrent() {
         &mut trace_step,
         10,
         &exec_config,
-        &*TEST_SINK,
+        &batch_sink,
         None,
     )
     .await;
@@ -340,6 +346,7 @@ async fn large_tool_output_truncation() {
         input: json!({"path": "/tmp/stress_large.txt"}),
     }];
 
+    let batch_sink = SilentSink::new(); // fresh per-call sink (FASE H)
     let results = executor::execute_parallel_batch(
         &batch,
         &tool_reg,
@@ -351,7 +358,7 @@ async fn large_tool_output_truncation() {
         &mut trace_step,
         1,
         &exec_config,
-        &*TEST_SINK,
+        &batch_sink,
         None,
     )
     .await;
@@ -698,6 +705,7 @@ async fn empty_malformed_tool_results() {
         },
     ];
 
+    let batch_sink = SilentSink::new(); // fresh per-call sink (FASE H)
     let results = executor::execute_parallel_batch(
         &batch,
         &tool_reg,
@@ -709,7 +717,7 @@ async fn empty_malformed_tool_results() {
         &mut trace_step,
         4,
         &exec_config,
-        &*TEST_SINK,
+        &batch_sink,
         None,
     )
     .await;

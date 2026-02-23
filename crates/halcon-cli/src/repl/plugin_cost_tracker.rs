@@ -123,12 +123,25 @@ impl PluginCostTracker {
     }
 
     /// Record one completed invocation.
+    ///
+    /// Uses saturating arithmetic for integer fields to prevent wrap-around on
+    /// pathological inputs. For the USD field, non-finite values (NaN, ±Inf) from
+    /// a misbehaving plugin are silently ignored to keep the tracker consistent.
     pub fn record_call(&mut self, tokens: u64, usd: f64, success: bool) {
-        self.calls_made += 1;
-        self.tokens_used += tokens;
-        self.usd_spent += usd;
+        self.calls_made = self.calls_made.saturating_add(1);
+        self.tokens_used = self.tokens_used.saturating_add(tokens);
+        // Guard against NaN / Inf from a buggy plugin cost estimate.
+        if usd.is_finite() {
+            self.usd_spent += usd;
+        } else {
+            tracing::warn!(
+                plugin_id = %self.plugin_id,
+                usd = %usd,
+                "Non-finite USD cost from plugin — ignoring to prevent tracker corruption"
+            );
+        }
         if !success {
-            self.calls_failed += 1;
+            self.calls_failed = self.calls_failed.saturating_add(1);
         }
     }
 
@@ -195,5 +208,85 @@ mod tests {
         assert_eq!(snap.tokens_used, 50);
         assert_eq!(snap.calls_made, 1);
         assert_eq!(snap.calls_failed, 0);
+    }
+
+    // ── Audit fixes: saturating arithmetic + finite USD validation ─────────────
+
+    #[test]
+    fn record_call_saturating_add_tokens_no_overflow() {
+        // Audit fix: tokens_used uses saturating_add to prevent u64 wraparound.
+        // A misbehaving plugin reporting u64::MAX tokens must not corrupt the counter.
+        let mut tracker = PluginCostTracker::unlimited("overflow-tokens".into());
+        tracker.tokens_used = u64::MAX - 1;
+        tracker.record_call(u64::MAX, 0.0, true);
+        assert_eq!(
+            tracker.tokens_used,
+            u64::MAX,
+            "tokens_used must saturate at u64::MAX, not wrap to 0"
+        );
+    }
+
+    #[test]
+    fn record_call_saturating_add_calls_no_overflow() {
+        // Audit fix: calls_made uses saturating_add to prevent u32 wraparound.
+        let mut tracker = PluginCostTracker::unlimited("overflow-calls".into());
+        tracker.calls_made = u32::MAX;
+        tracker.record_call(0, 0.0, true);
+        assert_eq!(
+            tracker.calls_made,
+            u32::MAX,
+            "calls_made must saturate at u32::MAX, not wrap to 0"
+        );
+    }
+
+    #[test]
+    fn record_call_saturating_add_failures_no_overflow() {
+        // Audit fix: calls_failed uses saturating_add to prevent u32 wraparound.
+        let mut tracker = PluginCostTracker::unlimited("overflow-failures".into());
+        tracker.calls_failed = u32::MAX;
+        tracker.record_call(0, 0.0, false); // failure
+        assert_eq!(
+            tracker.calls_failed,
+            u32::MAX,
+            "calls_failed must saturate at u32::MAX, not wrap to 0"
+        );
+    }
+
+    #[test]
+    fn record_call_ignores_nan_usd() {
+        // Audit fix: NaN USD from a buggy plugin must NOT corrupt usd_spent.
+        // Previously usd_spent += NaN would propagate NaN to all subsequent checks.
+        let mut tracker = PluginCostTracker::unlimited("nan-usd".into());
+        tracker.record_call(0, f64::NAN, true);
+        assert_eq!(tracker.usd_spent, 0.0, "NaN USD must be ignored, not accumulated");
+    }
+
+    #[test]
+    fn record_call_ignores_positive_infinity_usd() {
+        // +Inf USD must be rejected — it would make usd_spent permanently infinite.
+        let mut tracker = PluginCostTracker::unlimited("inf-usd".into());
+        tracker.record_call(0, f64::INFINITY, true);
+        assert_eq!(tracker.usd_spent, 0.0, "+Inf USD must be ignored");
+    }
+
+    #[test]
+    fn record_call_ignores_negative_infinity_usd() {
+        // -Inf USD must also be rejected — it would make usd_spent permanently negative infinite.
+        let mut tracker = PluginCostTracker::unlimited("neg-inf-usd".into());
+        tracker.record_call(0, f64::NEG_INFINITY, true);
+        assert_eq!(tracker.usd_spent, 0.0, "-Inf USD must be ignored");
+    }
+
+    #[test]
+    fn record_call_finite_usd_still_accumulates_after_non_finite() {
+        // Regression guard: after rejecting non-finite values, finite values must still work.
+        let mut tracker = PluginCostTracker::unlimited("mixed-usd".into());
+        tracker.record_call(0, f64::NAN, true);      // rejected
+        tracker.record_call(0, f64::INFINITY, true); // rejected
+        tracker.record_call(0, 0.05, true);           // must accumulate
+        assert!(
+            (tracker.usd_spent - 0.05).abs() < 1e-10,
+            "finite USD must accumulate normally even after non-finite values were rejected"
+        );
     }
 }

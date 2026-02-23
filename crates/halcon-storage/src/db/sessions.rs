@@ -136,6 +136,23 @@ impl Database {
         Ok(())
     }
 
+    /// Set a session title only if one is not already stored (idempotent / no clobber).
+    ///
+    /// Used by `session_manager` to auto-derive a title from the first user message
+    /// without overwriting a manually-assigned title.
+    pub fn update_session_title(&self, id: Uuid, title: &str) -> Result<()> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| HalconError::DatabaseError(e.to_string()))?;
+        conn.execute(
+            "UPDATE sessions SET title = ?2 WHERE id = ?1 AND title IS NULL",
+            rusqlite::params![id.to_string(), title],
+        )
+        .map_err(|e| HalconError::DatabaseError(format!("update session title: {e}")))?;
+        Ok(())
+    }
+
     fn row_to_session(row: &rusqlite::Row) -> Result<Session> {
         let id_str: String = row
             .get(0)

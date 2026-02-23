@@ -31,6 +31,11 @@ pub struct FeatureFlags {
 impl FeatureFlags {
     /// Apply CLI flag overrides to a mutable config.
     pub fn apply(&self, config: &mut halcon_core::types::AppConfig) {
+        // Orchestration, adaptive planning, and task framework are always-on baseline behaviors.
+        config.orchestrator.enabled = true;
+        config.planning.adaptive = true;
+        config.task_framework.enabled = true;
+
         if self.full || self.orchestrate {
             config.orchestrator.enabled = true;
             // CRITICAL FIX: Orchestrator requires planning to generate execution plans.
@@ -53,11 +58,22 @@ impl FeatureFlags {
             // Requires API key (ANTHROPIC_API_KEY / OPENAI_API_KEY) at runtime;
             // init is non-fatal if unavailable.
             config.multimodal.enabled = true;
+            // Activate V3 plugin system — scans ~/.halcon/plugins/*.plugin.toml on first message.
+            // Plugins add tools to ToolRegistry so the model can invoke them natively.
+            config.plugins.enabled = true;
         }
         if self.full || self.expert {
             // Activate LoopCritic adversarial post-loop evaluation.
             // Adds ~1-3s latency per agent loop but closes the G2 self-evaluation gap.
             config.reasoning.enable_loop_critic = true;
+            // Activate ReasoningEngine + UCB1 strategy learning.
+            // Without this, loop_critic verdicts are computed but never fed back into
+            // the UCB1 selector (reasoning_engine = None → post_loop_with_reward never called).
+            // This closes the G3 audit gap: --expert now has a coherent meta-cognitive loop.
+            config.reasoning.enabled = true;
+            // Activate structural enforcement in TaskBridge (DAG violation halt, strict mode).
+            // This was defined in Phase 69 but never wired to any CLI flag — dead code.
+            config.task_framework.strict_enforcement = true;
         }
     }
 
@@ -279,6 +295,15 @@ pub async fn run(
         }
     }
 
+    // Wire MediaContextSource into context pipeline so analyzed images are retrievable
+    // in subsequent conversation turns (closes Phase 83 gap: context source was never wired).
+    if let Some(ref mm) = repl.multimodal {
+        if let Some(ref mut cm) = repl.context_manager {
+            cm.add_source(Box::new(mm.context_source()));
+            tracing::info!("MediaContextSource wired into context pipeline (priority=55)");
+        }
+    }
+
     match prompt {
         Some(p) => {
             // Single prompt with full agent loop (tools, context, resilience).
@@ -319,7 +344,7 @@ fn print_exit_hooks(repl: &Repl, flags: &FeatureFlags) {
         let latency = s.total_latency_ms as f64 / 1000.0;
         eprintln!("\nSession Summary:");
         eprintln!(
-            "  Rounds: {} | Tokens: \u{2191}{}K \u{2193}{}K | Cost: ${:.4}",
+            "  Rounds: {} | Tokens: \u{2191}{} \u{2193}{} | Cost: ${:.4}",
             s.agent_rounds,
             format_k(s.total_usage.input_tokens),
             format_k(s.total_usage.output_tokens),
@@ -490,7 +515,7 @@ fn write_trace_jsonl(repl: &Repl, path: &std::path::Path) {
 /// Format a token count as "X.XK" for display.
 fn format_k(tokens: u32) -> String {
     if tokens >= 1000 {
-        format!("{:.1}", tokens as f64 / 1000.0)
+        format!("{:.1}K", tokens as f64 / 1000.0)
     } else {
         tokens.to_string()
     }
@@ -583,9 +608,9 @@ mod tests {
 
     #[test]
     fn format_k_above_thousand() {
-        assert_eq!(format_k(1000), "1.0");
-        assert_eq!(format_k(2100), "2.1");
-        assert_eq!(format_k(8400), "8.4");
+        assert_eq!(format_k(1000), "1.0K");
+        assert_eq!(format_k(2100), "2.1K");
+        assert_eq!(format_k(8400), "8.4K");
     }
 
     // --- Phase 42E: Expert mode tests ---
@@ -910,5 +935,52 @@ mod tests {
         let flags = FeatureFlags { full: true, ..Default::default() };
         flags.apply(&mut config);
         assert!(config.reasoning.enabled, "--full must enable reasoning (UCB1/ReasoningEngine)");
+    }
+
+    #[test]
+    fn full_flag_enables_plugins() {
+        let mut config = AppConfig::default();
+        assert!(!config.plugins.enabled, "plugins default to disabled");
+        let flags = FeatureFlags { full: true, ..Default::default() };
+        flags.apply(&mut config);
+        assert!(config.plugins.enabled, "--full must enable the V3 plugin system");
+    }
+
+    #[test]
+    fn non_full_flags_do_not_enable_plugins() {
+        // Plugin system requires explicit --full (or manual config.toml edit).
+        let flags = FeatureFlags { expert: true, orchestrate: true, tasks: true, ..Default::default() };
+        let mut config = AppConfig::default();
+        flags.apply(&mut config);
+        assert!(!config.plugins.enabled, "--expert/--orchestrate/--tasks must NOT auto-enable plugins");
+    }
+
+    // --- Audit Fix: --expert coherent meta-cognitive loop ---
+
+    #[test]
+    fn expert_flag_enables_reasoning_for_ucb1() {
+        // AUDIT FIX: previously --expert activated loop_critic but reasoning_engine was None
+        // because config.reasoning.enabled was never set. UCB1 learning was dead even with
+        // --expert. Now --expert enables both so the full meta-cognitive loop is coherent.
+        let mut config = AppConfig::default();
+        config.reasoning.enabled = false;
+        let flags = FeatureFlags { expert: true, ..Default::default() };
+        flags.apply(&mut config);
+        assert!(config.reasoning.enabled, "--expert must enable reasoning/UCB1 (loop_critic needs an engine)");
+        assert!(config.reasoning.enable_loop_critic, "--expert must also enable loop_critic");
+    }
+
+    #[test]
+    fn expert_flag_enables_strict_enforcement() {
+        // AUDIT FIX: strict_enforcement was defined (Phase 69) and documented as activated by
+        // --expert but was never set by any CLI code. Dead config field. Now wired.
+        let mut config = AppConfig::default();
+        assert!(!config.task_framework.strict_enforcement, "strict_enforcement defaults to false");
+        let flags = FeatureFlags { expert: true, ..Default::default() };
+        flags.apply(&mut config);
+        assert!(
+            config.task_framework.strict_enforcement,
+            "--expert must enable strict_enforcement (DAG violation halt, cascade halt, planner strict mode)"
+        );
     }
 }

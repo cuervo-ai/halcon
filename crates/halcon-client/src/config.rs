@@ -41,12 +41,16 @@ impl ClientConfig {
     }
 
     /// WebSocket URL derived from the base HTTP URL.
+    ///
+    /// The token is **not** embedded in the URL (query parameter tokens are
+    /// rejected by the server to prevent token leakage in logs). Use the
+    /// `Authorization: Bearer` header instead — see `EventStream::connect`.
     pub fn ws_url(&self) -> String {
         let base = self
             .base_url
             .replace("http://", "ws://")
             .replace("https://", "wss://");
-        format!("{base}/ws/events?token={}", self.auth_token)
+        format!("{base}/ws/events")
     }
 
     /// Full API URL for a given path.

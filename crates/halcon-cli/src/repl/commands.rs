@@ -58,6 +58,31 @@ pub enum CommandResult {
     Optimize,
     /// Deep analysis of model/tool statistics.
     Analyze,
+
+    // --- Phase 94: Project Onboarding ---
+
+    /// Initialize project onboarding — generate HALCON.md + .halcon/config.toml.
+    Init { dry_run: bool, refresh: bool },
+
+    // --- Phase 95: Plugin Auto-Implantation ---
+
+    /// Plugin system management.
+    Plugins(PluginsSubcmd),
+}
+
+/// Subcommand for /plugins.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PluginsSubcmd {
+    /// List all loaded plugins with UCB1 reward and circuit-breaker state.
+    Status,
+    /// Show tiered recommendations for the current project.
+    Suggest,
+    /// Auto-install Essential + Recommended plugins (--dry-run to preview).
+    Auto { dry_run: bool },
+    /// Suspend a plugin by ID.
+    Disable(String),
+    /// Resume a suspended plugin by ID.
+    Enable(String),
 }
 
 /// Subsystem targets for /inspect.
@@ -148,6 +173,33 @@ pub fn handle(input: &str, provider: &str, model: &str) -> CommandResult {
         "benchmark" | "bench" => handle_benchmark(args),
         "optimize" | "opt" => CommandResult::Optimize,
         "analyze" => CommandResult::Analyze,
+
+        // --- Phase 94: Project Onboarding ---
+        "init" | "setup" => {
+            let rest = args;
+            let dry_run = rest.contains("--dry-run");
+            let refresh = rest.contains("--refresh");
+            CommandResult::Init { dry_run, refresh }
+        }
+
+        // --- Phase 95: Plugin Management ---
+        "plugins" | "plugin" => {
+            let sub = args.trim();
+            let subcmd = if sub.is_empty() || sub == "status" {
+                PluginsSubcmd::Status
+            } else if sub == "suggest" {
+                PluginsSubcmd::Suggest
+            } else if sub.starts_with("auto") {
+                PluginsSubcmd::Auto { dry_run: sub.contains("--dry-run") }
+            } else if let Some(id) = sub.strip_prefix("disable ") {
+                PluginsSubcmd::Disable(id.trim().to_string())
+            } else if let Some(id) = sub.strip_prefix("enable ") {
+                PluginsSubcmd::Enable(id.trim().to_string())
+            } else {
+                PluginsSubcmd::Status
+            };
+            CommandResult::Plugins(subcmd)
+        }
 
         // --- Phase 42D: Quick aliases ---
         "why" => CommandResult::Inspect(InspectTarget::Reasoning),
@@ -958,6 +1010,33 @@ mod tests {
         ));
     }
 
+    // --- Phase 94: Init command tests ---
+
+    #[test]
+    fn init_command_parses_dry_run_flag() {
+        match handle("init --dry-run", "p", "m") {
+            CommandResult::Init { dry_run, refresh } => {
+                assert!(dry_run, "should set dry_run=true");
+                assert!(!refresh, "should default refresh=false");
+            }
+            other => panic!("Expected Init, got {other:?}"),
+        }
+        match handle("init", "p", "m") {
+            CommandResult::Init { dry_run, refresh } => {
+                assert!(!dry_run, "should default dry_run=false");
+                assert!(!refresh, "should default refresh=false");
+            }
+            other => panic!("Expected Init, got {other:?}"),
+        }
+        match handle("setup --refresh", "p", "m") {
+            CommandResult::Init { dry_run, refresh } => {
+                assert!(!dry_run);
+                assert!(refresh, "should set refresh=true");
+            }
+            other => panic!("Expected Init (via setup alias), got {other:?}"),
+        }
+    }
+
     #[test]
     fn inspect_cost_target() {
         assert!(matches!(
@@ -968,5 +1047,51 @@ mod tests {
             handle("inspect cost-metrics", "p", "m"),
             CommandResult::Inspect(InspectTarget::CostMetrics)
         ));
+    }
+
+    #[test]
+    fn plugins_suggest_parses() {
+        assert!(matches!(
+            handle("plugins suggest", "p", "m"),
+            CommandResult::Plugins(PluginsSubcmd::Suggest)
+        ));
+    }
+
+    #[test]
+    fn plugins_auto_dry_run_parses() {
+        match handle("plugins auto --dry-run", "p", "m") {
+            CommandResult::Plugins(PluginsSubcmd::Auto { dry_run }) => {
+                assert!(dry_run, "should set dry_run=true");
+            }
+            other => panic!("Expected Plugins(Auto), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn plugins_status_default() {
+        assert!(matches!(
+            handle("plugins", "p", "m"),
+            CommandResult::Plugins(PluginsSubcmd::Status)
+        ));
+        assert!(matches!(
+            handle("plugin status", "p", "m"),
+            CommandResult::Plugins(PluginsSubcmd::Status)
+        ));
+    }
+
+    #[test]
+    fn plugins_disable_enable_parses() {
+        match handle("plugins disable my-plugin", "p", "m") {
+            CommandResult::Plugins(PluginsSubcmd::Disable(id)) => {
+                assert_eq!(id, "my-plugin");
+            }
+            other => panic!("Expected Plugins(Disable), got {other:?}"),
+        }
+        match handle("plugins enable my-plugin", "p", "m") {
+            CommandResult::Plugins(PluginsSubcmd::Enable(id)) => {
+                assert_eq!(id, "my-plugin");
+            }
+            other => panic!("Expected Plugins(Enable), got {other:?}"),
+        }
     }
 }

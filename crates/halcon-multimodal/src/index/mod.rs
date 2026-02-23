@@ -35,6 +35,7 @@ impl MediaIndex {
         embedding:     Vec<f32>,
         session_id:    Option<String>,
         source_path:   Option<String>,
+        description:   Option<String>,
     ) -> Result<()> {
         let dim = embedding.len() as i64;
         let entry = MediaIndexEntry {
@@ -48,6 +49,7 @@ impl MediaIndex {
             session_id,
             source_path,
             created_at:      Utc::now().to_rfc3339(),
+            description,
         };
         self.db.store_media_index_entry(&entry).await.map_err(Into::into)
     }
@@ -73,6 +75,7 @@ impl MediaIndex {
             session_id,
             source_path:     None,
             created_at:      Utc::now().to_rfc3339(),
+            description:     None,
         };
         self.db.store_media_index_entry(&entry).await.map_err(Into::into)
     }
@@ -104,7 +107,7 @@ mod tests {
     async fn store_and_search_roundtrip() {
         let index = test_index();
         let emb: Vec<f32> = (0..64).map(|i| i as f32 / 64.0).collect();
-        index.store("hash1".into(), "image".into(), emb.clone(), None, None).await.unwrap();
+        index.store("hash1".into(), "image".into(), emb.clone(), None, None, None).await.unwrap();
         let results = index.search(emb, Some("image".into()), 5).await.unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].content_hash, "hash1");
@@ -115,7 +118,7 @@ mod tests {
         let index = test_index();
         let emb: Vec<f32> = vec![1.0; 64];
         for (hash, modality) in [("h1", "image"), ("h2", "audio")] {
-            index.store(hash.into(), modality.into(), emb.clone(), None, None).await.unwrap();
+            index.store(hash.into(), modality.into(), emb.clone(), None, None, None).await.unwrap();
         }
         let audio_results = index.search(emb.clone(), Some("audio".into()), 10).await.unwrap();
         assert_eq!(audio_results.len(), 1);
@@ -132,5 +135,33 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].clip_start_secs, Some(0.0));
         assert_eq!(results[0].clip_end_secs, Some(5.0));
+    }
+
+    #[tokio::test]
+    async fn store_with_description_roundtrip() {
+        let index = test_index();
+        let emb: Vec<f32> = (0..64).map(|i| i as f32 / 64.0).collect();
+        let desc = "A mountain landscape with snow-capped peaks".to_string();
+        index.store(
+            "desc_hash".into(), "image".into(), emb.clone(),
+            None, None, Some(desc.clone()),
+        ).await.unwrap();
+        let results = index.search(emb, Some("image".into()), 1).await.unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].description, Some(desc));
+    }
+
+    #[tokio::test]
+    async fn search_returns_description() {
+        let index = test_index();
+        let emb: Vec<f32> = vec![0.7; 64];
+        let desc = "A cat sitting on a windowsill".to_string();
+        index.store(
+            "cat_hash".into(), "image".into(), emb.clone(),
+            None, Some("/photos/cat.jpg".into()), Some(desc.clone()),
+        ).await.unwrap();
+        let results = index.search(emb, None, 5).await.unwrap();
+        assert!(!results.is_empty());
+        assert_eq!(results[0].description, Some(desc));
     }
 }

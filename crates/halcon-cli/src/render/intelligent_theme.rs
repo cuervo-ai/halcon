@@ -28,10 +28,17 @@
 //! ```
 
 use momoto_core::{Color, OKLCH};
+use momoto_core::space::hct::HCT;
 use momoto_intelligence::{
     AdvancedScore, AdvancedScorer, ComplianceTarget, QualityScore,
     QualityScorer, Recommendation, RecommendationContext, RecommendationEngine,
     RecommendationExplanation, TechnicalDetails, UsageContext,
+};
+use momoto_intelligence::{
+    ColorConstraint, ConstraintKind, ConstraintSolver, SolverConfig, SolverResult,
+    HarmonyType,
+    generate_palette as harmony_gen,
+    harmony_score as harmony_score_fn,
 };
 
 use super::terminal_caps::{ColorLevel, TerminalCapabilities};
@@ -313,6 +320,8 @@ impl IntelligentPaletteBuilder {
             quality_report,
             explanation,
             base_hue,
+            harmony_score: 0.0,
+            solver_result: None,
         })
     }
 
@@ -562,6 +571,165 @@ impl IntelligentPaletteBuilder {
         advanced_scores
     }
 
+    // =========================================================================
+    // Constraint Solver + Harmony Engine + HCT
+    // =========================================================================
+
+    /// Generate a palette via Harmony Engine → ConstraintSolver pipeline.
+    ///
+    /// 1. Selects hues from `harmony` type rooted at `base_hue`.
+    /// 2. Applies formal WCAG/APCA/gamut/lightness constraints via penalty solver.
+    /// 3. Returns palette with `harmony_score` and `solver_result` populated.
+    pub fn generate_constrained(
+        &self,
+        base_hue: f64,
+        harmony: HarmonyType,
+        dark_mode: bool,
+    ) -> Option<PaletteWithMetadata> {
+        // Step 1: Generate harmony palette in OKLCH space
+        let seed = OKLCH::new(0.65, 0.18, base_hue);
+        let harmony_palette = harmony_gen(seed, harmony);
+        let score = harmony_score_fn(&harmony_palette.colors);
+
+        // Step 2: Extract OKLCH candidates from harmony palette
+        let bg_l = if dark_mode { 0.17 } else { 0.95 };
+        let bg_panel = OKLCH::new(bg_l, 0.02, base_hue);
+
+        // Build color list: [bg_panel, text, accent, running, planning, error]
+        let mut colors: Vec<OKLCH> = vec![bg_panel];
+        let text_l = if dark_mode { 0.92 } else { 0.10 };
+        colors.push(OKLCH::new(text_l, 0.01, base_hue));       // text (idx 1)
+        for color in harmony_palette.colors.iter().take(4) {   // accent, running, planning, error
+            colors.push(*color);
+        }
+
+        // Step 3: Apply constraint solver
+        let solver_result = self.apply_solver_constraints(colors, bg_panel);
+
+        // Step 4: Reconstruct Palette using solved colors
+        let bg_color = solver_result.colors.first().copied().unwrap_or(bg_panel);
+        let text_color = solver_result.colors.get(1).copied()
+            .unwrap_or(OKLCH::new(text_l, 0.01, base_hue));
+        let accent_color = solver_result.colors.get(2).copied()
+            .unwrap_or(OKLCH::new(0.72, 0.15, base_hue));
+
+        let bg_tc    = ThemeColor::oklch(bg_color.l, bg_color.c, bg_color.h);
+        let text_tc  = ThemeColor::oklch(text_color.l, text_color.c, text_color.h);
+        let accent_tc = ThemeColor::oklch(accent_color.l, accent_color.c, accent_color.h);
+
+        // Fall back to generate_from_hue for any tokens not covered by solver
+        let base_meta = self.generate_from_hue(base_hue)?;
+
+        let mut palette = base_meta.palette;
+        palette.bg_panel = bg_tc;
+        palette.text = text_tc;
+        palette.accent = accent_tc;
+        palette.primary = accent_tc;
+
+        let quality_report = self.assess_palette(&palette);
+
+        let solver_report = SolverReport {
+            converged: solver_result.converged,
+            iterations: solver_result.iterations,
+            final_penalty: solver_result.final_penalty,
+            violations: solver_result.violations.iter()
+                .map(|v| v.description.clone())
+                .collect(),
+        };
+
+        Some(PaletteWithMetadata {
+            palette,
+            quality_report,
+            explanation: base_meta.explanation,
+            base_hue,
+            harmony_score: score,
+            solver_result: Some(solver_report),
+        })
+    }
+
+    /// Apply ConstraintSolver to a list of OKLCH colors.
+    ///
+    /// Constraints applied:
+    /// - MinAPCA(text idx=1, bg idx=0, Lc=75) — body text
+    /// - MinContrast(accent idx=2, bg idx=0, 4.5) — WCAG AA
+    /// - InGamut for every color
+    /// - LightnessRange(bg idx=0, 0.12, 0.22) for dark mode
+    fn apply_solver_constraints(
+        &self,
+        colors: Vec<OKLCH>,
+        _bg_panel: OKLCH,
+    ) -> SolverResult {
+        let constraints = vec![
+            // text (idx 1) vs bg (idx 0): APCA Lc ≥ 75
+            ColorConstraint {
+                color_idx: 1,
+                kind: ConstraintKind::MinAPCA { other_idx: 0, target: 75.0 },
+            },
+            // accent (idx 2) vs bg (idx 0): WCAG AA
+            ColorConstraint {
+                color_idx: 2,
+                kind: ConstraintKind::MinContrast { other_idx: 0, target: 4.5 },
+            },
+            // bg lightness in dark-panel range
+            ColorConstraint {
+                color_idx: 0,
+                kind: ConstraintKind::LightnessRange { min: 0.12, max: 0.22 },
+            },
+            // gamut for all
+            ColorConstraint { color_idx: 0, kind: ConstraintKind::InGamut },
+            ColorConstraint { color_idx: 1, kind: ConstraintKind::InGamut },
+            ColorConstraint { color_idx: 2, kind: ConstraintKind::InGamut },
+        ];
+
+        let mut solver = ConstraintSolver::new(colors, constraints, SolverConfig::default());
+        solver.solve()
+    }
+
+    /// Generate a Material Design 3 tonal palette using HCT color space.
+    ///
+    /// Generates roles following MD3 tone guidelines:
+    /// - Primary: tone 40 (dark) / 80 (light)
+    /// - Secondary: tone 35 / 70
+    /// - Neutral: tone 17, 22, 90
+    /// - Error: hue 25°, tone 40 / 80
+    pub fn generate_hct_palette(&self, seed_hex: &str) -> Option<Palette> {
+        use momoto_core::color::cvd::parse_hex;
+
+        let seed_color = parse_hex(seed_hex)?;
+        let seed_hct = HCT::from_color(&seed_color);
+        let base_hue = seed_hct.hue;
+        let base_chroma = seed_hct.chroma.max(30.0); // Ensure minimum chroma
+
+        // Helper: HCT → ThemeColor
+        let hct_to_tc = |h: f64, c: f64, t: f64| -> ThemeColor {
+            let color = HCT::new(h, c, t).to_color();
+            let [r, g, b] = color.to_srgb8();
+            ThemeColor::rgb(r, g, b)
+        };
+
+        // Build a palette from HCT tonal roles
+        let base_meta = self.generate_from_hue(base_hue)?;
+        let mut palette = base_meta.palette;
+
+        // Primary tones (dark mode: tone 80, light would be 40)
+        palette.primary      = hct_to_tc(base_hue, base_chroma, 80.0);
+        palette.accent       = hct_to_tc(base_hue + 60.0, base_chroma * 0.8, 70.0);
+        palette.text         = hct_to_tc(base_hue, 4.0, 90.0);
+        palette.text_dim     = hct_to_tc(base_hue, 4.0, 70.0);
+        palette.bg_panel     = hct_to_tc(base_hue, 4.0, 17.0);
+        palette.bg_highlight = hct_to_tc(base_hue, 4.0, 22.0);
+        palette.error        = hct_to_tc(25.0, 84.0, 80.0);
+
+        // Cockpit semantic tokens using secondary hue (H+90°)
+        let sec_hue = base_hue + 90.0;
+        palette.running   = hct_to_tc(195.0, 60.0, 75.0); // Cyan tonal
+        palette.planning  = hct_to_tc(280.0, 55.0, 70.0); // Purple tonal
+        palette.reasoning = hct_to_tc(170.0, 50.0, 68.0); // Teal tonal
+        palette.delegated = hct_to_tc(sec_hue, 55.0, 65.0);
+
+        Some(palette)
+    }
+
     /// Generate palette optimized for detected terminal color capabilities.
     ///
     /// Automatically detects terminal color support and generates an optimized
@@ -746,7 +914,9 @@ impl IntelligentPaletteBuilder {
             palette,
             quality_report,
             explanation,
-            base_hue: 0.0, // Hue irrelevant for grayscale
+            base_hue: 0.0,
+            harmony_score: 0.0,
+            solver_result: None,
         })
     }
 }
@@ -755,6 +925,19 @@ impl Default for IntelligentPaletteBuilder {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Summary of a constraint solver run for palette generation.
+#[derive(Debug, Clone)]
+pub struct SolverReport {
+    /// Whether the solver converged within the penalty threshold.
+    pub converged: bool,
+    /// Number of gradient-descent iterations executed.
+    pub iterations: usize,
+    /// Final total penalty (lower = better; 0.0 = fully satisfied).
+    pub final_penalty: f64,
+    /// Human-readable descriptions of remaining violations.
+    pub violations: Vec<String>,
 }
 
 /// A palette with quality metadata and explanations.
@@ -768,6 +951,10 @@ pub struct PaletteWithMetadata {
     pub explanation: RecommendationExplanation,
     /// Base hue used for generation (0-360°).
     pub base_hue: f64,
+    /// Chromatic harmony score [0, 1] (higher = more coherent palette).
+    pub harmony_score: f64,
+    /// Constraint solver result, if `generate_constrained` was used.
+    pub solver_result: Option<SolverReport>,
 }
 
 impl PaletteWithMetadata {
@@ -1262,6 +1449,8 @@ mod tests {
             quality_report: builder.assess_palette(&palette),
             explanation: create_mock_explanation(),
             base_hue: 210.0,
+            harmony_score: 0.0,
+            solver_result: None,
         };
 
         // Compute advanced scores

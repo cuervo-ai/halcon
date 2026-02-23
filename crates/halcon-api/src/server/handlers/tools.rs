@@ -60,9 +60,31 @@ pub async fn tool_history(
     if !tool_states.contains_key(&name) {
         return Err(ApiError::not_found(format!("tool '{name}' not found")));
     }
-    // TODO: Implement execution history storage.
-    // For now return empty list — will be backed by ring buffer in Phase 3.
-    Ok(Json(vec![]))
+
+    if let Some(ref db) = state.db {
+        let rows = db.inner().recent_tool_executions(&name, 50)
+            .map_err(|e| ApiError::internal(format!("tool history query: {e}")))?;
+        let records: Vec<ToolExecutionRecord> = rows
+            .into_iter()
+            .map(|r| {
+                let executed_at = chrono::DateTime::parse_from_rfc3339(&r.created_at)
+                    .map(|dt| dt.with_timezone(&chrono::Utc))
+                    .unwrap_or_else(|_| chrono::Utc::now());
+                ToolExecutionRecord {
+                    tool_name: r.tool_name,
+                    tool_use_id: String::new(),
+                    input_summary: r.input_summary.unwrap_or_default(),
+                    output_summary: String::new(),
+                    is_error: !r.success,
+                    duration_ms: r.duration_ms,
+                    executed_at,
+                }
+            })
+            .collect();
+        Ok(Json(records))
+    } else {
+        Ok(Json(vec![]))
+    }
 }
 
 /// Register a tool in the state tracker (called during server init).

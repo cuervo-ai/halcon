@@ -12,6 +12,8 @@
 
 use std::collections::{HashSet, VecDeque};
 
+use super::text_utils::extract_keywords;
+
 /// Per-round evaluation snapshot produced by [`RoundScorer`].
 ///
 /// Stored in [`AgentLoopResult::round_evaluations`] for reward-pipeline consumption.
@@ -51,10 +53,21 @@ const STAGNATION_ROUNDS: usize = 3;
 const MAX_HISTORY: usize = 20;
 
 // ── Weights for combined_score formula ──────────────────────────────────
+//
+// Weight rationale (updated post-audit):
+// - W_PROGRESS (0.45): Most important signal — plan completion delta is the ground truth
+//   of agent effectiveness. Raised from 0.35; dominates the blend.
+// - W_EFFICIENCY (0.30): Tool success rate is a reliable, objective metric. Unchanged.
+// - W_COHERENCE (0.10): Lexical keyword overlap between goal and round text is noisy —
+//   tool outputs (directory listings, file content) rarely contain goal vocabulary, causing
+//   systematic under-scoring even when the agent is on-task. Reduced from 0.20.
+// - W_TOKEN (0.15): Output/input token ratio provides a weak but unbiased signal. Unchanged.
+//
+// Sum: 0.45 + 0.30 + 0.10 + 0.15 = 1.00 ✓
 
-const W_PROGRESS: f32 = 0.35;
+const W_PROGRESS: f32 = 0.45;
 const W_EFFICIENCY: f32 = 0.30;
-const W_COHERENCE: f32 = 0.20;
+const W_COHERENCE: f32 = 0.10;
 const W_TOKEN: f32 = 0.15;
 const ANOMALY_PENALTY_PER_FLAG: f32 = 0.10;
 
@@ -147,8 +160,11 @@ impl RoundScorer {
         };
 
         // Token efficiency: output / input, capped at 1.0.
-        let token_efficiency = if input_tokens == 0 {
-            0.5 // neutral
+        // Text-only rounds (no tool calls) use neutral efficiency — a short correct
+        // answer is the right behavior for conversational tasks, not inefficiency
+        // (Phase L fix C3: prevents "hola" from scoring 0.56 due to 179/4384=0.041).
+        let token_efficiency = if input_tokens == 0 || tools_total == 0 {
+            0.5 // neutral: no tools ran this round, or no input
         } else {
             (output_tokens as f32 / input_tokens as f32).min(1.0)
         };
@@ -285,24 +301,6 @@ impl RoundScorer {
     pub fn score_vec(&self) -> Vec<f32> {
         self.history.iter().map(|e| e.combined_score).collect()
     }
-}
-
-/// Extract meaningful keywords from text for coherence scoring.
-///
-/// - Lowercases all text.
-/// - Splits on whitespace and common punctuation.
-/// - Filters single-character tokens, common stopwords, and very-short words.
-fn extract_keywords(text: &str) -> HashSet<String> {
-    const STOPWORDS: &[&str] = &[
-        "the", "and", "for", "with", "that", "this", "are", "was", "were", "will", "from",
-        "into", "not", "but", "all", "can", "its", "have", "been", "has", "had", "our", "your",
-        "their", "then", "than", "when", "what", "how", "use", "you", "also", "new",
-    ];
-
-    text.split(|c: char| c.is_whitespace() || ".,;:!?()[]{}<>\"'`-_/\\|@#$%^&*+=~".contains(c))
-        .map(|w| w.to_lowercase())
-        .filter(|w| w.len() >= 3 && !STOPWORDS.contains(&w.as_str()))
-        .collect()
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────

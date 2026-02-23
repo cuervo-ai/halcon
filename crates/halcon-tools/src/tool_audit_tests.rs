@@ -1494,7 +1494,7 @@ mod audit {
             let reg = crate::full_registry(&config, Some(proc_reg), None, None);
             let defs = reg.tool_definitions();
 
-            assert_eq!(defs.len(), 29, "expected 29 tools in full registry (with background, no search engine)");
+            assert_eq!(defs.len(), 61, "expected 61 tools in full registry (with background, no search engine)");
 
             let mut names: Vec<String> = defs.iter().map(|d| d.name.clone()).collect();
             for name in &names {
@@ -1596,16 +1596,16 @@ mod audit {
             }
         }
 
-        /// Verify default registry has 26 tools and full has 29.
+        /// Verify default registry has 58 tools and full (with background) has 61.
         #[test]
         fn registry_counts() {
             let config = ToolsConfig::default();
             let default_reg = crate::default_registry(&config);
-            assert_eq!(default_reg.tool_definitions().len(), 26);
+            assert_eq!(default_reg.tool_definitions().len(), 58);
 
             let proc_reg = Arc::new(ProcessRegistry::new(5));
             let full_reg = crate::full_registry(&config, Some(proc_reg), None, None);
-            assert_eq!(full_reg.tool_definitions().len(), 29);
+            assert_eq!(full_reg.tool_definitions().len(), 61);
         }
 
         /// Verify tool_use_id propagation for ALL tools that can be called without network.
@@ -2248,19 +2248,27 @@ mod audit {
 
         #[tokio::test]
         async fn stress_file_read_symlink() {
+            // Fix 0.3: file_read now rejects symlinks (TOCTOU protection, consistent with file_write).
             let dir = tempfile::TempDir::new().unwrap();
             let real = dir.path().join("real.txt");
             let link = dir.path().join("link.txt");
             std::fs::write(&real, "symlink content").unwrap();
 
             #[cfg(unix)]
-            std::os::unix::fs::symlink(&real, &link).unwrap();
+            {
+                std::os::unix::fs::symlink(&real, &link).unwrap();
+                let result = tool().execute(tmp_input("fr-s3", json!({"path": link.to_str().unwrap()}), &dir)).await;
+                assert!(result.is_err(), "Symlink read should be rejected (TOCTOU protection)");
+                let msg = format!("{}", result.unwrap_err());
+                assert!(msg.contains("symlink"), "Error message should mention symlink, got: {msg}");
+            }
             #[cfg(not(unix))]
-            std::fs::copy(&real, &link).unwrap();
-
-            let out = tool().execute(tmp_input("fr-s3", json!({"path": link.to_str().unwrap()}), &dir)).await.unwrap();
-            assert!(!out.is_error, "Symlink read should succeed");
-            assert!(out.content.contains("symlink content"));
+            {
+                // Non-Unix: copy instead of symlink — reading the copy succeeds normally.
+                std::fs::copy(&real, &link).unwrap();
+                let out = tool().execute(tmp_input("fr-s3", json!({"path": link.to_str().unwrap()}), &dir)).await.unwrap();
+                assert!(!out.is_error);
+            }
         }
 
         #[tokio::test]

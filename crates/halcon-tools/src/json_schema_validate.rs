@@ -265,9 +265,11 @@ impl Tool for JsonSchemaValidateTool {
             "type": "object",
             "properties": {
                 "data": {
+                    "type": ["object", "array", "string"],
                     "description": "The JSON data to validate. Can be a JSON string or an object/array."
                 },
                 "schema": {
+                    "type": ["object", "string"],
                     "description": "The JSON Schema to validate against. Can be a JSON string or an object."
                 }
             },

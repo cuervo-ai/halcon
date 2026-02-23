@@ -61,6 +61,7 @@ impl StreamRenderer {
             }
             ModelChunk::ToolUseDelta { .. } => Ok(false),
             ModelChunk::ToolUse { .. } => Ok(false),
+            ModelChunk::ThinkingDelta(_) => Ok(false),
             ModelChunk::Error(msg) => {
                 self.flush_code_block()?;
                 let mut out = io::stdout().lock();

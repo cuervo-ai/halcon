@@ -4,11 +4,13 @@
 //! - PRE-LOOP: analyze task → select strategy → configure limits
 //! - POST-LOOP: evaluate outcome → update experience
 
-use halcon_core::types::AgentLimits;
+use halcon_core::types::{AgentLimits, ModelInfo};
 
-use super::agent::{AgentLoopResult, StopCondition};
-use super::strategy_selector::{ReasoningStrategy, StrategyPlan, StrategySelector};
-use super::task_analyzer::{TaskAnalysis, TaskAnalyzer, TaskComplexity, TaskType};
+use super::super::agent::{AgentLoopResult, StopCondition};
+use super::super::intent_scorer::IntentScorer;
+use super::super::model_router::ModelRouter;
+use super::super::strategy_selector::{ReasoningStrategy, StrategyPlan, StrategySelector};
+use super::super::task_analyzer::{TaskAnalysis, TaskComplexity, TaskType};
 
 /// Temporary inline config (will be moved to halcon_core::types in Phase 4)
 #[derive(Debug, Clone)]
@@ -72,7 +74,7 @@ impl ReasoningEngine {
     /// Parses task_type and strategy strings (same format as save_reasoning_experience)
     /// and seeds the internal StrategySelector so UCB1 exploitation starts informed.
     /// Safe to call multiple times — only processes the first call (idempotent).
-    pub fn load_experience(&mut self, experiences: Vec<(super::task_analyzer::TaskType, ReasoningStrategy, f64, usize)>) {
+    pub fn load_experience(&mut self, experiences: Vec<(super::super::task_analyzer::TaskType, ReasoningStrategy, f64, usize)>) {
         self.selector.load_experience(experiences);
         self.experience_loaded = true;
         tracing::info!(count = self.selector.total_experience_count(), "UCB1: cross-session experience seeded");
@@ -89,16 +91,47 @@ impl ReasoningEngine {
     }
 
     /// PRE-LOOP: Analyze task and configure agent execution.
-    pub fn pre_loop(&mut self, user_query: &str, base_limits: &AgentLimits) -> PreLoopAnalysis {
-        let analysis = TaskAnalyzer::analyze(user_query);
+    ///
+    /// `provider_models` is the list of models supported by the active provider — used to
+    /// build a provider-aware `ModelRouter` instead of relying on hardcoded DeepSeek defaults.
+    /// Pass `&[]` to fall back to `ModelRouter::deepseek_defaults()` (backward compatible).
+    pub fn pre_loop(&mut self, user_query: &str, base_limits: &AgentLimits, provider_models: &[ModelInfo]) -> PreLoopAnalysis {
+        // SOTA 2026: Multi-signal IntentScorer replaces keyword-only TaskAnalyzer.
+        let profile = IntentScorer::score(user_query);
+
+        // Map IntentProfile → TaskAnalysis for backward-compat with UCB1 experience tables.
+        let analysis = TaskAnalysis {
+            task_type: profile.task_type,
+            complexity: profile.complexity,
+            task_hash: profile.task_hash.clone(),
+            word_count: profile.word_count,
+        };
+
         let strategy = self.selector.select(&analysis);
-        let plan = self.selector.configure(strategy, analysis.complexity);
+        let mut plan = self.selector.configure(strategy, analysis.complexity);
+
+        // Wire ModelRouter: always derive routing_bias from IntentProfile (D2 fix).
+        // ModelRouter has primary authority — StrategySelector no longer sets routing_bias.
+        // P0-1: Use provider-aware router when models are supplied; fall back to DeepSeek
+        // defaults when the provider list is empty (backward-compatible behaviour).
+        plan.routing_bias = ModelRouter::from_provider_models(provider_models).routing_bias_for(&profile);
+
+        // Use IntentProfile's suggested_max_rounds as an upper cap on the strategy plan.
+        // This prevents the static UCB1 table from over-allocating rounds for conversational
+        // queries (where 2 rounds is always sufficient) or under-allocating for system-wide
+        // tasks (where 20 rounds may be needed).
+        let profile_max = profile.suggested_max_rounds() as usize;
+        plan.max_rounds = plan.max_rounds.min(profile_max);
 
         tracing::info!(
             task_type = ?analysis.task_type,
             complexity = ?analysis.complexity,
             strategy = ?strategy,
-            "Reasoning pre-loop"
+            scope = ?profile.scope,
+            reasoning_depth = ?profile.reasoning_depth,
+            routing_bias = ?plan.routing_bias,
+            plan_max_rounds = plan.max_rounds,
+            "Reasoning pre-loop (SOTA 2026)"
         );
 
         let adjusted_limits = AgentLimits {
@@ -261,7 +294,7 @@ mod tests {
     fn pre_loop_analyzes_simple_task() {
         let mut engine = ReasoningEngine::new(make_test_config());
         let limits = make_test_limits();
-        let analysis = engine.pre_loop("hello", &limits);
+        let analysis = engine.pre_loop("hello", &limits, &[]);
 
         assert_eq!(analysis.analysis.complexity, TaskComplexity::Simple);
         assert!(analysis.adjusted_limits.max_rounds <= limits.max_rounds);
@@ -271,7 +304,7 @@ mod tests {
     fn post_loop_evaluates_success() {
         let mut engine = ReasoningEngine::new(make_test_config());
         let limits = make_test_limits();
-        let analysis = engine.pre_loop("test", &limits);
+        let analysis = engine.pre_loop("test", &limits, &[]);
 
         let result = AgentLoopResult {
             full_text: "Complete".to_string(),
@@ -291,6 +324,7 @@ mod tests {
             oscillation_penalty: 0.0,
             last_model_used: None,
             plugin_cost_snapshot: vec![],
+            tools_executed: vec![],
         };
 
         let eval = engine.post_loop(&analysis, &result);
@@ -305,7 +339,7 @@ mod tests {
         // so UCB1 will prefer it on the next encounter of the same task type.
         let mut engine = ReasoningEngine::new(make_test_config());
         let limits = make_test_limits();
-        let analysis = engine.pre_loop("refactor the authentication system", &limits);
+        let analysis = engine.pre_loop("refactor the authentication system", &limits, &[]);
         let chosen_strategy = analysis.strategy;
         let task_type = analysis.analysis.task_type;
 
@@ -338,7 +372,7 @@ mod tests {
 
         // Simulate 5 complex tasks all solved well by PlanExecuteReflect.
         for _ in 0..5 {
-            let analysis = engine.pre_loop("design a distributed caching system with sharding", &limits);
+            let analysis = engine.pre_loop("design a distributed caching system with sharding", &limits, &[]);
             engine.post_loop_with_reward(&analysis, 0.90);
         }
 
@@ -350,7 +384,7 @@ mod tests {
         );
 
         // On the next complex task, UCB1 should select the proven strategy.
-        let next = engine.pre_loop("build a distributed consensus algorithm", &limits);
+        let next = engine.pre_loop("build a distributed consensus algorithm", &limits, &[]);
         // With 5 outcomes all at 0.90, the winning strategy should be selected
         // (not the unexplored one, which gets INFINITY score — unless it was already explored).
         // Either way, the strategy chosen should be a valid ReasoningStrategy variant.
@@ -363,7 +397,7 @@ mod tests {
     fn low_reward_does_not_mark_as_success() {
         let mut engine = ReasoningEngine::new(make_test_config());
         let limits = make_test_limits();
-        let analysis = engine.pre_loop("write code", &limits);
+        let analysis = engine.pre_loop("write code", &limits, &[]);
 
         // 0.30 is below success_threshold=0.60
         let eval = engine.post_loop_with_reward(&analysis, 0.30);
@@ -381,7 +415,7 @@ mod tests {
         assert_eq!(engine.selector.total_experience_count(), 0);
 
         for i in 1..=4 {
-            let analysis = engine.pre_loop("refactor the database layer", &limits);
+            let analysis = engine.pre_loop("refactor the database layer", &limits, &[]);
             engine.post_loop_with_reward(&analysis, 0.80);
             assert_eq!(
                 engine.selector.total_experience_count(),

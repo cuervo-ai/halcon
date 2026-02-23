@@ -147,14 +147,22 @@ impl ToolSelector {
     /// Select tools relevant to the given intent.
     ///
     /// Returns a filtered subset of `all_tools`. Core tools (file_read, bash, grep)
-    /// are always included. If disabled or Mixed/Conversational, returns all tools.
+    /// are always included. If disabled or Mixed, returns all tools.
+    /// Conversational intent returns NO tools — the model should respond directly without
+    /// calling any tools, preventing greetings/simple Q&A from triggering tool execution.
     pub fn select_tools(
         &self,
         intent: &TaskIntent,
         all_tools: &[ToolDefinition],
     ) -> Vec<ToolDefinition> {
-        if !self.enabled || *intent == TaskIntent::Mixed || *intent == TaskIntent::Conversational {
+        if !self.enabled || *intent == TaskIntent::Mixed {
             return all_tools.to_vec();
+        }
+        // Conversational inputs (greetings, simple Q&A) → no tools.
+        // Sending tool schemas to the model for "hola" causes it to proactively call
+        // directory_tree, native_search, etc. due to the engineering system prompt.
+        if *intent == TaskIntent::Conversational {
+            return vec![];
         }
 
         let intent_tools: &[&str] = match intent {
@@ -285,6 +293,27 @@ mod tests {
         // Non-file tools excluded
         assert!(!names.contains(&"git_status"));
         assert!(!names.contains(&"web_search"));
+    }
+
+    #[test]
+    fn select_tools_conversational_returns_empty() {
+        // CRITICAL: Conversational intent must return NO tools.
+        // This prevents "hola" from triggering directory_tree/native_search calls.
+        let s = ToolSelector::new(true);
+        let tools = all_tools();
+        let selected = s.select_tools(&TaskIntent::Conversational, &tools);
+        assert!(
+            selected.is_empty(),
+            "Conversational intent must return zero tools, got: {:?}",
+            selected.iter().map(|t| &t.name).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn select_tools_conversational_empty_input_returns_empty() {
+        let s = ToolSelector::new(true);
+        let selected = s.select_tools(&TaskIntent::Conversational, &all_tools());
+        assert!(selected.is_empty());
     }
 
     #[test]

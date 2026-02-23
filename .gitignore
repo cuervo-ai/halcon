@@ -180,3 +180,17 @@ workers/
 img/hero.mov
 img/*.mov
 img/*.mp4
+
+# ── Halcon local state (DB, configs, plugins — user data) ───────────
+.halcon/
+
+# Root-level temp files
+test.txt
+
+# Architecture & audit reports generated during dev sessions
+ARCHITECTURAL_*.md
+ARCHITECTURE_TRACE.md
+BUDGET_ALIGNMENT_REPORT.md
+CRITIC_ALIGNMENT_REPORT.md
+RUNTIME_FAILURE_ANALYSIS.md
+TOKEN_AUDIT_REPORT.md

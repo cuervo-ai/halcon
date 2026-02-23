@@ -149,14 +149,18 @@ impl PostBatchSupervisor {
     /// Evaluate tool batch results and return a supervisor verdict.
     ///
     /// # Arguments
+    /// - `round`: 0-indexed round number (gates that need warmup are suppressed on round 0).
     /// - `expected_tool`: tool_name from the active plan step (None if no plan).
     /// - `tools_executed`: all tool names that ran this round (order irrelevant).
-    /// - `critical_failures`: `(tool_name, error_msg)` pairs for deterministic failures.
+    /// - `critical_failures`: `(tool_name, error_msg)` pairs for **deterministic** failures only.
+    ///   Transient errors (timeout, rate-limit, retryable) must be filtered out by the caller
+    ///   before passing here, otherwise Gate 1 triggers spurious replans.
     /// - `plan_progress_ratio`: 0.0–1.0 fraction of plan steps in terminal state.
     /// - `any_tool_succeeded`: true if at least one tool returned a non-error result.
     /// - `plugin_all_failed`: Some(plugin_id) when ALL plugin tool invocations for that
     ///   plugin failed this round. None when no plugin involvement or mixed results.
     pub fn check(
+        round: usize,
         expected_tool: Option<&str>,
         tools_executed: &[String],
         critical_failures: &[(String, String)],
@@ -196,7 +200,16 @@ impl PostBatchSupervisor {
 
         // Gate 3: Zero plan progress despite successful tool execution.
         // Indicates tools ran but plan step outcomes were not recorded — alignment drift.
-        if plan_progress_ratio == 0.0 && any_tool_succeeded && !tools_executed.is_empty() {
+        //
+        // Warmup guard: skip rounds 0–2 (ExecutionTracker needs at least 2 rounds to map
+        // MCP-provided tool names to plan step tool_name fields via fuzzy matching; firing
+        // earlier produces token-expensive corrections that are guaranteed to be spurious).
+        //
+        // - Round 0: model initializing, hasn't mapped tools→steps yet.
+        // - Round 1: first batch completed, tracker may still not have matched names.
+        // - Round 2: second batch, still calibrating (e.g., MCP tools vs halcon native names).
+        // - Round ≥ 3: by now, genuine alignment drift if progress is still 0%.
+        if round >= 3 && plan_progress_ratio == 0.0 && any_tool_succeeded && !tools_executed.is_empty() {
             return BatchVerdict::InjectCorrection(
                 "[Supervisor] Tools succeeded this round but plan completion is 0%. \
                  Explicitly advance the plan: mark completed steps and invoke the next \
@@ -485,6 +498,7 @@ mod tests {
     #[test]
     fn supervisor_continue_on_clean_batch() {
         let verdict = PostBatchSupervisor::check(
+            1,
             None,
             &["file_read".to_string(), "bash".to_string()],
             &[],
@@ -498,13 +512,14 @@ mod tests {
     #[test]
     fn supervisor_continue_on_empty_round() {
         // No tools ran — don't inject spurious corrections.
-        let verdict = PostBatchSupervisor::check(None, &[], &[], 0.0, false, None);
+        let verdict = PostBatchSupervisor::check(0, None, &[], &[], 0.0, false, None);
         assert!(matches!(verdict, BatchVerdict::Continue));
     }
 
     #[test]
     fn supervisor_inject_correction_for_missing_expected_tool() {
         let verdict = PostBatchSupervisor::check(
+            1,
             Some("file_edit"),
             &["file_read".to_string()], // Expected file_edit, got file_read.
             &[],
@@ -524,6 +539,7 @@ mod tests {
     #[test]
     fn supervisor_no_correction_when_expected_tool_ran() {
         let verdict = PostBatchSupervisor::check(
+            1,
             Some("bash"),
             &["bash".to_string(), "file_read".to_string()],
             &[],
@@ -540,7 +556,7 @@ mod tests {
             ("bash".to_string(), "command not found: xyz".to_string()),
             ("file_write".to_string(), "permission denied: /root".to_string()),
         ];
-        let verdict = PostBatchSupervisor::check(None, &[], &critical, 0.0, false, None);
+        let verdict = PostBatchSupervisor::check(0, None, &[], &critical, 0.0, false, None);
         assert!(
             matches!(verdict, BatchVerdict::ForceReplanNow(_)),
             "Two critical failures must force replan"
@@ -550,14 +566,16 @@ mod tests {
     #[test]
     fn supervisor_single_critical_failure_does_not_force_replan() {
         let critical = vec![("bash".to_string(), "command not found".to_string())];
-        let verdict = PostBatchSupervisor::check(None, &[], &critical, 0.0, false, None);
+        let verdict = PostBatchSupervisor::check(0, None, &[], &critical, 0.0, false, None);
         // Threshold is ≥2 — one failure doesn't trigger ForceReplanNow.
         assert!(matches!(verdict, BatchVerdict::Continue));
     }
 
     #[test]
     fn supervisor_inject_correction_for_zero_progress_with_success() {
+        // round=3: Gate 3 requires round >= 3 to allow tracker calibration across 2+ rounds.
         let verdict = PostBatchSupervisor::check(
+            3,
             None,
             &["file_read".to_string()],
             &[],
@@ -574,8 +592,49 @@ mod tests {
     }
 
     #[test]
+    fn supervisor_gate3_suppressed_on_rounds_0_through_2() {
+        // Gate 3 must NOT fire on rounds 0, 1, 2 — ExecutionTracker needs calibration rounds
+        // to resolve MCP-provided tool names vs plan step tool_name fields.
+        for round in 0..=2 {
+            let verdict = PostBatchSupervisor::check(
+                round,
+                None,
+                &["file_read".to_string()],
+                &[],
+                0.0,   // zero plan progress
+                true,  // tools succeeded
+                None,
+            );
+            assert!(
+                matches!(verdict, BatchVerdict::Continue),
+                "Gate 3 must not fire on round {round} (warmup/calibration window)"
+            );
+        }
+    }
+
+    #[test]
+    fn supervisor_gate3_suppressed_on_round_0() {
+        // Gate 3 must NOT fire on round 0 — model hasn't had a chance to map tools→steps yet.
+        let verdict = PostBatchSupervisor::check(
+            0,
+            None,
+            &["file_read".to_string()],
+            &[],
+            0.0,  // zero plan progress
+            true, // tool succeeded
+            None,
+        );
+        // Round 0: supervisor should continue without injection even with 0% progress.
+        assert!(
+            matches!(verdict, BatchVerdict::Continue),
+            "Gate 3 must be suppressed on round 0, got: {verdict:?}"
+        );
+    }
+
+    #[test]
     fn supervisor_no_correction_when_progress_nonzero() {
         let verdict = PostBatchSupervisor::check(
+            1,
             None,
             &["file_read".to_string()],
             &[],
@@ -648,6 +707,7 @@ mod tests {
             ("file_write".to_string(), "Permission denied: /root/x".to_string()),
         ];
         let verdict = PostBatchSupervisor::check(
+            1,
             Some("file_edit"),        // expected but not called
             &["file_read".to_string()], // different tool ran
             &critical,
@@ -670,6 +730,7 @@ mod tests {
             ("grep".to_string(), "No such file or directory".to_string()),
         ];
         let verdict = PostBatchSupervisor::check(
+            1,
             None,
             &["bash".to_string(), "grep".to_string()],
             &critical,
@@ -689,7 +750,7 @@ mod tests {
             ("my_tool_a".to_string(), "No such file or directory".to_string()),
             ("my_tool_b".to_string(), "Permission denied".to_string()),
         ];
-        let verdict = PostBatchSupervisor::check(None, &[], &critical, 0.0, false, None);
+        let verdict = PostBatchSupervisor::check(0, None, &[], &critical, 0.0, false, None);
         match verdict {
             BatchVerdict::ForceReplanNow(msg) => {
                 assert!(
@@ -705,7 +766,9 @@ mod tests {
     fn supervisor_no_correction_when_expected_tool_is_none_and_no_failures() {
         // When there is no plan (expected_tool=None) and no critical failures,
         // Gate 2 and Gate 3 should not fire spuriously.
+        // round=1: Gate 3 fires at round >= 1 when 0% progress with success.
         let verdict = PostBatchSupervisor::check(
+            1,
             None,
             &["bash".to_string()],
             &[],
@@ -786,6 +849,7 @@ mod tests {
     fn suspend_plugin_gate0_fires_when_all_plugin_tools_failed() {
         // Gate 0: Some(plugin_id) → SuspendPlugin (highest priority, checked before Gate 1).
         let verdict = PostBatchSupervisor::check(
+            0,
             None,
             &["plugin_myp_run".to_string()],
             &[],
@@ -806,6 +870,7 @@ mod tests {
     fn suspend_plugin_none_suppresses_gate0() {
         // None → Gate 0 skipped, existing gates apply normally.
         let verdict = PostBatchSupervisor::check(
+            1,
             None,
             &["file_read".to_string()],
             &[],
@@ -824,6 +889,7 @@ mod tests {
             ("tool_b".to_string(), "err2".to_string()),
         ];
         let verdict = PostBatchSupervisor::check(
+            0,
             None,
             &[],
             &critical,
@@ -841,6 +907,7 @@ mod tests {
     fn suspend_plugin_gate0_beats_gate3() {
         // Gate 0 fires even when Gate 3 (zero progress) would also fire.
         let verdict = PostBatchSupervisor::check(
+            1,
             None,
             &["plugin_x_run".to_string()],
             &[],

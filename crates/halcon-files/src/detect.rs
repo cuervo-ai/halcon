@@ -155,11 +155,20 @@ pub async fn detect(path: &Path) -> Result<FileInfo, crate::Error> {
 /// Detect file type with a custom size limit.
 #[tracing::instrument(skip(max_size), fields(file_type, size_bytes, is_binary))]
 pub async fn detect_with_limit(path: &Path, max_size: u64) -> Result<FileInfo, crate::Error> {
-    // 1. Stat the file for size.
-    let metadata = tokio::fs::metadata(path).await.map_err(|e| crate::Error::Io {
-        path: path.to_path_buf(),
-        source: e,
-    })?;
+    // 1. Stat the file — use symlink_metadata so we detect symlinks without following them.
+    let metadata = tokio::fs::symlink_metadata(path)
+        .await
+        .map_err(|e| crate::Error::Io {
+            path: path.to_path_buf(),
+            source: e,
+        })?;
+
+    // Reject symlinks to prevent path-traversal via crafted filesystem links.
+    if metadata.is_symlink() {
+        return Err(crate::Error::SymlinkNotAllowed {
+            path: path.to_path_buf(),
+        });
+    }
 
     let size_bytes = metadata.len();
     if size_bytes > max_size {
@@ -634,6 +643,31 @@ mod tests {
     async fn detect_nonexistent_file() {
         let result = detect(Path::new("/nonexistent/file.txt")).await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn detect_rejects_symlink() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let real_file = dir.path().join("real.txt");
+        let symlink_path = dir.path().join("link.txt");
+
+        tokio::fs::write(&real_file, "sensitive content").await.unwrap();
+
+        // Create a symlink pointing to the real file.
+        #[cfg(unix)]
+        tokio::fs::symlink(&real_file, &symlink_path).await.unwrap();
+        #[cfg(windows)]
+        tokio::fs::symlink_file(&real_file, &symlink_path).await.unwrap();
+
+        let result = detect(&symlink_path).await;
+        assert!(
+            result.is_err(),
+            "detect() must reject symlinks to prevent path-traversal attacks"
+        );
+        assert!(
+            matches!(result.unwrap_err(), crate::Error::SymlinkNotAllowed { .. }),
+            "error must be SymlinkNotAllowed variant"
+        );
     }
 
     #[test]

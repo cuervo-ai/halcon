@@ -78,6 +78,7 @@ tar = "0.4"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 libc = { workspace = true }
 git2 = { workspace = true }
+base64 = { workspace = true }
 ratatui = { workspace = true, optional = true }
 tui-textarea = { workspace = true, optional = true }
 arboard = { version = "3.4", optional = true } # Cross-platform clipboard (Phase A3)

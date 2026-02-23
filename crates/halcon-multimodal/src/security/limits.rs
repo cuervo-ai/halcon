@@ -104,4 +104,20 @@ mod tests {
         assert!(l.check_video_duration(30.0).is_ok());
         assert!(l.check_video_duration(120.0).is_err());
     }
+
+    #[test]
+    fn decompression_bomb_100k_by_100k() {
+        let l = SecurityLimits::default();
+        let err = l.check_image_dimensions(100_000, 100_000).unwrap_err();
+        assert!(matches!(err, MultimodalError::DecompressionBomb { .. }));
+    }
+
+    #[test]
+    fn decompression_bomb_threshold_is_8192_squared() {
+        let l = SecurityLimits::default();
+        // Exactly at the default limit (8192 × 8192 = 67,108,864 pixels) — should pass.
+        assert!(l.check_image_dimensions(8192, 8192).is_ok());
+        // One pixel over — should fail.
+        assert!(l.check_image_dimensions(8193, 8192).is_err());
+    }
 }

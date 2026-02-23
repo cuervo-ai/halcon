@@ -76,9 +76,11 @@ impl DeepSeekProvider {
                 name: "DeepSeek Reasoner".into(),
                 provider: "deepseek".into(),
                 context_window: 64_000,
-                max_output_tokens: 8192,
+                // Reasoning models need large output budgets for chain-of-thought;
+                // 32 768 tokens gives ~25K thinking + ~8K final answer headroom.
+                max_output_tokens: 32_768,
                 supports_streaming: true,
-                supports_tools: false, // Reasoner does not support tools
+                supports_tools: false, // Reasoner uses extended thinking — tools unsupported
                 supports_vision: false,
                 supports_reasoning: true,
                 cost_per_input_token: 0.55 / 1_000_000.0,
@@ -180,5 +182,31 @@ mod tests {
         let models = provider.supported_models();
         let reasoner = models.iter().find(|m| m.id == "deepseek-reasoner").unwrap();
         assert!(!reasoner.supports_tools);
+    }
+
+    #[test]
+    fn deepseek_reasoner_max_output_tokens_32k() {
+        // Reasoning models need large budgets for chain-of-thought (~25K thinking + ~8K final answer).
+        let provider = DeepSeekProvider::new("sk-test".into(), None, HttpConfig::default());
+        let models = provider.supported_models();
+        let reasoner = models.iter().find(|m| m.id == "deepseek-reasoner").unwrap();
+        assert_eq!(reasoner.max_output_tokens, 32_768);
+    }
+
+    #[test]
+    fn deepseek_reasoner_supports_reasoning() {
+        let provider = DeepSeekProvider::new("sk-test".into(), None, HttpConfig::default());
+        let models = provider.supported_models();
+        let reasoner = models.iter().find(|m| m.id == "deepseek-reasoner").unwrap();
+        assert!(reasoner.supports_reasoning);
+    }
+
+    #[test]
+    fn deepseek_chat_and_coder_support_tools() {
+        let provider = DeepSeekProvider::new("sk-test".into(), None, HttpConfig::default());
+        let models = provider.supported_models();
+        for m in models.iter().filter(|m| m.id != "deepseek-reasoner") {
+            assert!(m.supports_tools, "{} should support tools", m.id);
+        }
     }
 }

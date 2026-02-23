@@ -70,8 +70,9 @@ impl DelegationRouter {
             return Vec::new();
         }
 
-        // Don't delegate plans with fewer than 3 steps — simpler to run inline.
-        if plan.steps.len() < 3 {
+        // Don't delegate plans with fewer than 2 steps — a single-step plan has no
+        // parallelism benefit and is cheaper to run inline.
+        if plan.steps.len() < 2 {
             return Vec::new();
         }
 
@@ -133,8 +134,16 @@ impl DelegationRouter {
         decisions
             .iter()
             .enumerate()
-            .map(|(di, (step_idx, decision))| {
-                let step = &plan.steps[*step_idx];
+            .filter_map(|(di, (step_idx, decision))| {
+                // Audit fix: bounds-check before indexing to avoid panic on stale decisions.
+                let Some(step) = plan.steps.get(*step_idx) else {
+                    tracing::warn!(
+                        step_idx = *step_idx,
+                        total_steps = plan.steps.len(),
+                        "build_tasks: step index out of bounds — skipping delegation decision"
+                    );
+                    return None;
+                };
 
                 // Determine dependencies: sequential steps depend on the previous delegated step.
                 let depends_on = if !step.parallel && di > 0 {
@@ -143,9 +152,41 @@ impl DelegationRouter {
                     vec![]
                 };
 
+                // Prefix instruction with explicit tool-use directive so the LLM
+                // calls the tool immediately instead of describing what it will do.
+                // Without this, models like deepseek-chat return planning text first
+                // (end_turn), which gets cached and permanently blocks tool execution.
+                //
+                // For file_write: include the target file path so the sub-agent knows
+                // WHERE to write. Without a path, models generate the content as text
+                // (end_turn) instead of calling file_write, resulting in 0 tools used.
+                let instruction = if let Some(ref tool) = step.tool_name {
+                    let path_hint = if tool == "file_write" {
+                        // Try to get path from expected_args first.
+                        let path = step.expected_args
+                            .as_ref()
+                            .and_then(|a| a.get("path").and_then(|p| p.as_str()).map(|s| s.to_string()))
+                            .unwrap_or_else(|| Self::infer_file_path(&step.description));
+                        format!(
+                            "\nTarget file path: {path}\n\
+                             Call file_write with path=\"{path}\" and the complete file content."
+                        )
+                    } else {
+                        String::new()
+                    };
+                    format!(
+                        "IMPORTANT: Call the `{tool}` tool NOW to complete this task. \
+                         Do NOT describe, plan, or explain — execute the tool immediately.{path_hint}\n\n\
+                         Task: {}",
+                        step.description
+                    )
+                } else {
+                    step.description.clone()
+                };
+
                 let task = SubAgentTask {
                     task_id: task_ids[di].1,
-                    instruction: step.description.clone(),
+                    instruction,
                     agent_type: Self::agent_type_for_capability(&decision.capability),
                     model: Some(parent_model.to_string()),
                     provider: None,
@@ -155,7 +196,7 @@ impl DelegationRouter {
                     priority: 0,
                 };
 
-                (*step_idx, task)
+                Some((*step_idx, task))
             })
             .collect()
     }
@@ -207,6 +248,37 @@ impl DelegationRouter {
         }
 
         tools
+    }
+
+    /// Infer a reasonable output file path from a step description.
+    ///
+    /// Used when no explicit `expected_args.path` is set for a `file_write` step.
+    /// Checks for common file type keywords and returns a sensible default name.
+    fn infer_file_path(description: &str) -> String {
+        let lower = description.to_lowercase();
+        if lower.contains(".html") || lower.contains("html") || lower.contains("web page") || lower.contains("webpage") {
+            "output.html".to_string()
+        } else if lower.contains(".py") || lower.contains("python script") || lower.contains("python program") {
+            "script.py".to_string()
+        } else if lower.contains(".js") || lower.contains("javascript") {
+            "script.js".to_string()
+        } else if lower.contains(".ts") || lower.contains("typescript") {
+            "script.ts".to_string()
+        } else if lower.contains(".sh") || lower.contains("shell script") || lower.contains("bash script") {
+            "script.sh".to_string()
+        } else if lower.contains(".md") || lower.contains("markdown") || lower.contains("readme") {
+            "README.md".to_string()
+        } else if lower.contains(".json") || lower.contains("json file") {
+            "output.json".to_string()
+        } else if lower.contains(".rs") || lower.contains("rust") {
+            "main.rs".to_string()
+        } else if lower.contains(".toml") || lower.contains("config") {
+            "config.toml".to_string()
+        } else if lower.contains(".txt") || lower.contains("text file") {
+            "output.txt".to_string()
+        } else {
+            "output.txt".to_string()
+        }
     }
 
     /// Map capability to the most appropriate sub-agent type.
@@ -343,14 +415,24 @@ mod tests {
     }
 
     #[test]
-    fn analyze_plan_two_steps_skipped() {
+    fn analyze_plan_two_steps_delegated() {
+        // Threshold lowered to ≥2 steps — two-step plans with tool_names are eligible.
         let router = DelegationRouter::new(true);
         let plan = make_plan(vec![
             make_step("Read file", Some("file_read"), 0.9),
             make_step("Edit file", Some("file_edit"), 0.9),
         ]);
         let decisions = router.analyze_plan(&plan);
-        assert!(decisions.is_empty(), "Two-step plans should not be delegated");
+        assert_eq!(decisions.len(), 2, "Two-step plans with tool_names should now be delegated");
+    }
+
+    #[test]
+    fn analyze_plan_one_step_skipped() {
+        // Single-step plans are still skipped (< 2 threshold).
+        let router = DelegationRouter::new(true);
+        let plan = make_plan(vec![make_step("Read file", Some("file_read"), 0.9)]);
+        let decisions = router.analyze_plan(&plan);
+        assert!(decisions.is_empty(), "Single-step plans should not be delegated");
     }
 
     #[test]
@@ -442,9 +524,11 @@ mod tests {
         assert_eq!(ids.len(), 3);
         // Model inherited.
         assert_eq!(tasks[0].1.model.as_deref(), Some("deepseek-chat"));
-        // Instructions match step descriptions.
-        assert_eq!(tasks[0].1.instruction, "Read file");
-        assert_eq!(tasks[2].1.instruction, "Run tests");
+        // Instructions are prefixed with tool-use directive to force immediate tool execution.
+        assert!(tasks[0].1.instruction.starts_with("IMPORTANT: Call the `file_read` tool NOW"));
+        assert!(tasks[0].1.instruction.contains("Task: Read file"));
+        assert!(tasks[2].1.instruction.starts_with("IMPORTANT: Call the `bash` tool NOW"));
+        assert!(tasks[2].1.instruction.contains("Task: Run tests"));
         // Agent types mapped correctly.
         assert_eq!(tasks[0].1.agent_type, AgentType::Coder); // FileOperations
         assert_eq!(tasks[2].1.agent_type, AgentType::Coder); // CodeExecution
@@ -504,5 +588,168 @@ mod tests {
         assert!(decisions[1].1.suggested_tools.contains("bash"));
         // grep → Search → includes grep.
         assert!(decisions[2].1.suggested_tools.contains("grep"));
+    }
+
+    // ── Audit fix: bounds-checked build_tasks ────────────────────────────────
+
+    /// Out-of-bounds step_idx in decisions must not panic — bad entry is skipped.
+    /// Simulated by using a plan with fewer steps than the decision's step_idx references.
+    #[test]
+    fn build_tasks_oob_step_idx_skipped_not_panic() {
+        let router = DelegationRouter::new(true);
+        // Plan has 3 steps (indices 0-2), used to generate valid decisions.
+        let plan_full = make_plan(vec![
+            make_step("Read file", Some("file_read"), 0.9),
+            make_step("Run tests", Some("bash"), 0.9),
+            make_step("Search code", Some("grep"), 0.9),
+        ]);
+        let decisions = router.analyze_plan(&plan_full);
+
+        // Replay against a shorter plan (2 steps → indices 0-1).
+        // Decision at step_idx=2 is now out of bounds.
+        let plan_short = make_plan(vec![
+            make_step("Read file", Some("file_read"), 0.9),
+            make_step("Run tests", Some("bash"), 0.9),
+        ]);
+        // Must not panic — OOB decision is skipped; only 2 tasks produced.
+        let tasks = router.build_tasks(&plan_short, &decisions, "test-model");
+        assert_eq!(tasks.len(), 2, "OOB decision must be silently skipped");
+        assert!(
+            tasks.iter().all(|(idx, _)| *idx < 2),
+            "all produced tasks must have valid step indices"
+        );
+    }
+
+    /// All decisions OOB — build_tasks returns empty vec without panicking.
+    #[test]
+    fn build_tasks_all_oob_returns_empty() {
+        let router = DelegationRouter::new(true);
+        let plan_full = make_plan(vec![
+            make_step("Read file", Some("file_read"), 0.9),
+            make_step("Run tests", Some("bash"), 0.9),
+            make_step("Search code", Some("grep"), 0.9),
+        ]);
+        let decisions = router.analyze_plan(&plan_full);
+
+        // Empty plan — every decision (indices 0, 1, 2) is now OOB.
+        let plan_empty = make_plan(vec![]);
+        let tasks = router.build_tasks(&plan_empty, &decisions, "test-model");
+        assert!(tasks.is_empty(), "all-OOB decisions produce empty result");
+    }
+
+    /// Regression guard: in-bounds build_tasks still works normally after the bounds fix.
+    #[test]
+    fn build_tasks_inbounds_regression_guard() {
+        let router = DelegationRouter::new(true);
+        let plan = make_plan(vec![
+            make_step("Read", Some("file_read"), 0.9),
+            make_step("Edit", Some("file_edit"), 0.9),
+            make_step("Test", Some("bash"), 0.9),
+        ]);
+        let decisions = router.analyze_plan(&plan);
+        let tasks = router.build_tasks(&plan, &decisions, "model");
+        assert_eq!(tasks.len(), 3);
+        assert!(tasks[0].1.instruction.starts_with("IMPORTANT: Call the `file_read` tool NOW"));
+        assert!(tasks[0].1.instruction.contains("Task: Read"));
+        assert!(tasks[2].1.instruction.starts_with("IMPORTANT: Call the `bash` tool NOW"));
+        assert!(tasks[2].1.instruction.contains("Task: Test"));
+    }
+
+    // ── Fix 2: file_write delegation path injection ───────────────────────────
+
+    /// file_write step with explicit path in expected_args → path appears in instruction.
+    #[test]
+    fn file_write_with_explicit_path_uses_expected_args() {
+        let router = DelegationRouter::new(true);
+        let mut step = make_step("Write the HTML game to disk", Some("file_write"), 0.9);
+        step.expected_args = Some(serde_json::json!({"path": "/tmp/game.html", "content": "..."}));
+        let plan = make_plan(vec![
+            step,
+            make_step("Run tests", Some("bash"), 0.9),
+        ]);
+        let decisions = router.analyze_plan(&plan);
+        let tasks = router.build_tasks(&plan, &decisions, "deepseek-chat");
+
+        let file_write_task = &tasks[0].1;
+        assert!(file_write_task.instruction.contains("/tmp/game.html"),
+            "Instruction must contain explicit path from expected_args");
+        assert!(file_write_task.instruction.contains("path=\"/tmp/game.html\""),
+            "Instruction must include file_write path= directive");
+    }
+
+    /// file_write step with no expected_args but HTML description → inferred .html path.
+    #[test]
+    fn file_write_infers_html_path_from_description() {
+        let router = DelegationRouter::new(true);
+        let plan = make_plan(vec![
+            make_step("Create a web page HTML game", Some("file_write"), 0.9),
+            make_step("Run tests", Some("bash"), 0.9),
+        ]);
+        let decisions = router.analyze_plan(&plan);
+        let tasks = router.build_tasks(&plan, &decisions, "deepseek-chat");
+
+        let file_write_task = &tasks[0].1;
+        assert!(file_write_task.instruction.contains("output.html"),
+            "HTML description must infer .html path, got: {}", file_write_task.instruction);
+    }
+
+    /// file_write step with Python description → inferred .py path.
+    #[test]
+    fn file_write_infers_python_path_from_description() {
+        let router = DelegationRouter::new(true);
+        let plan = make_plan(vec![
+            make_step("Write a Python script to sort files", Some("file_write"), 0.9),
+            make_step("Run tests", Some("bash"), 0.9),
+        ]);
+        let decisions = router.analyze_plan(&plan);
+        let tasks = router.build_tasks(&plan, &decisions, "deepseek-chat");
+
+        let file_write_task = &tasks[0].1;
+        assert!(file_write_task.instruction.contains("script.py"),
+            "Python description must infer .py path, got: {}", file_write_task.instruction);
+    }
+
+    /// Non-file_write tools do NOT get a path_hint appended.
+    #[test]
+    fn non_file_write_tools_have_no_path_hint() {
+        let router = DelegationRouter::new(true);
+        let plan = make_plan(vec![
+            make_step("Read data", Some("file_read"), 0.9),
+            make_step("Run bash script", Some("bash"), 0.9),
+        ]);
+        let decisions = router.analyze_plan(&plan);
+        let tasks = router.build_tasks(&plan, &decisions, "deepseek-chat");
+
+        for (_, task) in &tasks {
+            assert!(!task.instruction.contains("Target file path:"),
+                "Only file_write tasks should have path hints, got: {}", task.instruction);
+        }
+    }
+
+    // ── infer_file_path unit tests ────────────────────────────────────────────
+
+    #[test]
+    fn infer_html_variants() {
+        assert_eq!(DelegationRouter::infer_file_path("create an HTML game"), "output.html");
+        assert_eq!(DelegationRouter::infer_file_path("write a web page"), "output.html");
+        assert_eq!(DelegationRouter::infer_file_path("build a .html file"), "output.html");
+    }
+
+    #[test]
+    fn infer_python_variants() {
+        assert_eq!(DelegationRouter::infer_file_path("python script to parse logs"), "script.py");
+        assert_eq!(DelegationRouter::infer_file_path("write a .py program"), "script.py");
+    }
+
+    #[test]
+    fn infer_shell_variants() {
+        assert_eq!(DelegationRouter::infer_file_path("write a bash script"), "script.sh");
+        assert_eq!(DelegationRouter::infer_file_path("create shell script"), "script.sh");
+    }
+
+    #[test]
+    fn infer_default_for_unknown() {
+        assert_eq!(DelegationRouter::infer_file_path("write some output"), "output.txt");
+        assert_eq!(DelegationRouter::infer_file_path(""), "output.txt");
     }
 }

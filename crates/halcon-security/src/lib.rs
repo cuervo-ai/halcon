@@ -4,11 +4,11 @@
 //! - PII detection via regex patterns (SIMD-accelerated RegexSet)
 //! - Permission enforcement for tool execution
 //! - Content sanitization before sending to external APIs
-//!
-//! Sprint 8 will implement the full PII detection and audit system.
+//! - RBAC (Role-Based Access Control) formal capability model
 
 pub mod guardrails;
 pub mod pii;
+pub mod rbac;
 
 pub use guardrails::{
     builtin_guardrails, has_blocking_violation, redact_credentials, run_guardrails, Guardrail,
@@ -16,3 +16,4 @@ pub use guardrails::{
     RegexGuardrail,
 };
 pub use pii::{PiiDetector, PII_DETECTOR};
+pub use rbac::{Action, Permission, RbacPolicy, Resource, Role};

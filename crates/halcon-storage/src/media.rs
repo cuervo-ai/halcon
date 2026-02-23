@@ -36,6 +36,8 @@ pub struct MediaIndexEntry {
     pub session_id:       Option<String>,
     pub source_path:      Option<String>,
     pub created_at:       String,
+    /// Human-readable description from media analysis (M33). Null for legacy rows.
+    pub description:      Option<String>,
 }
 
 // ── Database impl blocks ──────────────────────────────────────────────────────
@@ -104,12 +106,13 @@ impl Database {
         conn.execute(
             "INSERT OR IGNORE INTO media_index
                 (content_hash, modality, embedding_data, embedding_dim,
-                 clip_start_secs, clip_end_secs, session_id, source_path, created_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+                 clip_start_secs, clip_end_secs, session_id, source_path, created_at, description)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 entry.content_hash, entry.modality, blob, entry.embedding_dim,
                 entry.clip_start_secs, entry.clip_end_secs,
                 entry.session_id, entry.source_path, entry.created_at,
+                entry.description,
             ],
         ).map_err(|e| HalconError::DatabaseError(e.to_string()))?;
         Ok(())
@@ -125,7 +128,7 @@ impl Database {
         let conn = self.conn()?;
         let mut stmt = conn.prepare(
             "SELECT id, content_hash, modality, embedding_data, embedding_dim,
-                    clip_start_secs, clip_end_secs, session_id, source_path, created_at
+                    clip_start_secs, clip_end_secs, session_id, source_path, created_at, description
              FROM   media_index
              WHERE  (?1 IS NULL OR modality = ?1)",
         ).map_err(|e| HalconError::DatabaseError(e.to_string()))?;
@@ -143,18 +146,19 @@ impl Database {
                 row.get::<_, Option<String>>(7)?,
                 row.get::<_, Option<String>>(8)?,
                 row.get::<_, String>(9)?,
+                row.get::<_, Option<String>>(10)?,
             ))
         }).map_err(|e| HalconError::DatabaseError(e.to_string()))?;
 
         let mut scored: Vec<(f32, MediaIndexEntry)> = rows
             .filter_map(|r| r.ok())
-            .map(|(id, hash, mod_, blob, dim, cs, ce, sid, sp, ca)| {
+            .map(|(id, hash, mod_, blob, dim, cs, ce, sid, sp, ca, desc)| {
                 let emb = blob_to_f32_vec(&blob);
                 let sim = cosine_sim(query_embedding, &emb);
                 (sim, MediaIndexEntry {
                     id, content_hash: hash, modality: mod_, embedding: emb,
                     embedding_dim: dim, clip_start_secs: cs, clip_end_secs: ce,
-                    session_id: sid, source_path: sp, created_at: ca,
+                    session_id: sid, source_path: sp, created_at: ca, description: desc,
                 })
             })
             .collect();
@@ -240,6 +244,7 @@ mod tests {
             clip_start_secs: None, clip_end_secs: None,
             session_id: None, source_path: None,
             created_at: Utc::now().to_rfc3339(),
+            description: None,
         }).unwrap();
         let results = db.search_media_index(&emb, Some("image"), 5).unwrap();
         assert_eq!(results.len(), 1);
@@ -257,9 +262,45 @@ mod tests {
                 clip_start_secs: None, clip_end_secs: None,
                 session_id: None, source_path: None,
                 created_at: Utc::now().to_rfc3339(),
+                description: None,
             }).unwrap();
         }
         assert_eq!(db.search_media_index(&emb, Some("audio"), 10).unwrap().len(), 1);
         assert_eq!(db.search_media_index(&emb, None, 10).unwrap().len(), 3);
+    }
+
+    #[test]
+    fn media_index_description_stored_and_retrieved() {
+        let db = test_db();
+        let emb: Vec<f32> = (0..512).map(|i| i as f32 / 512.0).collect();
+        let desc = "A mountain landscape with snow-capped peaks".to_string();
+        db.store_media_index_entry(&MediaIndexEntry {
+            id: 0, content_hash: "desc_hash".to_string(), modality: "image".to_string(),
+            embedding: emb.clone(), embedding_dim: 512,
+            clip_start_secs: None, clip_end_secs: None,
+            session_id: None, source_path: None,
+            created_at: Utc::now().to_rfc3339(),
+            description: Some(desc.clone()),
+        }).unwrap();
+        let results = db.search_media_index(&emb, Some("image"), 1).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].description, Some(desc));
+    }
+
+    #[test]
+    fn media_index_null_description_returns_none() {
+        let db = test_db();
+        let emb: Vec<f32> = vec![0.5; 512];
+        db.store_media_index_entry(&MediaIndexEntry {
+            id: 0, content_hash: "nodesc".to_string(), modality: "image".to_string(),
+            embedding: emb.clone(), embedding_dim: 512,
+            clip_start_secs: None, clip_end_secs: None,
+            session_id: None, source_path: None,
+            created_at: Utc::now().to_rfc3339(),
+            description: None,
+        }).unwrap();
+        let results = db.search_media_index(&emb, Some("image"), 1).unwrap();
+        assert_eq!(results.len(), 1);
+        assert!(results[0].description.is_none());
     }
 }

@@ -68,6 +68,15 @@ pub enum InputAction {
     /// Open the session browser overlay (F6).
     OpenSessionList,
 
+    // --- Phase 93: Cross-Platform SOTA ---
+
+    /// Open native file picker for media attachment (Ctrl+O).
+    ///
+    /// In terminal context: shows a toast with drag-and-drop instructions.
+    OpenFilePicker,
+    /// Remove the last pending media attachment (Ctrl+Backspace).
+    RemoveLastAttachment,
+
     // Activity Navigation actions — these are NOT returned by dispatch_key().
     // They are handled by handle_action() for direct/programmatic invocation (tests, etc.).
     // Actual activity navigation goes through ActivityController → ControlAction.
@@ -93,6 +102,9 @@ pub enum InputAction {
     SearchPrev,
     /// Clear activity selection (programmatic use).
     ClearSelection,
+
+    /// Toggle sub-agent detail view: collapsed pills ↔ expanded tool list + summary (Ctrl+B).
+    ToggleSubAgentDetail,
 
     /// Pass the key to the currently focused widget (e.g. tui-textarea).
     ForwardToWidget(KeyEvent),
@@ -145,6 +157,12 @@ pub fn dispatch_key(key: KeyEvent) -> InputAction {
         (_, KeyCode::F(5)) => InputAction::ToggleConversationFilter,
         // F6: session browser
         (_, KeyCode::F(6)) => InputAction::OpenSessionList,
+        // Ctrl+O: open file picker / show attachment instructions
+        (m, KeyCode::Char('o')) if m.contains(KeyModifiers::CONTROL) => InputAction::OpenFilePicker,
+        // Ctrl+Backspace: remove last attachment chip
+        (m, KeyCode::Backspace) if m.contains(KeyModifiers::CONTROL) => InputAction::RemoveLastAttachment,
+        // Ctrl+B: toggle sub-agent detail view (collapsed pills ↔ tool list + summary)
+        (m, KeyCode::Char('b')) if m.contains(KeyModifiers::CONTROL) => InputAction::ToggleSubAgentDetail,
         // Tab: cycle focus
         (_, KeyCode::Tab) => InputAction::CycleFocus,
         // Shift+Up / PageUp: scroll activity up
@@ -335,5 +353,25 @@ mod tests {
     fn f6_opens_session_list() {
         let action = dispatch_key(key(KeyModifiers::NONE, KeyCode::F(6)));
         assert_eq!(action, InputAction::OpenSessionList);
+    }
+
+    // --- Phase 93: Cross-Platform SOTA key tests ---
+
+    #[test]
+    fn ctrl_o_opens_file_picker() {
+        let action = dispatch_key(key(KeyModifiers::CONTROL, KeyCode::Char('o')));
+        assert_eq!(action, InputAction::OpenFilePicker);
+    }
+
+    #[test]
+    fn ctrl_backspace_removes_last_attachment() {
+        let action = dispatch_key(key(KeyModifiers::CONTROL, KeyCode::Backspace));
+        assert_eq!(action, InputAction::RemoveLastAttachment);
+    }
+
+    #[test]
+    fn ctrl_b_toggles_sub_agent_detail() {
+        let action = dispatch_key(key(KeyModifiers::CONTROL, KeyCode::Char('b')));
+        assert_eq!(action, InputAction::ToggleSubAgentDetail);
     }
 }

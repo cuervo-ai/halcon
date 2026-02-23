@@ -1,0 +1,45 @@
+[package]
+name = "halcon-sandbox"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Sandboxed execution for bash and shell tools — seccomp/namespace on Linux, sandbox-exec on macOS"
+
+[dependencies]
+# Core
+halcon-core = { workspace = true }
+
+# Async
+tokio = { workspace = true, features = ["process", "time"] }
+async-trait = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# Logging
+tracing = { workspace = true }
+
+# System process management
+libc = { workspace = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Linux-specific seccomp sandbox
+# Note: seccompiler is only available on Linux
+# seccompiler = "0.4"  # Uncomment when enabling hard seccomp
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros"] }
+tempfile = { workspace = true }
+
+[features]
+default = []
+# Enable hard seccomp/namespace sandbox on Linux
+linux-seccomp = []
+# Enable macOS sandbox-exec profile
+macos-sandbox = []

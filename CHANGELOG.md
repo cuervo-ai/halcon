@@ -5,6 +5,83 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — SOTA Architecture + Permission Fixes (2026-02-23)
+
+### Added
+
+#### `halcon-agent-core` Crate — 10-Layer GDEM Architecture
+- New standalone crate implementing Goal-Driven Execution Machine (GDEM) with 10 formal layers
+- `AgentFsm` with states: Idle → Planning → Executing → Verifying → Converged / Error
+- `UCB1Bandit` multi-armed bandit for strategy selection with `arm_stats()`, `record_outcome()`, `best_arm()`
+- `GoalSpecParser` with `GoalSpec`, `KeywordPresence`, `ConfidenceScore` — typed goal specification
+- `LoopCritic` in-loop goal verification: `Evidence` (tool_outputs, tools_called, assistant_text), `CriticVerdict`
+- **127 tests pass** (was 74 after initial GDEM — +53 via Phase A+D hardening)
+- Formal invariants (`invariants.rs`): I-1.1→I-5.2, proof methods PROVED/SIMULATED/ASSERTED
+- `simulate_ucb1_convergence()`: deterministic proof that UCB1 converges on best arm (>85% fraction after 1000 rounds)
+- Property-based tests with proptest: ConfidenceScore bounds, GAS monotonicity, UCB1 finiteness/infinity-for-unplayed
+
+#### `halcon-sandbox` Crate — Execution Sandbox
+- New standalone crate: macOS `sandbox-exec` + Linux `unshare` isolation
+- Policy engine + executor with configurable resource limits (16 tests pass)
+
+#### Session Metrics — GAS/RER/SCR/SID/ToolPR
+- `SessionMetricsReport` with Goal Achievement Score (GAS): `0.6×confidence + 0.3×efficiency + 0.1×achieved_bonus`
+- Tiers S/A/B/C/D, Runtime Efficiency Rate (RER), Success-to-Call Ratio (SCR), Skill-to-Invocation Density (SID)
+
+#### SOTA Intent Architecture (IntentScorer + ModelRouter)
+- `IntentScorer` multi-signal classifier: task_type, complexity, scope, reasoning_depth, suggested_max_rounds
+- `ModelRouter` with `routing_bias_for()` — provider-aware model routing derived from IntentProfile
+- Replaces keyword-only `TaskAnalyzer` with richer multi-dimensional intent profiling
+- `IntentProfile.suggested_max_rounds()` caps UCB1 strategy's `max_rounds` (prevents over-allocation for conversational tasks)
+
+#### Sub-Agent Pipeline Improvements
+- `OrchestratorHeader` + `SubAgentTask` TUI activity lines — sub-agent progress visible in activity panel
+- `Ctrl+B` toggles collapsed pill ↔ expanded tool+summary view for sub-agent results
+- Context injection after sub-agent completion: sub-agent output injected into coordinator messages
+- `PermissionAwaiter` callback: sub-agents route destructive tool permissions to TUI modal
+
+### Fixed
+
+#### Permission Modal (3 bugs resolved)
+- **Silent timeout** (`permissions.rs`): When the 45-second TUI permission modal auto-denies (fail-closed), a `UiEvent::Warning` is now sent to the activity panel — user can see WHY the tool was denied even after missing the modal
+- **Configurable timeout** (`permissions.rs`): TUI path now uses `config.tools.prompt_timeout_secs` (45s) instead of hardcoded 60s; stored as `tui_timeout_secs` with 30s floor
+- **File path missing in delegation** (`delegation.rs`): `file_write` sub-agent instructions now include `Target file path: X` + `path="X"` directive — extracts from `expected_args.path` or infers via `infer_file_path()` (html→.html, python→.py, shell→.sh, etc.). Prevents sub-agents from generating content as text instead of calling file_write.
+
+#### Orchestrator SOTA Gaps
+- `allowed_tools` now filters tool definitions for sub-agents (sub-agents no longer see all 60+ tools)
+- Sub-agent timeout capped at 200s (`SUB_AGENT_MAX_TIMEOUT_SECS=200`) — config `sub_agent_timeout_secs=200`
+- `ConvergenceController` for sub-agents: max_rounds=6, stagnation_window=2, goal_coverage_threshold=0.10
+- Multilingual keyword extraction: Spanish domain words translated to English for coverage matching (`estructura→structure`, `repositorio→repository`)
+- `is_sub_agent: bool` field on `AgentContext` — sub-agent vs coordinator execution path separation
+
+#### Tool Pipeline Fixes
+- `native_search.rs`: uninitialized engine returns `is_error: true` (was false — caused model to retry infinitely)
+- `executor.rs`: MCP pool connection errors reclassified as TRANSIENT (not deterministic) — enables recovery after temporary connection drops
+- Tool output truncation: head+tail (60%+30%) UTF-8-safe — preserves both start AND end of long outputs
+
+#### Agent Loop Fixes
+- `LoopCritic`: uses `.rev().find()` for correct last-response extraction (not first)
+- `ForcedSynthesis`: injects synthesis directive + `ForcedByOracle`, returns `NextRound` instead of immediately breaking
+- UCB1 persistence: `match ... { Err(e) => warn!() }` instead of `let _ =` for visible error on DB failure
+- Sub-agent `response_cache: None` — prevents caching of text-only "I will create..." responses as tool results
+
+### Changed
+
+#### Architecture Refactor — Clean Module Boundaries
+- `repl/agent.rs` → `repl/agent/` module (provider_round, budget_guards, round_setup, convergence_phase, etc.)
+- `repl/reasoning_engine.rs` → `repl/application/reasoning_engine.rs`
+- `repl/strategy_selector.rs` → `repl/domain/strategy_selector.rs`
+- `repl/task_analyzer.rs` → `repl/domain/task_analyzer.rs`
+- `SessionManager` extracted from `repl/mod.rs` → `repl/session_manager.rs` (13 new tests)
+- `ModelRouter` per-round: `forced_routing_bias` field on `LoopState` — single-round override without strategy mutation
+
+### Tests
+- **3404 total tests pass** (was 3396 before permission fixes, +8 new tests this session)
+- New in this session: `file_write_with_explicit_path_uses_expected_args`, `file_write_infers_html/python_path`, `non_file_write_tools_have_no_path_hint`, `infer_html/python/shell_variants`, `infer_default_for_unknown`
+- UCB1 closed-loop tests (Phase 9): `reward_pipeline_feeds_ucb1_strategy_learning`, `repeated_high_rewards_make_strategy_dominant`, `low_reward_does_not_mark_as_success`, `ucb1_total_experience_count_increments`
+
+---
+
 ## [Unreleased] — Phase 78-80: HALCON V3 Plugin Suite (2026-02-19)
 
 ### Added

@@ -255,6 +255,8 @@ pub struct LineMetadata {
     pub line_to_step: HashMap<usize, usize>,
     /// round number → line indices in that round
     pub round_to_lines: HashMap<usize, Vec<usize>>,
+    /// sub-agent step_index → SubAgentTask line index (for in-place mutation on completion)
+    pub sub_agent_lines: HashMap<usize, usize>,
 }
 
 impl LineMetadata {
@@ -300,6 +302,7 @@ impl LineMetadata {
         self.tool_to_line.clear();
         self.line_to_step.clear();
         self.round_to_lines.clear();
+        self.sub_agent_lines.clear();
     }
 }
 
@@ -470,6 +473,15 @@ impl ActivityModel {
                 self.filters.contains(ActivityFilter::PLANS)
             }
             AL::AgentThinking => {
+                self.filters.contains(ActivityFilter::SYSTEM)
+            }
+            AL::PhaseIndicator { .. } => {
+                self.filters.contains(ActivityFilter::SYSTEM)
+            }
+            AL::OrchestratorHeader { .. } | AL::SubAgentTask { .. } => {
+                self.filters.contains(ActivityFilter::SYSTEM)
+            }
+            AL::ThinkingBubble { .. } => {
                 self.filters.contains(ActivityFilter::SYSTEM)
             }
         }
@@ -660,6 +672,34 @@ impl ActivityModel {
         }
     }
 
+    /// Push a phase indicator skeleton (idempotent — replaces any existing one).
+    ///
+    /// Shows a 2-line shimmer skeleton while an expensive LLM phase (planning, reasoning,
+    /// reflection) is running. Removed by remove_phase_indicator().
+    pub fn push_phase_indicator(&mut self, phase: super::activity_types::AgentPhase, label: &str) {
+        self.remove_phase_indicator(); // idempotent replacement
+        self.push(ActivityLine::PhaseIndicator { phase, label: label.to_string() });
+    }
+
+    /// Remove the PhaseIndicator (called when phase ends).
+    pub fn remove_phase_indicator(&mut self) {
+        let before = self.lines.len();
+        self.lines.retain(|l| !matches!(l, ActivityLine::PhaseIndicator { .. }));
+        if self.lines.len() != before {
+            self.rebuild_index();
+        }
+    }
+
+    /// Replace AgentThinking/PhaseIndicator with a persistent ThinkingBubble.
+    ///
+    /// Called when ThinkingComplete arrives (before first StreamChunk).
+    /// The bubble persists in the activity feed as a collapsible summary.
+    pub fn push_thinking_bubble(&mut self, char_count: usize, preview: String) {
+        self.remove_thinking();
+        self.remove_phase_indicator();
+        self.push(ActivityLine::ThinkingBubble { char_count, preview });
+    }
+
     /// Push a code block with syntax highlighting.
     ///
     /// P0.4A: Convenience wrapper for CodeBlock variant, matches ActivityState API.
@@ -687,6 +727,82 @@ impl ActivityModel {
     /// P0.4A: Alias for len() to match legacy API.
     pub fn line_count(&self) -> usize {
         self.len()
+    }
+
+    // --- Sub-agent visibility methods ---
+
+    /// Push an OrchestratorHeader line (called on OrchestratorWave event).
+    pub fn push_orchestrator_header(&mut self, task_count: usize, wave_count: usize) {
+        self.push(super::activity_types::ActivityLine::OrchestratorHeader { task_count, wave_count });
+    }
+
+    /// Push a new SubAgentTask line in Running state (called on SubAgentSpawned event).
+    ///
+    /// Records the line index in `metadata.sub_agent_lines` keyed by `step_index`
+    /// so `update_sub_agent_complete()` can find it for in-place mutation.
+    pub fn push_sub_agent_spawn(&mut self, step_index: usize, total_steps: usize, description: &str, agent_type: &str) {
+        use super::activity_types::{ActivityLine, SubAgentStatus};
+        let line_idx = self.lines.len();
+        self.metadata.sub_agent_lines.insert(step_index, line_idx);
+        self.push(ActivityLine::SubAgentTask {
+            step_index,
+            total_steps,
+            description: description.to_string(),
+            agent_type: agent_type.to_string(),
+            status: SubAgentStatus::Running,
+            rounds: 0,
+            tools_used: Vec::new(),
+            summary: String::new(),
+        });
+    }
+
+    /// Mutate an existing SubAgentTask line in-place on completion.
+    ///
+    /// Looks up the line index from `metadata.sub_agent_lines[step_index]`,
+    /// then updates `status`, `tools_used`, `rounds`, and `summary` in the stored line.
+    /// Falls back to pushing a new Info line if the step_index is not found.
+    pub fn update_sub_agent_complete(
+        &mut self,
+        step_index: usize,
+        success: bool,
+        latency_ms: u64,
+        tools_used: Vec<String>,
+        rounds: usize,
+        summary: String,
+    ) {
+        use super::activity_types::{ActivityLine, SubAgentStatus};
+
+        // Look up the spawned line and mutate it in-place.
+        if let Some(&line_idx) = self.metadata.sub_agent_lines.get(&step_index) {
+            if let Some(ActivityLine::SubAgentTask {
+                status,
+                tools_used: ref mut t,
+                rounds: ref mut r,
+                summary: ref mut s,
+                ..
+            }) = self.lines.get_mut(line_idx)
+            {
+                *status = if success {
+                    SubAgentStatus::Success { latency_ms }
+                } else {
+                    SubAgentStatus::Failed { latency_ms }
+                };
+                *t = tools_used;
+                *r = rounds;
+                *s = summary;
+                // Rebuild index for the updated line — text_content changed.
+                let new_text = self.lines[line_idx].text_content();
+                self.index.index_line(line_idx, &new_text);
+                return;
+            }
+        }
+
+        // Fallback: no spawned line found — push a plain Info line.
+        let icon = if success { '✓' } else { '✗' };
+        self.push_info(&format!(
+            "[sub-agent] {icon} [{step_index}] ({:.1}s)",
+            latency_ms as f64 / 1000.0
+        ));
     }
 
     /// Check if there are any loading tools (ToolExec with result=None).
@@ -1350,5 +1466,92 @@ mod tests {
         // Pattern that doesn't match
         let results = model.regex_search("xyz123");
         assert!(results.is_empty());
+    }
+
+    // --- Sub-agent visibility method tests ---
+
+    #[test]
+    fn push_orchestrator_header_creates_line() {
+        use super::super::activity_types::ActivityLine;
+        let mut model = ActivityModel::new();
+        model.push_orchestrator_header(3, 1);
+        assert_eq!(model.len(), 1);
+        assert!(matches!(
+            model.get(0),
+            Some(ActivityLine::OrchestratorHeader { task_count: 3, wave_count: 1 })
+        ));
+    }
+
+    #[test]
+    fn push_sub_agent_spawn_creates_running_line() {
+        use super::super::activity_types::{ActivityLine, SubAgentStatus};
+        let mut model = ActivityModel::new();
+        model.push_sub_agent_spawn(1, 3, "Analyze project", "General");
+
+        assert_eq!(model.len(), 1);
+        assert!(matches!(
+            model.get(0),
+            Some(ActivityLine::SubAgentTask {
+                step_index: 1,
+                total_steps: 3,
+                status: SubAgentStatus::Running,
+                ..
+            })
+        ));
+        // Metadata should record the line index
+        assert_eq!(model.metadata.sub_agent_lines.get(&1), Some(&0));
+    }
+
+    #[test]
+    fn update_sub_agent_complete_mutates_in_place() {
+        use super::super::activity_types::{ActivityLine, SubAgentStatus};
+        let mut model = ActivityModel::new();
+        model.push_sub_agent_spawn(2, 3, "Fix bug", "Coder");
+        assert_eq!(model.len(), 1);
+
+        model.update_sub_agent_complete(
+            2,
+            true,
+            1200,
+            vec!["bash".into(), "file_read".into()],
+            2,
+            "Fixed JWT bug".into(),
+        );
+
+        // Should still be 1 line (mutated in-place, not a new push)
+        assert_eq!(model.len(), 1);
+        match model.get(0) {
+            Some(ActivityLine::SubAgentTask { status, tools_used, rounds, summary, .. }) => {
+                assert!(matches!(status, SubAgentStatus::Success { latency_ms: 1200 }));
+                assert_eq!(tools_used, &["bash", "file_read"]);
+                assert_eq!(*rounds, 2);
+                assert_eq!(summary, "Fixed JWT bug");
+            }
+            other => panic!("Expected SubAgentTask, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn update_sub_agent_complete_fallback_when_no_spawned_line() {
+        let mut model = ActivityModel::new();
+        // Complete without a prior spawn → should fall back to push_info
+        model.update_sub_agent_complete(99, true, 500, vec![], 1, String::new());
+        assert_eq!(model.len(), 1);
+        assert!(matches!(model.get(0), Some(super::super::activity_types::ActivityLine::Info(_))));
+    }
+
+    #[test]
+    fn update_sub_agent_complete_failed_sets_status() {
+        use super::super::activity_types::{ActivityLine, SubAgentStatus};
+        let mut model = ActivityModel::new();
+        model.push_sub_agent_spawn(1, 1, "Run tests", "Tester");
+        model.update_sub_agent_complete(1, false, 800, vec!["bash".into()], 1, "Tests failed".into());
+
+        match model.get(0) {
+            Some(ActivityLine::SubAgentTask { status, .. }) => {
+                assert!(matches!(status, SubAgentStatus::Failed { latency_ms: 800 }));
+            }
+            other => panic!("Expected SubAgentTask, got {:?}", other),
+        }
     }
 }

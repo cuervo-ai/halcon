@@ -24,6 +24,11 @@ pub(crate) struct TaskBridge {
     pub(crate) artifacts: ArtifactStore,
     pub(crate) provenance: ProvenanceTracker,
     config: TaskFrameworkConfig,
+    /// Deterministic plan-step-index → task_id mapping built at ingest_plan() time.
+    ///
+    /// Replaces the previous string-based matching (description + tool_name) which was
+    /// unreliable when multiple steps had the same description or when fields were None.
+    step_to_task: std::collections::HashMap<usize, Uuid>,
 }
 
 impl TaskBridge {
@@ -34,20 +39,33 @@ impl TaskBridge {
             artifacts: ArtifactStore::new(),
             provenance: ProvenanceTracker::new(),
             config: config.clone(),
+            step_to_task: std::collections::HashMap::new(),
         }
     }
 
     /// Lift PlanSteps into StructuredTasks. Returns (step_index, task_id) pairs.
+    ///
+    /// Also caches the step_index → task_id mapping for deterministic lookups in
+    /// `sync_from_tracker()`. This replaces the previous string-based matching which
+    /// was unreliable when multiple steps shared the same description or tool name.
     pub fn ingest_plan(&mut self, plan: &ExecutionPlan) -> Vec<(usize, Uuid)> {
         let retry_policy = RetryPolicy {
             max_retries: self.config.default_max_retries,
             base_delay_ms: self.config.default_retry_base_ms,
             ..Default::default()
         };
-        self.backlog.add_from_plan(plan, &retry_policy)
+        let pairs = self.backlog.add_from_plan(plan, &retry_policy);
+        // Cache the deterministic mapping for sync_from_tracker()
+        self.step_to_task = pairs.iter().copied().collect();
+        pairs
     }
 
     /// Sync ExecutionTracker outcomes into structured task provenance.
+    ///
+    /// Uses the deterministic step_index → task_id mapping built at `ingest_plan()` time
+    /// instead of the previous string-based matching (description + tool_name). The old
+    /// approach was unreliable when multiple steps had identical descriptions or when
+    /// fields were None — the index mapping is O(1) and always correct.
     pub fn sync_from_tracker(
         &mut self,
         tracker: &ExecutionTracker,
@@ -55,14 +73,9 @@ impl TaskBridge {
         provider: &str,
         session_id: Option<Uuid>,
     ) {
-        for tracked in tracker.tracked_steps() {
-            // Find corresponding structured task by matching step description + tool_name.
-            let matching_task_id = self.backlog.tasks().find(|t| {
-                t.tool_name.as_deref() == tracked.step.tool_name.as_deref()
-                    && t.title == tracked.step.description
-            }).map(|t| t.task_id);
-
-            let Some(task_id) = matching_task_id else {
+        for (step_idx, tracked) in tracker.tracked_steps().iter().enumerate() {
+            // Deterministic lookup by step index — avoids string matching ambiguity.
+            let Some(&task_id) = self.step_to_task.get(&step_idx) else {
                 continue;
             };
 
@@ -145,6 +158,23 @@ impl TaskBridge {
     /// Whether the framework is enabled.
     pub fn is_enabled(&self) -> bool {
         self.config.enabled
+    }
+
+    /// Returns true when `TaskFrameworkConfig.strict_enforcement` is active.
+    ///
+    /// When strict, the agent loop should halt immediately on permanent task failure
+    /// rather than continuing to loop and burning rounds against an unrecoverable plan.
+    pub fn is_strict(&self) -> bool {
+        self.config.strict_enforcement
+    }
+
+    /// Returns true if any task in the backlog has permanently failed.
+    ///
+    /// "Permanently failed" means `StructuredTaskStatus::Failed` — tasks in `Retrying`
+    /// still have a remaining retry budget and must NOT trigger a strict halt.
+    pub fn has_permanently_failed_tasks(&self) -> bool {
+        let (_, failed, _) = self.backlog.progress();
+        failed > 0
     }
 
     /// Export all tasks as JSON for diagnostics.
@@ -306,5 +336,58 @@ mod tests {
         assert!(config.task_framework.enabled);
         assert!(config.task_framework.persist_tasks);
         assert_eq!(config.task_framework.default_max_retries, 2);
+    }
+
+    // ── strict_enforcement API ────────────────────────────────────────────────
+
+    #[test]
+    fn is_strict_false_by_default() {
+        // TaskFrameworkConfig.strict_enforcement defaults to false — bridge must expose this.
+        let bridge = TaskBridge::new(&test_config());
+        assert!(!bridge.is_strict(), "strict_enforcement must default to false");
+    }
+
+    #[test]
+    fn is_strict_true_when_config_set() {
+        let config = TaskFrameworkConfig {
+            strict_enforcement: true,
+            ..test_config()
+        };
+        let bridge = TaskBridge::new(&config);
+        assert!(bridge.is_strict(), "is_strict() must reflect config value");
+    }
+
+    #[test]
+    fn has_permanently_failed_tasks_false_on_empty_backlog() {
+        let bridge = TaskBridge::new(&test_config());
+        assert!(
+            !bridge.has_permanently_failed_tasks(),
+            "empty backlog has no failed tasks"
+        );
+    }
+
+    #[test]
+    fn has_permanently_failed_tasks_detects_failure() {
+        // default_max_retries = 0 so fail_task reaches Failed (no retries remain).
+        let config = TaskFrameworkConfig {
+            default_max_retries: 0,
+            ..test_config()
+        };
+        let mut bridge = TaskBridge::new(&config);
+        let plan = test_plan();
+        let pairs = bridge.ingest_plan(&plan);
+        assert!(!bridge.has_permanently_failed_tasks(), "no failures yet");
+
+        // FSM requires Pending → Ready → Running before Running → Failed.
+        let task_id = pairs[0].1;
+        let backlog = bridge.backlog_mut();
+        let _ = backlog.transition(task_id, StructuredTaskStatus::Ready);
+        let _ = backlog.transition(task_id, StructuredTaskStatus::Running);
+        let _ = backlog.fail_task(task_id, "tool error".into());
+
+        assert!(
+            bridge.has_permanently_failed_tasks(),
+            "after fail_task with no retries, has_permanently_failed_tasks must be true"
+        );
     }
 }

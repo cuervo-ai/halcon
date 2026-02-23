@@ -366,10 +366,90 @@ impl ExecutionTracker {
     // ── Private helpers ──
 
     fn find_matching_step(&self, tool_name: &str) -> Option<usize> {
-        self.steps.iter().position(|ts| {
+        // Fast path: exact match.
+        if let Some(idx) = self.steps.iter().position(|ts| {
             ts.step.tool_name.as_deref() == Some(tool_name) && !ts.status.is_terminal()
+        }) {
+            return Some(idx);
+        }
+
+        // Fuzzy path: semantic alias match for MCP tool name variants.
+        //
+        // MCP servers frequently expose tools with different naming conventions than the
+        // planner's native tool names (e.g., planner writes "file_read", MCP provides
+        // "read_text_file"). Without this fallback, plan_progress_ratio stays 0.0 for
+        // all MCP-executed steps because no step ever matches, causing Gate 3 supervisor
+        // spam and spurious replan triggers.
+        self.steps.iter().position(|ts| {
+            let Some(step_tool) = ts.step.tool_name.as_deref() else {
+                return false;
+            };
+            !ts.status.is_terminal() && tool_names_are_equivalent(step_tool, tool_name)
         })
     }
+}
+
+// ── Tool name alias resolution ──
+//
+// Bidirectional equivalence table: maps canonical native tool names to the
+// common MCP/external tool name variants they correspond to.  A match succeeds
+// if BOTH names (plan step + executed tool) resolve to the same canonical entry,
+// regardless of which direction the lookup runs.
+
+/// Known equivalences between native tool names and MCP/external tool variants.
+///
+/// Each entry is `(canonical_name, [alias1, alias2, ...])`.  Two tool names are
+/// considered equivalent if they both appear in the same row (as the canonical
+/// name or as an alias).
+static TOOL_ALIASES: &[(&str, &[&str])] = &[
+    // ── File operations ──
+    ("file_read",       &["read_text_file", "read_file", "readfile", "get_file_contents", "get_file", "read_content"]),
+    ("file_write",      &["write_file", "write_text_file", "create_file", "save_file", "put_file"]),
+    ("file_edit",       &["edit_file", "update_file", "modify_file", "patch_file", "replace_in_file"]),
+    ("file_delete",     &["delete_file", "remove_file", "rm_file"]),
+    // ── Directory listing ──
+    ("directory_tree",  &["list_directory", "list_dir", "list_files", "read_dir", "ls", "show_directory"]),
+    ("glob",            &["find_files", "search_files", "glob_pattern", "list_glob", "match_files"]),
+    // ── Search ──
+    ("grep",            &["search_text", "grep_search", "search_in_file", "search_file", "find_in_files"]),
+    // ── Shell execution ──
+    ("bash",            &["run_bash", "execute_bash", "shell", "run_command", "execute_command", "run_shell", "exec"]),
+    // ── Git operations ──
+    ("git_status",      &["get_git_status", "git_state", "show_git_status"]),
+    ("git_diff",        &["get_git_diff", "show_diff", "diff"]),
+    ("git_log",         &["get_git_log", "show_log", "git_history", "log"]),
+    ("git_commit",      &["do_git_commit", "commit_changes", "commit"]),
+    ("git_add",         &["stage_changes", "git_stage", "add_to_staging"]),
+    ("git_branch",      &["list_branches", "show_branch", "current_branch"]),
+    // ── Web ──
+    ("web_search",      &["search_web", "search_internet", "web_query", "internet_search"]),
+    ("web_fetch",       &["fetch_url", "get_url", "http_get", "fetch_page", "fetch"]),
+    // ── Tasks ──
+    ("task_track",      &["track_task", "create_task", "add_task", "new_task"]),
+];
+
+/// Returns true if `a` and `b` name the same tool operation.
+///
+/// Checks exact equality first, then bidirectional alias lookup: both names
+/// must appear in the same row of `TOOL_ALIASES` (as canonical or as an alias).
+fn tool_names_are_equivalent(a: &str, b: &str) -> bool {
+    if a == b {
+        return true;
+    }
+    for (canonical, aliases) in TOOL_ALIASES {
+        let a_in_row = a == *canonical || aliases.contains(&a);
+        let b_in_row = b == *canonical || aliases.contains(&b);
+        if a_in_row && b_in_row {
+            tracing::trace!(
+                plan_tool = a,
+                executed_tool = b,
+                canonical = canonical,
+                "ExecutionTracker: fuzzy tool name match via alias table"
+            );
+            return true;
+        }
+    }
+    false
 }
 
 // ── Timeline types ──
@@ -959,6 +1039,131 @@ mod tests {
         let running = tracker.delegated_running();
         assert_eq!(running.len(), 1);
         assert_eq!(running[0].0, 1); // Only step 1 still running.
+    }
+
+    // ── Alias / fuzzy matching tests ──
+
+    #[test]
+    fn mcp_read_text_file_matches_file_read_plan_step() {
+        // Planner uses native "file_read"; MCP tool is "read_text_file".
+        let mut tracker = make_tracker(vec![make_step("Read the config", "file_read")]);
+        let matched = tracker.record_tool_results(&["read_text_file".into()], &[], 1);
+        assert_eq!(matched.len(), 1, "read_text_file should match file_read plan step via alias");
+        assert_eq!(tracker.tracked_steps()[0].status, TaskStatus::Completed);
+    }
+
+    #[test]
+    fn mcp_list_directory_matches_directory_tree_plan_step() {
+        // Planner uses "directory_tree"; MCP tool is "list_directory".
+        let mut tracker = make_tracker(vec![make_step("List source files", "directory_tree")]);
+        let matched = tracker.record_tool_results(&["list_directory".into()], &[], 1);
+        assert_eq!(matched.len(), 1, "list_directory should match directory_tree plan step via alias");
+        assert_eq!(tracker.tracked_steps()[0].status, TaskStatus::Completed);
+    }
+
+    #[test]
+    fn mcp_run_bash_matches_bash_plan_step() {
+        // Planner uses "bash"; MCP tool might be "run_bash" or "execute_bash".
+        let mut tracker = make_tracker(vec![
+            make_step("Run tests", "bash"),
+            make_step("Check output", "bash"),
+        ]);
+        let m1 = tracker.record_tool_results(&["run_bash".into()], &[], 1);
+        assert_eq!(m1.len(), 1);
+        assert_eq!(tracker.tracked_steps()[0].status, TaskStatus::Completed);
+
+        let m2 = tracker.record_tool_results(&["execute_bash".into()], &[], 2);
+        assert_eq!(m2.len(), 1);
+        assert_eq!(tracker.tracked_steps()[1].status, TaskStatus::Completed);
+    }
+
+    #[test]
+    fn reverse_direction_mcp_name_in_plan_native_executed() {
+        // Planner used MCP name "read_text_file"; native "file_read" was executed.
+        let mut tracker = make_tracker(vec![make_step("Read file via MCP", "read_text_file")]);
+        let matched = tracker.record_tool_results(&["file_read".into()], &[], 1);
+        assert_eq!(matched.len(), 1, "file_read should match read_text_file plan step in reverse");
+        assert_eq!(tracker.tracked_steps()[0].status, TaskStatus::Completed);
+    }
+
+    #[test]
+    fn unrelated_tools_do_not_cross_match() {
+        // "bash" must NOT match "file_read" or "grep".
+        let mut tracker = make_tracker(vec![
+            make_step("Read config", "file_read"),
+            make_step("Search logs", "grep"),
+        ]);
+        // Execute bash — should match nothing.
+        let matched = tracker.record_tool_results(&["bash".into()], &[], 1);
+        assert!(matched.is_empty(), "bash must not alias to file_read or grep");
+        assert_eq!(tracker.tracked_steps()[0].status, TaskStatus::Pending);
+        assert_eq!(tracker.tracked_steps()[1].status, TaskStatus::Pending);
+    }
+
+    #[test]
+    fn file_read_does_not_match_file_write() {
+        // "file_write" and "file_read" are different operations and must not alias.
+        let mut tracker = make_tracker(vec![make_step("Read config", "file_read")]);
+        let matched = tracker.record_tool_results(&["file_write".into()], &[], 1);
+        assert!(matched.is_empty(), "file_write must not match file_read plan step");
+        assert_eq!(tracker.tracked_steps()[0].status, TaskStatus::Pending);
+    }
+
+    #[test]
+    fn tool_names_equivalent_symmetric() {
+        // Equivalence must be symmetric: a≡b implies b≡a.
+        assert!(tool_names_are_equivalent("file_read", "read_text_file"));
+        assert!(tool_names_are_equivalent("read_text_file", "file_read"));
+        assert!(tool_names_are_equivalent("directory_tree", "list_directory"));
+        assert!(tool_names_are_equivalent("list_directory", "directory_tree"));
+        assert!(tool_names_are_equivalent("bash", "run_bash"));
+        assert!(tool_names_are_equivalent("run_bash", "bash"));
+    }
+
+    #[test]
+    fn tool_names_equivalent_reflexive() {
+        // Every tool name is equivalent to itself.
+        assert!(tool_names_are_equivalent("file_read", "file_read"));
+        assert!(tool_names_are_equivalent("bash", "bash"));
+        assert!(tool_names_are_equivalent("unknown_tool_xyz", "unknown_tool_xyz"));
+    }
+
+    #[test]
+    fn unknown_tools_not_equivalent() {
+        // Unknown tool names with no alias mapping must not match each other.
+        assert!(!tool_names_are_equivalent("unknown_a", "unknown_b"));
+        assert!(!tool_names_are_equivalent("my_custom_tool", "file_read"));
+    }
+
+    #[test]
+    fn alias_match_does_not_prevent_exact_match_on_same_step() {
+        // If the plan step uses "file_read" and the executed tool is also "file_read",
+        // the exact match path fires (no alias lookup needed).
+        let mut tracker = make_tracker(vec![make_step("Read file", "file_read")]);
+        let matched = tracker.record_tool_results(&["file_read".into()], &[], 1);
+        assert_eq!(matched.len(), 1);
+        assert_eq!(tracker.tracked_steps()[0].status, TaskStatus::Completed);
+    }
+
+    #[test]
+    fn mcp_alias_match_advances_progress_ratio() {
+        // Verify that alias matching actually updates progress() so plan_progress_ratio
+        // becomes non-zero (the root bug that caused Gate 3 supervisor spam).
+        let mut tracker = make_tracker(vec![
+            make_step("Read config", "file_read"),
+            make_step("List src", "directory_tree"),
+        ]);
+        let (completed_before, total, _) = tracker.progress();
+        assert_eq!(completed_before, 0);
+        assert_eq!(total, 2);
+
+        // Execute via MCP tool names (not native names).
+        tracker.record_tool_results(&["read_text_file".into(), "list_directory".into()], &[], 1);
+
+        let (completed_after, total_after, _) = tracker.progress();
+        assert_eq!(completed_after, 2, "both MCP steps should complete plan steps via alias");
+        assert_eq!(total_after, 2);
+        assert!(tracker.is_complete());
     }
 
     #[test]

@@ -264,7 +264,17 @@ pub fn caps() -> &'static TerminalCapabilities {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+
     use super::*;
+
+    /// Serialize all tests that mutate process-global environment variables.
+    ///
+    /// `std::env::set_var` / `remove_var` are process-wide operations.  Under
+    /// `--test-threads=16` two env-mutating tests can race, causing one to read
+    /// a value left behind by the other.  Every test that calls set_var/remove_var
+    /// must hold this lock for the entire duration of its env-dependent section.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn color_level_ordering() {
@@ -276,6 +286,7 @@ mod tests {
 
     #[test]
     fn detect_respects_no_color() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         std::env::remove_var("COLORTERM");
         std::env::remove_var("TERM");
         std::env::set_var("NO_COLOR", "1");
@@ -287,7 +298,9 @@ mod tests {
 
     #[test]
     fn detect_colorterm_truecolor() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         std::env::remove_var("NO_COLOR");
+        std::env::remove_var("TERM");
         std::env::set_var("COLORTERM", "truecolor");
         let level = detect_color_support();
         std::env::remove_var("COLORTERM");
@@ -297,6 +310,7 @@ mod tests {
 
     #[test]
     fn detect_term_256color() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         std::env::remove_var("COLORTERM");
         std::env::remove_var("NO_COLOR");
         std::env::set_var("TERM", "xterm-256color");
@@ -308,6 +322,7 @@ mod tests {
 
     #[test]
     fn detect_term_xterm_fallback() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         std::env::remove_var("COLORTERM");
         std::env::remove_var("NO_COLOR");
         std::env::set_var("TERM", "xterm");
@@ -319,9 +334,11 @@ mod tests {
 
     #[test]
     fn unicode_detection_utf8() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         std::env::set_var("LANG", "en_US.UTF-8");
-        assert!(detect_unicode_support());
+        let result = detect_unicode_support();
         std::env::remove_var("LANG");
+        assert!(result);
     }
 
     #[test]

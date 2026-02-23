@@ -134,6 +134,11 @@ pub enum EventPayload {
         result_count: usize,
         top_score: f64,
     },
+    OrchestratorStarted {
+        orchestrator_id: Uuid,
+        task_count: usize,
+        wave_count: usize,
+    },
     SubAgentSpawned {
         orchestrator_id: Uuid,
         task_id: Uuid,

@@ -1,0 +1,276 @@
+//! Post-loop result assembly: LoopCritic evaluation + `AgentLoopResult` construction.
+//!
+//! Called once after `'agent_loop` exits normally (non-early-return). Handles:
+//! - TBAC context pop
+//! - LoopCritic adversarial evaluation (G2 critic separation)
+//! - Stop-condition classification
+//! - FSM / domain-event emission
+//! - L4 archive flush
+//! - Final `AgentLoopResult` construction
+
+use std::sync::Arc;
+
+use anyhow::Result;
+use halcon_core::traits::ModelProvider;
+use halcon_core::types::{
+    AgentLimits, DomainEvent, EventPayload, MessageContent, ModelRequest, Role,
+};
+use halcon_core::EventSender;
+
+use super::super::agent_types::{AgentLoopResult, ControlReceiver, CriticVerdictSummary, StopCondition};
+use super::super::agent_utils::compute_fingerprint;
+use super::super::conversational_permission::ConversationalPermissionHandler;
+use super::super::plugin_registry::PluginRegistry;
+use super::loop_state::LoopState;
+use crate::render::sink::RenderSink;
+
+/// Assemble the final `AgentLoopResult` after the agent loop exits.
+///
+/// Consumes `state` (moves owned fields into the result) and takes the remaining
+/// external dependencies by reference/value.
+pub(super) async fn build(
+    mut state: LoopState,
+    render_sink: &dyn RenderSink,
+    event_tx: &EventSender,
+    limits: &AgentLimits,
+    provider: &Arc<dyn ModelProvider>,
+    critic_provider: Option<Arc<dyn ModelProvider>>,
+    critic_model: Option<String>,
+    request: &ModelRequest,
+    ctrl_rx: Option<ControlReceiver>,
+    plugin_registry: Option<Arc<std::sync::Mutex<PluginRegistry>>>,
+    permissions: &mut ConversationalPermissionHandler,
+) -> Result<AgentLoopResult> {
+    // TBAC: pop the plan-derived context if we pushed one.
+    if state.tbac_pushed {
+        permissions.pop_context();
+    }
+
+    // Phase 1 Supervisor: LoopCritic — adversarial post-loop evaluation.
+    // Runs only for tasks that completed ≥1 plan step (avoids 20s overhead on simple chat).
+    // Phase 1.2: Verdict now includes gaps + retry_instruction so mod.rs can perform
+    // an actual in-session retry instead of just logging an advisory message.
+    let mut critic_verdict_holder: Option<CriticVerdictSummary> = None;
+    // progress() returns (completed_steps, total_steps, elapsed). Check total > 0 so the
+    // LoopCritic runs even when 0 steps completed (e.g. all steps failed or were skipped) —
+    // failed plans still warrant adversarial evaluation.
+    let has_plan_execution = state.execution_tracker
+        .as_ref()
+        .map(|t| t.progress().1 > 0)
+        .unwrap_or(false);
+    if has_plan_execution && !state.full_text.is_empty() {
+        let original_request = state.messages
+            .iter()
+            .rev()  // Use LAST user message (current task), not first (may be greeting)
+            .find(|m| m.role == Role::User)
+            .map(|m| match &m.content {
+                MessageContent::Text(t) => t.as_str(),
+                _ => "",
+            })
+            .unwrap_or("")
+            .to_string();
+
+        if !original_request.is_empty() {
+            let step_summaries: Vec<String> = state.execution_tracker
+                .as_ref()
+                .map(|t| t.tracked_steps().iter().map(|s| s.step.description.clone()).collect())
+                .unwrap_or_default();
+
+            // Step 8h: Use critic_provider/critic_model if configured (G2 — critic separation).
+            // Falls back to executor provider/model when not configured (backward compatible).
+            let critic_prov_ref = critic_provider.as_ref().unwrap_or(provider);
+            let critic_mdl_str = critic_model.as_deref().unwrap_or(&request.model);
+            let critic = super::super::supervisor::LoopCritic::new(
+                critic_prov_ref.clone(),
+                critic_mdl_str.to_string(),
+            );
+
+            if let Some(verdict) = critic
+                .evaluate(&original_request, &state.full_text, &step_summaries)
+                .await
+            {
+                // Phase 1.2: Propagate FULL verdict (achieved + confidence + gaps + retry_instruction).
+                // Previously only (achieved, confidence) was stored — gaps and retry_instruction
+                // were LOST here. This was the root cause of advisory-only retry behavior.
+                critic_verdict_holder = Some(CriticVerdictSummary {
+                    achieved: verdict.achieved,
+                    confidence: verdict.confidence,
+                    gaps: verdict.gaps.clone(),
+                    retry_instruction: verdict.retry_instruction.clone(),
+                });
+                if verdict.achieved {
+                    tracing::debug!(
+                        confidence = verdict.confidence,
+                        "LoopCritic: goal achieved"
+                    );
+                } else {
+                    tracing::warn!(
+                        confidence = verdict.confidence,
+                        gaps = ?verdict.gaps,
+                        retry_has_instruction = verdict.retry_instruction.is_some(),
+                        "LoopCritic: goal NOT achieved"
+                    );
+                    if !state.silent {
+                        render_sink.warning(
+                            &format!(
+                                "[critic] goal not fully achieved ({:.0}% confidence): {}",
+                                verdict.confidence * 100.0,
+                                verdict.gaps.join("; ")
+                            ),
+                            None,
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    // Determine stop condition: max_rounds, forced synthesis, or normal end.
+    // If the loop guard forced a break (oscillation/plan completion) or forced no-tools,
+    // and the loop ended due to that, use ForcedSynthesis.
+    let stop_condition = if state.environment_error_halt {
+        // P0-C: MCP environment persistently dead — report EnvironmentError so UCB1 gets
+        // a zero-reward signal for the strategy that dispatched these tools.
+        StopCondition::EnvironmentError
+    } else if state.ctrl_cancelled {
+        StopCondition::Interrupted
+    } else if state.rounds >= limits.max_rounds {
+        tracing::warn!(max_rounds = limits.max_rounds, "Max agent rounds reached");
+        if !state.silent {
+            render_sink.warning(
+                &format!("max rounds reached: {}", limits.max_rounds),
+                Some("Increase max_rounds in config to allow more iterations"),
+            );
+        }
+        StopCondition::MaxRounds
+    } else if state.forced_synthesis_detected || state.loop_guard.plan_complete() || state.loop_guard.detect_oscillation() {
+        StopCondition::ForcedSynthesis
+    } else {
+        StopCondition::EndTurn
+    };
+
+    // Phase E5: Emit final agent state transition (Complete or Failed).
+    // P4 FIX: Use state.current_fsm_state (tracked throughout) as from_state instead of
+    // hardcoded "executing". The loop may have exited from "reflecting", "planning",
+    // or "tool_wait" — emitting the wrong from_state caused "[state] INVALID" TUI warnings.
+    if !state.silent {
+        // NOTE: ProviderError, TokenBudget, DurationBudget, and CostBudget all use early
+        // `return Ok(...)` paths inside the loop and therefore never reach this point.
+        // They are listed explicitly so the compiler enforces exhaustiveness — any future
+        // StopCondition variant that is added will cause a compile error here, preventing
+        // it from silently falling through to a wrong FSM state.
+        let (to_state, reason) = match stop_condition {
+            StopCondition::EndTurn | StopCondition::ForcedSynthesis => ("complete", "task finished"),
+            StopCondition::Interrupted => ("idle", "user cancelled"),
+            StopCondition::MaxRounds => ("failed", "max rounds reached"),
+            StopCondition::EnvironmentError => ("failed", "environment unavailable"),
+            // The following variants exit via early return and never reach this match,
+            // but are listed to keep the match exhaustive and prevent future regressions.
+            StopCondition::ProviderError => ("failed", "provider error"),
+            StopCondition::TokenBudget => ("failed", "token budget exceeded"),
+            StopCondition::DurationBudget => ("failed", "duration budget exceeded"),
+            StopCondition::CostBudget => ("failed", "cost budget exceeded"),
+            StopCondition::SupervisorDenied => ("complete", "supervisor denied write"),
+        };
+        render_sink.agent_state_transition(state.current_fsm_state, to_state, reason);
+    }
+
+    // Emit AgentCompleted event.
+    let _ = event_tx.send(DomainEvent::new(EventPayload::AgentCompleted {
+        agent_type: halcon_core::types::AgentType::Chat,
+        result: halcon_core::types::AgentResult {
+            success: matches!(stop_condition, StopCondition::EndTurn | StopCondition::ForcedSynthesis),
+            summary: format!("{} rounds, {:?}", state.rounds, stop_condition),
+            files_modified: vec![],
+            tools_used: vec![],
+        },
+    }));
+
+    // Flush L4 archive to disk (persist cross-session knowledge).
+    if let Some(parent) = state.l4_archive_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Some(bytes) = state.context_pipeline.flush_l4_archive() {
+        tracing::debug!(bytes, "L4 archive flushed to disk");
+    }
+
+    // Log plan execution summary with timing.
+    if let Some(ref tracker) = state.execution_tracker {
+        let (completed, total, elapsed) = tracker.progress();
+        let delegated = tracker
+            .tracked_steps()
+            .iter()
+            .filter(|s| s.delegation.is_some())
+            .count();
+        tracing::info!(
+            completed,
+            total,
+            delegated,
+            elapsed_ms = elapsed,
+            "Plan execution summary"
+        );
+        if !state.silent {
+            let delegation_note = if delegated > 0 {
+                format!(", {delegated} delegated")
+            } else {
+                String::new()
+            };
+            render_sink.info(&format!(
+                "Plan: {completed}/{total} steps in {:.1}s{delegation_note}",
+                elapsed as f64 / 1000.0
+            ));
+        }
+    }
+
+    let execution_fingerprint = compute_fingerprint(&state.messages);
+    let plan_completion_ratio = state.execution_tracker.as_ref().map(|t| {
+        let (completed, total, _) = t.progress();
+        if total > 0 { (completed as f32 / total as f32).clamp(0.0, 1.0) } else { 0.0 }
+    }).unwrap_or(0.0);
+
+    // Phase 7: Wire plan_coherence_score (avg drift from PlanCoherenceChecker) and
+    // oscillation_penalty (fraction of force_threshold from ToolLoopGuard) into
+    // AgentLoopResult so mod.rs can pass them to reward_pipeline::RawRewardSignals.
+    let avg_plan_drift = if state.drift_replan_count > 0 {
+        (state.cumulative_drift_score / state.drift_replan_count as f32).clamp(0.0, 1.0)
+    } else {
+        0.0 // No replanning occurred — coherence is undefined (treated as perfect in reward_pipeline)
+    };
+    // Oscillation intensity: consecutive tool rounds as fraction of the force threshold (8 rounds).
+    // 0.0 = no sustained tool looping; 1.0 = at/above the hard-limit threshold.
+    let oscillation_penalty = (state.loop_guard.consecutive_rounds() as f32 / 8.0).clamp(0.0, 1.0);
+
+    // Phase 2 reward unification: `record_outcome()` has been MOVED to mod.rs so it uses
+    // the reward_pipeline's continuous 5-signal reward instead of the coarse 4-value
+    // stop-condition mapping that was here. `last_model_used` carries the model ID.
+    // mod.rs calls record_outcome() after compute_reward() when reasoning engine is active,
+    // or falls back to the coarse formula when the engine is disabled.
+
+    // Step 7 (Phase 7 plugin): collect per-plugin cost snapshots for UCB1 reward blending.
+    // When plugin_registry is None (all existing tests, non-plugin sessions), snapshot is empty.
+    let plugin_cost_snapshot = plugin_registry
+        .as_ref()
+        .and_then(|arc_pr| arc_pr.lock().ok().map(|pr| pr.cost_snapshot()))
+        .unwrap_or_default();
+
+    Ok(AgentLoopResult {
+        full_text: state.full_text,
+        rounds: state.rounds,
+        stop_condition,
+        input_tokens: state.call_input_tokens,
+        output_tokens: state.call_output_tokens,
+        cost_usd: state.call_cost,
+        latency_ms: state.loop_start.elapsed().as_millis() as u64,
+        execution_fingerprint,
+        timeline_json: state.execution_tracker.as_ref().map(|t| t.to_json().to_string()),
+        ctrl_rx,
+        critic_verdict: critic_verdict_holder,
+        round_evaluations: state.round_evaluations,
+        plan_completion_ratio,
+        avg_plan_drift,
+        oscillation_penalty,
+        last_model_used: Some(state.last_round_model_name),
+        plugin_cost_snapshot,
+        tools_executed: state.tools_executed,
+    })
+}

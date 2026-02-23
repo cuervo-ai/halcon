@@ -16,6 +16,8 @@ members = [
     "crates/halcon-desktop",
     "crates/halcon-search", "crates/halcon-integrations",
     "crates/halcon-multimodal",
+    "crates/halcon-agent-core",
+    "crates/halcon-sandbox",
 ]
 resolver = "2"
 
@@ -94,8 +96,9 @@ futures = "0.3"
 # Compression
 zstd = "0.13"
 
-# Hashing (audit chain)
+# Hashing (audit chain + HMAC)
 sha2 = "0.10"
+hmac = "0.12"
 hex = "0.4"
 
 # Testing
@@ -138,6 +141,8 @@ halcon-runtime = { path = "crates/halcon-runtime" }
 halcon-api = { path = "crates/halcon-api", default-features = false }
 halcon-client = { path = "crates/halcon-client" }
 halcon-multimodal = { path = "crates/halcon-multimodal" }
+halcon-agent-core = { path = "crates/halcon-agent-core" }
+halcon-sandbox = { path = "crates/halcon-sandbox" }
 
 [profile.release]
 opt-level = 3           # Rendimiento máximo (no tamaño)

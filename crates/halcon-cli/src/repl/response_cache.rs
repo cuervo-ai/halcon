@@ -84,8 +84,12 @@ impl ResponseCache {
                         return Some(entry.clone());
                     }
                 } else {
-                    // No expiry — always valid.
-                    return Some(entry.clone());
+                    // No expiry — valid only if non-empty.
+                    if entry.response_text.trim().is_empty() {
+                        l1.pop(&key); // evict stale empty entry
+                    } else {
+                        return Some(entry.clone());
+                    }
                 }
             }
         }
@@ -93,6 +97,11 @@ impl ResponseCache {
         // L2 check (async).
         match self.db.lookup_cache(&key).await {
             Ok(Some(entry)) => {
+                // Guard: don't serve stale empty entries (written before the empty-response fix).
+                if entry.response_text.trim().is_empty() {
+                    tracing::debug!("Response cache: discarding stale empty L2 entry");
+                    return None;
+                }
                 // Promote to L1.
                 let mut l1 = self.l1.lock().unwrap_or_else(|e| e.into_inner());
                 l1.put(key, entry.clone());
@@ -146,6 +155,14 @@ impl ResponseCache {
 
         // Don't cache tool_use responses (they trigger further execution).
         if stop_reason == "tool_use" {
+            return;
+        }
+
+        // Don't cache empty responses — reasoning-only models (deepseek-reasoner, o1)
+        // sometimes produce ThinkingDelta with no TextDelta for simple queries.
+        // Storing empty string would poison the cache and suppress all future responses.
+        if response_text.trim().is_empty() {
+            tracing::debug!("Response cache: skipping store — empty response_text");
             return;
         }
 

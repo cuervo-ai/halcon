@@ -2,6 +2,8 @@
 
 use std::time::Instant;
 
+use super::platform::Platform;
+
 /// Which zone currently has keyboard focus.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FocusZone {
@@ -74,6 +76,20 @@ pub enum AgentControl {
     WaitingApproval,
 }
 
+/// A media file queued for attachment to the next message.
+///
+/// Created when the user pastes a media file path or drags a file
+/// into the terminal (via OSC 9 escape sequence).
+#[derive(Debug, Clone)]
+pub struct PendingAttachment {
+    /// Absolute path to the media file.
+    pub path: std::path::PathBuf,
+    /// Short name shown in the chip (e.g. "photo.jpg").
+    pub display_name: String,
+    /// Detected MIME category: "image", "audio", or "video".
+    pub modality: &'static str,
+}
+
 /// Top-level TUI application state.
 pub struct AppState {
     /// Which zone has keyboard focus.
@@ -138,6 +154,35 @@ pub struct AppState {
 
     /// OS username for the user avatar in the activity feed (e.g. "oscarvalois").
     pub user_display_name: String,
+
+    // --- Phase 93: Cross-Platform SOTA ---
+
+    /// Detected host platform for key labels and paste normalization.
+    pub platform: Platform,
+
+    /// Media files queued for attachment to the next outgoing message.
+    ///
+    /// Populated when the user pastes a media path or drags a file into
+    /// the terminal. Rendered as chips above the prompt textarea.
+    /// Cleared after the message is submitted.
+    pub pending_attachments: Vec<PendingAttachment>,
+
+    // --- Phase 95: ThinkingDelta buffer ---
+
+    /// Accumulates chain-of-thought tokens from reasoning models (deepseek-reasoner, o1, o3-mini).
+    ///
+    /// SSE streams emit `ThinkingDelta` as tiny 1-10 char fragments. Instead of creating one
+    /// `push_info()` line per fragment (which floods the activity feed), all fragments are
+    /// concatenated here. On the first `StreamChunk` (= real answer token), the buffer is
+    /// collapsed into a single compact summary line, then cleared. If no `StreamChunk` ever
+    /// arrives (pure reasoning response), the buffer is collapsed on `StreamDone`.
+    pub thinking_buffer: String,
+
+    /// Whether sub-agent task pills are expanded to show tool list + summary (Ctrl+B toggle).
+    ///
+    /// When `false` (default): collapsed pills — `⟳/✓/✗ [N/M] description · tool1 tool2 · 1.2s`
+    /// When `true`: expanded — each pill shows `└ tool_name` rows and a `└ "summary…"` row.
+    pub show_sub_agent_detail: bool,
 }
 
 /// Token budget usage for the status bar progress indicator.
@@ -196,6 +241,10 @@ impl AppState {
             context_servers_total: 0,
             context_servers_enabled: 0,
             user_display_name: String::new(), // set by TuiApp::with_mode via detect_username()
+            platform: Platform::detect(),
+            pending_attachments: Vec::new(),
+            thinking_buffer: String::new(),
+            show_sub_agent_detail: false,
         }
     }
 

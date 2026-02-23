@@ -128,6 +128,28 @@ impl TaskAnalyzer {
             return TaskComplexity::Complex;
         }
 
+        // Spanish analysis/investigation verbs force at least Moderate even for short queries.
+        //
+        // "analiza mi proyecto" = 3 words → would be Simple by word count alone, but
+        // project-level analysis requires multi-file scanning across many tool rounds —
+        // it is never truly Simple.  Upgrading to Moderate routes these queries to
+        // PlanExecuteReflect (10 rounds, reflection) instead of DirectExecution (3 rounds,
+        // no reflection).
+        if word_count < 10 {
+            let analysis_verbs = [
+                "analiza",   "analizar",
+                "revisa",    "revisar",
+                "examina",   "examinar",
+                "investiga", "investigar",
+                "inspecciona", "inspeccionar",
+                "diagnostica", "diagnosticar",
+                "evalua",    "evaluar",
+            ];
+            if analysis_verbs.iter().any(|kw| Self::contains_word(&query_lower, kw)) {
+                return TaskComplexity::Moderate;
+            }
+        }
+
         // Length-based classification
         if word_count < 10 {
             TaskComplexity::Simple
@@ -227,7 +249,7 @@ impl TaskAnalyzer {
             return TaskType::FileManagement;
         }
 
-        // Research keywords
+        // Research keywords (English + Spanish analysis/investigation verbs)
         if Self::contains_any(
             &query_lower,
             &[
@@ -239,12 +261,24 @@ impl TaskAnalyzer {
                 "analyze",
                 "compare",
                 "review",
+                // Spanish equivalents
+                "analiza",
+                "analizar",
+                "investiga",
+                "investigar",
+                "revisa",
+                "revisar",
+                "examina",
+                "examinar",
+                "inspecciona",
+                "diagnostica",
+                "evalua",
             ],
         ) {
             return TaskType::Research;
         }
 
-        // Explanation keywords
+        // Explanation keywords (English + Spanish)
         if Self::contains_any(
             &query_lower,
             &[
@@ -255,6 +289,15 @@ impl TaskAnalyzer {
                 "describe",
                 "tell me about",
                 "what are",
+                // Spanish equivalents
+                "explica",
+                "explicar",
+                "como funciona",
+                "cómo funciona",
+                "que es",
+                "qué es",
+                "por que",
+                "por qué",
             ],
         ) {
             return TaskType::Explanation;
@@ -526,5 +569,97 @@ mod tests {
     fn type_debugging_direct_fix_keyword() {
         let analysis = TaskAnalyzer::analyze("fix this bug in the function");
         assert_eq!(analysis.task_type, TaskType::Debugging);
+    }
+
+    // --- Spanish keyword tests ---
+
+    #[test]
+    fn spanish_analiza_classified_as_research() {
+        let analysis = TaskAnalyzer::analyze("analiza mi proyecto");
+        assert_eq!(analysis.task_type, TaskType::Research);
+    }
+
+    #[test]
+    fn spanish_revisa_classified_as_research() {
+        let analysis = TaskAnalyzer::analyze("revisa el estado del proyecto");
+        assert_eq!(analysis.task_type, TaskType::Research);
+    }
+
+    #[test]
+    fn spanish_investiga_classified_as_research() {
+        // "investiga el proyecto" — no "error"/"bug" keywords so Debugging not triggered
+        let analysis = TaskAnalyzer::analyze("investiga el proyecto");
+        assert_eq!(analysis.task_type, TaskType::Research);
+    }
+
+    #[test]
+    fn spanish_examina_classified_as_research() {
+        let analysis = TaskAnalyzer::analyze("examina el codebase completo");
+        assert_eq!(analysis.task_type, TaskType::Research);
+    }
+
+    #[test]
+    fn spanish_analiza_short_query_is_moderate_not_simple() {
+        // 3 words → normally Simple by word count, but "analiza" upgrades to Moderate.
+        let analysis = TaskAnalyzer::analyze("analiza mi proyecto");
+        assert_eq!(analysis.complexity, TaskComplexity::Moderate);
+        assert!(analysis.word_count < 10, "query must be short to test the override");
+    }
+
+    #[test]
+    fn spanish_analizar_infinitive_short_query_is_moderate() {
+        let analysis = TaskAnalyzer::analyze("analizar el codigo");
+        assert_eq!(analysis.complexity, TaskComplexity::Moderate);
+    }
+
+    #[test]
+    fn spanish_revisa_short_query_is_moderate_not_simple() {
+        let analysis = TaskAnalyzer::analyze("revisa el estado");
+        assert_eq!(analysis.complexity, TaskComplexity::Moderate);
+        assert!(analysis.word_count < 10);
+    }
+
+    #[test]
+    fn spanish_diagnostica_short_query_is_moderate() {
+        let analysis = TaskAnalyzer::analyze("diagnostica el sistema");
+        assert_eq!(analysis.complexity, TaskComplexity::Moderate);
+    }
+
+    #[test]
+    fn spanish_evalua_short_query_is_moderate() {
+        let analysis = TaskAnalyzer::analyze("evalua el rendimiento");
+        assert_eq!(analysis.complexity, TaskComplexity::Moderate);
+    }
+
+    #[test]
+    fn spanish_explica_classified_as_explanation() {
+        let analysis = TaskAnalyzer::analyze("explica como funciona esto");
+        assert_eq!(analysis.task_type, TaskType::Explanation);
+    }
+
+    #[test]
+    fn spanish_user_query_project_analysis_is_research_moderate() {
+        // Exact pattern from production: 7-word Spanish project analysis query.
+        // Before this fix: Simple + General → DirectExecution (3 rounds, no reflection).
+        // After this fix:  Moderate + Research → PlanExecuteReflect (10 rounds, reflection).
+        let analysis = TaskAnalyzer::analyze("analiza mi proyecto actual y el estado");
+        assert_eq!(analysis.task_type, TaskType::Research);
+        assert_eq!(analysis.complexity, TaskComplexity::Moderate);
+    }
+
+    #[test]
+    fn spanish_analiza_does_not_match_inside_longer_word() {
+        // "reanalizando" should NOT trigger the analysis verb override —
+        // word-boundary matching must reject embedded occurrences.
+        let analysis = TaskAnalyzer::analyze("reanalizando el proceso");
+        // No single-word match → falls through to word-count-based Simple (3 words).
+        assert_eq!(analysis.complexity, TaskComplexity::Simple);
+    }
+
+    #[test]
+    fn non_spanish_short_query_still_simple() {
+        // Verify the override doesn't affect non-analysis short queries.
+        let analysis = TaskAnalyzer::analyze("list files");
+        assert_eq!(analysis.complexity, TaskComplexity::Simple);
     }
 }

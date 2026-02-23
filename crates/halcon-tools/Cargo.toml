@@ -16,6 +16,7 @@ async-trait = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+toml = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 git2 = { workspace = true }
@@ -24,6 +25,8 @@ glob = { workspace = true }
 reqwest = { workspace = true }
 futures = { workspace = true }
 url = { workspace = true }
+rusqlite = { workspace = true }
+serde_yaml = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = { workspace = true }

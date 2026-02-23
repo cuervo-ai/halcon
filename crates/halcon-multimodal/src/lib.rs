@@ -61,6 +61,11 @@ pub struct MultimodalSubsystem {
     pub index:     Arc<MediaIndex>,
     pub metrics:   Arc<MultimodalMetrics>,
     pub workers:   Arc<MediaWorkerPool>,
+    /// Bounded concurrency: limits simultaneous API analyses.
+    analysis_semaphore: Arc<tokio::sync::Semaphore>,
+    /// FFmpeg-backed video pipeline — present when `ffmpeg` is in PATH.
+    /// Created unconditionally; internal `check_ffmpeg_available()` guards actual use.
+    video_pipeline: Arc<video::VideoPipeline>,
 }
 
 impl MultimodalSubsystem {
@@ -123,14 +128,35 @@ impl MultimodalSubsystem {
         let router = HybridRouter::new(
             policy,
             cache,
-            api_arc,
+            Arc::clone(&api_arc),
             local_arc,
             Arc::clone(&metrics),
         );
 
         let index = Arc::new(MediaIndex::new(db));
 
-        Ok(Self { router, validator, index, metrics, workers })
+        // Concurrency cap: Semaphore::MAX_PERMITS when 0 (effectively unlimited).
+        let permits = if config.max_concurrent_analyses == 0 {
+            tokio::sync::Semaphore::MAX_PERMITS
+        } else {
+            config.max_concurrent_analyses as usize
+        };
+        let analysis_semaphore = Arc::new(tokio::sync::Semaphore::new(permits));
+
+        // Video pipeline — created with the API provider for frame analysis.
+        // FFmpeg availability is checked lazily on first call via an internal OnceLock.
+        let video_config = video::VideoConfig {
+            max_frames:        config.max_video_frames,
+            target_fps:        config.video_sample_fps,
+            max_duration_secs: config.max_video_duration_secs,
+            ..video::VideoConfig::default()
+        };
+        let video_pipeline = Arc::new(video::VideoPipeline::new(
+            video_config,
+            Arc::clone(&api_arc),
+        ));
+
+        Ok(Self { router, validator, index, metrics, workers, analysis_semaphore, video_pipeline })
     }
 
     /// Validate raw bytes, run inference, and store a text embedding in the index.
@@ -138,13 +164,32 @@ impl MultimodalSubsystem {
     /// The embedding is derived from the analysis description using a hash-projection
     /// bag-of-words encoder (512 dims, L2-normalized). This enables semantic retrieval
     /// via `MediaContextSource.gather()` without requiring a local CLIP model.
+    ///
+    /// Acquires a semaphore permit before analysis to cap concurrent API calls.
     pub async fn analyze_bytes(
         &self,
-        data:   Vec<u8>,
+        data:   &[u8],
         prompt: Option<&str>,
     ) -> Result<provider::MediaAnalysis> {
-        let validated = self.validator.validate_bytes(data)?;
+        let _permit = self.analysis_semaphore
+            .acquire()
+            .await
+            .map_err(|_| error::MultimodalError::Internal("analysis semaphore closed".into()))?;
+        let validated = self.validator.validate_bytes(data.to_vec())?;
         let content_hash = router::cache::MediaCache::content_hash(&validated.data);
+
+        // Video: route to local FFmpeg pipeline when available; fall through to
+        // router (degraded response) when FFmpeg is absent.
+        if validated.is_video() {
+            if video::is_ffmpeg_available().await {
+                match self.video_pipeline.analyze(validated.data.clone(), prompt).await {
+                    Ok(va) => return Ok(va.to_media_analysis()),
+                    Err(e) => {
+                        tracing::warn!(error = %e, "FFmpeg video analysis failed; using degraded response");
+                    }
+                }
+            }
+        }
 
         // Run inference (cache-aware via HybridRouter).
         let analysis = self.router.analyze(&validated, prompt).await?;
@@ -160,6 +205,7 @@ impl MultimodalSubsystem {
                 embedding,
                 None, // session_id (injected by caller if needed)
                 None, // source_path (injected by caller if needed)
+                Some(analysis.description.clone()),
             )
             .await;
 
@@ -167,15 +213,48 @@ impl MultimodalSubsystem {
     }
 
     /// Analyze bytes and store provenance (session + source path) in the index.
+    ///
+    /// Acquires a semaphore permit before analysis to cap concurrent API calls.
     pub async fn analyze_bytes_with_provenance(
         &self,
-        data:        Vec<u8>,
+        data:        &[u8],
         prompt:      Option<&str>,
         session_id:  Option<String>,
         source_path: Option<String>,
     ) -> Result<provider::MediaAnalysis> {
-        let validated = self.validator.validate_bytes(data)?;
+        let _permit = self.analysis_semaphore
+            .acquire()
+            .await
+            .map_err(|_| error::MultimodalError::Internal("analysis semaphore closed".into()))?;
+        let validated = self.validator.validate_bytes(data.to_vec())?;
         let content_hash = router::cache::MediaCache::content_hash(&validated.data);
+
+        // Video: route to local FFmpeg pipeline when available.
+        if validated.is_video() {
+            if video::is_ffmpeg_available().await {
+                match self.video_pipeline.analyze(validated.data.clone(), prompt).await {
+                    Ok(va) => {
+                        let analysis = va.to_media_analysis();
+                        // Store provenance in index (best-effort).
+                        let embedding = text_to_embedding_512(&analysis.description);
+                        let _ = self.index
+                            .store(
+                                content_hash,
+                                analysis.modality.clone(),
+                                embedding,
+                                session_id,
+                                source_path,
+                                Some(analysis.description.clone()),
+                            )
+                            .await;
+                        return Ok(analysis);
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "FFmpeg video analysis failed; using degraded response");
+                    }
+                }
+            }
+        }
 
         let analysis = self.router.analyze(&validated, prompt).await?;
 
@@ -187,10 +266,48 @@ impl MultimodalSubsystem {
                 embedding,
                 session_id,
                 source_path,
+                Some(analysis.description.clone()),
             )
             .await;
 
         Ok(analysis)
+    }
+
+    /// Returns true if audio transcription is available (requires OpenAI API key).
+    pub fn supports_audio(&self) -> bool {
+        self.router.supports_audio()
+    }
+
+    /// Returns true if the configured backend can handle the given modality.
+    ///
+    /// Note: "video" returns `true` because the FFmpeg pipeline is always created.
+    /// Actual FFmpeg availability is checked lazily on first video analysis call.
+    pub fn supports_modality(&self, modality: &str) -> bool {
+        match modality {
+            "image" => true,
+            "audio" => self.supports_audio(),
+            "video" => true,  // FFmpeg pipeline is wired; degrades gracefully if ffmpeg absent
+            _       => false,
+        }
+    }
+
+    /// Peek modality from raw bytes without full validation.
+    pub fn peek_modality(data: &[u8]) -> &'static str {
+        use crate::security::mime::detect_mime;
+        use crate::router::detector::modality_of;
+        detect_mime(data)
+            .map(|m| modality_of(&m))
+            .unwrap_or("unknown")
+    }
+
+    /// Extract a human-readable audio description from raw bytes without an API key.
+    ///
+    /// Currently supports WAV files (reads duration, sample rate, channels from the
+    /// RIFF header). Returns `None` for unsupported formats or malformed data.
+    /// Used in the CLI audio fallback path to provide metadata even when Whisper
+    /// is not configured.
+    pub fn native_audio_description(data: &[u8]) -> Option<String> {
+        crate::provider::native::describe_audio_metadata(data)
     }
 
     /// Return a point-in-time metrics snapshot.
@@ -229,6 +346,7 @@ mod tests {
             cache_ttl_secs:           3600,
             models_dir:               None,
             api_timeout_ms:           30_000,
+            max_concurrent_analyses:  4,
         }
     }
 
@@ -248,9 +366,11 @@ mod tests {
         let mock: Arc<dyn provider::MultimodalProvider> = Arc::new(MockMultimodalProvider);
         let policy    = router::policy::RoutingPolicy { local_threshold_bytes: 2 * 1024 * 1024, native_available: false };
         let cache     = Some(router::cache::MediaCache::new(Arc::clone(&db), 3600));
-        let r         = router::HybridRouter::new(policy, cache, mock, None, Arc::clone(&metrics));
+        let r         = router::HybridRouter::new(policy, cache, Arc::clone(&mock), None, Arc::clone(&metrics));
         let index     = Arc::new(index::MediaIndex::new(db));
-        MultimodalSubsystem { router: r, validator, index, metrics, workers }
+        let analysis_semaphore = Arc::new(tokio::sync::Semaphore::new(4));
+        let video_pipeline     = Arc::new(video::VideoPipeline::new(video::VideoConfig::default(), mock));
+        MultimodalSubsystem { router: r, validator, index, metrics, workers, analysis_semaphore, video_pipeline }
     }
 
     /// Build a subsystem with MockMultimodalProvider and NO cache.
@@ -263,9 +383,11 @@ mod tests {
         let validator = security::MediaValidator::new(limits, true, false);
         let mock: Arc<dyn provider::MultimodalProvider> = Arc::new(MockMultimodalProvider);
         let policy    = router::policy::RoutingPolicy { local_threshold_bytes: 2 * 1024 * 1024, native_available: false };
-        let r         = router::HybridRouter::new(policy, None, mock, None, Arc::clone(&metrics));
+        let r         = router::HybridRouter::new(policy, None, Arc::clone(&mock), None, Arc::clone(&metrics));
         let index     = Arc::new(index::MediaIndex::new(db));
-        MultimodalSubsystem { router: r, validator, index, metrics, workers }
+        let analysis_semaphore = Arc::new(tokio::sync::Semaphore::new(4));
+        let video_pipeline     = Arc::new(video::VideoPipeline::new(video::VideoConfig::default(), mock));
+        MultimodalSubsystem { router: r, validator, index, metrics, workers, analysis_semaphore, video_pipeline }
     }
 
     // ── init() smoke tests (no analyze_bytes, no API key needed) ─────────────
@@ -312,7 +434,7 @@ mod tests {
     async fn analyze_jpeg_bytes() {
         let sys  = test_sys(test_db());
         let data = vec![0xFF, 0xD8, 0xFF, 0xD9]; // minimal JPEG
-        let result = sys.analyze_bytes(data, Some("describe")).await.unwrap();
+        let result = sys.analyze_bytes(&data, Some("describe")).await.unwrap();
         assert_eq!(result.modality, "image");
     }
 
@@ -321,7 +443,7 @@ mod tests {
         let sys  = test_sys(test_db());
         let data = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
                         0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52];
-        let result = sys.analyze_bytes(data, Some("describe")).await.unwrap();
+        let result = sys.analyze_bytes(&data, Some("describe")).await.unwrap();
         assert_eq!(result.modality, "image");
     }
 
@@ -330,7 +452,7 @@ mod tests {
         // Security check happens BEFORE provider — no API key needed.
         let sys  = test_sys(test_db());
         let data = vec![0x00, 0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77];
-        let err  = sys.analyze_bytes(data, None).await.unwrap_err();
+        let err  = sys.analyze_bytes(&data, None).await.unwrap_err();
         assert!(
             err.to_string().contains("MIME") || err.to_string().contains("unknown"),
             "Expected MIME rejection, got: {err}"
@@ -341,7 +463,7 @@ mod tests {
     async fn metrics_increment_after_analysis() {
         let sys  = test_sys(test_db());
         let data = vec![0xFF, 0xD8, 0xFF, 0xD9];
-        sys.analyze_bytes(data, None).await.unwrap();
+        sys.analyze_bytes(&data, None).await.unwrap();
         let snap = sys.metrics_snapshot();
         assert_eq!(snap.requests_total, 1);
         assert_eq!(snap.images_analyzed, 1);
@@ -351,8 +473,8 @@ mod tests {
     async fn second_call_hits_cache() {
         let sys  = test_sys(test_db());
         let data = vec![0xFF, 0xD8, 0xFF, 0xD9];
-        sys.analyze_bytes(data.clone(), None).await.unwrap();
-        sys.analyze_bytes(data, None).await.unwrap();
+        sys.analyze_bytes(&data, None).await.unwrap();
+        sys.analyze_bytes(&data, None).await.unwrap();
         let snap = sys.metrics_snapshot();
         assert_eq!(snap.requests_total, 2);
         assert_eq!(snap.cache_hits, 1);
@@ -363,8 +485,8 @@ mod tests {
     async fn no_cache_config_bypasses_cache() {
         let sys  = test_sys_no_cache(test_db());
         let data = vec![0xFF, 0xD8, 0xFF, 0xD9];
-        sys.analyze_bytes(data.clone(), None).await.unwrap();
-        sys.analyze_bytes(data, None).await.unwrap();
+        sys.analyze_bytes(&data, None).await.unwrap();
+        sys.analyze_bytes(&data, None).await.unwrap();
         let snap = sys.metrics_snapshot();
         assert_eq!(snap.cache_hits, 0);
         assert_eq!(snap.requests_total, 2);
@@ -376,8 +498,8 @@ mod tests {
         let jpeg = vec![0xFF, 0xD8, 0xFF, 0xD9];
         let png  = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
                         0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52];
-        sys.analyze_bytes(jpeg, None).await.unwrap();
-        sys.analyze_bytes(png,  None).await.unwrap();
+        sys.analyze_bytes(&jpeg, None).await.unwrap();
+        sys.analyze_bytes(&png,  None).await.unwrap();
         let snap = sys.metrics_snapshot();
         assert_eq!(snap.images_analyzed, 2);
         assert_eq!(snap.requests_total, 2);
@@ -389,8 +511,8 @@ mod tests {
         let jpeg = vec![0xFF, 0xD8, 0xFF, 0xD9];
         let png  = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
                         0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52];
-        sys.analyze_bytes(jpeg, None).await.unwrap();
-        sys.analyze_bytes(png,  None).await.unwrap();
+        sys.analyze_bytes(&jpeg, None).await.unwrap();
+        sys.analyze_bytes(&png,  None).await.unwrap();
         let snap = sys.metrics_snapshot();
         assert_eq!(snap.cache_hits, 0);
         assert_eq!(snap.cache_misses, 2);
@@ -402,7 +524,7 @@ mod tests {
         let db   = test_db();
         let sys  = test_sys(Arc::clone(&db));
         let data = vec![0xFF, 0xD8, 0xFF, 0xD9];
-        let analysis = sys.analyze_bytes(data, Some("describe the image")).await.unwrap();
+        let analysis = sys.analyze_bytes(&data, Some("describe the image")).await.unwrap();
 
         // The mock description is deterministic — query with its own embedding.
         let query_emb = text_to_embedding_512(&analysis.description);
@@ -426,7 +548,7 @@ mod tests {
         let source_path = Some("/home/user/photo.jpg".to_string());
 
         let result = sys
-            .analyze_bytes_with_provenance(data, Some("describe"), session_id.clone(), source_path.clone())
+            .analyze_bytes_with_provenance(&data, Some("describe"), session_id.clone(), source_path.clone())
             .await
             .unwrap();
         assert_eq!(result.modality, "image");
@@ -442,7 +564,7 @@ mod tests {
         let sys = test_sys(test_db());
         let data = vec![0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
                         0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52];
-        let result = sys.analyze_bytes_with_provenance(data, None, None, None).await.unwrap();
+        let result = sys.analyze_bytes_with_provenance(&data, None, None, None).await.unwrap();
         assert_eq!(result.modality, "image");
     }
 
@@ -502,7 +624,7 @@ mod tests {
 
         // Analyze a JPEG to populate the index.
         let jpeg = vec![0xFF, 0xD8, 0xFF, 0xD9];
-        sys.analyze_bytes(jpeg, Some("cat on a window sill")).await.unwrap();
+        sys.analyze_bytes(&jpeg, Some("cat on a window sill")).await.unwrap();
 
         // Gather context — description contains "cat on window" which maps to embedding.
         let src   = sys.context_source();
@@ -527,19 +649,132 @@ mod tests {
         let workers = worker::MediaWorkerPool::new(0).expect("pool");
         let limits  = SecurityLimits { max_file_bytes: 10, ..SecurityLimits::default() }; // 10-byte limit
         let validator = security::MediaValidator::new(limits, false, false);
-        let mock: Arc<dyn provider::MultimodalProvider> = Arc::new(provider::MockMultimodalProvider);
         let policy = router::policy::RoutingPolicy { local_threshold_bytes: 2 * 1024 * 1024, native_available: false };
-        let r      = router::HybridRouter::new(policy, None, mock, None, Arc::clone(&metrics));
+        let mock: Arc<dyn provider::MultimodalProvider> = Arc::new(provider::MockMultimodalProvider);
+        let r      = router::HybridRouter::new(policy, None, Arc::clone(&mock), None, Arc::clone(&metrics));
         let index  = Arc::new(index::MediaIndex::new(db));
-        let sys    = MultimodalSubsystem { router: r, validator, index, metrics, workers };
+        let analysis_semaphore = Arc::new(tokio::sync::Semaphore::new(4));
+        let video_pipeline = Arc::new(video::VideoPipeline::new(video::VideoConfig::default(), mock));
+        let sys    = MultimodalSubsystem { router: r, validator, index, metrics, workers, analysis_semaphore, video_pipeline };
 
         // JPEG header = 4 bytes → fits, but add 10 more bytes to exceed limit.
         let big_jpeg = vec![0xFF, 0xD8, 0xFF, 0xD9, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00];
-        let err = sys.analyze_bytes(big_jpeg, None).await.unwrap_err();
+        let err = sys.analyze_bytes(&big_jpeg, None).await.unwrap_err();
         assert!(
             err.to_string().contains("size") || err.to_string().contains("limit") || err.to_string().contains("exceed"),
             "Expected size-limit error, got: {err}"
         );
+    }
+
+    // ── Semaphore + borrow API + helpers ─────────────────────────────────────
+
+    #[tokio::test]
+    async fn borrow_api_analyze_bytes() {
+        let sys = test_sys(test_db());
+        let data: Vec<u8> = vec![0xFF, 0xD8, 0xFF, 0xD9]; // minimal JPEG
+        // Pass as &[u8] slice — no clone needed.
+        let result = sys.analyze_bytes(data.as_slice(), None).await.unwrap();
+        assert_eq!(result.modality, "image");
+    }
+
+    #[tokio::test]
+    async fn semaphore_limits_to_n_concurrent() {
+        // With semaphore=1 and 3 sequential tasks, each must complete before next starts.
+        // This is a functional check: all 3 calls succeed without deadlock.
+        use crate::security::limits::SecurityLimits;
+        let metrics   = MultimodalMetrics::new();
+        let workers   = MediaWorkerPool::new(0).expect("rayon pool");
+        let limits    = SecurityLimits { max_file_bytes: 20 * 1024 * 1024, ..SecurityLimits::default() };
+        let validator = security::MediaValidator::new(limits, true, false);
+        let policy    = router::policy::RoutingPolicy { local_threshold_bytes: 2 * 1024 * 1024, native_available: false };
+        let mock: Arc<dyn provider::MultimodalProvider> = Arc::new(crate::provider::MockMultimodalProvider);
+        let r         = router::HybridRouter::new(policy, None, Arc::clone(&mock), None, Arc::clone(&metrics));
+        let index     = Arc::new(index::MediaIndex::new(test_db()));
+        let analysis_semaphore = Arc::new(tokio::sync::Semaphore::new(1)); // strictly sequential
+        let video_pipeline = Arc::new(video::VideoPipeline::new(video::VideoConfig::default(), mock));
+        let sys = MultimodalSubsystem { router: r, validator, index, metrics, workers, analysis_semaphore, video_pipeline };
+
+        let data = vec![0xFF, 0xD8, 0xFF, 0xD9];
+        sys.analyze_bytes(&data, None).await.unwrap();
+        sys.analyze_bytes(&data, None).await.unwrap();
+        sys.analyze_bytes(&data, None).await.unwrap();
+        assert_eq!(sys.metrics_snapshot().requests_total, 3);
+    }
+
+    #[test]
+    fn semaphore_config_zero_means_unlimited() {
+        // max_concurrent_analyses = 0 → semaphore created with MAX_PERMITS (effectively unlimited).
+        // Verify that init succeeds and the semaphore has the maximum available permits.
+        let mut cfg = test_config();
+        cfg.max_concurrent_analyses = 0;
+        let sys = MultimodalSubsystem::init(&cfg, test_db()).unwrap();
+        // MAX_PERMITS - 0 acquisitions = MAX_PERMITS available.
+        assert_eq!(
+            sys.analysis_semaphore.available_permits(),
+            tokio::sync::Semaphore::MAX_PERMITS,
+            "zero config should produce MAX_PERMITS"
+        );
+    }
+
+    #[test]
+    fn supports_audio_depends_on_backend() {
+        // Returns a bool — value depends on whether OPENAI_API_KEY is set in env.
+        // Just verify the method is callable and returns consistently.
+        let sys = MultimodalSubsystem::init(&test_config(), test_db()).unwrap();
+        let result = sys.supports_audio();
+        // Call twice — must be deterministic.
+        assert_eq!(sys.supports_audio(), result);
+    }
+
+    #[test]
+    fn supports_modality_image_always_true() {
+        let sys = MultimodalSubsystem::init(&test_config(), test_db()).unwrap();
+        assert!(sys.supports_modality("image"), "image always supported");
+        assert!(sys.supports_modality("video"), "video wired via FFmpeg pipeline");
+        assert!(!sys.supports_modality("unknown_modality"), "unknown is false");
+    }
+
+    #[test]
+    fn peek_modality_jpeg() {
+        let jpeg_data = vec![0xFF, 0xD8, 0xFF, 0xD9];
+        assert_eq!(MultimodalSubsystem::peek_modality(&jpeg_data), "image");
+    }
+
+    #[test]
+    fn native_audio_description_wav_returns_metadata() {
+        // Construct a minimal WAV header (1s mono 44100 Hz) and verify the description.
+        let sr: u32 = 44100;
+        let ch: u16 = 1;
+        let bits: u16 = 16;
+        let byte_rate = sr * ch as u32 * (bits as u32 / 8);
+        let data_size = byte_rate; // 1 second
+        let total_size: u32 = 36 + data_size;
+        let mut wav = vec![];
+        wav.extend_from_slice(b"RIFF");
+        wav.extend_from_slice(&total_size.to_le_bytes());
+        wav.extend_from_slice(b"WAVE");
+        wav.extend_from_slice(b"fmt ");
+        wav.extend_from_slice(&16u32.to_le_bytes());
+        wav.extend_from_slice(&1u16.to_le_bytes()); // PCM
+        wav.extend_from_slice(&ch.to_le_bytes());
+        wav.extend_from_slice(&sr.to_le_bytes());
+        wav.extend_from_slice(&byte_rate.to_le_bytes());
+        wav.extend_from_slice(&(ch * bits / 8).to_le_bytes());
+        wav.extend_from_slice(&bits.to_le_bytes());
+        wav.extend_from_slice(b"data");
+        wav.extend_from_slice(&data_size.to_le_bytes());
+
+        let desc = MultimodalSubsystem::native_audio_description(&wav);
+        assert!(desc.is_some(), "should produce metadata for valid WAV");
+        let desc = desc.unwrap();
+        assert!(desc.contains("44100"), "sample rate in description; got: {desc}");
+        assert!(desc.contains("mono"), "channel label in description; got: {desc}");
+    }
+
+    #[test]
+    fn native_audio_description_non_wav_returns_none() {
+        let jpeg = vec![0xFF, 0xD8, 0xFF, 0xD9]; // JPEG magic — not WAV
+        assert!(MultimodalSubsystem::native_audio_description(&jpeg).is_none());
     }
 
     // ── Metrics completeness ──────────────────────────────────────────────────
@@ -548,8 +783,8 @@ mod tests {
     async fn metrics_snapshot_fields_populated() {
         let sys = test_sys(test_db());
         let jpeg = vec![0xFF, 0xD8, 0xFF, 0xD9];
-        sys.analyze_bytes(jpeg.clone(), None).await.unwrap();
-        sys.analyze_bytes(jpeg, None).await.unwrap(); // second call → cache hit
+        sys.analyze_bytes(&jpeg, None).await.unwrap();
+        sys.analyze_bytes(&jpeg, None).await.unwrap(); // second call → cache hit
 
         let snap = sys.metrics_snapshot();
         assert_eq!(snap.requests_total, 2);
@@ -559,5 +794,64 @@ mod tests {
         assert_eq!(snap.cache_hits, 1);
         assert_eq!(snap.cache_misses, 1);
         assert!(snap.bytes_processed > 0);
+    }
+
+    // ── Video routing ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn video_analysis_to_media_analysis_conversion() {
+        // VideoAnalysis::to_media_analysis() produces a MediaAnalysis with modality="video".
+        let va = video::VideoAnalysis {
+            frame_count:   2,
+            frames:        vec![],
+            transcript:    None,
+            summary:       "A short clip of a sunset.".into(),
+            duration_secs: 3.5,
+            provider_name: "mock".into(),
+        };
+        let ma = va.to_media_analysis();
+        assert_eq!(ma.modality, "video");
+        assert!(ma.description.contains("3.5"), "duration in description");
+        assert!(ma.description.contains("2"), "frame count in description");
+        assert!(ma.token_estimate > 0);
+    }
+
+    #[test]
+    fn video_analysis_degraded_zero_frames() {
+        let va = video::VideoAnalysis {
+            frame_count:   0,
+            frames:        vec![],
+            transcript:    None,
+            summary:       "FFmpeg unavailable.".into(),
+            duration_secs: 0.0,
+            provider_name: "none".into(),
+        };
+        let ma = va.to_media_analysis();
+        assert_eq!(ma.modality, "video");
+        // Degraded path uses summary directly (not wrapped with frame-count info).
+        assert!(ma.description.contains("FFmpeg unavailable"));
+    }
+
+    #[test]
+    fn video_entity_deduplication() {
+        use video::{FrameAnalysis, VideoAnalysis};
+        let make_frame = |entities: Vec<&str>| FrameAnalysis {
+            timestamp_secs: 0.0,
+            description: String::new(),
+            entities: entities.into_iter().map(String::from).collect(),
+        };
+        let va = VideoAnalysis {
+            frame_count:   2,
+            frames:        vec![make_frame(vec!["cat", "dog"]), make_frame(vec!["cat", "bird"])],
+            transcript:    None,
+            summary:       "Animals in a garden.".into(),
+            duration_secs: 5.0,
+            provider_name: "mock".into(),
+        };
+        let ma = va.to_media_analysis();
+        // "cat" appears in both frames but should only appear once.
+        let cat_count = ma.entities.iter().filter(|e| e.as_str() == "cat").count();
+        assert_eq!(cat_count, 1, "entities are deduplicated across frames");
+        assert_eq!(ma.entities.len(), 3, "cat + dog + bird = 3 unique entities");
     }
 }

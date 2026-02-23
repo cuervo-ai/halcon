@@ -11,6 +11,8 @@ pub mod adaptive_palette;
 pub mod intelligent_theme;
 #[cfg(feature = "color-science")]
 pub mod adaptive_optimizer;
+#[cfg(feature = "color-science")]
+pub mod temporal_color;
 pub mod contrast_validator; // M3: Runtime contrast validation
 pub mod terminal_caps;
 pub mod components;

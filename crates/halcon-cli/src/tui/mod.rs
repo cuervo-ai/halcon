@@ -54,3 +54,10 @@ pub mod activity_renderer;
 // Phase A3: Clipboard support
 #[cfg(feature = "tui")]
 pub mod clipboard;
+
+// Phase 99: /init wizard — background project analyzer
+pub mod project_analyzer;
+
+// Phase 93: Cross-Platform SOTA — platform detection for key labels
+#[cfg(feature = "tui")]
+pub mod platform;

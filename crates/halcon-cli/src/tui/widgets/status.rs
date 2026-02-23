@@ -63,6 +63,9 @@ pub struct StatusState {
     pub search_total: usize,
     /// Phase 45C: Whether the agent is currently running (for STOP button display).
     pub agent_running: bool,
+    /// Spinner animation state — synced from AppState each frame for always-visible feedback.
+    pub spinner_active: bool,
+    pub spinner_frame: usize,
     /// Phase 45D: Full session UUID for clipboard copy (abbreviated in display).
     pub full_session_id: String,
     /// Dev Ecosystem Phase 5: Whether the embedded LSP server is listening.
@@ -71,6 +74,30 @@ pub struct StatusState {
     pub ide_connected: bool,
     /// Dev Ecosystem Phase 5: Number of open IDE buffers being tracked.
     pub open_buffers: usize,
+}
+
+/// A named-field partial update for `StatusState`.
+///
+/// All fields default to `None` — only `Some` fields overwrite the current state.
+/// Use this instead of the 10-positional-`Option` `update()` signature at call sites
+/// that only touch a subset of fields.
+///
+/// # Example
+/// ```no_run
+/// use crate::tui::widgets::status::StatusPatch;
+/// status.apply_patch(StatusPatch { cost: Some(0.002), elapsed_ms: Some(1234), ..Default::default() });
+/// ```
+#[derive(Default)]
+pub struct StatusPatch {
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub round: Option<usize>,
+    pub cost: Option<f64>,
+    pub session_id: Option<String>,
+    pub elapsed_ms: Option<u64>,
+    pub tool_count: Option<u32>,
+    pub input_tokens: Option<u32>,
+    pub output_tokens: Option<u32>,
 }
 
 impl StatusState {
@@ -103,6 +130,8 @@ impl StatusState {
             search_current: None, // Phase 3 SRCH-003
             search_total: 0, // Phase 3 SRCH-003
             agent_running: false, // Phase 45C
+            spinner_active: false,
+            spinner_frame: 0,
             full_session_id: String::new(), // Phase 45D
             dev_gateway_port: None, // Dev Ecosystem Phase 5
             ide_connected: false, // Dev Ecosystem Phase 5
@@ -184,6 +213,36 @@ impl StatusState {
         if let Some(o) = output_tokens {
             self.output_tokens = o;
         }
+    }
+
+    /// Apply a named-field partial update. Replaces the 10-positional-`Option` `update()` call
+    /// at every call site except the full `StatusUpdate` event handler.
+    ///
+    /// # Example
+    /// ```no_run
+    /// status.apply_patch(StatusPatch { tool_count: Some(0), ..Default::default() });
+    /// ```
+    pub fn apply_patch(&mut self, patch: StatusPatch) {
+        self.update(
+            patch.provider,
+            patch.model,
+            patch.round,
+            None, // legacy _tokens param — permanently ignored
+            patch.cost,
+            patch.session_id,
+            patch.elapsed_ms,
+            patch.tool_count,
+            patch.input_tokens,
+            patch.output_tokens,
+        );
+    }
+
+    /// Phase 100 Fix #2: Increment tool_count in real-time when a tool starts.
+    ///
+    /// Called from the `UiEvent::ToolStart` handler so the status bar shows live
+    /// tool execution count instead of waiting for the end-of-loop `StatusUpdate`.
+    pub(crate) fn increment_tool_count(&mut self) {
+        self.tool_count += 1;
     }
 
     /// Phase 4B-Lite: Update queue status display.
@@ -270,9 +329,23 @@ impl StatusState {
                     AgentControl::WaitingApproval => ("\u{23f3} AWAIT", c_planning),
                 }
             };
+            // Spinner: always-visible braille character in status bar when agent is thinking.
+            // This ensures the spinner is visible even when the activity panel is full.
+            let spinner_prefix = if self.spinner_active {
+                let frames = ['⠁', '⠃', '⠇', '⠧', '⠷', '⠿', '⠾', '⠼', '⠸', '⠰'];
+                let ch = frames[self.spinner_frame % frames.len()];
+                format!("{ch} ")
+            } else {
+                String::new()
+            };
+
             let mut spans = vec![
-                // Agent control state
+                // Agent control state (with optional spinner prefix)
                 Span::styled(" ", Style::default()),
+                Span::styled(
+                    spinner_prefix,
+                    Style::default().fg(p.running_ratatui()).add_modifier(Modifier::BOLD),
+                ),
                 Span::styled(
                     ctrl_label,
                     Style::default().fg(ctrl_color).add_modifier(Modifier::BOLD),
@@ -858,5 +931,67 @@ mod tests {
         assert_eq!(status.current_provider(), "");
         status.update(Some("anthropic".into()), None, None, None, None, None, None, None, None, None);
         assert_eq!(status.current_provider(), "anthropic");
+    }
+
+    // ── StatusPatch ──────────────────────────────────────────────────────────
+
+    #[test]
+    fn status_patch_default_is_all_none() {
+        let patch = StatusPatch::default();
+        assert!(patch.provider.is_none());
+        assert!(patch.model.is_none());
+        assert!(patch.round.is_none());
+        assert!(patch.cost.is_none());
+        assert!(patch.session_id.is_none());
+        assert!(patch.elapsed_ms.is_none());
+        assert!(patch.tool_count.is_none());
+        assert!(patch.input_tokens.is_none());
+        assert!(patch.output_tokens.is_none());
+    }
+
+    #[test]
+    fn apply_patch_single_field_leaves_others_intact() {
+        let mut status = StatusState::new();
+        // Seed known values via update().
+        status.update(
+            Some("deepseek".into()), Some("deepseek-chat".into()),
+            Some(2), None, Some(0.001),
+            Some("sess-xyz".into()), Some(800), Some(3),
+            Some(500), Some(120),
+        );
+        // Patch only tool_count.
+        status.apply_patch(StatusPatch { tool_count: Some(0), ..Default::default() });
+        assert_eq!(status.tool_count, 0);
+        // Other fields unchanged.
+        assert_eq!(status.provider, "deepseek");
+        assert_eq!(status.model, "deepseek-chat");
+        assert_eq!(status.round, 2);
+        assert_eq!(status.input_tokens, 500);
+        assert_eq!(status.output_tokens, 120);
+    }
+
+    #[test]
+    fn apply_patch_partial_round_ended_update() {
+        let mut status = StatusState::new();
+        status.update(
+            Some("openai".into()), Some("gpt-4o".into()),
+            Some(1), None, None,
+            Some("sess-abc".into()), None, None, None, None,
+        );
+        // Simulate RoundEnded partial update.
+        status.apply_patch(StatusPatch {
+            cost: Some(0.0042),
+            elapsed_ms: Some(1500),
+            input_tokens: Some(1200),
+            output_tokens: Some(450),
+            ..Default::default()
+        });
+        assert!((status.cost - 0.0042).abs() < f64::EPSILON);
+        assert_eq!(status.elapsed_ms, 1500);
+        assert_eq!(status.input_tokens, 1200);
+        assert_eq!(status.output_tokens, 450);
+        // Fields not in the patch are unchanged.
+        assert_eq!(status.provider, "openai");
+        assert_eq!(status.round, 1);
     }
 }

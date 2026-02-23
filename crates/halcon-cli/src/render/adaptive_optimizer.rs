@@ -6,11 +6,92 @@
 //! - Quality-driven modification strategies
 //! - Early stopping when quality stabilizes
 
+// Local convergence + step-selection types that replace the momoto-intelligence
+// stubs (which are empty and have no methods/fields in the current workspace).
 #[cfg(feature = "color-science")]
-use momoto_intelligence::adaptive::{
-    ConvergenceConfig, ConvergenceDetector, ConvergenceStatus,
-    GoalTracker, StepRecommendation, StepScoringModel, StepSelector,
-};
+mod local_adaptive {
+    /// Convergence status returned by LocalConvergenceDetector::update().
+    pub struct ConvergenceStatus {
+        pub stopped: bool,
+        pub reason: String,
+    }
+    impl ConvergenceStatus {
+        pub fn should_stop(&self) -> bool { self.stopped }
+        pub fn description(&self) -> String { self.reason.clone() }
+    }
+
+    /// Simple convergence detector: halts when quality reaches target or
+    /// stalls for `stall_window` consecutive iterations.
+    pub struct ConvergenceDetector {
+        target: f64,
+        min_improvement: f64,
+        stall_window: usize,
+        history: Vec<f64>,
+    }
+    impl ConvergenceDetector {
+        pub fn new(target: f64, min_improvement: f64, stall_window: usize) -> Self {
+            Self { target, min_improvement, stall_window, history: Vec::new() }
+        }
+        pub fn reset(&mut self) { self.history.clear(); }
+        pub fn update(&mut self, quality: f64) -> ConvergenceStatus {
+            self.history.push(quality);
+            if quality >= self.target {
+                return ConvergenceStatus { stopped: true, reason: format!("Target quality {:.4} reached", self.target) };
+            }
+            if self.history.len() >= self.stall_window {
+                let window = &self.history[self.history.len() - self.stall_window..];
+                let max_q = window.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                let min_q = window.iter().cloned().fold(f64::INFINITY, f64::min);
+                if max_q - min_q < self.min_improvement {
+                    return ConvergenceStatus { stopped: true, reason: format!("Quality stalled (delta {:.5} < {:.5})", max_q - min_q, self.min_improvement) };
+                }
+            }
+            ConvergenceStatus { stopped: false, reason: "Continuing".into() }
+        }
+    }
+
+    /// Step recommendation from LocalStepSelector.
+    pub struct StepRecommendation {
+        pub step_type: String,
+        pub confidence: f64,
+    }
+
+    /// Step selector: tracks per-step average improvement and recommends the
+    /// best-performing step (UCB-lite: exploit when history exists).
+    pub struct StepSelector {
+        steps: Vec<String>,
+        scores: std::collections::HashMap<String, (f64, usize)>, // (sum_improvement, count)
+        round_robin_idx: usize,
+    }
+    impl StepSelector {
+        pub fn new(available_steps: Vec<String>) -> Self {
+            Self { steps: available_steps, scores: Default::default(), round_robin_idx: 0 }
+        }
+        pub fn update_progress(&mut self, _quality: f64) {}
+        pub fn recommend_next_step(&mut self) -> Option<StepRecommendation> {
+            if self.steps.is_empty() { return None; }
+            // Pick step with best average improvement (min 2 samples); else round-robin.
+            let best = self.steps.iter()
+                .filter_map(|s| {
+                    let (sum, cnt) = self.scores.get(s).copied().unwrap_or((0.0, 0));
+                    if cnt >= 2 { Some((s.clone(), sum / cnt as f64)) } else { None }
+                })
+                .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+            if let Some((step, score)) = best {
+                return Some(StepRecommendation { step_type: step, confidence: (score + 1.0).min(1.0) });
+            }
+            // Round-robin fallback
+            let step = self.steps[self.round_robin_idx % self.steps.len()].clone();
+            self.round_robin_idx += 1;
+            Some(StepRecommendation { step_type: step, confidence: 0.5 })
+        }
+        pub fn record_outcome(&mut self, step: &str, improvement: f64, _cost: f64, _success: bool) {
+            let entry = self.scores.entry(step.to_string()).or_insert((0.0, 0));
+            entry.0 += improvement;
+            entry.1 += 1;
+        }
+    }
+}
 
 #[cfg(feature = "color-science")]
 use momoto_core::{Color, OKLCH};
@@ -163,10 +244,10 @@ impl OptimizationConfig {
 pub struct AdaptivePaletteOptimizer {
     /// Base palette builder
     builder: IntelligentPaletteBuilder,
-    /// Convergence detector
-    convergence: ConvergenceDetector,
-    /// Step selector
-    step_selector: StepSelector,
+    /// Convergence detector (local implementation — no momoto-intelligence dependency)
+    convergence: local_adaptive::ConvergenceDetector,
+    /// Step selector (local implementation)
+    step_selector: local_adaptive::StepSelector,
     /// Optimization configuration
     config: OptimizationConfig,
 }
@@ -180,35 +261,18 @@ impl AdaptivePaletteOptimizer {
 
     /// Create with custom configuration
     pub fn with_config(builder: IntelligentPaletteBuilder, config: OptimizationConfig) -> Self {
-        // Configure convergence detector
-        let convergence_config = ConvergenceConfig {
-            target_threshold: config.target_quality,
-            min_improvement: config.min_improvement,
-            stall_iterations: 5,
-            oscillation_window: 10,
-            oscillation_threshold: 0.01,
-            divergence_threshold: -0.001,
-            min_iterations: 3,
-        };
-        let convergence = ConvergenceDetector::new(convergence_config);
+        let convergence = local_adaptive::ConvergenceDetector::new(
+            config.target_quality,
+            config.min_improvement,
+            5, // stall_window
+        );
 
-        // Configure step selector
         let available_steps: Vec<String> = ModificationKind::all()
             .iter()
             .map(|k| k.as_str().to_string())
             .collect();
 
-        // Pre-populate scoring model with known effectiveness
-        let mut scoring_model = StepScoringModel::new();
-        scoring_model = scoring_model
-            .with_known_effectiveness("adjust_lightness", "palette_quality", 0.7)
-            .with_known_effectiveness("adjust_chroma", "palette_quality", 0.6)
-            .with_known_effectiveness("adjust_hue", "palette_quality", 0.5)
-            .with_known_effectiveness("refine_token", "palette_quality", 0.8);
-
-        let step_selector = StepSelector::new("palette_quality", config.target_quality)
-            .with_available_steps(available_steps)
-            .with_scoring_model(scoring_model);
+        let step_selector = local_adaptive::StepSelector::new(available_steps);
 
         Self {
             builder,
@@ -473,6 +537,8 @@ impl AdaptivePaletteOptimizer {
             quality_report,
             explanation,
             base_hue: 0.0, // Modified, not from hue
+            harmony_score: 0.0,
+            solver_result: None,
         })
     }
 
@@ -576,6 +642,8 @@ impl AdaptivePaletteOptimizer {
             quality_report,
             explanation,
             base_hue: 0.0,
+            harmony_score: 0.0,
+            solver_result: None,
         })
     }
 
@@ -701,6 +769,8 @@ impl AdaptivePaletteOptimizer {
             quality_report,
             explanation,
             base_hue: 0.0,
+            harmony_score: 0.0,
+            solver_result: None,
         })
     }
 
@@ -773,6 +843,8 @@ impl AdaptivePaletteOptimizer {
             quality_report,
             explanation,
             base_hue: 0.0,
+            harmony_score: 0.0,
+            solver_result: None,
         })
     }
 }
@@ -1061,10 +1133,9 @@ mod tests {
 
     #[test]
     fn test_convergence_status_descriptions_valid() {
-        use momoto_intelligence::adaptive::{ConvergenceDetector, ConvergenceConfig};
+        use super::local_adaptive::ConvergenceDetector;
 
-        let config = ConvergenceConfig::default();
-        let mut detector = ConvergenceDetector::new(config);
+        let mut detector = ConvergenceDetector::new(0.95, 0.001, 5);
 
         // Test that status descriptions are non-empty
         let status1 = detector.update(0.5);
@@ -1079,15 +1150,12 @@ mod tests {
 
     #[test]
     fn test_step_recommendation_confidence_in_range() {
-        use momoto_intelligence::adaptive::StepSelector;
+        use super::local_adaptive::StepSelector;
 
-        let selector = StepSelector::new("test_goal", 0.9)
-            .with_available_steps(vec!["step1".to_string(), "step2".to_string()]);
+        let mut selector = StepSelector::new(vec!["step1".to_string(), "step2".to_string()]);
 
         if let Some(rec) = selector.recommend_next_step() {
             assert!(rec.confidence >= 0.0 && rec.confidence <= 1.0);
-            assert!(rec.estimated_benefit >= 0.0 && rec.estimated_benefit <= 1.0);
-            assert!(rec.estimated_cost >= 0.0 && rec.estimated_cost <= 1.0);
         }
     }
 

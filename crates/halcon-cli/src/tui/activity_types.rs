@@ -20,6 +20,29 @@ pub struct ToolResult {
     pub duration_ms: u64,
 }
 
+/// Status of a sub-agent task (running, completed, failed).
+#[derive(Debug, Clone, PartialEq)]
+pub enum SubAgentStatus {
+    Running,
+    Success { latency_ms: u64 },
+    Failed { latency_ms: u64 },
+}
+
+/// The current phase the agent is executing (for skeleton/spinner overlay).
+#[derive(Debug, Clone, PartialEq)]
+pub enum AgentPhase {
+    /// LLM planning call — generating execution plan.
+    Planning,
+    /// Reasoning pre-loop — selecting optimal strategy via UCB1.
+    Reasoning,
+    /// Reflection LLM call — analyzing conversation quality.
+    Reflecting,
+    /// Search operation.
+    Searching,
+    /// Delegating to N sub-agents.
+    Delegating { count: usize },
+}
+
 /// A single line/block in the activity feed.
 #[derive(Debug, Clone)]
 pub enum ActivityLine {
@@ -54,6 +77,34 @@ pub enum ActivityLine {
     /// Transient "waiting for model" indicator shown between prompt submit and first stream chunk.
     /// Removed automatically when the model starts streaming.
     AgentThinking,
+    /// Transient phase indicator showing a shimmer skeleton while an expensive LLM phase runs.
+    /// Removed automatically when the phase ends.
+    PhaseIndicator { phase: AgentPhase, label: String },
+    /// Orchestrator header line — shown once per wave above the sub-agent pills.
+    OrchestratorHeader {
+        task_count: usize,
+        wave_count: usize,
+    },
+    /// A delegated sub-agent task pill.
+    ///
+    /// `status` is `Running` while the agent executes; mutated to `Success`/`Failed` on completion.
+    /// `tools_used`, `rounds`, and `summary` are populated on completion.
+    SubAgentTask {
+        step_index: usize,
+        total_steps: usize,
+        description: String,
+        agent_type: String,
+        status: SubAgentStatus,
+        rounds: usize,
+        tools_used: Vec<String>,
+        summary: String,
+    },
+    /// Completed chain-of-thought bubble — dim, collapsible summary of model reasoning.
+    /// Persists in the activity feed after thinking ends.
+    ThinkingBubble {
+        char_count: usize,
+        preview:    String,
+    },
 }
 
 impl ActivityLine {
@@ -108,6 +159,23 @@ impl ActivityLine {
             }
             ActivityLine::PlanOverview { goal, .. } => goal.clone(),
             ActivityLine::AgentThinking => String::new(),
+            ActivityLine::PhaseIndicator { label, .. } => label.clone(),
+            ActivityLine::OrchestratorHeader { task_count, wave_count } => {
+                format!("orchestrator {task_count} tasks wave {wave_count}")
+            }
+            ActivityLine::SubAgentTask { description, tools_used, summary, .. } => {
+                let mut s = description.clone();
+                if !tools_used.is_empty() {
+                    s.push(' ');
+                    s.push_str(&tools_used.join(" "));
+                }
+                if !summary.is_empty() {
+                    s.push(' ');
+                    s.push_str(summary);
+                }
+                s
+            }
+            ActivityLine::ThinkingBubble { preview, .. } => preview.clone(),
         }
     }
 }

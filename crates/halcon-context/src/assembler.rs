@@ -74,6 +74,20 @@ pub fn estimate_tokens(text: &str) -> usize {
     text.len().div_ceil(4)
 }
 
+/// Estimate token count calibrated to a specific provider's BPE density.
+///
+/// Anthropic Claude uses a denser BPE (~3.5 chars/token) than OpenAI (~4.0)
+/// or DeepSeek (~4.2). Use this when provider is known to avoid over/under-budgeting.
+pub fn estimate_tokens_for_provider(content: &str, provider: &str) -> usize {
+    let chars_per_token: f32 = match provider {
+        "anthropic" => 3.5,
+        "deepseek" => 4.2,
+        "openai" | "openai_compat" => 4.0,
+        _ => 4.0, // safe default
+    };
+    ((content.len() as f32) / chars_per_token).ceil() as usize
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

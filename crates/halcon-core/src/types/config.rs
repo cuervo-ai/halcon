@@ -302,25 +302,32 @@ pub struct MultimodalConfig {
     pub models_dir: Option<String>,
     /// API call timeout in milliseconds (default: 30000).
     pub api_timeout_ms: u64,
+    /// Maximum simultaneous media analyses (prevents DoS from bulk uploads).
+    /// Default: 4. Set 0 to disable limiting.
+    #[serde(default = "default_max_concurrent_analyses")]
+    pub max_concurrent_analyses: u32,
 }
+
+fn default_max_concurrent_analyses() -> u32 { 4 }
 
 impl Default for MultimodalConfig {
     fn default() -> Self {
         Self {
-            enabled:                 false,
-            mode:                    "hybrid".to_string(),
-            max_file_size_bytes:     20 * 1024 * 1024,
-            local_threshold_bytes:   2 * 1024 * 1024,
-            strip_exif:              true,
-            privacy_strict:          false,
-            max_audio_duration_secs: 300,
-            max_video_duration_secs: 60,
-            video_sample_fps:        1,
-            max_video_frames:        10,
-            cache_enabled:           true,
-            cache_ttl_secs:          3600,
-            models_dir:              None,
-            api_timeout_ms:          30_000,
+            enabled:                  false,
+            mode:                     "hybrid".to_string(),
+            max_file_size_bytes:      20 * 1024 * 1024,
+            local_threshold_bytes:    2 * 1024 * 1024,
+            strip_exif:               true,
+            privacy_strict:           false,
+            max_audio_duration_secs:  300,
+            max_video_duration_secs:  60,
+            video_sample_fps:         1,
+            max_video_frames:         10,
+            cache_enabled:            true,
+            cache_ttl_secs:           3600,
+            models_dir:               None,
+            api_timeout_ms:           30_000,
+            max_concurrent_analyses:  4,
         }
     }
 }
@@ -377,7 +384,7 @@ pub struct AppConfig {
 /// Enable via `[plugins] enabled = true` in config.toml.
 /// When enabled, the plugin loader scans `~/.halcon/plugins/*.plugin.toml`
 /// on the first agent-loop message and registers PluginProxyTool instances.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct PluginsConfig {
     /// Master switch.  When false (default) no plugin discovery runs.
     #[serde(default)]
@@ -385,12 +392,6 @@ pub struct PluginsConfig {
     /// Override discovery path (default: ~/.halcon/plugins/).
     #[serde(default)]
     pub plugin_dir: Option<String>,
-}
-
-impl Default for PluginsConfig {
-    fn default() -> Self {
-        Self { enabled: false, plugin_dir: None }
-    }
 }
 
 /// Adaptive reasoning and UCB1 strategy learning configuration.
@@ -893,6 +894,12 @@ pub struct SecurityConfig {
     /// Phase 72c G10: prevents stale grants from being exploited. Default: 300 (5 min).
     #[serde(default = "default_session_grant_ttl")]
     pub session_grant_ttl_secs: u64,
+    /// Opt-in: scan system prompts for PII patterns and emit a warning log.
+    /// Default: false (system prompts are internal, not user input — low risk).
+    /// When true, any PII pattern found in the cached system prompt is logged as a warning.
+    /// Does NOT block execution — only observability.
+    #[serde(default)]
+    pub scan_system_prompts: bool,
 }
 
 /// Guardrails configuration (delegated from halcon-security for serde compat).
@@ -939,6 +946,7 @@ impl Default for SecurityConfig {
             tbac_enabled: false,
             pre_execution_critique: false,
             session_grant_ttl_secs: 300,
+            scan_system_prompts: false, // opt-in: system prompts are internal
         }
     }
 }

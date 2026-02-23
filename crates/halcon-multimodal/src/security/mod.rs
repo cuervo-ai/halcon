@@ -60,7 +60,8 @@ impl MediaValidator {
 
     /// Validate raw bytes.
     ///
-    /// Steps: (1) size check, (2) magic-byte MIME detection, (3) EXIF strip.
+    /// Steps: (1) size check, (2) magic-byte MIME detection, (3) EXIF strip,
+    ///        (4) decompression bomb check (PNG/JPEG dimension scan).
     pub fn validate_bytes(&self, data: Vec<u8>) -> Result<ValidatedMedia> {
         let original_size = data.len() as u64;
         self.limits.check_file_size(original_size)?;
@@ -70,6 +71,56 @@ impl MediaValidator {
         } else {
             data
         };
+
+        // Decompression bomb guard: parse image dimensions from header bytes and
+        // reject images claiming more than max_image_pixels decoded pixels.
+        if mime.is_image() {
+            match mime {
+                DetectedMime::ImagePng => {
+                    // PNG IHDR chunk: bytes 16-23 contain width (4 bytes BE) + height (4 bytes BE).
+                    if stripped.len() >= 24 {
+                        let w = u32::from_be_bytes([
+                            stripped[16], stripped[17], stripped[18], stripped[19],
+                        ]);
+                        let h = u32::from_be_bytes([
+                            stripped[20], stripped[21], stripped[22], stripped[23],
+                        ]);
+                        if w > 0 && h > 0 {
+                            self.limits.check_image_dimensions(w, h)?;
+                        }
+                    }
+                }
+                DetectedMime::ImageJpeg => {
+                    // JPEG: scan for SOF0/SOF1/SOF2/SOF3 marker (0xFF 0xCn) which contains
+                    // height at bytes marker+5..+6 and width at bytes marker+7..+8.
+                    let mut i = 2usize;
+                    while i + 8 < stripped.len() {
+                        if stripped[i] == 0xFF {
+                            let marker = stripped[i + 1];
+                            if matches!(marker, 0xC0 | 0xC1 | 0xC2 | 0xC3) {
+                                let h = u16::from_be_bytes([stripped[i + 5], stripped[i + 6]]) as u32;
+                                let w = u16::from_be_bytes([stripped[i + 7], stripped[i + 8]]) as u32;
+                                if w > 0 && h > 0 {
+                                    self.limits.check_image_dimensions(w, h)?;
+                                }
+                                break;
+                            }
+                            // Skip marker: 2-byte marker + 2-byte length field (length includes itself).
+                            if i + 3 < stripped.len() {
+                                let len = u16::from_be_bytes([stripped[i + 2], stripped[i + 3]]) as usize;
+                                i += 2 + len;
+                            } else {
+                                break;
+                            }
+                        } else {
+                            i += 1;
+                        }
+                    }
+                }
+                _ => {} // GIF/WebP: lower attack surface, no dimension check.
+            }
+        }
+
         Ok(ValidatedMedia { data: stripped, mime, original_size })
     }
 
@@ -206,5 +257,54 @@ mod tests {
         let v = MediaValidator::new(SecurityLimits::default(), false, false);
         let vm = v.validate_bytes(data.clone()).unwrap();
         assert_eq!(vm.data, data, "Without EXIF stripping data unchanged");
+    }
+
+    #[test]
+    fn corrupt_jpeg_truncated_passes_mime_check() {
+        // Truncated JPEG (SOI + EOI only, no SOF marker) — should validate as JPEG.
+        // No dimensions found means no bomb check fires, so it passes.
+        let data = vec![0xFF, 0xD8, 0xFF, 0xD9]; // SOI + EOI
+        let result = validator().validate_bytes(data);
+        assert!(result.is_ok(), "Minimal JPEG without SOF should pass");
+        assert_eq!(result.unwrap().mime, DetectedMime::ImageJpeg);
+    }
+
+    #[test]
+    fn png_bomb_rejected() {
+        // Craft a PNG header claiming 100000×100000 pixels (decompression bomb).
+        let mut data = vec![
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // PNG magic (8 bytes)
+            0x00, 0x00, 0x00, 0x0D,                            // IHDR chunk length = 13
+            0x49, 0x48, 0x44, 0x52,                            // "IHDR" chunk type
+        ];
+        // width = 100000 (0x000186A0)
+        data.extend_from_slice(&[0x00, 0x01, 0x86, 0xA0]);
+        // height = 100000 (0x000186A0)
+        data.extend_from_slice(&[0x00, 0x01, 0x86, 0xA0]);
+        // bit depth, color type, compression, filter, interlace + CRC placeholder
+        data.extend_from_slice(&[0x08, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+
+        let err = validator().validate_bytes(data).unwrap_err();
+        assert!(
+            matches!(err, MultimodalError::DecompressionBomb { .. }),
+            "100000×100000 PNG must be rejected as decompression bomb; got: {err}"
+        );
+    }
+
+    #[test]
+    fn valid_small_png_dimensions_accepted() {
+        // PNG header with 100×100 dimensions — well within limits.
+        let mut data = vec![
+            0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // PNG magic
+            0x00, 0x00, 0x00, 0x0D,                            // IHDR length = 13
+            0x49, 0x48, 0x44, 0x52,                            // "IHDR"
+        ];
+        data.extend_from_slice(&[0x00, 0x00, 0x00, 0x64]); // width = 100
+        data.extend_from_slice(&[0x00, 0x00, 0x00, 0x64]); // height = 100
+        data.extend_from_slice(&[0x08, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]);
+
+        // Should pass all checks (100×100 = 10,000 pixels, well under 67M limit).
+        let result = validator().validate_bytes(data);
+        assert!(result.is_ok(), "Small 100×100 PNG should be accepted");
     }
 }

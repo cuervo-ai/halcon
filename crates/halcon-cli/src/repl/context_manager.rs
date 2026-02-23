@@ -260,6 +260,16 @@ impl ContextManager {
     pub fn reset_pipeline(&mut self) {
         self.pipeline.reset();
     }
+
+    /// Add a new context source at runtime (e.g., multimodal context after init).
+    ///
+    /// The source is appended after all existing sources; priority ordering
+    /// is applied during assemble() when chunks are sorted by priority.
+    pub(crate) fn add_source(&mut self, source: Box<dyn ContextSource>) {
+        let name = source.name().to_string();
+        self.source_stats.insert(name, SourceStats::default());
+        self.sources.push(source);
+    }
 }
 
 #[cfg(test)]

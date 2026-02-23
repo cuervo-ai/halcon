@@ -19,6 +19,9 @@ tracing = "0.1"
 # Halcon crates
 halcon-core = { path = "../halcon-core" }
 
+# Credential vault: OS-native secret store (macOS Keychain, Windows Credential Manager, libsecret)
+keyring = { workspace = true }
+
 # Optional features
 reqwest = { version = "0.12", optional = true, features = ["json"] }
 tokio-tungstenite = { version = "0.26", optional = true }

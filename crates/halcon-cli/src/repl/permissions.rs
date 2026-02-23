@@ -35,6 +35,19 @@ pub struct PermissionChecker {
     /// cannot carry a `String` payload.
     #[cfg(feature = "tui")]
     sudo_pw_rx: Option<std::sync::Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Option<String>>>>>,
+    /// TUI notification channel for permission events (e.g. timeout denial).
+    ///
+    /// When set, `authorize()` sends a `UiEvent::Warning` to the TUI activity
+    /// panel when the permission timeout fires, so the user can see why the
+    /// tool was denied even if they missed the modal.
+    #[cfg(feature = "tui")]
+    notification_tx: Option<tokio::sync::mpsc::UnboundedSender<crate::tui::events::UiEvent>>,
+    /// Timeout for TUI permission prompt in seconds (from config `prompt_timeout_secs`).
+    ///
+    /// The TUI modal auto-denies after this duration (fail-closed). Stored here so
+    /// the TUI path uses the same value as the middleware's stdin path.
+    #[cfg(feature = "tui")]
+    tui_timeout_secs: u64,
 }
 
 impl PermissionChecker {
@@ -63,6 +76,10 @@ impl PermissionChecker {
             tui_approve_rx: None,
             #[cfg(feature = "tui")]
             sudo_pw_rx: None,
+            #[cfg(feature = "tui")]
+            notification_tx: None,
+            #[cfg(feature = "tui")]
+            tui_timeout_secs: prompt_timeout_secs.max(30),
         }
     }
 
@@ -93,6 +110,21 @@ impl PermissionChecker {
     #[cfg(feature = "tui")]
     pub fn set_sudo_channel(&mut self, rx: tokio::sync::mpsc::UnboundedReceiver<Option<String>>) {
         self.sudo_pw_rx = Some(std::sync::Arc::new(tokio::sync::Mutex::new(rx)));
+    }
+
+    /// Set the TUI notification channel for permission events.
+    ///
+    /// When set, `authorize()` sends a `UiEvent::Warning` to the TUI activity panel
+    /// whenever the permission timeout fires. This ensures the user sees a visible
+    /// explanation for why the tool was denied even if they missed the modal.
+    ///
+    /// Wire this with the same `ui_tx` used by `TuiSink` in TUI mode.
+    #[cfg(feature = "tui")]
+    pub fn set_notification_tx(
+        &mut self,
+        tx: tokio::sync::mpsc::UnboundedSender<crate::tui::events::UiEvent>,
+    ) {
+        self.notification_tx = Some(tx);
     }
 
     /// Await the sudo password from the TUI modal (up to `timeout_secs`).
@@ -204,22 +236,50 @@ impl PermissionChecker {
                 let mut rx = tui_rx.lock().await;
                 // Drain any stale approvals from previous permission requests.
                 while rx.try_recv().is_ok() {}
-                // Wait for fresh TUI user decision with 60s timeout (fail-safe: deny).
+                // Wait for fresh TUI user decision with configurable timeout (fail-safe: deny).
+                let timeout_secs = self.tui_timeout_secs;
                 match tokio::time::timeout(
-                    std::time::Duration::from_secs(60),
+                    std::time::Duration::from_secs(timeout_secs),
                     rx.recv(),
                 ).await {
                     Ok(Some(decision)) => return decision,
                     Ok(None) => {
                         // Channel closed — TUI exited.
                         tracing::warn!(tool = %tool_name, "TUI permission channel closed — denying");
+                        if let Some(ref tx) = self.notification_tx {
+                            let _ = tx.send(crate::tui::events::UiEvent::Warning {
+                                message: format!(
+                                    "Permission channel closed — '{}' denied (TUI exited?)",
+                                    tool_name
+                                ),
+                                hint: None,
+                            });
+                        }
                         return PermissionDecision::Denied;
                     }
                     Err(_timeout) => {
-                        tracing::info!(
+                        // G-TIMEOUT: no user interaction within timeout = deny (fail-closed).
+                        // This protects against: TUI crash, orphaned modal, frozen UI.
+                        // Emitted as warn (not info) so operators notice blocked approvals.
+                        tracing::warn!(
                             tool = %tool_name,
-                            "TUI permission prompt timed out (60s) — denying (fail-safe)"
+                            timeout_secs,
+                            "TUI permission prompt timed out — denied (fail-closed). \
+                             User did not respond within the timeout."
                         );
+                        // Notify TUI activity panel so user sees why the tool was denied.
+                        if let Some(ref tx) = self.notification_tx {
+                            let _ = tx.send(crate::tui::events::UiEvent::Warning {
+                                message: format!(
+                                    "Permission timed out — '{}' denied (no response within {}s)",
+                                    tool_name, timeout_secs
+                                ),
+                                hint: Some(format!(
+                                    "Approve or deny the permission modal before {}s to allow the tool.",
+                                    timeout_secs
+                                )),
+                            });
+                        }
                         return PermissionDecision::Denied;
                     }
                 }

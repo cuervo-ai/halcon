@@ -3,13 +3,24 @@
 //! Each tool implements `halcon_core::traits::Tool`.
 //! Tools are registered in a `ToolRegistry` and invoked by the agent loop.
 
+pub mod archive;
 pub mod background;
 pub mod bash;
+pub mod changelog_gen;
+pub mod checksum;
+pub mod ci_logs;
+pub mod code_coverage;
+pub mod code_metrics;
+pub mod config_validator;
+pub mod dep_check;
+pub mod dependency_graph;
 pub mod diff_apply;
 pub mod directory_tree;
+pub mod docker_tool;
 pub mod env_inspect;
 pub mod execute_test;
 pub mod file_delete;
+pub mod file_diff;
 pub mod file_edit;
 pub mod file_inspect;
 pub mod file_read;
@@ -17,21 +28,40 @@ pub mod file_write;
 pub mod fs_service;
 pub mod fuzzy_find;
 pub mod git;
+pub mod git_blame;
 pub mod glob_tool;
 pub mod grep;
+pub mod http_probe;
 pub mod http_request;
 pub mod json_schema_validate;
+pub mod json_transform;
+pub mod lint_check;
+pub mod make_tool;
 pub mod native_crawl;
 pub mod native_index_query;
 pub mod native_search;
+pub mod openapi_validate;
+pub mod parse_logs;
+pub mod patch_apply;
 pub mod path_security;
+pub mod perf_analyze;
 pub mod port_check;
 pub mod process_list;
+pub mod process_monitor;
+pub mod regex_test;
 pub mod registry;
 pub mod sandbox;
+pub mod secret_scan;
+pub mod semantic_grep;
+pub mod sql_query;
 pub mod symbol_search;
 pub mod syntax_check;
 pub mod task_track;
+pub mod template_engine;
+pub mod test_data_gen;
+pub mod test_run;
+pub mod token_count;
+pub mod url_parse;
 pub mod web_fetch;
 pub mod web_search;
 
@@ -132,6 +162,48 @@ pub fn full_registry(
         config.timeout_secs,
     )));
 
+    // FASE6: SOTA expanded tool suite — security, analysis, infrastructure, data
+    // Git extended
+    reg.register(Arc::new(git::GitBranchTool::new()));
+    reg.register(Arc::new(git::GitStashTool::new()));
+    reg.register(Arc::new(git_blame::GitBlameTool::new(config.timeout_secs)));
+    // Archive & packaging
+    reg.register(Arc::new(archive::ArchiveTool::new()));
+    reg.register(Arc::new(changelog_gen::ChangelogGenTool::new()));
+    // Security scanning
+    reg.register(Arc::new(secret_scan::SecretScanTool::new()));
+    // Testing & code quality
+    reg.register(Arc::new(test_run::TestRunTool::new(config.timeout_secs)));
+    reg.register(Arc::new(code_coverage::CodeCoverageTool::new(config.timeout_secs)));
+    reg.register(Arc::new(code_metrics::CodeMetricsTool::new()));
+    reg.register(Arc::new(lint_check::LintCheckTool::new(config.timeout_secs)));
+    // Code analysis
+    reg.register(Arc::new(semantic_grep::SemanticGrepTool::new()));
+    reg.register(Arc::new(dependency_graph::DependencyGraphTool::new(config.timeout_secs)));
+    reg.register(Arc::new(dep_check::DepCheckTool::new(config.timeout_secs)));
+    // Infrastructure
+    reg.register(Arc::new(docker_tool::DockerTool::new(config.timeout_secs)));
+    reg.register(Arc::new(process_monitor::ProcessMonitorTool::new(config.timeout_secs)));
+    reg.register(Arc::new(make_tool::MakeTool::new(config.timeout_secs)));
+    reg.register(Arc::new(http_probe::HttpProbeTool::new()));
+    reg.register(Arc::new(ci_logs::CiLogsTool::new(config.timeout_secs)));
+    reg.register(Arc::new(parse_logs::ParseLogsTool::new()));
+    // Data & formatting
+    reg.register(Arc::new(json_transform::JsonTransformTool::new()));
+    reg.register(Arc::new(template_engine::TemplateEngineTool::new()));
+    reg.register(Arc::new(sql_query::SqlQueryTool::new()));
+    reg.register(Arc::new(test_data_gen::TestDataGenTool::new()));
+    reg.register(Arc::new(openapi_validate::OpenApiValidateTool::new()));
+    reg.register(Arc::new(config_validator::ConfigValidatorTool::new()));
+    // Utilities
+    reg.register(Arc::new(checksum::ChecksumTool::new()));
+    reg.register(Arc::new(url_parse::UrlParseTool::new()));
+    reg.register(Arc::new(regex_test::RegexTestTool::new()));
+    reg.register(Arc::new(token_count::TokenCountTool::new()));
+    reg.register(Arc::new(file_diff::FileDiffTool::new()));
+    reg.register(Arc::new(patch_apply::PatchApplyTool::new()));
+    reg.register(Arc::new(perf_analyze::PerfAnalyzeTool::new(config.timeout_secs)));
+
     reg
 }
 
@@ -150,6 +222,7 @@ mod contract_tests {
         ));
         let proc_reg = Arc::new(background::ProcessRegistry::new(5));
         vec![
+            // Core file operations
             Arc::new(file_read::FileReadTool::new(fs.clone())),
             Arc::new(file_write::FileWriteTool::new(fs.clone())),
             Arc::new(file_edit::FileEditTool::new(fs.clone())),
@@ -173,19 +246,57 @@ mod contract_tests {
             Arc::new(symbol_search::SymbolSearchTool::new()),
             Arc::new(http_request::HttpRequestTool::new()),
             Arc::new(web_search::WebSearchTool::new(None)),
+            // Git core
             Arc::new(git::GitStatusTool::new()),
             Arc::new(git::GitDiffTool::new()),
             Arc::new(git::GitLogTool::new()),
             Arc::new(git::GitAddTool::new()),
             Arc::new(git::GitCommitTool::new()),
+            // Phase 5 tools
             Arc::new(diff_apply::DiffApplyTool::new(fs.clone())),
             Arc::new(env_inspect::EnvInspectTool::new()),
             Arc::new(process_list::ProcessListTool::new()),
             Arc::new(port_check::PortCheckTool::new()),
             Arc::new(json_schema_validate::JsonSchemaValidateTool::new()),
+            // Background tools
             Arc::new(background::BackgroundStartTool::new(proc_reg.clone())),
             Arc::new(background::BackgroundOutputTool::new(proc_reg.clone())),
             Arc::new(background::BackgroundKillTool::new(proc_reg)),
+            // Phase 1 test execution
+            Arc::new(execute_test::ExecuteTestTool::new(config.timeout_secs)),
+            // FASE6: SOTA expanded tool suite
+            Arc::new(git::GitBranchTool::new()),
+            Arc::new(git::GitStashTool::new()),
+            Arc::new(git_blame::GitBlameTool::new(config.timeout_secs)),
+            Arc::new(archive::ArchiveTool::new()),
+            Arc::new(changelog_gen::ChangelogGenTool::new()),
+            Arc::new(secret_scan::SecretScanTool::new()),
+            Arc::new(test_run::TestRunTool::new(config.timeout_secs)),
+            Arc::new(code_coverage::CodeCoverageTool::new(config.timeout_secs)),
+            Arc::new(code_metrics::CodeMetricsTool::new()),
+            Arc::new(lint_check::LintCheckTool::new(config.timeout_secs)),
+            Arc::new(semantic_grep::SemanticGrepTool::new()),
+            Arc::new(dependency_graph::DependencyGraphTool::new(config.timeout_secs)),
+            Arc::new(dep_check::DepCheckTool::new(config.timeout_secs)),
+            Arc::new(docker_tool::DockerTool::new(config.timeout_secs)),
+            Arc::new(process_monitor::ProcessMonitorTool::new(config.timeout_secs)),
+            Arc::new(make_tool::MakeTool::new(config.timeout_secs)),
+            Arc::new(http_probe::HttpProbeTool::new()),
+            Arc::new(ci_logs::CiLogsTool::new(config.timeout_secs)),
+            Arc::new(parse_logs::ParseLogsTool::new()),
+            Arc::new(json_transform::JsonTransformTool::new()),
+            Arc::new(template_engine::TemplateEngineTool::new()),
+            Arc::new(sql_query::SqlQueryTool::new()),
+            Arc::new(test_data_gen::TestDataGenTool::new()),
+            Arc::new(openapi_validate::OpenApiValidateTool::new()),
+            Arc::new(config_validator::ConfigValidatorTool::new()),
+            Arc::new(checksum::ChecksumTool::new()),
+            Arc::new(url_parse::UrlParseTool::new()),
+            Arc::new(regex_test::RegexTestTool::new()),
+            Arc::new(token_count::TokenCountTool::new()),
+            Arc::new(file_diff::FileDiffTool::new()),
+            Arc::new(patch_apply::PatchApplyTool::new()),
+            Arc::new(perf_analyze::PerfAnalyzeTool::new(config.timeout_secs)),
         ]
     }
 
@@ -245,7 +356,7 @@ mod contract_tests {
         let config = ToolsConfig::default();
         let reg = default_registry(&config);
         let defs = reg.tool_definitions();
-        assert_eq!(defs.len(), 26, "expected 26 tools in default registry (no background, no search engine)");
+        assert_eq!(defs.len(), 58, "expected 58 tools in default registry (no background, no search engine)");
 
         assert!(reg.get("file_read").is_some());
         assert!(reg.get("file_write").is_some());
@@ -280,7 +391,7 @@ mod contract_tests {
         let proc_reg = Arc::new(background::ProcessRegistry::new(5));
         let reg = full_registry(&config, Some(proc_reg), None, None);
         let defs = reg.tool_definitions();
-        assert_eq!(defs.len(), 29, "expected 29 tools in full registry (with background, no search engine)");
+        assert_eq!(defs.len(), 61, "expected 61 tools in full registry (with background, no search engine)");
 
         assert!(reg.get("background_start").is_some());
         assert!(reg.get("background_output").is_some());

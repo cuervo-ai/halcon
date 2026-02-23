@@ -1686,3 +1686,90 @@ use halcon_core::types::{DomainEvent, EventPayload, Session, TokenUsage};
             .unwrap();
         assert!(!journal.is_empty(), "journal_mode should be non-empty");
     }
+
+    // ─── HMAC key tests (B1) ──────────────────────────────────────────────────
+
+    #[test]
+    fn hmac_key_is_32_bytes_on_fresh_db() {
+        let db = Database::open_in_memory().unwrap();
+        // Non-zero: extremely unlikely to be all zeros from a CSPRNG.
+        assert_ne!(db.audit_hmac_key, [0u8; 32]);
+    }
+
+    #[test]
+    fn hmac_key_persisted_across_reopens() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let path = dir.path().join("test.db");
+
+        let key1 = {
+            let db = Database::open(&path).unwrap();
+            db.audit_hmac_key
+        };
+        let key2 = {
+            let db = Database::open(&path).unwrap();
+            db.audit_hmac_key
+        };
+        assert_eq!(key1, key2, "HMAC key must be stable across reopens");
+    }
+
+    #[test]
+    fn hmac_key_unique_per_database() {
+        let dir = tempfile::TempDir::new().unwrap();
+        let db1 = Database::open(&dir.path().join("a.db")).unwrap();
+        let db2 = Database::open(&dir.path().join("b.db")).unwrap();
+        assert_ne!(
+            db1.audit_hmac_key, db2.audit_hmac_key,
+            "each database must have a unique HMAC key"
+        );
+    }
+
+    #[test]
+    fn audit_hash_uses_hmac_not_plain_sha256() {
+        use sha2::{Digest, Sha256};
+
+        let db = Database::open_in_memory().unwrap();
+        let event = DomainEvent::new(EventPayload::SessionStarted {
+            session_id: uuid::Uuid::new_v4(),
+        });
+        db.append_audit_event(&event).unwrap();
+
+        let conn = db.conn.lock().unwrap();
+        let (prev, stored_hash): (String, String) = conn
+            .query_row(
+                "SELECT previous_hash, hash FROM audit_log ORDER BY id LIMIT 1",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+
+        // Verify the stored hash is NOT the plain SHA-256 of the inputs.
+        let payload_json = serde_json::to_string(&event.payload).unwrap();
+        let mut hasher = Sha256::new();
+        hasher.update(prev.as_bytes());
+        hasher.update(event.id.to_string().as_bytes());
+        hasher.update(event.timestamp.to_rfc3339().as_bytes());
+        hasher.update(payload_json.as_bytes());
+        let plain_sha256 = hex::encode(hasher.finalize());
+
+        assert_ne!(
+            stored_hash, plain_sha256,
+            "audit hash must be HMAC-SHA256, not bare SHA-256"
+        );
+        // And it must be a valid 64-char hex string (256 bits).
+        assert_eq!(stored_hash.len(), 64);
+        assert!(stored_hash.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn audit_hmac_key_table_exists_after_migration() {
+        let db = Database::open_in_memory().unwrap();
+        let conn = db.conn.lock().unwrap();
+        let table_exists: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='audit_hmac_key'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(table_exists, "audit_hmac_key table must exist after migrations");
+    }

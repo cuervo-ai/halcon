@@ -281,6 +281,20 @@ impl OpenAICompatibleProvider {
                     }
                 }
 
+                // DeepSeek Reasoner / o1 / o3-mini: chain-of-thought thinking tokens
+                // arrive in `reasoning_content` while `content` is empty/null.
+                // When thinking finishes, the final answer appears in `content`.
+                // We emit as `ThinkingDelta` (not TextDelta) for visual distinction
+                // and to prevent thinking tokens from entering episodic memory.
+                // Guard: only emit when `content` is absent to avoid double-emission.
+                if let Some(ref reasoning) = delta.reasoning_content {
+                    if !reasoning.is_empty()
+                        && delta.content.as_deref().unwrap_or("").is_empty()
+                    {
+                        results.push(ModelChunk::ThinkingDelta(reasoning.clone()));
+                    }
+                }
+
                 // Tool calls.
                 if let Some(ref tool_calls) = delta.tool_calls {
                     for tc in tool_calls {
@@ -327,9 +341,14 @@ impl OpenAICompatibleProvider {
         // We achieve this by inserting Usage at the position BEFORE the last Done
         // if Done is already in results.
         if let Some(ref usage) = chunk.usage {
+            let reasoning_tokens = usage
+                .completion_tokens_details
+                .as_ref()
+                .and_then(|d| d.reasoning_tokens);
             let usage_chunk = ModelChunk::Usage(TokenUsage {
                 input_tokens: usage.prompt_tokens,
                 output_tokens: usage.completion_tokens,
+                reasoning_tokens,
                 ..Default::default()
             });
             // If there's a Done at the end, insert Usage just before it.
@@ -831,6 +850,7 @@ mod tests {
                     role: None,
                     content: Some("Hello".into()),
                     tool_calls: None,
+                    reasoning_content: None,
                 }),
                 finish_reason: None,
             }],
@@ -858,6 +878,7 @@ mod tests {
                             arguments: Some("{\"cmd\":".into()),
                         }),
                     }]),
+                    reasoning_content: None,
                 }),
                 finish_reason: None,
             }],
@@ -879,6 +900,7 @@ mod tests {
                     role: None,
                     content: None,
                     tool_calls: None,
+                    reasoning_content: None,
                 }),
                 finish_reason: Some("stop".into()),
             }],
@@ -890,6 +912,81 @@ mod tests {
     }
 
     #[test]
+    fn map_sse_chunk_reasoning_content_emitted_as_thinking_delta() {
+        // DeepSeek Reasoner bug: first response puts entire answer in reasoning_content
+        // with empty content → nothing rendered in TUI (Phase 92 root cause fix).
+        // When content is absent, reasoning_content must be emitted as TextDelta.
+        let chunk = OpenAISseChunk {
+            id: Some("chatcmpl-reasoner".into()),
+            choices: vec![types::OpenAIChoice {
+                index: 0,
+                delta: Some(types::OpenAIDelta {
+                    role: None,
+                    content: None, // empty — the bug case
+                    tool_calls: None,
+                    reasoning_content: Some("Thinking: hola is a greeting.".into()),
+                }),
+                finish_reason: None,
+            }],
+            usage: None,
+        };
+        let mapped = OpenAICompatibleProvider::map_sse_chunk(&chunk);
+        // Must emit ThinkingDelta so TUI can render thinking tokens with visual distinction.
+        assert_eq!(mapped.len(), 1, "reasoning_content should produce one ThinkingDelta");
+        assert!(
+            matches!(&mapped[0], ModelChunk::ThinkingDelta(t) if t == "Thinking: hola is a greeting."),
+            "reasoning_content should be emitted as ThinkingDelta (not TextDelta)"
+        );
+    }
+
+    #[test]
+    fn map_sse_chunk_reasoning_content_suppressed_when_content_present() {
+        // When BOTH content and reasoning_content are populated in the same chunk,
+        // only content is emitted — prevents double-emission during transition phase.
+        let chunk = OpenAISseChunk {
+            id: Some("chatcmpl-reasoner".into()),
+            choices: vec![types::OpenAIChoice {
+                index: 0,
+                delta: Some(types::OpenAIDelta {
+                    role: None,
+                    content: Some("Final answer.".into()),
+                    tool_calls: None,
+                    reasoning_content: Some("Thinking phase.".into()),
+                }),
+                finish_reason: None,
+            }],
+            usage: None,
+        };
+        let mapped = OpenAICompatibleProvider::map_sse_chunk(&chunk);
+        // Only content emitted — no double TextDelta
+        assert_eq!(mapped.len(), 1, "only content should be emitted when both fields present");
+        assert!(
+            matches!(&mapped[0], ModelChunk::TextDelta(t) if t == "Final answer."),
+            "content takes priority over reasoning_content"
+        );
+    }
+
+    #[test]
+    fn map_sse_chunk_reasoning_content_serde_deserializes() {
+        // Verify the new field round-trips through serde (the actual SSE path).
+        let json = r#"{
+            "id": "chatcmpl-r1",
+            "choices": [{
+                "index": 0,
+                "delta": {
+                    "reasoning_content": "step 1: think",
+                    "content": null
+                },
+                "finish_reason": null
+            }]
+        }"#;
+        let chunk: types::OpenAISseChunk = serde_json::from_str(json).unwrap();
+        let delta = chunk.choices[0].delta.as_ref().unwrap();
+        assert_eq!(delta.reasoning_content.as_deref(), Some("step 1: think"));
+        assert!(delta.content.is_none());
+    }
+
+    #[test]
     fn map_sse_chunk_usage() {
         let chunk = OpenAISseChunk {
             id: Some("chatcmpl-1".into()),
@@ -897,6 +994,7 @@ mod tests {
             usage: Some(types::OpenAIUsage {
                 prompt_tokens: 50,
                 completion_tokens: 100,
+                completion_tokens_details: None,
             }),
         };
         let mapped = OpenAICompatibleProvider::map_sse_chunk(&chunk);

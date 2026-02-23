@@ -12,7 +12,7 @@ use ratatui::Frame;
 
 use crate::render::theme;
 use crate::tui::constants;
-use crate::tui::events::SessionInfo;
+use crate::tui::events::{PluginSuggestionItem, SessionInfo};
 
 /// The kind of overlay currently displayed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,6 +33,26 @@ pub enum OverlayKind {
     ///
     /// Provides masked password input (●●●●) with optional 5-minute session cache.
     SudoPasswordEntry { tool: String, command: String },
+    /// Project onboarding wizard — multi-step HALCON.md generator.
+    ///
+    /// Steps:
+    /// - 0 = analyzing project
+    /// - 1 = review detected info
+    /// - 2 = preview generated content
+    /// - 3 = confirm save
+    /// - 4 = done
+    InitWizard {
+        step: u8,
+        preview: String,
+        save_path: String,
+        dry_run: bool,
+    },
+    /// Plugin recommendation overlay — tiered suggestion list.
+    PluginSuggest {
+        suggestions: Vec<PluginSuggestionItem>,
+        selected: usize,
+        dry_run: bool,
+    },
 }
 
 /// State for the overlay system.
@@ -235,6 +255,37 @@ pub fn default_commands() -> Vec<OverlayItem> {
             label: "/quit".into(),
             description: "Exit the TUI".into(),
             action: "quit".into(),
+        },
+        // --- Extended / Setup ---
+        OverlayItem {
+            label: "/inspect".into(),
+            description: "Inspect full session state (provider, model, cost, metrics)".into(),
+            action: "inspect".into(),
+        },
+        OverlayItem {
+            label: "/init".into(),
+            description: "Open project setup wizard (generates HALCON.md)".into(),
+            action: "init".into(),
+        },
+        OverlayItem {
+            label: "/tools".into(),
+            description: "Show tool usage statistics for this session".into(),
+            action: "tools".into(),
+        },
+        OverlayItem {
+            label: "/plugins".into(),
+            description: "Show loaded plugin information".into(),
+            action: "plugins".into(),
+        },
+        OverlayItem {
+            label: "/dry-run".into(),
+            description: "Toggle dry-run mode — destructive tools are skipped".into(),
+            action: "dry-run".into(),
+        },
+        OverlayItem {
+            label: "/reasoning".into(),
+            description: "Show reasoning engine and UCB1 strategy status".into(),
+            action: "reasoning".into(),
         },
     ]
 }
@@ -781,6 +832,340 @@ pub fn render_session_list(
     frame.render_widget(Paragraph::new(footer), footer_area);
 }
 
+/// Render the project onboarding init wizard overlay.
+///
+/// 4-zone centered overlay with step-by-step guidance:
+/// - Step 0: analyzing
+/// - Step 1: review detected project info
+/// - Step 2: preview generated HALCON.md
+/// - Step 3: confirm save
+/// - Step 4: done
+pub fn render_init_wizard(
+    frame: &mut Frame,
+    area: Rect,
+    step: u8,
+    preview: &str,
+    save_path: &str,
+    dry_run: bool,
+    spinner_frame: usize,
+) {
+    let p = &theme::active().palette;
+    let c_border = p.border_ratatui();
+    let c_accent = p.accent.to_ratatui_color();
+    let c_muted = p.text_label.to_ratatui_color();
+    let c_success = p.success.to_ratatui_color();
+
+    let popup_width = area.width.saturating_sub(8).min(72);
+    let popup_height = area.height.saturating_sub(6).min(22);
+    let x = area.x + (area.width.saturating_sub(popup_width)) / 2;
+    let y = area.y + (area.height.saturating_sub(popup_height)) / 2;
+    let popup_area = Rect { x, y, width: popup_width, height: popup_height };
+
+    frame.render_widget(Clear, popup_area);
+
+    let title_text = if dry_run {
+        format!(" ◈ HALCON — Configurar Proyecto  [dry-run]  Paso {}/4 ", step.min(4))
+    } else {
+        format!(" ◈ HALCON — Configurar Proyecto  Paso {}/4 ", step.min(4))
+    };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(c_border))
+        .title(Span::styled(title_text, Style::default().fg(c_accent).add_modifier(Modifier::BOLD)));
+
+    let inner = block.inner(popup_area);
+    frame.render_widget(block, popup_area);
+
+    // Build content lines based on step
+    let lines: Vec<Line> = match step {
+        0 => {
+            let frames = ['⠁', '⠃', '⠇', '⠧', '⠷', '⠿', '⠾', '⠼', '⠸', '⠰'];
+            let ch = frames[spinner_frame % frames.len()];
+            vec![
+                Line::from(""),
+                Line::from(Span::styled(
+                    format!("  {} Analizando proyecto…", ch),
+                    Style::default().fg(c_accent).add_modifier(Modifier::BOLD),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    "  Detectando tipo, metadata y estructura…",
+                    Style::default().fg(c_muted),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    "  ↳ Progreso en tiempo real en el feed de actividad",
+                    Style::default().fg(c_muted),
+                )),
+            ]
+        }
+        1 => {
+            // Parse the generated HALCON.md preview for key project metadata
+            let mut proj_name = String::new();
+            let mut proj_type = String::new();
+            let mut proj_version = String::new();
+            let mut git_branch = String::new();
+            let mut description = String::new();
+            let mut workspace_count = 0usize;
+
+            for line in preview.lines() {
+                let line = line.trim();
+                if proj_name.is_empty() && line.starts_with("# HALCON — ") {
+                    proj_name = line.trim_start_matches("# HALCON — ").to_string();
+                } else if line.starts_with("**Tipo**: ") {
+                    proj_type = line.trim_start_matches("**Tipo**: ").to_string();
+                } else if line.starts_with("**Versión**: ") {
+                    proj_version = line.trim_start_matches("**Versión**: ").to_string();
+                } else if line.starts_with("**Branch**: ") {
+                    git_branch = line.trim_start_matches("**Branch**: ").to_string();
+                } else if line.starts_with("**Descripción**: ") {
+                    description = line.trim_start_matches("**Descripción**: ").to_string();
+                    if description.len() > 55 {
+                        description = format!("{}…", &description[..55]);
+                    }
+                } else if line.starts_with("- `") && line.ends_with('`') {
+                    workspace_count += 1;
+                }
+            }
+
+            let mut ls = vec![
+                Line::from(Span::styled(
+                    "  ✓ Análisis completo:",
+                    Style::default().fg(c_success).add_modifier(Modifier::BOLD),
+                )),
+                Line::from(""),
+            ];
+
+            if !proj_name.is_empty() {
+                let name_disp: String = proj_name.chars().take(50).collect();
+                ls.push(Line::from(vec![
+                    Span::styled("  Proyecto:  ", Style::default().fg(c_muted)),
+                    Span::styled(name_disp, Style::default().fg(c_accent).add_modifier(Modifier::BOLD)),
+                ]));
+            }
+            if !proj_type.is_empty() {
+                ls.push(Line::from(vec![
+                    Span::styled("  Tipo:      ", Style::default().fg(c_muted)),
+                    Span::styled(proj_type.clone(), Style::default().fg(c_accent)),
+                ]));
+            }
+            if workspace_count > 0 {
+                ls.push(Line::from(vec![
+                    Span::styled("  Crates:    ", Style::default().fg(c_muted)),
+                    Span::styled(format!("{} miembros", workspace_count), Style::default().fg(c_muted)),
+                ]));
+            }
+            if !proj_version.is_empty() && proj_version != "(desconocida)" {
+                ls.push(Line::from(vec![
+                    Span::styled("  Versión:   ", Style::default().fg(c_muted)),
+                    Span::styled(proj_version, Style::default().fg(c_muted)),
+                ]));
+            }
+            if !git_branch.is_empty() {
+                ls.push(Line::from(vec![
+                    Span::styled("  Branch:    ", Style::default().fg(c_muted)),
+                    Span::styled(git_branch, Style::default().fg(c_muted)),
+                ]));
+            }
+            if !description.is_empty() && description != "(sin descripción)" {
+                ls.push(Line::from(vec![
+                    Span::styled("  Desc:      ", Style::default().fg(c_muted)),
+                    Span::styled(description, Style::default().fg(c_muted)),
+                ]));
+            }
+            ls.push(Line::from(""));
+            if !save_path.is_empty() {
+                let path_display: String = save_path.chars().take(58).collect();
+                ls.push(Line::from(vec![
+                    Span::styled("  Guardar en: ", Style::default().fg(c_muted)),
+                    Span::styled(path_display, Style::default().fg(c_success)),
+                ]));
+                ls.push(Line::from(""));
+            }
+            ls.push(Line::from(Span::styled(
+                "  [Enter] Ver preview   [Esc] Cancelar",
+                Style::default().fg(c_muted),
+            )));
+            ls
+        }
+        2 => {
+            let mut ls = vec![
+                Line::from(Span::styled("  Preview HALCON.md:", Style::default().fg(c_accent).add_modifier(Modifier::BOLD))),
+                Line::from(""),
+            ];
+            let max_lines = inner.height.saturating_sub(4) as usize;
+            for l in preview.lines().take(max_lines) {
+                let display: String = l.chars().take(popup_width.saturating_sub(4) as usize).collect();
+                ls.push(Line::from(Span::styled(format!("  {display}"), Style::default().fg(c_muted))));
+            }
+            ls.push(Line::from(""));
+            let confirm_text = if dry_run {
+                "  [Enter] Continuar (dry-run)   [Esc] Cancelar"
+            } else {
+                "  [Enter] Guardar   [Esc] Cancelar"
+            };
+            ls.push(Line::from(Span::styled(confirm_text, Style::default().fg(c_muted))));
+            ls
+        }
+        3 => {
+            let path_display: String = save_path.chars().take(60).collect();
+            vec![
+                Line::from(Span::styled("  Confirmar guardado:", Style::default().fg(c_accent).add_modifier(Modifier::BOLD))),
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled("  Ruta: ", Style::default().fg(c_muted)),
+                    Span::styled(path_display, Style::default().fg(c_success)),
+                ]),
+                Line::from(""),
+                Line::from(Span::styled(
+                    if dry_run { "  [Enter] Simular (dry-run)   [Esc] Cancelar" }
+                    else { "  [Enter] Escribir archivo   [Esc] Cancelar" },
+                    Style::default().fg(c_muted),
+                )),
+            ]
+        }
+        _ => vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                "  ✓ ¡Listo! HALCON.md guardado.",
+                Style::default().fg(c_success).add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+            Line::from(Span::styled("  [Enter/Esc] Cerrar", Style::default().fg(c_muted))),
+        ],
+    };
+
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
+}
+
+/// Render the plugin recommendation overlay.
+///
+/// Shows tiered plugin suggestions with keyboard navigation:
+/// - ↑/↓ — move selection
+/// - [A] — show /plugins auto hint
+/// - [Esc] — close
+pub fn render_plugin_suggest(
+    frame: &mut Frame,
+    area: Rect,
+    suggestions: &[PluginSuggestionItem],
+    selected: usize,
+    dry_run: bool,
+) {
+    let p = &theme::active().palette;
+    let c_border = p.border_ratatui();
+    let c_accent = p.accent_ratatui();
+    let c_text = p.text_ratatui();
+    let c_muted = p.muted_ratatui();
+    let c_success = p.success_ratatui();
+    let c_warning = p.warning_ratatui();
+    let c_running = p.running_ratatui();
+
+    let popup_width = area.width.saturating_sub(8).min(70);
+    let popup_height = area.height.saturating_sub(6).min(24);
+    let x = area.x + (area.width.saturating_sub(popup_width)) / 2;
+    let y = area.y + (area.height.saturating_sub(popup_height)) / 2;
+    let popup_area = Rect { x, y, width: popup_width, height: popup_height };
+
+    frame.render_widget(Clear, popup_area);
+
+    let title = if dry_run {
+        " ◈ HALCON — Plugin Recommendations [dry-run] "
+    } else {
+        " ◈ HALCON — Plugin Recommendations "
+    };
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(c_border))
+        .title(Span::styled(
+            title,
+            Style::default().fg(c_accent).add_modifier(Modifier::BOLD),
+        ));
+
+    let inner = block.inner(popup_area);
+    frame.render_widget(block, popup_area);
+
+    let mut lines: Vec<Line> = Vec::new();
+
+    if suggestions.is_empty() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "  No plugins recommended for this project.",
+            Style::default().fg(c_muted),
+        )));
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "  [Esc] Close",
+            Style::default().fg(c_muted),
+        )));
+    } else {
+        // Group by tier
+        let mut last_tier = String::new();
+        for (i, item) in suggestions.iter().enumerate() {
+            if item.tier != last_tier {
+                // Tier header
+                lines.push(Line::from(""));
+                let tier_symbol = match item.tier.as_str() {
+                    "Essential" => "◆",
+                    "Recommended" => "◇",
+                    "Optional" => "▷",
+                    _ => "○",
+                };
+                let tier_color = match item.tier.as_str() {
+                    "Essential" => c_running,
+                    "Recommended" => c_accent,
+                    "Optional" => c_muted,
+                    _ => c_muted,
+                };
+                lines.push(Line::from(Span::styled(
+                    format!("  {} {}", tier_symbol, item.tier),
+                    Style::default().fg(tier_color).add_modifier(Modifier::BOLD),
+                )));
+                last_tier = item.tier.clone();
+            }
+
+            let is_selected = i == selected;
+            let prefix = if is_selected { "  ❯ " } else { "    " };
+            let name_style = if is_selected {
+                Style::default().fg(c_accent).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(c_text)
+            };
+
+            lines.push(Line::from(vec![
+                Span::styled(prefix, name_style),
+                Span::styled(&item.plugin_id, name_style),
+                if item.already_installed {
+                    Span::styled(" [installed]", Style::default().fg(c_success))
+                } else {
+                    Span::raw("")
+                },
+            ]));
+            // Rationale line
+            let rationale_display: String = item.rationale.chars().take(
+                popup_width.saturating_sub(6) as usize
+            ).collect();
+            lines.push(Line::from(Span::styled(
+                format!("      {}", rationale_display),
+                Style::default().fg(c_muted),
+            )));
+        }
+
+        lines.push(Line::from(""));
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled("  [A] Auto-install all  ", Style::default().fg(c_warning)),
+            Span::styled("[↑↓] Navigate  ", Style::default().fg(c_muted)),
+            Span::styled("[Esc] Close", Style::default().fg(c_muted)),
+        ]));
+    }
+
+    frame.render_widget(
+        Paragraph::new(lines).wrap(Wrap { trim: false }),
+        inner,
+    );
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -939,5 +1324,60 @@ mod tests {
         let filtered_lower = filter_commands(&cmds, "quit");
         let filtered_upper = filter_commands(&cmds, "QUIT");
         assert_eq!(filtered_lower.len(), filtered_upper.len());
+    }
+
+    // --- Slash-autocomplete contract tests ---
+
+    #[test]
+    fn default_commands_contains_extended_commands() {
+        let cmds = default_commands();
+        let labels: Vec<&str> = cmds.iter().map(|c| c.label.as_str()).collect();
+        assert!(labels.contains(&"/init"),    "missing /init");
+        assert!(labels.contains(&"/tools"),   "missing /tools");
+        assert!(labels.contains(&"/plugins"), "missing /plugins");
+        assert!(labels.contains(&"/dry-run"), "missing /dry-run");
+        assert!(labels.contains(&"/reasoning"), "missing /reasoning");
+        assert!(labels.contains(&"/inspect"), "missing /inspect");
+    }
+
+    #[test]
+    fn filter_slash_prefix_returns_matching_commands() {
+        let cmds = default_commands();
+        // Simulates what happens when the user types "/pa" — should match /pause and /panel
+        let filtered = filter_commands(&cmds, "pa");
+        assert!(filtered.iter().any(|i| i.label == "/pause"), "/pause must match 'pa'");
+        assert!(filtered.iter().any(|i| i.label == "/panel"), "/panel must match 'pa'");
+        // Should NOT match /quit
+        assert!(!filtered.iter().any(|i| i.label == "/quit"), "/quit must not match 'pa'");
+    }
+
+    #[test]
+    fn filter_empty_prefix_returns_all_commands() {
+        let cmds = default_commands();
+        // "/" with no suffix → empty query → all commands shown
+        let filtered = filter_commands(&cmds, "");
+        assert_eq!(filtered.len(), cmds.len(), "empty query must return all commands");
+    }
+
+    #[test]
+    fn all_default_commands_have_non_empty_action() {
+        for cmd in default_commands() {
+            assert!(
+                !cmd.action.is_empty(),
+                "command '{}' has an empty action string",
+                cmd.label,
+            );
+        }
+    }
+
+    #[test]
+    fn all_default_commands_label_starts_with_slash() {
+        for cmd in default_commands() {
+            assert!(
+                cmd.label.starts_with('/'),
+                "command label '{}' does not start with '/'",
+                cmd.label,
+            );
+        }
     }
 }

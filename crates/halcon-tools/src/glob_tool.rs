@@ -63,6 +63,16 @@ impl Tool for GlobTool {
         for entry in entries {
             match entry {
                 Ok(path) => {
+                    // Skip symlinks: prevent path traversal outside the intended search scope.
+                    // glob::glob() follows symlinks by default; symlink_metadata() detects
+                    // them without following, consistent with file_write/file_delete policy.
+                    if std::fs::symlink_metadata(&path)
+                        .ok()
+                        .map(|m| m.file_type().is_symlink())
+                        .unwrap_or(false)
+                    {
+                        continue;
+                    }
                     paths.push(path.display().to_string());
                     if paths.len() >= MAX_RESULTS {
                         break;
@@ -102,7 +112,7 @@ impl Tool for GlobTool {
             "properties": {
                 "pattern": {
                     "type": "string",
-                    "description": "Glob pattern to match files (e.g. '**/*.rs', 'src/**/*.ts')"
+                    "description": "Glob pattern to match files (e.g. '**/*.html', 'src/**/*.js', '*.json')"
                 },
                 "path": {
                     "type": "string",
@@ -188,5 +198,29 @@ mod tests {
         let input = make_input("/tmp", json!({ "pattern": "[invalid" }));
         let result = GlobTool::new().execute(input).await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    #[cfg(unix)]
+    async fn glob_excludes_symlinks() {
+        // Symlinks must be excluded: glob follows them by default which can expose
+        // paths outside the intended search directory (path traversal).
+        let dir = TempDir::new().unwrap();
+        std::fs::write(dir.path().join("real.rs"), "fn main() {}").unwrap();
+        let link = dir.path().join("link.rs");
+        std::os::unix::fs::symlink(dir.path().join("real.rs"), &link).unwrap();
+
+        let input = make_input(dir.path().to_str().unwrap(), json!({ "pattern": "*.rs" }));
+        let output = GlobTool::new().execute(input).await.unwrap();
+
+        assert!(
+            output.content.contains("real.rs"),
+            "real file should be included in glob results"
+        );
+        assert!(
+            !output.content.contains("link.rs"),
+            "symlink should be excluded from glob results, got: {}",
+            output.content
+        );
     }
 }

@@ -1,0 +1,74 @@
+[package]
+name = "halcon-agent-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "SOTA Goal-Driven Execution Model — redesigned agent core"
+
+[dependencies]
+# Workspace core
+halcon-core = { workspace = true }
+halcon-tools = { workspace = true }
+halcon-storage = { workspace = true }
+halcon-security = { workspace = true }
+halcon-providers = { workspace = true }
+
+# Async
+tokio = { workspace = true }
+futures = { workspace = true }
+async-trait = { workspace = true }
+
+# Serialization
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+# Error handling
+thiserror = { workspace = true }
+anyhow = { workspace = true }
+
+# Identifiers and time
+uuid = { workspace = true }
+chrono = { workspace = true }
+
+# Logging / tracing
+tracing = { workspace = true }
+
+# Math / statistics
+# Pure-Rust HNSW (Hierarchical Navigable Small World) ANN index for embedding search.
+# instant-distance: https://crates.io/crates/instant-distance
+instant-distance = "0.6"
+
+# SHA-256 for fingerprinting
+sha2 = { workspace = true }
+
+# Regex for lightweight criterion matching
+regex = { workspace = true }
+
+# Compression for memory serialization
+zstd = { workspace = true }
+
+# LRU cache for embedding lookups
+lru = { workspace = true }
+
+# Randomness for UCB1 tie-breaking and exploration
+rand = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+tokio = { workspace = true, features = ["rt", "macros"] }
+proptest = "1"
+
+[dev-dependencies.criterion]
+version = "0.5"
+features = ["html_reports"]
+
+[features]
+default = []
+# Enable fastembed for local ONNX embedding model (offline, no API key needed).
+# Disabled by default — uses provider embedding API when feature is off.
+local-embeddings = ["fastembed"]
+
+[dependencies.fastembed]
+version = "4"
+optional = true

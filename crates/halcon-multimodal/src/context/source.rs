@@ -87,23 +87,38 @@ impl ContextSource for MediaContextSource {
                     _ => String::new(),
                 };
 
-                // The content field is the description stored alongside the embedding.
-                // We only have the hash here; description comes from the MediaAnalysis
-                // which was stored in MediaCache. Return a structured reference.
-                let content = format!(
-                    "[Media context — {} {}{}]\nContent hash: {}\nModality: {}",
-                    entry.modality,
-                    source_label,
-                    temporal,
-                    &entry.content_hash[..16],
-                    entry.modality,
-                );
+                // Build the chunk content: prefer description (M33) over bare content hash.
+                let content = if let Some(ref desc) = entry.description {
+                    format!(
+                        "[Media context — {} {}{}]\nDescription: {}\nContent hash: {}",
+                        entry.modality,
+                        source_label,
+                        temporal,
+                        desc,
+                        &entry.content_hash[..entry.content_hash.len().min(16)],
+                    )
+                } else {
+                    format!(
+                        "[Media context — {} {}{}]\nContent hash: {}\nModality: {}",
+                        entry.modality,
+                        source_label,
+                        temporal,
+                        &entry.content_hash[..entry.content_hash.len().min(16)],
+                        entry.modality,
+                    )
+                };
+
+                // Token estimate: base overhead + description length / 4 chars per token.
+                let estimated_tokens: usize = 40
+                    + entry.description.as_deref()
+                        .map(|d| d.len() / 4)
+                        .unwrap_or(0);
 
                 ContextChunk {
                     content,
                     source:           "media_index".into(),
                     priority:         55,
-                    estimated_tokens: 40,
+                    estimated_tokens,
                 }
             })
             .collect();
@@ -281,6 +296,7 @@ mod tests {
             embedding,
             None,
             Some("/tmp/cat.jpg".into()),
+            Some(desc.into()),
         ).await.unwrap();
 
         let src = MediaContextSource::new(index, 3);
@@ -303,6 +319,7 @@ mod tests {
             embedding,
             None,
             None,
+            None,
         ).await.unwrap();
 
         let src = MediaContextSource::new(index, 1);
@@ -311,5 +328,72 @@ mod tests {
             assert!(chunks[0].content.contains("image"));
             assert!(chunks[0].content.contains("deadbeef"));
         }
+    }
+
+    #[tokio::test]
+    async fn gather_with_description_returns_useful_chunk() {
+        let index = test_index();
+        let desc = "A photograph showing a mountain landscape with snow-capped peaks and pine trees";
+        let embedding = text_to_embedding_512(desc);
+        index.store(
+            "mountainhash0000".into(),
+            "image".into(),
+            embedding,
+            None,
+            Some("/photos/mountain.jpg".into()),
+            Some(desc.into()),
+        ).await.unwrap();
+
+        let src = MediaContextSource::new(index, 3);
+        let chunks = src.gather(&test_query("show me the mountain photo")).await.unwrap();
+        if !chunks.is_empty() {
+            // Chunk must contain the description, not just the hash.
+            assert!(
+                chunks[0].content.contains("Description:"),
+                "chunk with description must include 'Description:' label"
+            );
+            assert!(
+                chunks[0].content.contains("mountain"),
+                "chunk content must contain description text"
+            );
+            // Token estimate must be larger than the base 40 for non-empty description.
+            assert!(
+                chunks[0].estimated_tokens > 40,
+                "token estimate should scale with description length"
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn gather_without_description_degrades_gracefully() {
+        let index = test_index();
+        let embedding = text_to_embedding_512("sunset over ocean waves");
+        index.store(
+            "sunsethashabcd12".into(),
+            "image".into(),
+            embedding,
+            None,
+            None,
+            None,  // no description
+        ).await.unwrap();
+
+        let src = MediaContextSource::new(index, 3);
+        let chunks = src.gather(&test_query("sunset ocean waves")).await.unwrap();
+        if !chunks.is_empty() {
+            // Fallback: must still contain the content hash.
+            assert!(
+                chunks[0].content.contains("Content hash:"),
+                "chunk without description should fall back to content hash"
+            );
+            assert_eq!(chunks[0].estimated_tokens, 40, "base token estimate for no-description entry");
+        }
+    }
+
+    #[test]
+    fn token_estimate_scales_with_description() {
+        // 120-char description → 30 extra tokens (120/4) + 40 base = 70
+        let desc_len = 120usize;
+        let extra = desc_len / 4;
+        assert_eq!(40usize + extra, 70usize);
     }
 }

@@ -94,6 +94,47 @@ impl AsyncDatabase {
             .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
     }
 
+    pub async fn recent_tool_executions(
+        &self,
+        tool_name: String,
+        limit: usize,
+    ) -> Result<Vec<crate::db::ToolExecutionRow>> {
+        let db = self.inner.clone();
+        tokio::task::spawn_blocking(move || db.recent_tool_executions(&tool_name, limit))
+            .await
+            .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
+    }
+
+    pub async fn events_per_second_last_60s(&self) -> Result<f64> {
+        let db = self.inner.clone();
+        tokio::task::spawn_blocking(move || db.events_per_second_last_60s())
+            .await
+            .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
+    }
+
+    // --- Plugin circuit state (M34) ---
+
+    /// Persist circuit breaker states for all plugins (call post-loop).
+    pub async fn save_circuit_breaker_states(
+        &self,
+        rows: Vec<crate::db::CircuitBreakerStateRow>,
+    ) -> Result<()> {
+        let db = self.inner.clone();
+        tokio::task::spawn_blocking(move || db.save_circuit_breaker_states(&rows))
+            .await
+            .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
+    }
+
+    /// Load persisted circuit breaker states for all plugins (call at startup).
+    pub async fn load_circuit_breaker_states(
+        &self,
+    ) -> Result<Vec<crate::db::CircuitBreakerStateRow>> {
+        let db = self.inner.clone();
+        tokio::task::spawn_blocking(move || db.load_circuit_breaker_states())
+            .await
+            .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
+    }
+
     // --- Cache ---
 
     pub async fn lookup_cache(&self, key: &str) -> Result<Option<CacheEntry>> {
@@ -132,6 +173,14 @@ impl AsyncDatabase {
     pub async fn list_sessions(&self, limit: u32) -> Result<Vec<Session>> {
         let db = self.inner.clone();
         tokio::task::spawn_blocking(move || db.list_sessions(limit))
+            .await
+            .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
+    }
+
+    /// Set a session title only when none is stored yet (no-clobber).
+    pub async fn update_session_title(&self, id: uuid::Uuid, title: String) -> Result<()> {
+        let db = self.inner.clone();
+        tokio::task::spawn_blocking(move || db.update_session_title(id, &title))
             .await
             .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
     }
@@ -1346,5 +1395,62 @@ mod tests {
         let events = adb.inner().resilience_events(Some("test"), None, 10).unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type, "breaker_transition");
+    }
+
+    // ─── New query method tests (FASE D) ─────────────────────────────────────
+
+    #[tokio::test]
+    async fn async_db_recent_tool_executions_empty_for_unknown_tool() {
+        let adb = test_async_db();
+        let rows = adb.recent_tool_executions("no_such_tool".to_string(), 10).await.unwrap();
+        assert!(rows.is_empty());
+    }
+
+    #[tokio::test]
+    async fn async_db_recent_tool_executions_returns_inserted_rows() {
+        let adb = test_async_db();
+        let metric = crate::metrics::ToolExecutionMetric {
+            tool_name:    "bash".to_string(),
+            session_id:   None,
+            duration_ms:  75,
+            success:      true,
+            is_parallel:  false,
+            input_summary: Some("echo hello".into()),
+            created_at:   Utc::now(),
+        };
+        adb.insert_tool_metric(&metric).await.unwrap();
+
+        let rows = adb.recent_tool_executions("bash".to_string(), 5).await.unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].tool_name, "bash");
+        assert_eq!(rows[0].duration_ms, 75);
+        assert!(rows[0].success);
+    }
+
+    #[tokio::test]
+    async fn async_db_events_per_second_zero_when_empty() {
+        let adb = test_async_db();
+        let eps = adb.events_per_second_last_60s().await.unwrap();
+        assert_eq!(eps, 0.0);
+    }
+
+    #[tokio::test]
+    async fn async_db_events_per_second_increases_after_insert() {
+        let adb = test_async_db();
+        let metric = InvocationMetric {
+            provider: "test".to_string(),
+            model:    "m".to_string(),
+            latency_ms:           50,
+            input_tokens:         10,
+            output_tokens:        5,
+            estimated_cost_usd:   0.0,
+            success:              true,
+            stop_reason:          "end_turn".into(),
+            session_id:           None,
+            created_at:           Utc::now(),
+        };
+        adb.insert_metric(&metric).await.unwrap();
+        let eps = adb.events_per_second_last_60s().await.unwrap();
+        assert!(eps > 0.0, "eps should be > 0 after inserting a recent metric");
     }
 }

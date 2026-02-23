@@ -9,8 +9,17 @@ use serde_json::Value;
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub enum UiEvent {
-    /// Incremental text from the streaming model response.
+    /// Incremental text from the streaming model response (final answer tokens).
     StreamChunk(String),
+    /// Chain-of-thought / thinking tokens from a reasoning model.
+    ///
+    /// Rendered with dim/muted styling to separate the model's internal reasoning
+    /// from the final answer. Not accumulated into episodic memory.
+    StreamThinking(String),
+    /// Live thinking progress — total chars accumulated (sent per ThinkingDelta batch).
+    ThinkingProgress { chars: usize },
+    /// Thinking phase complete — emitted by TuiSink before first StreamChunk.
+    ThinkingComplete { preview: String, char_count: usize },
     /// A fenced code block completed (language, full code).
     StreamCodeBlock { lang: String, code: String },
     /// Model indicated a tool call is coming (marker in stream).
@@ -102,6 +111,10 @@ pub enum UiEvent {
         tool: String,
         args: serde_json::Value,
         risk_level: String,
+        /// Reply channel for routing the decision back to the requesting executor.
+        /// `None`  = main agent (TuiApp uses its stored `perm_tx`).
+        /// `Some`  = sub-agent (TuiApp sends via this dedicated sender).
+        reply_tx: Option<tokio::sync::mpsc::UnboundedSender<halcon_core::types::PermissionDecision>>,
     },
     /// System password (sudo) elevation required for a bash command.
     ///
@@ -294,6 +307,118 @@ pub enum UiEvent {
     ///
     /// Emitted by the periodic buffer-count polling task in `run_tui()`.
     IdeBuffersUpdated { count: usize, git_branch: Option<String> },
+
+    // --- Multi-Agent Orchestration Visibility ---
+
+    /// Orchestrator is launching a parallel wave of sub-agents.
+    OrchestratorWave {
+        wave_index: usize,
+        total_waves: usize,
+        task_count: usize,
+    },
+    /// A single sub-agent has been spawned for a delegated plan step.
+    SubAgentSpawned {
+        step_index: usize,
+        total_steps: usize,
+        description: String,
+        agent_type: String,
+    },
+    /// A sub-agent completed (success or failure).
+    SubAgentCompleted {
+        step_index: usize,
+        total_steps: usize,
+        success: bool,
+        latency_ms: u64,
+        /// Tools used by the sub-agent (e.g. ["bash", "file_read"]).
+        tools_used: Vec<String>,
+        /// Number of agent rounds the sub-agent ran.
+        rounds: usize,
+        /// Short summary of the sub-agent's output (up to 120 chars).
+        summary: String,
+    },
+
+    // --- Multimodal Analysis Feedback ---
+
+    /// Multimodal analysis started for N files.
+    MediaAnalysisStarted { count: usize },
+    /// Single media file analysis complete.
+    MediaAnalysisComplete { filename: String, tokens: u32 },
+
+    // --- Phase-Aware Skeleton/Spinner ---
+
+    /// An expensive agent phase started (planning, reasoning, reflecting).
+    PhaseStarted { phase: String, label: String },
+    /// The current agent phase ended (paired with PhaseStarted).
+    PhaseEnded,
+
+    // --- Phase 93: Media Attachment Chips ---
+
+    /// A media file was added to the pending attachment list.
+    ///
+    /// Fired when the user pastes a media path or drags a file into the terminal.
+    AttachmentAdded { path: String, modality: String },
+    /// A pending media attachment was removed (Ctrl+Backspace).
+    AttachmentRemoved { index: usize },
+
+    // --- Phase 94: Project Onboarding ---
+
+    /// No project-level HALCON.md found — agent suggests running /init.
+    OnboardingAvailable {
+        root: String,
+        project_type: String,
+    },
+    /// ProjectInspector completed — wizard can advance to review step.
+    /// Also carries generated preview + save path for the wizard.
+    ProjectAnalysisComplete {
+        root: String,
+        project_type: String,
+        package_name: Option<String>,
+        has_git: bool,
+        /// Generated HALCON.md content (for wizard preview).
+        preview: String,
+        /// Suggested save path for HALCON.md.
+        save_path: String,
+    },
+    /// /init wizard completed — HALCON.md was written to disk.
+    ProjectConfigCreated { path: String },
+    /// Project Intelligence Engine completed health analysis.
+    ///
+    /// Emitted after all analysis waves complete with a composite score (0-100),
+    /// a list of detected issues, and actionable recommendations.
+    ProjectHealthCalculated {
+        score: u8,
+        issues: Vec<String>,
+        recommendations: Vec<String>,
+    },
+    /// Project-level HALCON.md found at startup (silent confirmation).
+    ProjectConfigLoaded { path: String },
+    /// Signal to open the init wizard overlay (sent from /init command).
+    OpenInitWizard { dry_run: bool },
+
+    // --- Phase 95: Plugin Auto-Implantation ---
+
+    /// Plugin recommendations ready — triggers PluginSuggest overlay.
+    PluginSuggestionReady {
+        suggestions: Vec<PluginSuggestionItem>,
+        dry_run: bool,
+    },
+    /// Plugin bootstrap started (auto-install).
+    PluginBootstrapStarted { count: usize, dry_run: bool },
+    /// Plugin bootstrap completed.
+    PluginBootstrapComplete { installed: usize, skipped: usize, failed: usize },
+    /// A plugin's operational state changed (suspend/resume).
+    PluginStatusChanged { plugin_id: String, new_status: String },
+}
+
+/// A single suggestion item for the PluginSuggest overlay.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PluginSuggestionItem {
+    pub plugin_id: String,
+    pub display_name: String,
+    pub rationale: String,
+    /// "Essential" / "Recommended" / "Optional" / "Experimental"
+    pub tier: String,
+    pub already_installed: bool,
 }
 
 /// Summary of a past session for the session browser overlay.
@@ -594,6 +719,7 @@ mod tests {
             tool: "bash".into(),
             args: serde_json::json!({"command": "ls"}),
             risk_level: "Low".into(),
+            reply_tx: None,
         };
         assert!(matches!(ev, UiEvent::PermissionAwaiting { ref tool, .. } if tool == "bash"));
     }
@@ -738,6 +864,23 @@ mod tests {
         assert_ne!(AgentState::ToolWait, AgentState::Reflecting);
         assert_ne!(AgentState::Complete, AgentState::Failed);
         assert_ne!(AgentState::Paused, AgentState::Idle);
+    }
+
+    // --- Phase 93: Media Attachment event tests ---
+
+    #[test]
+    fn attachment_added_construction() {
+        let ev = UiEvent::AttachmentAdded {
+            path: "/home/user/photo.jpg".into(),
+            modality: "image".into(),
+        };
+        assert!(matches!(ev, UiEvent::AttachmentAdded { ref modality, .. } if modality == "image"));
+    }
+
+    #[test]
+    fn attachment_removed_construction() {
+        let ev = UiEvent::AttachmentRemoved { index: 0 };
+        assert!(matches!(ev, UiEvent::AttachmentRemoved { index: 0 }));
     }
 
     // --- Sprint 2: FSM transition validation tests ---

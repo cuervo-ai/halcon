@@ -63,6 +63,32 @@ impl ApiBackend {
         // Only OpenAI has a Whisper audio API.
         matches!(self, ApiBackend::OpenAI { .. })
     }
+
+    /// Provider-appropriate vision rate limit (requests per minute).
+    ///
+    /// Reflects real-world Tier-1 limits:
+    /// - Anthropic claude-3-5-sonnet: ~50 RPM
+    /// - OpenAI gpt-4o vision:        ~60 RPM
+    /// - Gemini 1.5 Flash:            ~15 RPM (free tier)
+    fn vision_rate_limit(&self) -> u32 {
+        match self {
+            ApiBackend::Anthropic { .. } => 50,
+            ApiBackend::OpenAI    { .. } => 60,
+            ApiBackend::Gemini    { .. } => 15,
+            ApiBackend::Unavailable      => 60,
+        }
+    }
+
+    /// Provider-appropriate audio rate limit (requests per minute).
+    ///
+    /// Only OpenAI Whisper is used for audio; its Tier-1 limit is ~50 RPM.
+    /// Other backends return 60 as a safe default (audio calls are rejected anyway).
+    fn audio_rate_limit(&self) -> u32 {
+        match self {
+            ApiBackend::OpenAI { .. } => 50,
+            _                        => 60,
+        }
+    }
 }
 
 // ── Rate limiter ─────────────────────────────────────────────────────────────
@@ -120,13 +146,18 @@ impl ApiRateLimiter {
 /// Makes real HTTP requests to the configured provider's vision API.
 /// API credentials are read from environment variables at construction time.
 ///
-/// Built-in rate limiting: 60 requests/minute (sliding window, per-process).
+/// Built-in rate limiting: per-backend sliding-window limiters.
+/// Vision and audio have independent quotas so Whisper calls don't consume
+/// vision slots and vice-versa.
 pub struct ApiMultimodalProvider {
     provider_name: String,
     backend: ApiBackend,
     client: reqwest::Client,
     timeout_ms: u64,
-    rate_limiter: std::sync::Arc<ApiRateLimiter>,
+    /// Vision API rate limiter — RPM varies by backend (Anthropic 50, OpenAI 60, Gemini 15).
+    vision_rate_limiter: std::sync::Arc<ApiRateLimiter>,
+    /// Audio (Whisper) rate limiter — independent of vision quota (OpenAI 50 RPM).
+    audio_rate_limiter: std::sync::Arc<ApiRateLimiter>,
 }
 
 impl std::fmt::Debug for ApiMultimodalProvider {
@@ -146,7 +177,14 @@ impl ApiMultimodalProvider {
 
     pub fn with_timeout(provider_name: impl Into<String>, timeout_ms: u64) -> Self {
         let backend = ApiBackend::from_env();
-        tracing::debug!(backend = backend.name(), "Multimodal API backend selected");
+        tracing::debug!(
+            backend = backend.name(),
+            vision_rpm = backend.vision_rate_limit(),
+            audio_rpm  = backend.audio_rate_limit(),
+            "Multimodal API backend selected",
+        );
+        let vision_rpm = backend.vision_rate_limit();
+        let audio_rpm  = backend.audio_rate_limit();
         let client = reqwest::Client::builder()
             .timeout(Duration::from_millis(timeout_ms))
             .build()
@@ -156,7 +194,8 @@ impl ApiMultimodalProvider {
             backend,
             client,
             timeout_ms,
-            rate_limiter: ApiRateLimiter::new(60), // 60 req/min
+            vision_rate_limiter: ApiRateLimiter::new(vision_rpm),
+            audio_rate_limiter:  ApiRateLimiter::new(audio_rpm),
         }
     }
 
@@ -164,6 +203,23 @@ impl ApiMultimodalProvider {
     pub fn is_available(&self) -> bool {
         !matches!(self.backend, ApiBackend::Unavailable)
     }
+
+    /// If audio is not supported by the current backend, returns a human-readable hint.
+    /// Returns `None` when audio transcription IS available (OpenAI Whisper).
+    pub fn audio_unavailable_hint(&self) -> Option<String> {
+        if self.backend.supports_audio() {
+            None
+        } else {
+            Some(format!(
+                "Audio transcription requires OPENAI_API_KEY (current backend: {}). \
+                 Set OPENAI_API_KEY to enable Whisper transcription.",
+                self.backend.name()
+            ))
+        }
+    }
+
+    /// Name of the active backend (e.g. "anthropic", "openai", "gemini", "unavailable").
+    pub fn backend_name(&self) -> &str { self.backend.name() }
 }
 
 // ── MultimodalProvider implementation ───────────────────────────────────────
@@ -182,21 +238,32 @@ impl MultimodalProvider for ApiMultimodalProvider {
     }
 
     async fn analyze(&self, media: &ValidatedMedia, prompt: Option<&str>) -> Result<MediaAnalysis> {
-        let modality = if media.is_image() { "image" }
-                       else if media.is_audio() { "audio" }
-                       else {
-                           return Err(MultimodalError::NoCapableProvider(
-                               format!("{} not supported via API", media.mime.as_mime_str())
-                           ));
-                       };
+        // Video: return a degraded-but-informative response instead of an opaque error.
+        // Full FFmpeg frame-by-frame analysis is planned for Q2.
+        if media.is_video() {
+            return Ok(MediaAnalysis {
+                description: format!(
+                    "Video file detected ({} bytes). Frame-by-frame analysis requires \
+                     FFmpeg integration (coming Q2). Current provider: {}.",
+                    media.data.len(),
+                    self.provider_name
+                ),
+                entities:      vec![],
+                token_estimate: 20,
+                provider_name: self.provider_name.clone(),
+                is_local:      false,
+                modality:      "video".into(),
+            });
+        }
 
-        // Enforce per-process rate limit before making any API call.
-        self.rate_limiter.acquire().await;
-
-        match modality {
-            "image" => self.analyze_image(media, prompt).await,
-            "audio" => self.analyze_audio(media).await,
-            _       => unreachable!(),
+        if media.is_image() {
+            self.analyze_image(media, prompt).await
+        } else if media.is_audio() {
+            self.analyze_audio(media).await
+        } else {
+            Err(MultimodalError::NoCapableProvider(
+                format!("{} not supported via API", media.mime.as_mime_str())
+            ))
         }
     }
 }
@@ -209,6 +276,9 @@ impl ApiMultimodalProvider {
         media:  &ValidatedMedia,
         prompt: Option<&str>,
     ) -> Result<MediaAnalysis> {
+        // Enforce per-backend vision rate limit before making any network call.
+        self.vision_rate_limiter.acquire().await;
+
         let user_prompt = prompt.unwrap_or(
             "Describe this image in detail. List all visible objects, \
              text, people, colors, and any notable features. \
@@ -460,6 +530,9 @@ impl ApiMultimodalProvider {
 
 impl ApiMultimodalProvider {
     async fn analyze_audio(&self, media: &ValidatedMedia) -> Result<MediaAnalysis> {
+        // Enforce per-provider audio rate limit (independent of vision quota).
+        self.audio_rate_limiter.acquire().await;
+
         match &self.backend {
             ApiBackend::OpenAI { key } => self.whisper_transcribe(key, media).await,
             _ => Err(MultimodalError::NoCapableProvider(
@@ -643,14 +716,51 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn api_provider_rejects_video() {
+    async fn video_returns_degraded_not_error() {
+        // Video no longer returns an error — it returns a degraded informational response.
         let p = ApiMultimodalProvider::new("test");
         let video = ValidatedMedia {
             data: vec![0x1A, 0x45, 0xDF, 0xA3],
             mime: DetectedMime::VideoWebm,
             original_size: 4,
         };
-        assert!(p.analyze(&video, None).await.is_err());
+        let result = p.analyze(&video, None).await;
+        assert!(result.is_ok(), "video should return Ok degraded response, not Err");
+        let analysis = result.unwrap();
+        assert_eq!(analysis.modality, "video");
+        assert!(analysis.description.contains("Q2") || analysis.description.contains("FFmpeg"),
+            "degraded video description should mention Q2/FFmpeg: {}", analysis.description);
+    }
+
+    #[test]
+    fn audio_unavailable_hint_when_anthropic() {
+        let p = ApiMultimodalProvider {
+            provider_name: "test".into(),
+            backend: ApiBackend::Anthropic { key: "sk-ant-test".into() },
+            client: reqwest::Client::new(),
+            timeout_ms: 5_000,
+            vision_rate_limiter: ApiRateLimiter::new(60),
+            audio_rate_limiter:  ApiRateLimiter::new(60),
+        };
+        let hint = p.audio_unavailable_hint();
+        assert!(hint.is_some(), "Anthropic backend should return an unavailability hint");
+        let msg = hint.unwrap();
+        assert!(msg.contains("OPENAI_API_KEY"), "hint should mention OPENAI_API_KEY: {msg}");
+        assert!(msg.contains("anthropic"), "hint should mention current backend: {msg}");
+    }
+
+    #[test]
+    fn audio_unavailable_hint_none_when_openai() {
+        let p = ApiMultimodalProvider {
+            provider_name: "test".into(),
+            backend: ApiBackend::OpenAI { key: "sk-test".into() },
+            client: reqwest::Client::new(),
+            timeout_ms: 5_000,
+            vision_rate_limiter: ApiRateLimiter::new(60),
+            audio_rate_limiter:  ApiRateLimiter::new(60),
+        };
+        // OpenAI supports Whisper, so hint should be None.
+        assert!(p.audio_unavailable_hint().is_none(), "OpenAI backend should return None hint");
     }
 
     /// Helper: create an unavailable provider (no API key) for testing.
@@ -660,7 +770,8 @@ mod tests {
             backend: ApiBackend::Unavailable,
             client: reqwest::Client::new(),
             timeout_ms: 5_000,
-            rate_limiter: ApiRateLimiter::new(60),
+            vision_rate_limiter: ApiRateLimiter::new(60),
+            audio_rate_limiter:  ApiRateLimiter::new(60),
         }
     }
 
@@ -692,7 +803,8 @@ mod tests {
             backend: ApiBackend::OpenAI { key: "sk-test".into() },
             client: reqwest::Client::new(),
             timeout_ms: 5_000,
-            rate_limiter: ApiRateLimiter::new(60),
+            vision_rate_limiter: ApiRateLimiter::new(60),
+            audio_rate_limiter:  ApiRateLimiter::new(60),
         };
         assert!(p2.is_available());
     }
@@ -726,5 +838,77 @@ mod tests {
         assert_eq!(rl.max_per_minute, 60);
         let ts = rl.timestamps.lock().await;
         assert!(ts.is_empty());
+    }
+
+    // ── Per-provider rate limit tests ──────────────────────────────────────────
+
+    #[test]
+    fn anthropic_vision_rate_limit_is_50() {
+        let backend = ApiBackend::Anthropic { key: "sk-ant-test".into() };
+        assert_eq!(backend.vision_rate_limit(), 50,
+            "Anthropic claude-3-5-sonnet vision is capped at ~50 RPM Tier-1");
+    }
+
+    #[test]
+    fn openai_vision_rate_limit_is_60() {
+        let backend = ApiBackend::OpenAI { key: "sk-test".into() };
+        assert_eq!(backend.vision_rate_limit(), 60,
+            "OpenAI GPT-4o vision is 60 RPM at Tier-1");
+    }
+
+    #[test]
+    fn gemini_vision_rate_limit_is_15() {
+        let backend = ApiBackend::Gemini { key: "ai-test".into() };
+        assert_eq!(backend.vision_rate_limit(), 15,
+            "Gemini 1.5 Flash free tier is 15 RPM");
+    }
+
+    #[test]
+    fn openai_audio_rate_limit_is_50() {
+        let backend = ApiBackend::OpenAI { key: "sk-test".into() };
+        assert_eq!(backend.audio_rate_limit(), 50,
+            "OpenAI Whisper audio is ~50 RPM at Tier-1");
+    }
+
+    #[test]
+    fn non_openai_audio_rate_limit_is_safe_default() {
+        // Anthropic and Gemini don't support audio, but the default 60 is a safe no-op.
+        assert_eq!(ApiBackend::Anthropic { key: "k".into() }.audio_rate_limit(), 60);
+        assert_eq!(ApiBackend::Gemini    { key: "k".into() }.audio_rate_limit(), 60);
+        assert_eq!(ApiBackend::Unavailable.audio_rate_limit(), 60);
+    }
+
+    #[test]
+    fn provider_uses_backend_appropriate_limits_at_construction() {
+        // Build a provider with a known Anthropic backend by injecting it directly.
+        let p = ApiMultimodalProvider {
+            provider_name: "test".into(),
+            backend: ApiBackend::Anthropic { key: "sk-ant-test".into() },
+            client: reqwest::Client::new(),
+            timeout_ms: 5_000,
+            vision_rate_limiter: ApiRateLimiter::new(50),
+            audio_rate_limiter:  ApiRateLimiter::new(60),
+        };
+        assert_eq!(p.vision_rate_limiter.max_per_minute, 50,
+            "vision limiter should use Anthropic 50 RPM");
+        assert_eq!(p.audio_rate_limiter.max_per_minute, 60,
+            "audio limiter should use safe default for non-OpenAI backends");
+    }
+
+    #[tokio::test]
+    async fn vision_and_audio_limiters_are_independent() {
+        // Vision calls should not consume audio quota and vice-versa.
+        let vision_rl = ApiRateLimiter::new(100);
+        let audio_rl  = ApiRateLimiter::new(100);
+
+        // 10 vision calls
+        for _ in 0..10 { vision_rl.acquire().await; }
+        // 5 audio calls
+        for _ in 0..5  { audio_rl.acquire().await; }
+
+        let v_count = vision_rl.timestamps.lock().await.len();
+        let a_count = audio_rl.timestamps.lock().await.len();
+        assert_eq!(v_count, 10, "vision limiter should track 10 calls");
+        assert_eq!(a_count, 5,  "audio limiter should track 5 calls independently");
     }
 }

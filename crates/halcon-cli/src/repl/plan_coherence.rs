@@ -9,6 +9,8 @@ use std::collections::HashSet;
 
 use halcon_core::traits::ExecutionPlan;
 
+use super::text_utils::extract_keywords;
+
 /// Threshold above which plan drift is considered critical (1.0 - jaccard > threshold).
 const DEFAULT_DRIFT_THRESHOLD: f32 = 0.70;
 
@@ -100,25 +102,6 @@ impl PlanCoherenceChecker {
     pub fn original_goal(&self) -> &str {
         &self.original_goal
     }
-}
-
-/// Extract meaningful keywords from text.
-///
-/// - Lowercases all text.
-/// - Splits on whitespace and punctuation.
-/// - Filters stopwords and very-short words (< 3 chars).
-fn extract_keywords(text: &str) -> HashSet<String> {
-    const STOPWORDS: &[&str] = &[
-        "the", "and", "for", "with", "that", "this", "are", "was", "were", "will", "from",
-        "into", "not", "but", "all", "can", "its", "have", "been", "has", "had", "our", "your",
-        "their", "then", "than", "when", "what", "how", "use", "you", "also", "new", "step",
-        "using", "each", "make", "run",
-    ];
-
-    text.split(|c: char| c.is_whitespace() || ".,;:!?()[]{}<>\"'`-_/\\|@#$%^&*+=~".contains(c))
-        .map(|w| w.to_lowercase())
-        .filter(|w| w.len() >= 3 && !STOPWORDS.contains(&w.as_str()))
-        .collect()
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────

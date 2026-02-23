@@ -66,18 +66,25 @@ impl Tool for NativeSearchTool {
         let engine = match engine_guard.as_ref() {
             Some(eng) => eng,
             None => {
+                // CRITICAL FIX: Return is_error=true so the agent loop correctly
+                // classifies this as a deterministic error (matches "not initialized"
+                // in is_deterministic_error()) and stops retrying this tool.
+                // Previous is_error=false caused the agent to treat the "not initialized"
+                // message as successful output and continue calling the tool repeatedly.
                 return Ok(ToolOutput {
                     tool_use_id: input.tool_use_id,
-                    content: "Search engine not initialized.\n\n\
-                             To use native search, ensure the search index is configured:\n\
+                    content: "Error: search engine not initialized.\n\n\
+                             The local search index is not available in this session.\n\
+                             Use file_read, bash, or grep to search the codebase directly.\n\n\
+                             To enable native search in future sessions:\n\
                              1. Check ~/.halcon/config.toml for [search] section\n\
                              2. Run `halcon index init` to create the index\n\
-                             3. Use native_crawl to populate documents\n\n\
-                             Falling back to external search APIs for now.".to_string(),
-                    is_error: false,
+                             3. Use native_crawl to populate documents".to_string(),
+                    is_error: true,
                     metadata: Some(json!({
                         "status": "not_initialized",
                         "query": query,
+                        "fallback": "use file_read, bash, grep"
                     })),
                 });
             }
@@ -191,7 +198,9 @@ mod tests {
 
         let output = tool.execute(input).await.unwrap();
 
-        assert!(!output.is_error);
+        // is_error=true so the agent loop classifies it as deterministic error
+        // and stops retrying rather than treating it as successful output.
+        assert!(output.is_error, "engine_not_initialized must return is_error=true");
         assert!(output.content.contains("not initialized"));
     }
 

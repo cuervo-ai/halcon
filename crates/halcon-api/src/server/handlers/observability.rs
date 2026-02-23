@@ -31,6 +31,17 @@ pub async fn get_metrics(
 
     let total_tool_executions: u64 = tool_states.values().map(|ts| ts.execution_count).sum();
 
+    // Query real metrics from storage when DB is available.
+    let (total_invocations, total_tokens, total_cost_usd, events_per_second) =
+        if let Some(ref db) = state.db {
+            let inner = db.inner();
+            let sys = inner.system_metrics().unwrap_or_default();
+            let eps = inner.events_per_second_last_60s().unwrap_or(0.0);
+            (sys.total_invocations, sys.total_tokens, sys.total_cost_usd, eps)
+        } else {
+            (0u64, 0u64, 0.0f64, 0.0f64)
+        };
+
     let agent_metrics: Vec<AgentMetricSummary> = agents
         .iter()
         .map(|desc| {
@@ -38,7 +49,7 @@ pub async fn get_metrics(
             AgentMetricSummary {
                 agent_id: desc.id,
                 agent_name: desc.name.clone(),
-                invocation_count: 0, // TODO: track per-agent
+                invocation_count: 0,
                 avg_latency_ms: 0.0,
                 total_tokens: 0,
                 total_cost_usd: 0.0,
@@ -51,16 +62,17 @@ pub async fn get_metrics(
         timestamp: chrono::Utc::now(),
         agent_count: agents.len(),
         tool_count: tool_states.len(),
-        total_invocations: 0, // TODO: aggregate from agent metrics
+        total_invocations,
         total_tool_executions,
-        total_input_tokens: 0,
+        // SystemMetrics tracks combined token count; expose as input_tokens.
+        total_input_tokens: total_tokens,
         total_output_tokens: 0,
-        total_cost_usd: 0.0,
+        total_cost_usd,
         uptime_seconds: state.uptime_seconds(),
         active_tasks,
         completed_tasks,
         failed_tasks,
-        events_per_second: 0.0,
+        events_per_second,
         agent_metrics,
     }))
 }

@@ -129,8 +129,11 @@ impl TaskBacklog {
         task.status = new_status;
 
         // If completed, recalculate dependents' readiness.
+        // If failed, cascade to skip dependents that can never run.
         if new_status == StructuredTaskStatus::Completed {
             self.recalculate_dependents(task_id);
+        } else if new_status == StructuredTaskStatus::Failed {
+            self.cascade_failure(task_id);
         }
 
         Ok(())
@@ -213,6 +216,7 @@ impl TaskBacklog {
                     StructuredTaskStatus::Pending
                         | StructuredTaskStatus::Blocked
                         | StructuredTaskStatus::Ready
+                        | StructuredTaskStatus::Retrying // Audit fix: stop retrying when dep failed
                 ) {
                     task.status = StructuredTaskStatus::Skipped;
                     task.error = Some(format!("dependency {} failed", failed_id));
@@ -572,6 +576,84 @@ mod tests {
         // Complete T1 → T2 should become Ready.
         backlog.transition(id1, StructuredTaskStatus::Running).unwrap();
         backlog.complete_task(id1, None, Vec::new()).unwrap();
+
+        assert_eq!(backlog.get(id2).unwrap().status, StructuredTaskStatus::Ready);
+    }
+
+    // ── Audit fix tests ───────────────────────────────────────────────────────
+
+    /// cascade_failure must also cancel Retrying dependents (audit fix).
+    #[test]
+    fn cascade_failure_skips_retrying_dependent() {
+        let mut backlog = TaskBacklog::new();
+        let t1 = make_task("T1", 5);
+        let id1 = t1.task_id;
+        backlog.add_task(t1).unwrap();
+
+        // T2 depends on T1 and is already in Retrying state.
+        let mut t2 = make_task_with_deps("T2", 5, vec![id1]);
+        t2.retry_policy.max_retries = 3;
+        let id2 = t2.task_id;
+        backlog.add_task(t2).unwrap();
+        // Manually force T2 into Retrying (simulates a prior failure mid-retry).
+        backlog.tasks.get_mut(&id2).unwrap().status = StructuredTaskStatus::Retrying;
+
+        // Now T1 fails permanently.
+        let affected = backlog.cascade_failure(id1);
+
+        assert!(
+            affected.contains(&id2),
+            "cascade_failure must include Retrying dependents"
+        );
+        assert_eq!(
+            backlog.get(id2).unwrap().status,
+            StructuredTaskStatus::Skipped,
+            "Retrying dependent must be Skipped when its dependency permanently fails"
+        );
+    }
+
+    /// transition() to Failed must cascade to dependents (audit fix — parity with fail_task()).
+    #[test]
+    fn transition_to_failed_cascades_dependents() {
+        let mut backlog = TaskBacklog::new();
+        let t1 = make_task("T1", 5);
+        let id1 = t1.task_id;
+        backlog.add_task(t1).unwrap();
+
+        let t2 = make_task_with_deps("T2", 5, vec![id1]);
+        let id2 = t2.task_id;
+        backlog.add_task(t2).unwrap();
+
+        // Transition T1: Ready → Running → Failed.
+        backlog.transition(id1, StructuredTaskStatus::Running).unwrap();
+        backlog.transition(id1, StructuredTaskStatus::Failed).unwrap();
+
+        // T2 was Blocked on T1; after T1 fails it must be Skipped.
+        assert_eq!(
+            backlog.get(id1).unwrap().status,
+            StructuredTaskStatus::Failed,
+        );
+        assert_eq!(
+            backlog.get(id2).unwrap().status,
+            StructuredTaskStatus::Skipped,
+            "transition() to Failed must cascade to dependent tasks"
+        );
+    }
+
+    /// Verify transition() to Completed still unblocks dependents (regression guard).
+    #[test]
+    fn transition_to_completed_still_unblocks_regression_guard() {
+        let mut backlog = TaskBacklog::new();
+        let t1 = make_task("T1", 5);
+        let id1 = t1.task_id;
+        backlog.add_task(t1).unwrap();
+
+        let t2 = make_task_with_deps("T2", 5, vec![id1]);
+        let id2 = t2.task_id;
+        backlog.add_task(t2).unwrap();
+
+        backlog.transition(id1, StructuredTaskStatus::Running).unwrap();
+        backlog.transition(id1, StructuredTaskStatus::Completed).unwrap();
 
         assert_eq!(backlog.get(id2).unwrap().status, StructuredTaskStatus::Ready);
     }

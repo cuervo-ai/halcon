@@ -50,11 +50,13 @@
 //! }
 //! ```
 
+pub mod credential_store;
 pub mod error;
 pub mod events;
 pub mod hub;
 pub mod provider;
 
+pub use credential_store::{CredentialRef, CredentialStore};
 pub use error::{IntegrationError, Result};
 pub use events::{InboundEvent, OutboundEvent};
 pub use hub::IntegrationHub;

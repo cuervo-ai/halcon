@@ -90,12 +90,24 @@ pub struct NonInteractivePolicy;
 impl AuthorizationPolicy for NonInteractivePolicy {
     fn evaluate(
         &self,
-        _tool_name: &str,
+        tool_name: &str,
         _perm_level: PermissionLevel,
         _input: &ToolInput,
         state: &AuthorizationState,
     ) -> Option<PermissionDecision> {
         if !state.interactive {
+            // SECURITY: deny-always decisions must be honoured even in non-interactive mode.
+            //
+            // A user who explicitly denied a tool via the "deny always" prompt did so because
+            // they consider it dangerous. CI execution, batch mode, or a compromised CI_=true
+            // env var must not silently override that explicit user decision.
+            //
+            // We abstain (return None) so SessionMemoryPolicy (later in the chain) can apply
+            // the deny-always ruling. Without this check, NonInteractivePolicy fires first
+            // and returns Allowed before SessionMemoryPolicy is ever consulted.
+            if state.always_denied.contains(tool_name) {
+                return None;
+            }
             Some(PermissionDecision::Allowed)
         } else {
             None
@@ -992,6 +1004,60 @@ mod tests {
             decision,
             Some(PermissionDecision::Denied),
             "poisoned lock must produce Denied, not abstain"
+        );
+    }
+
+    // --- Audit fix: NonInteractivePolicy must honour deny-always ---
+
+    #[test]
+    fn non_interactive_policy_abstains_on_deny_always() {
+        // Audit security fix: NonInteractivePolicy must abstain (return None) when the
+        // tool is in always_denied. Previously it returned Some(Allowed) unconditionally
+        // in non-interactive mode, bypassing the permanent deny-always decision set by
+        // SessionMemoryPolicy. This caused security decisions to be silently ignored in
+        // CI mode.
+        let mut state = AuthorizationState::new(false); // non-interactive
+        state.always_denied.insert("bash".to_string());
+        let policy = NonInteractivePolicy;
+        let input = dummy_input(serde_json::json!({}));
+
+        // Must abstain (None) so SessionMemoryPolicy later in the chain can Deny.
+        let result = policy.evaluate("bash", PermissionLevel::Destructive, &input, &state);
+        assert_eq!(
+            result, None,
+            "NonInteractivePolicy must abstain on deny-always tools so deny propagates"
+        );
+    }
+
+    #[test]
+    fn non_interactive_deny_always_flows_through_chain() {
+        // End-to-end: non-interactive middleware with always_denied must still Deny.
+        // The fix ensures the policy chain correctly applies deny-always even without
+        // an interactive prompt.
+        let mut mw = AuthorizationMiddleware::new(false, false, 30);
+        mw.state.always_denied.insert("bash".to_string());
+
+        let decision = mw.auto_decide("bash", PermissionLevel::Destructive);
+        assert_eq!(
+            decision,
+            PermissionDecision::Denied,
+            "deny-always must be honoured even in non-interactive (CI) mode"
+        );
+    }
+
+    #[test]
+    fn non_interactive_still_allows_non_denied_tools() {
+        // Regression guard: non-interactive policy still auto-allows tools NOT in
+        // always_denied — the fix must not break the happy path.
+        let state = AuthorizationState::new(false); // non-interactive, nothing denied
+        let policy = NonInteractivePolicy;
+        let input = dummy_input(serde_json::json!({}));
+
+        let result = policy.evaluate("file_read", PermissionLevel::ReadOnly, &input, &state);
+        assert_eq!(
+            result,
+            Some(PermissionDecision::Allowed),
+            "non-interactive policy must still allow tools not in always_denied"
         );
     }
 }
