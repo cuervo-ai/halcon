@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -84,6 +85,111 @@ pub enum WsServerEvent {
     Connected {
         server_version: String,
     },
+    // Chat streaming events
+    ChatStreamToken {
+        session_id: Uuid,
+        token: String,
+        is_thinking: bool,
+        sequence_num: u64,
+    },
+    ThinkingProgress {
+        session_id: Uuid,
+        chars_so_far: usize,
+        elapsed_secs: f32,
+    },
+
+    // Permission events
+    PermissionRequired {
+        request_id: Uuid,
+        session_id: Uuid,
+        tool_name: String,
+        risk_level: String,
+        args_preview: HashMap<String, String>,
+        description: String,
+        deadline_secs: u64,
+    },
+    PermissionResolved {
+        request_id: Uuid,
+        session_id: Uuid,
+        decision: String,
+        tool_executed: bool,
+    },
+    /// B1: A permission request expired before the user responded.
+    /// The tool was automatically denied (fail-closed).
+    /// Clients MUST dismiss the pending permission modal when this event arrives.
+    PermissionExpired {
+        request_id: Uuid,
+        session_id: Uuid,
+        /// Milliseconds past the original deadline when the timeout fired.
+        deadline_elapsed_ms: u64,
+    },
+
+    // Sub-agent lifecycle events
+    SubAgentStarted {
+        session_id: Uuid,
+        sub_agent_id: String,
+        task_description: String,
+        wave: usize,
+        allowed_tools: Vec<String>,
+    },
+    SubAgentCompleted {
+        session_id: Uuid,
+        sub_agent_id: String,
+        success: bool,
+        summary: String,
+        tools_used: Vec<String>,
+        duration_ms: u64,
+    },
+
+    // Execution lifecycle events
+    ExecutionFailed {
+        session_id: Uuid,
+        error_code: String,
+        message: String,
+        recoverable: bool,
+    },
+    ConversationCompleted {
+        session_id: Uuid,
+        assistant_message_id: Uuid,
+        stop_reason: String,
+        usage: super::chat::ChatTokenUsage,
+        total_duration_ms: u64,
+    },
+
+    // Chat session lifecycle
+    ChatSessionCreated {
+        session_id: Uuid,
+        model: String,
+        provider: String,
+    },
+    ChatSessionDeleted {
+        session_id: Uuid,
+    },
+
+    // Media attachment processing
+    /// Fired when the server begins processing inline attachments.
+    MediaAnalysisStarted {
+        session_id: Uuid,
+        /// Total number of attachments being processed.
+        file_count: usize,
+    },
+    /// Progress update for a single attachment.
+    MediaAnalysisProgress {
+        session_id: Uuid,
+        /// 0-based index of the attachment being processed.
+        index: usize,
+        total: usize,
+        filename: String,
+        modality: String,
+    },
+    /// Fired when all attachment processing is complete and the turn is about to start.
+    MediaAnalysisCompleted {
+        session_id: Uuid,
+        /// Number of attachments successfully processed.
+        processed: usize,
+        /// True if the analysis description was injected into the system prompt.
+        context_injected: bool,
+    },
 }
 
 /// Available WebSocket subscription channels.
@@ -98,4 +204,8 @@ pub enum WsChannel {
     Protocols,
     System,
     All,
+    Chat,
+    Permissions,
+    SubAgents,
+    Execution,
 }

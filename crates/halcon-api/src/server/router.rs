@@ -1,6 +1,6 @@
 use axum::{
     middleware,
-    routing::{delete, get, post},
+    routing::{delete, get, patch, post},
     Router,
 };
 use tower_http::cors::{AllowOrigin, CorsLayer};
@@ -38,7 +38,13 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/system/config",
             get(handlers::config::get_config).put(handlers::config::update_config),
-        );
+        )
+        // Chat endpoints
+        .route("/chat/sessions", get(handlers::chat::list_sessions).post(handlers::chat::create_session))
+        .route("/chat/sessions/:id", get(handlers::chat::get_session).delete(handlers::chat::delete_session).patch(handlers::chat::update_session))
+        .route("/chat/sessions/:id/messages", get(handlers::chat::list_messages).post(handlers::chat::submit_message))
+        .route("/chat/sessions/:id/active", delete(handlers::chat::cancel_active))
+        .route("/chat/sessions/:id/permissions/:req_id", post(handlers::chat::resolve_permission));
 
     // Routes that require Bearer token authentication.
     // The auth middleware is scoped to this sub-router so it is impossible for

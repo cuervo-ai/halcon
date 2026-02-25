@@ -1,3 +1,4 @@
+pub mod chat;
 pub mod agent;
 pub mod config;
 pub mod observability;
@@ -16,3 +17,5 @@ pub use system::{SystemHealth, SystemStatus};
 pub use task::{TaskExecution, TaskProgressEvent, TaskStatus};
 pub use tool::{PermissionLevel, ToolInfo};
 pub use ws::{WsChannel, WsClientMessage, WsServerEvent};
+
+pub use chat::{ChatMessage, ChatRole, ChatSession, ChatSessionStatus, ChatTokenUsage, CreateSessionRequest, CreateSessionResponse, ListSessionsResponse, ResolvePermissionRequest, ResolvePermissionResponse, SubmitMessageRequest, SubmitMessageResponse};

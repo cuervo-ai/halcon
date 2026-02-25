@@ -1,6 +1,5 @@
 use halcon_api::types::ws::{WsChannel, WsClientMessage, WsServerEvent};
 use futures_util::{SinkExt, StreamExt};
-use http::Request;
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
 
@@ -22,12 +21,24 @@ impl EventStream {
     ///
     /// Authenticates via `Authorization: Bearer <token>` header (not query param).
     pub async fn connect(config: &ClientConfig) -> Result<Self, ClientError> {
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+
         let ws_url = config.ws_url();
-        let request = Request::builder()
-            .uri(&ws_url)
-            .header("Authorization", format!("Bearer {}", config.auth_token))
-            .body(())
+
+        // Build the WS handshake request using tungstenite's own IntoClientRequest
+        // so it can generate the required Sec-WebSocket-Key header automatically.
+        // Then inject the Authorization header for the server's auth middleware.
+        let mut request = ws_url
+            .as_str()
+            .into_client_request()
             .map_err(|e| ClientError::WebSocket(e.to_string()))?;
+        request.headers_mut().insert(
+            "Authorization",
+            format!("Bearer {}", config.auth_token)
+                .parse()
+                .map_err(|e: http::header::InvalidHeaderValue| ClientError::WebSocket(e.to_string()))?,
+        );
+
         let (ws_stream, _response) = tokio_tungstenite::connect_async(request)
             .await
             .map_err(|e| ClientError::WebSocket(e.to_string()))?;

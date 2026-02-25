@@ -2,7 +2,7 @@ use async_trait::async_trait;
 use futures::stream::BoxStream;
 
 use crate::error::Result;
-use crate::types::{ModelChunk, ModelInfo, ModelRequest, TokenCost};
+use crate::types::{ModelChunk, ModelInfo, ModelRequest, ProviderHandle, TokenCost};
 
 /// Trait for model providers (Anthropic, Ollama, OpenAI, etc.).
 ///
@@ -51,5 +51,15 @@ pub trait ModelProvider: Send + Sync {
             .iter()
             .find(|m| m.id == model)
             .map(|m| m.context_window)
+    }
+
+    /// Return a typed `ProviderHandle` for this provider.
+    ///
+    /// Default implementation wraps `self.name()` in a `ProviderHandle`.
+    /// Phase 2+: routing code can compare handles instead of strings.
+    /// All existing implementations inherit this default automatically —
+    /// no existing code needs to change.
+    fn handle(&self) -> ProviderHandle {
+        ProviderHandle::new(self.name())
     }
 }

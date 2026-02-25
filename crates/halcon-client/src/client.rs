@@ -3,6 +3,7 @@ use crate::error::ClientError;
 use crate::stream::EventStream;
 use halcon_api::error::ApiError;
 use halcon_api::types::agent::*;
+use halcon_api::types::chat::*;
 use halcon_api::types::config::{RuntimeConfigResponse, UpdateConfigRequest};
 use halcon_api::types::observability::MetricsSnapshot;
 use halcon_api::types::system::*;
@@ -157,6 +158,84 @@ impl HalconClient {
         self.put("system/config", &update).await
     }
 
+    // -- Chat ---------------------------------------
+
+    /// Create a new chat session.
+    pub async fn create_chat_session(
+        &self,
+        request: CreateSessionRequest,
+    ) -> Result<CreateSessionResponse, ClientError> {
+        self.post("chat/sessions", &request).await
+    }
+
+    /// List all active chat sessions.
+    pub async fn list_chat_sessions(&self) -> Result<ListSessionsResponse, ClientError> {
+        self.get("chat/sessions").await
+    }
+
+    /// Get a specific chat session by ID.
+    pub async fn get_chat_session(&self, id: Uuid) -> Result<ChatSession, ClientError> {
+        self.get(&format!("chat/sessions/{id}")).await
+    }
+
+    /// Delete a chat session.
+    pub async fn delete_chat_session(&self, id: Uuid) -> Result<serde_json::Value, ClientError> {
+        self.delete(&format!("chat/sessions/{id}")).await
+    }
+
+    /// List all messages in a chat session (conversation history).
+    pub async fn list_chat_messages(
+        &self,
+        session_id: Uuid,
+    ) -> Result<ListMessagesResponse, ClientError> {
+        self.get(&format!("chat/sessions/{session_id}/messages")).await
+    }
+
+    /// Submit a user message to a chat session.
+    pub async fn submit_chat_message(
+        &self,
+        session_id: Uuid,
+        request: SubmitMessageRequest,
+    ) -> Result<SubmitMessageResponse, ClientError> {
+        self.post(&format!("chat/sessions/{session_id}/messages"), &request)
+            .await
+    }
+
+    /// Update a chat session's title.
+    pub async fn update_chat_session_title(
+        &self,
+        id: Uuid,
+        title: String,
+    ) -> Result<UpdateSessionTitleResponse, ClientError> {
+        self.patch(
+            &format!("chat/sessions/{id}"),
+            &UpdateSessionTitleRequest { title },
+        )
+        .await
+    }
+
+    /// Cancel the active execution in a chat session.
+    pub async fn cancel_chat_execution(
+        &self,
+        session_id: Uuid,
+    ) -> Result<serde_json::Value, ClientError> {
+        self.delete(&format!("chat/sessions/{session_id}/active")).await
+    }
+
+    /// Resolve a permission request in a chat session.
+    pub async fn resolve_permission(
+        &self,
+        session_id: Uuid,
+        request_id: Uuid,
+        request: ResolvePermissionRequest,
+    ) -> Result<ResolvePermissionResponse, ClientError> {
+        self.post(
+            &format!("chat/sessions/{session_id}/permissions/{request_id}"),
+            &request,
+        )
+        .await
+    }
+
     /// Check if the server is reachable.
     pub async fn health_check(&self) -> Result<bool, ClientError> {
         let url = format!(
@@ -173,6 +252,7 @@ impl HalconClient {
     pub async fn event_stream(&self) -> Result<EventStream, ClientError> {
         EventStream::connect(&self.config).await
     }
+
 
     // ── HTTP helpers ────────────────────────────────────
 
@@ -196,6 +276,22 @@ impl HalconClient {
         let resp = self
             .http
             .post(&url)
+            .bearer_auth(&self.config.auth_token)
+            .json(body)
+            .send()
+            .await?;
+        self.handle_response(resp).await
+    }
+
+    async fn patch<T: serde::de::DeserializeOwned, B: serde::Serialize>(
+        &self,
+        path: &str,
+        body: &B,
+    ) -> Result<T, ClientError> {
+        let url = self.config.api_url(path);
+        let resp = self
+            .http
+            .patch(&url)
             .bearer_auth(&self.config.auth_token)
             .json(body)
             .send()
