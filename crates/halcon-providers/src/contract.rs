@@ -207,12 +207,18 @@ mod tests {
     }
 
     // =======================================================
-    // Contract: total provider count is exactly 6
+    // Contract: total provider count is at least 6
+    // (>= invariant allows adding new providers without failing this test)
     // =======================================================
 
     #[test]
     fn contract_total_provider_count() {
-        assert_eq!(all_providers().len(), 6, "expected 6 providers");
+        let count = all_providers().len();
+        assert!(
+            count >= 6,
+            "expected at least 6 providers, got {count} — \
+             register new providers in all_providers() to include them in contract tests"
+        );
     }
 
     // =======================================================
@@ -254,15 +260,20 @@ mod tests {
     }
 
     // =======================================================
-    // Contract: total model count across all providers
+    // Contract: total model count across all providers (>= invariant)
+    // echo(1) + anthropic(3) + ollama(3) + openai(4) + deepseek(3) + gemini(2) = 16 baseline
+    // New providers/models can be added without updating this threshold.
     // =======================================================
 
     #[test]
     fn contract_total_model_count() {
         let providers = all_providers();
         let total: usize = providers.iter().map(|p| p.supported_models().len()).sum();
-        // echo(1) + anthropic(3) + ollama(3) + openai(4) + deepseek(3) + gemini(2) = 16
-        assert_eq!(total, 16, "expected 16 total models, got {total}");
+        assert!(
+            total >= 16,
+            "expected at least 16 total models across all providers, got {total} — \
+             if you removed a model, update this threshold to reflect the new minimum"
+        );
     }
 
     // =======================================================

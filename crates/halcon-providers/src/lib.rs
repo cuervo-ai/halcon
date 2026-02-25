@@ -7,8 +7,10 @@
 //! - OpenAI (GPT-4o, o1, o3-mini via SSE streaming)
 //! - DeepSeek (OpenAI-compatible API)
 //! - Gemini (Google generative AI, SSE streaming)
+//! - ClaudeCode (persistent `claude` CLI subprocess via NDJSON)
 
 pub mod anthropic;
+pub mod claude_code;
 mod contract;
 pub mod deepseek;
 pub mod echo;
@@ -21,6 +23,7 @@ pub mod registry;
 pub mod replay;
 
 pub use anthropic::AnthropicProvider;
+pub use claude_code::ClaudeCodeProvider;
 pub use deepseek::DeepSeekProvider;
 pub use echo::EchoProvider;
 pub use gemini::GeminiProvider;

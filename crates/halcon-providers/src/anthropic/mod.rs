@@ -58,6 +58,19 @@ impl AnthropicProvider {
     fn default_models() -> Vec<ModelInfo> {
         vec![
             ModelInfo {
+                id: "claude-sonnet-4-6".into(),
+                name: "Claude Sonnet 4.6".into(),
+                provider: "anthropic".into(),
+                context_window: 200_000,
+                max_output_tokens: 16_000,
+                supports_streaming: true,
+                supports_tools: true,
+                supports_vision: true,
+                supports_reasoning: false,
+                cost_per_input_token: 3.0 / 1_000_000.0,
+                cost_per_output_token: 15.0 / 1_000_000.0,
+            },
+            ModelInfo {
                 id: "claude-sonnet-4-5-20250929".into(),
                 name: "Claude Sonnet 4.5".into(),
                 provider: "anthropic".into(),

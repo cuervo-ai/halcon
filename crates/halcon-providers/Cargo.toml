@@ -22,6 +22,12 @@ tracing = { workspace = true }
 uuid = { workspace = true }
 rand = { workspace = true }
 bytes = { workspace = true }
+libc = { workspace = true }
+
+[[bin]]
+name = "mock-claude"
+path = "src/bin/mock_claude.rs"
 
 [dev-dependencies]
 chrono = { workspace = true }
+tokio = { workspace = true }
