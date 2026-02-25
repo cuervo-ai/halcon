@@ -51,7 +51,20 @@ impl ResponseCache {
         // Hash last 3 messages (conversation tail determines semantic identity).
         let tail_start = request.messages.len().saturating_sub(3);
         for msg in &request.messages[tail_start..] {
-            let serialized = serde_json::to_string(msg).unwrap_or_default();
+            let serialized = match serde_json::to_string(msg) {
+                Ok(s) => s,
+                Err(e) => {
+                    // PHASE-1 FIX: log instead of silently producing an empty string.
+                    // Behavior is identical (empty string hashed) but the event is now
+                    // visible in telemetry. Tracked as CacheEvent::SerializationFailed.
+                    tracing::warn!(
+                        error = %e,
+                        "response_cache: message serialization failed — \
+                         cache key may collide for this message position"
+                    );
+                    String::new()
+                }
+            };
             hasher.update(serialized.as_bytes());
         }
 

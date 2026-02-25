@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 # Halcón CLI installer
 # Usage: curl -sSfL https://cli.cuervo.cloud/install.sh | sh
-# Or:    curl -sSfL https://cli.cuervo.cloud/install.sh | sh -s -- --version v0.2.0
+# Or:    curl -sSfL https://cli.cuervo.cloud/install.sh | sh -s -- --version v0.3.0
 set -e
 
 HALCON_VERSION="${HALCON_VERSION:-latest}"
@@ -40,7 +40,7 @@ parse_args() {
                 printf "  --dir DIR           Install directory (default: ~/.local/bin)\n"
                 printf "\nExamples:\n"
                 printf "  curl -sSfL https://cli.cuervo.cloud/install.sh | sh\n"
-                printf "  curl -sSfL https://cli.cuervo.cloud/install.sh | sh -s -- --version v0.2.0\n"
+                printf "  curl -sSfL https://cli.cuervo.cloud/install.sh | sh -s -- --version v0.3.0\n"
                 exit 0 ;;
             *) error "Unknown argument: $1" ;;
         esac

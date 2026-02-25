@@ -208,14 +208,23 @@ fn has_code_extension(s: &str) -> bool {
     exts.iter().any(|ext| s.ends_with(ext))
 }
 
-/// Truncate text to max chars at a word boundary.
+/// Truncate text to at most `max_chars` Unicode characters at a word boundary.
+///
+/// Never panics on multi-byte input (CJK, emoji, combining marks, RTL text, etc.).
+/// Uses `char_indices().nth()` to find the safe byte boundary for the character
+/// limit instead of slicing directly by byte index.
 fn truncate_text(text: &str, max_chars: usize) -> String {
-    if text.len() <= max_chars {
-        return text.to_string();
-    }
-    let break_at = text[..max_chars]
+    // Walk char boundaries via char_indices — O(max_chars), never panics on
+    // any valid UTF-8 input regardless of character width.
+    // nth(max_chars) returns None if the string has ≤ max_chars characters.
+    let byte_limit = match text.char_indices().nth(max_chars) {
+        None => return text.to_string(),
+        Some((i, _)) => i,
+    };
+    // rfind on a slice ending at a valid char boundary is always safe.
+    let break_at = text[..byte_limit]
         .rfind(char::is_whitespace)
-        .unwrap_or(max_chars);
+        .unwrap_or(byte_limit);
     format!("{}...", &text[..break_at])
 }
 
@@ -386,5 +395,127 @@ mod tests {
         let text = paths.join(" ");
         let files = extract_file_paths(&text);
         assert!(files.len() <= 10);
+    }
+
+    // ── UTF-8 safety tests ────────────────────────────────────────────────────
+
+    /// truncate_text must never panic on any valid UTF-8 input.
+    /// Regression test for: "byte index is not a char boundary"
+    #[test]
+    fn truncate_text_cjk_no_panic() {
+        // 3 bytes per char — naive byte slicing would panic mid-char
+        let cjk = "这是一段中文文本，用于测试UTF-8安全截断功能，确保不会产生字节边界错误。";
+        let result = truncate_text(cjk, 10);
+        assert!(std::str::from_utf8(result.as_bytes()).is_ok(),
+            "result must be valid UTF-8");
+        assert!(result.ends_with("...") || result == cjk,
+            "must truncate or return as-is");
+    }
+
+    /// 4-byte emoji must not cause panic.
+    #[test]
+    fn truncate_text_emoji_no_panic() {
+        // 4 bytes per char — byte index of char N is 4*N, never safe to use N directly
+        let emoji = "🦀🚀🎉💻🌍🦊🐻🦁🐶🐱🐭🐹🐰🦊🐻";
+        let result = truncate_text(emoji, 5);
+        assert!(std::str::from_utf8(result.as_bytes()).is_ok());
+        assert!(result.ends_with("..."));
+    }
+
+    /// Mixed ASCII + multi-byte chars must truncate at correct character count.
+    #[test]
+    fn truncate_text_mixed_char_count_not_byte_count() {
+        // "こんにちは" = 5 chars = 15 bytes
+        // With max_chars=5 it must return as-is (not truncate at byte 5 = mid-char)
+        let s = "こんにちは";
+        assert_eq!(truncate_text(s, 5), s,
+            "5-char string must not truncate at max_chars=5");
+        assert_eq!(truncate_text(s, 10), s,
+            "5-char string must not truncate at max_chars=10");
+
+        // With max_chars=3, result must truncate and still be valid UTF-8
+        let result = truncate_text(s, 3);
+        assert!(result.ends_with("..."),
+            "must add ellipsis when truncated");
+        assert!(std::str::from_utf8(result.as_bytes()).is_ok(),
+            "truncated result must be valid UTF-8");
+    }
+
+    /// Combining marks and diacritics must not cause panic.
+    #[test]
+    fn truncate_text_combining_marks_no_panic() {
+        // Combining marks: each base char + combining char = 2 code points, 2-4 bytes
+        let s = "e\u{0301}e\u{0301}e\u{0301}e\u{0301}e\u{0301}"; // é é é é é (decomposed)
+        let result = truncate_text(s, 4);
+        assert!(std::str::from_utf8(result.as_bytes()).is_ok());
+    }
+
+    /// Box-drawing characters (from directory tree output) must not cause panic.
+    /// These are 3-byte UTF-8 chars: ├ = E2 94 9C, └ = E2 94 94, etc.
+    #[test]
+    fn truncate_text_box_drawing_no_panic() {
+        let tree = "├── src/\n│   ├── main.rs\n│   └── lib.rs\n└── Cargo.toml\n";
+        // Repeat to force truncation
+        let long_tree = tree.repeat(50);
+        let result = truncate_text(&long_tree, 30);
+        assert!(std::str::from_utf8(result.as_bytes()).is_ok());
+        assert!(result.ends_with("...") || result == long_tree);
+    }
+
+    /// Long string with only multi-byte chars — ensures break_at stays at valid boundary.
+    #[test]
+    fn truncate_text_all_multibyte_word_boundary() {
+        // Japanese has no spaces — rfind(is_whitespace) returns None → break at byte_limit
+        let jp = "私はプログラマーです。ソフトウェアを書いています。日本語のテキストです。";
+        let result = truncate_text(jp, 10);
+        assert!(std::str::from_utf8(result.as_bytes()).is_ok());
+        assert!(result.ends_with("..."));
+    }
+
+    /// RTL text (Arabic) must not panic.
+    #[test]
+    fn truncate_text_rtl_no_panic() {
+        let arabic = "مرحبا بالعالم! هذا نص عربي للاختبار";
+        let result = truncate_text(arabic, 10);
+        assert!(std::str::from_utf8(result.as_bytes()).is_ok());
+    }
+
+    /// Empty string must return empty, not panic.
+    #[test]
+    fn truncate_text_empty() {
+        assert_eq!(truncate_text("", 10), "");
+        assert_eq!(truncate_text("", 0), "");
+    }
+
+    /// max_chars=0 must produce "..." or empty (no panic, no content).
+    #[test]
+    fn truncate_text_zero_limit() {
+        let result = truncate_text("hello world", 0);
+        // Either empty or "..." — must not contain original text and must not panic
+        assert!(std::str::from_utf8(result.as_bytes()).is_ok());
+        assert!(!result.contains("hello"), "zero limit must not include content");
+    }
+
+    /// Streaming partial-chunk simulation: text cut at arbitrary byte positions.
+    #[test]
+    fn truncate_text_partial_utf8_simulation() {
+        // Simulate what happens if truncate_text is called on a partial streaming chunk.
+        // The function receives full valid UTF-8 strings — the test verifies it handles
+        // various Unicode-heavy inputs without choosing a panic-inducing byte boundary.
+        let inputs = [
+            "日本語テキスト。",
+            "🦀 Rust is amazing! 🚀",
+            "Ünïcödë tëxt wîth dïäcrïtïcs",
+            "Mixed: ASCII + 中文 + emoji 🎉 + ñoño",
+        ];
+        for input in inputs {
+            for limit in [1, 2, 3, 5, 8, 13, 20, 50] {
+                let result = truncate_text(input, limit);
+                assert!(
+                    std::str::from_utf8(result.as_bytes()).is_ok(),
+                    "invalid UTF-8 for input={input:?} limit={limit}: result={result:?}"
+                );
+            }
+        }
     }
 }

@@ -98,11 +98,11 @@ const sections = [
           <h3 class="text-lg font-semibold mb-3" style="color: var(--c-t1);">Quick install (recommended)</h3>
           <div class="rounded-xl p-4 mb-3" style="background: var(--c-code); border: 1px solid var(--c-b);">
             <div class="text-xs mb-2" style="color: var(--c-t4);">macOS / Linux</div>
-            <code class="font-mono text-sm" style="color: var(--c-emerald);">curl -sSfL https://cuervo.cloud/install.sh | sh</code>
+            <code class="font-mono text-sm" style="color: var(--c-emerald);">curl -sSfL https://cli.cuervo.cloud/install.sh | sh</code>
           </div>
           <div class="rounded-xl p-4 mb-4" style="background: var(--c-code); border: 1px solid var(--c-b);">
             <div class="text-xs mb-2" style="color: var(--c-t4);">Windows (PowerShell)</div>
-            <code class="font-mono text-sm" style="color: var(--c-p);">iwr -useb https://cuervo.cloud/install.ps1 | iex</code>
+            <code class="font-mono text-sm" style="color: var(--c-p);">iwr -useb https://cli.cuervo.cloud/install.ps1 | iex</code>
           </div>
           <p class="text-sm mb-5 leading-relaxed" style="color: var(--c-t3);">
             The installer detects your platform, downloads the correct binary, verifies the SHA-256 checksum,
@@ -118,7 +118,7 @@ const sections = [
             </div>
             <div class="rounded-xl p-4" style="background: var(--c-code); border: 1px solid var(--c-b);">
               <div class="text-xs mb-2" style="color: var(--c-t4);">Specific version</div>
-              <code class="font-mono text-sm" style="color: var(--c-emerald);">curl -sSfL https://cuervo.cloud/install.sh | sh -s -- --version v0.2.0</code>
+              <code class="font-mono text-sm" style="color: var(--c-emerald);">curl -sSfL https://cli.cuervo.cloud/install.sh | sh -s -- --version v0.3.0</code>
             </div>
           </div>
         </section>
@@ -380,12 +380,12 @@ const sections = [
         <div id="update" class="mb-10 scroll-mt-24">
           <h3 class="text-lg font-bold mb-1 font-mono" style="color: var(--c-p);">halcon update</h3>
           <p class="text-sm mb-3" style="color: var(--c-t3);">
-            Self-update: fetches the latest release manifest from <code class="font-mono text-xs" style="color: var(--c-t1);">cuervo.cloud</code>, verifies the SHA-256 checksum, and replaces the binary atomically.
+            Self-update: fetches the latest release manifest from <code class="font-mono text-xs" style="color: var(--c-t1);">cli.cuervo.cloud</code>, verifies the SHA-256 checksum, and replaces the binary atomically.
           </p>
           <div class="rounded-xl p-4 font-mono text-xs leading-7" style="background: var(--c-code); border: 1px solid var(--c-b); color: var(--c-t3);">
             <div><span style="color: var(--c-emerald);">halcon update</span>                              Download and install the latest release</div>
             <div><span style="color: var(--c-emerald);">halcon update --check</span>                      Report if a newer version is available</div>
-            <div><span style="color: var(--c-emerald);">halcon update --version v0.2.0</span>             Install a specific release</div>
+            <div><span style="color: var(--c-emerald);">halcon update --version v0.3.0</span>             Install a specific release</div>
             <div><span style="color: var(--c-emerald);">halcon update --force</span>                      Reinstall even if already on latest version</div>
           </div>
         </div>

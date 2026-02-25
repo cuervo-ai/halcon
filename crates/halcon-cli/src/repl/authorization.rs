@@ -419,7 +419,7 @@ fn summarize_input(tool_name: &str, input: &ToolInput) -> String {
             .as_str()
             .map(|c| {
                 if c.len() > 60 {
-                    format!("{}...", &c[..57])
+                    format!("{}...", &c[..{ let mut _fcb = (57).min(c.len()); while _fcb > 0 && !c.is_char_boundary(_fcb) { _fcb -= 1; } _fcb }])
                 } else {
                     c.to_string()
                 }
@@ -432,7 +432,7 @@ fn summarize_input(tool_name: &str, input: &ToolInput) -> String {
         _ => {
             let s = serde_json::to_string(&input.arguments).unwrap_or_default();
             if s.len() > 60 {
-                format!("{}...", &s[..57])
+                format!("{}...", &s[..{ let mut _fcb = (57).min(s.len()); while _fcb > 0 && !s.is_char_boundary(_fcb) { _fcb -= 1; } _fcb }])
             } else {
                 s
             }

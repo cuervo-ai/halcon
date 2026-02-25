@@ -111,6 +111,9 @@ pub enum UiEvent {
         tool: String,
         args: serde_json::Value,
         risk_level: String,
+        /// TUI-side countdown timeout in seconds (risk-adaptive).
+        /// The backend waits indefinitely; TUI auto-denies when countdown reaches 0.
+        timeout_secs: u64,
         /// Reply channel for routing the decision back to the requesting executor.
         /// `None`  = main agent (TuiApp uses its stored `perm_tx`).
         /// `Some`  = sub-agent (TuiApp sends via this dedicated sender).
@@ -719,6 +722,7 @@ mod tests {
             tool: "bash".into(),
             args: serde_json::json!({"command": "ls"}),
             risk_level: "Low".into(),
+            timeout_secs: 60,
             reply_tx: None,
         };
         assert!(matches!(ev, UiEvent::PermissionAwaiting { ref tool, .. } if tool == "bash"));

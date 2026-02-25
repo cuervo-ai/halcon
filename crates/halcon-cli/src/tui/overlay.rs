@@ -70,6 +70,11 @@ pub struct OverlayState {
     pub filtered_items: Vec<OverlayItem>,
     /// Whether advanced permission options are shown (Phase 6: Progressive disclosure).
     pub show_advanced_permissions: bool,
+    /// Deadline for the active permission modal countdown (TUI-side enforcement).
+    /// When `Some`, the TUI auto-denies at this instant and closes the modal.
+    pub permission_deadline: Option<std::time::Instant>,
+    /// Total seconds for the current permission countdown (for progress bar fraction).
+    pub permission_total_secs: u64,
 }
 
 /// An item in the command palette list.
@@ -89,6 +94,8 @@ impl OverlayState {
             selected: 0,
             filtered_items: Vec::new(),
             show_advanced_permissions: false,
+            permission_deadline: None,
+            permission_total_secs: 0,
         }
     }
 
@@ -108,6 +115,22 @@ impl OverlayState {
         self.cursor = 0;
         self.selected = 0;
         self.filtered_items.clear();
+        self.permission_deadline = None;
+        self.permission_total_secs = 0;
+    }
+
+    /// Set the permission modal countdown deadline (for external/programmatic use).
+    ///
+    /// In normal TUI interactive mode, `permission_deadline` is left as `None` so
+    /// the agent waits indefinitely for user input. This method exists as an escape
+    /// hatch for non-interactive scenarios where a hard deadline is needed.
+    pub fn set_permission_deadline(&mut self, timeout_secs: u64) {
+        if timeout_secs > 0 {
+            self.permission_deadline = Some(
+                std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs),
+            );
+            self.permission_total_secs = timeout_secs;
+        }
     }
 
     /// Whether an overlay is currently active.
@@ -921,7 +944,7 @@ pub fn render_init_wizard(
                 } else if line.starts_with("**Descripción**: ") {
                     description = line.trim_start_matches("**Descripción**: ").to_string();
                     if description.len() > 55 {
-                        description = format!("{}…", &description[..55]);
+                        description = format!("{}…", &description[..{ let mut _fcb = (55).min(description.len()); while _fcb > 0 && !description.is_char_boundary(_fcb) { _fcb -= 1; } _fcb }]);
                     }
                 } else if line.starts_with("- `") && line.ends_with('`') {
                     workspace_count += 1;

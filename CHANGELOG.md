@@ -5,6 +5,78 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] — Chat Integration + Desktop + Claude Code Provider (2026-02-25)
+
+### Added
+
+#### ARQ-001: Control Plane API + Chat Integration
+- `halcon serve` command — HTTP/WebSocket server exposing Control Plane API on configurable port (default 9000)
+- `ChatExecutor` trait in `halcon-core` — breaks circular dependency between `halcon-api` and `halcon-cli`
+- `AgentBridgeImpl` — hexagonal bridge layer: `CoreChatExecutor::execute` spawns OS thread + `LocalSet::block_on` to run !Send agent loop headlessly
+- REST endpoints: `POST /api/v1/chat/sessions`, `POST /api/v1/chat/sessions/:id/messages`, `GET /api/v1/chat/sessions`, etc. (7 handlers)
+- WebSocket endpoint `/api/v1/ws` — real-time streaming: `ChatStreamToken`, `ConversationCompleted`, `ExecutionFailed`, `PermissionRequired`, `PermissionExpired`
+- Session persistence: chat history stored/restored from SQLite on server restart
+- `HALCON_API_TOKEN` bearer auth middleware on all `/api/v1` routes
+- New types: `ChatSession`, `ChatMessage`, `ChatTokenUsage`, `PermissionRequest` in `halcon-api/types/chat.rs`
+- New WS events: `SubAgentStarted`, `SubAgentCompleted`, `MediaAnalysisProgress`, `ChatSessionCreated` in `halcon-api/types/ws.rs`
+
+#### Claude Code Provider
+- `claude_code` provider — spawns `claude` CLI subprocess, communicates via NDJSON (`--print --output-format stream-json`)
+- Root detection: `libc::getuid() == 0` → downgrades Auto→Chat mode (uid=0 blocks `--dangerously-skip-permissions`)
+- Pre-spawn model update to avoid `send_set_model` on first use
+- Nested session guard: removes `CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, `SUDO_COMMAND`, `SUDO_USER` from env
+- Model path guard: skips `--model` flag when value contains `/` (command-path alias)
+- `set_current_model()` method on `ManagedProcess` for post-spawn model sync
+- Availability check: file-existence first + WARN log level
+
+#### Desktop App (halcon-desktop)
+- `views/chat.rs` — egui chat view with streaming token display, session list, message history
+- `workers/` directory (8 new files): `connection.rs`, `chat_handlers.rs`, `media_handlers.rs`, `ws_translator.rs`, `mod.rs`, + message dispatch
+- `ws_translator.rs` — translates `WsServerEvent` → typed `BackendMessage` variants (5 unit tests)
+- Auto-reconnect: desktop reconnects 5s after WS close (both `Disconnected` and `ConnectionError`)
+- Sub-agent panel with activity display (SubAgentStarted/Completed events)
+- Permission modal widget (`widgets/permission_modal.rs`) — desktop-native tool approval UI
+- Thinking bubble widget (`widgets/thinking_bubble.rs`) — animated UI for extended thinking display
+- Activity panel widget (`widgets/activity_panel.rs`) — live tool execution feed
+
+#### Multimodal Pipeline
+- `MediaAttachmentInline` type in `halcon-core/traits/chat_executor.rs` — cross-cutting inline base64 attachment
+- Magic-byte MIME detection + extension fallback in `workers/media_handlers.rs` (20MB limit enforced)
+- `SubmitMessageRequest.attachments` → `ChatExecutionInput.media_attachments` → `TurnContext` → `ContentBlock::Image/Text`
+- Drag-and-drop + attach button + file chips in `views/chat.rs`
+- WS events: `MediaAnalysisStarted/Progress/Completed`
+
+#### Agent Execution Hardening
+- `LoopState` decomposition scaffolding in `loop_state_roles.rs`: `ControlSignals`, `LoopAccumulator`, `TokenBudget`, `SessionMetadata`, `SubsystemHealth`
+- GDEM bridge (`agent_bridge/gdem_bridge.rs`) behind `feature="gdem-primary"` — IntentGraph expanded to 63 tools
+
+### Fixed
+
+#### Sub-Agent Orchestration (3 bugs — 3442 tests pass)
+- **Orphan permission modals**: Sub-agents use `confirm_destructive=false` → `ui_event_handler.rs` now auto-approves when `reply_tx=Some` — no blocking modal shown for sub-agent tools
+- **Description leak**: Pill labels now show clean `"Coder [3/3]"` format instead of raw 60-char instruction slice
+- **Spinner never completing**: `sub_agent_spawned` and `sub_agent_completed` both now use `task_id_to_step` lookup for consistent step index
+
+#### Tool Spinner/Skeleton (3442 tests pass)
+- `ToolDenied` no longer leaves zombie spinners — `executing_tools.remove()` called + `deny_tool()` invoked
+- `ToolOutcome` enum: `Success | Error | Denied` — replaces `is_error: bool`, clean 3-state outcome
+- Renderer: Success=`✓` green, Error=`✗` red, Denied=`⊘` orange
+
+#### Synthesis Pipeline (5 vulnerabilities — 3440 tests pass)
+- **V1**: Pre-loop synthesis guard moved BEFORE `AUTONOMOUS_AGENT_DIRECTIVE` injection — directive no longer injected when `cached_tools=[]`
+- **V2**: Post-orchestration sanitization in `round_setup.rs` — strips `## Autonomous Agent Behavior` sections when `round_request.tools.is_empty()`
+- **V3**: `strip_tool_xml_artifacts()` in `provider_round.rs` — filters `<function_calls>`, `<invoke>`, `<halcon::tool_call>` XML from synthesis round text
+- **V4**: Response cache skipped when `contains_tool_xml_artifacts()` — prevents cache poisoning
+- **V5**: `LoopCritic` evaluates LAST 1500 chars of `full_text` (synthesis output), not FIRST 1500
+
+#### UTF-8 Safety (289 tests pass)
+- `segment.rs::truncate_text()` — replaced byte-index slice with `char_indices().nth(max_chars)` — prevents panic on multi-byte chars
+- `assembler.rs::estimate_tokens()` — changed `text.len()/4` (bytes) to `text.chars().count()/4` (scalars) — CJK/emoji no longer over-counted 3-4×
+
+#### macOS Code Signing
+- `target/` directory owned by root → adhoc linker signature rejected by macOS 15.3 Sequoia taskgated
+- Fix: `sudo chown -R oscarvalois:staff target/` + `codesign --force --sign - <binary>` after each release build
+
 ## [Unreleased] — SOTA Architecture + Permission Fixes (2026-02-23)
 
 ### Added

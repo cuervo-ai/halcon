@@ -197,7 +197,7 @@ impl ContextSource for SecurityServer {
             let remediation_info = if let Some(rem) = &finding.remediation {
                 // Truncate remediation to max 500 chars
                 let rem_preview = if rem.len() > 500 {
-                    format!("{}...", &rem[..500])
+                    format!("{}...", &rem[..{ let mut _fcb = (500).min(rem.len()); while _fcb > 0 && !rem.is_char_boundary(_fcb) { _fcb -= 1; } _fcb }])
                 } else {
                     rem.clone()
                 };

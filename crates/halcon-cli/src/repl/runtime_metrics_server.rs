@@ -167,7 +167,7 @@ impl ContextSource for RuntimeMetricsServer {
             let message_info = if let Some(msg) = &metric.message {
                 // Truncate message to max 400 chars
                 let msg_preview = if msg.len() > 400 {
-                    format!("{}...", &msg[..400])
+                    format!("{}...", &msg[..{ let mut _fcb = (400).min(msg.len()); while _fcb > 0 && !msg.is_char_boundary(_fcb) { _fcb -= 1; } _fcb }])
                 } else {
                     msg.clone()
                 };

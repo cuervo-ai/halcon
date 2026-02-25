@@ -30,3 +30,9 @@ pub mod termination_oracle;
 
 /// Within-session adaptive policy — the L6 enabler: real-time parameter self-adjustment.
 pub mod adaptive_policy;
+
+/// Intent-to-tool graph for declarative tool selection (Phase 2, feature = "intent-graph").
+///
+/// Covers 25/61 tools in Phase 2. Phase 4 expands to all 61.
+/// ToolSelector consults this graph first, falls back to keyword logic when no match.
+pub mod intent_graph;

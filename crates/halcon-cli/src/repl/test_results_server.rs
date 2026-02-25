@@ -181,7 +181,7 @@ impl ContextSource for TestResultsServer {
                 if let Some(msg) = &result.failure_message {
                     // Truncate failure message to max 500 chars
                     let msg_preview = if msg.len() > 500 {
-                        format!("{}...", &msg[..500])
+                        format!("{}...", &msg[..{ let mut _fcb = (500).min(msg.len()); while _fcb > 0 && !msg.is_char_boundary(_fcb) { _fcb -= 1; } _fcb }])
                     } else {
                         msg.clone()
                     };
@@ -190,7 +190,7 @@ impl ContextSource for TestResultsServer {
                 if let Some(trace) = &result.stack_trace {
                     // Truncate stack trace to max 600 chars
                     let trace_preview = if trace.len() > 600 {
-                        format!("{}...", &trace[..600])
+                        format!("{}...", &trace[..{ let mut _fcb = (600).min(trace.len()); while _fcb > 0 && !trace.is_char_boundary(_fcb) { _fcb -= 1; } _fcb }])
                     } else {
                         trace.clone()
                     };

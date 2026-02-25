@@ -84,7 +84,7 @@ impl AdaptivePromptBuilder {
             "bash" => {
                 let cmd = args["command"].as_str().unwrap_or("(unknown)");
                 if cmd.len() > 60 {
-                    format!("Command: {}...", &cmd[..57])
+                    format!("Command: {}...", &cmd[..{ let mut _fcb = (57).min(cmd.len()); while _fcb > 0 && !cmd.is_char_boundary(_fcb) { _fcb -= 1; } _fcb }])
                 } else {
                     format!("Command: {}", cmd)
                 }
@@ -104,7 +104,7 @@ impl AdaptivePromptBuilder {
             _ => {
                 let json = serde_json::to_string(args).unwrap_or_default();
                 if json.len() > 60 {
-                    format!("{}...", &json[..57])
+                    format!("{}...", &json[..{ let mut _fcb = (57).min(json.len()); while _fcb > 0 && !json.is_char_boundary(_fcb) { _fcb -= 1; } _fcb }])
                 } else {
                     json
                 }

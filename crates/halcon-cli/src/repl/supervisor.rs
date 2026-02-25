@@ -313,12 +313,32 @@ impl LoopCritic {
                 .join("\n")
         };
 
-        let final_excerpt: String = final_response.chars().take(1500).collect();
+        // Phase 3D: evaluate the LAST 1500 chars of full_text, not the first.
+        //
+        // `final_response` accumulates all rounds: round-1 tool summaries, intermediate
+        // coordinator text, and finally the synthesis output.  The synthesis content —
+        // the actual "final response" that should be evaluated — appears at the END.
+        //
+        // The previous `take(1500)` evaluated the FIRST 1500 chars which is almost always
+        // round-1 tool invocation output and planning context, not the synthesis.  In the
+        // session e2adfb4f analysis, the critic received "Let me analyze the project
+        // structure..." as the "final response" instead of the actual file-creation summary,
+        // producing a spurious 15% confidence score on a session that correctly wrote 5 files.
+        //
+        // Using the last 1500 chars ensures the critic evaluates the synthesis output even
+        // for multi-round sessions with large tool outputs.
+        let total_chars = final_response.chars().count();
+        const EXCERPT_LEN: usize = 1500;
+        let final_excerpt: String = if total_chars > EXCERPT_LEN {
+            final_response.chars().skip(total_chars - EXCERPT_LEN).collect()
+        } else {
+            final_response.to_string()
+        };
 
         let prompt = format!(
             "ORIGINAL GOAL:\n{original_request}\n\n\
              EXECUTION STEPS:\n{steps_text}\n\n\
-             FINAL RESPONSE:\n{final_excerpt}\n\n\
+             FINAL RESPONSE (last {EXCERPT_LEN} chars):\n{final_excerpt}\n\n\
              Evaluate strictly. A partial answer is NOT a success. Missing edge cases \
              is NOT a success. An error message is NOT a success even if politely phrased.\n\n\
              Respond ONLY with a JSON object (no markdown fences):\n\

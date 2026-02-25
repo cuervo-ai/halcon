@@ -425,7 +425,7 @@ impl RenderSink for ClassicSink {
                     char_count.to_string()
                 };
                 let snippet = if preview.len() > 100 {
-                    format!("{}...", &preview[..100])
+                    format!("{}...", &preview[..{ let mut _fcb = (100).min(preview.len()); while _fcb > 0 && !preview.is_char_boundary(_fcb) { _fcb -= 1; } _fcb }])
                 } else {
                     preview
                 };
@@ -538,7 +538,7 @@ impl RenderSink for ClassicSink {
         if !self.expert { return; }
         let c = super::theme::active().palette.reasoning.fg();
         let r = super::theme::reset();
-        let preview = if analysis.len() > 80 { &analysis[..80] } else { analysis };
+        let preview = if analysis.len() > 80 { &analysis[..{ let mut _fcb = (80).min(analysis.len()); while _fcb > 0 && !analysis.is_char_boundary(_fcb) { _fcb -= 1; } _fcb }] } else { analysis };
         eprintln!("{c}  [reflection] {preview} (score: {score:.2}){r}");
     }
 
@@ -1087,10 +1087,12 @@ impl RenderSink for TuiSink {
     }
 
     fn permission_awaiting(&self, tool: &str, args: &serde_json::Value, risk_level: &str) {
+        let timeout_secs = timeout_for_risk(risk_level);
         self.send(crate::tui::events::UiEvent::PermissionAwaiting {
             tool: tool.to_string(),
             args: args.clone(),
             risk_level: risk_level.to_string(),
+            timeout_secs,
             reply_tx: None, // main agent: TuiApp uses its stored perm_tx
         });
     }
@@ -2116,9 +2118,22 @@ mod tests {
 // All output methods are no-ops — sub-agents are headless for text output.
 // ─────────────────────────────────────────────────────────────────────────────
 
+/// Risk-adaptive TUI countdown timeout for permission modals.
+///
+/// Returns the number of seconds the TUI should show the modal before auto-denying.
+/// The backend waits indefinitely; only the TUI side enforces this deadline.
+pub fn timeout_for_risk(risk_level: &str) -> u64 {
+    match risk_level {
+        "Critical" => 300, // 5 min — rm-rf, system changes: read carefully
+        "High"     => 180, // 3 min — file_write, bash with side effects
+        "Medium"   => 120, // 2 min — file_edit, git operations
+        _          =>  60, // 1 min — config changes, minor writes (Low)
+    }
+}
+
 /// Callback invoked when a sub-agent needs permission confirmation.
 ///
-/// Receives: `tool_name`, `args_json`, `risk_level`, `reply_sender`.
+/// Receives: `tool_name`, `args_json`, `risk_level`, `timeout_secs`, `reply_sender`.
 /// In TUI mode the callback sends a `UiEvent::PermissionAwaiting` to the TUI.
 /// The `reply_sender` is the channel the sub-agent's `PermissionChecker` waits on.
 pub type PermissionAwaiter = std::sync::Arc<
@@ -2126,6 +2141,7 @@ pub type PermissionAwaiter = std::sync::Arc<
             &str,
             &serde_json::Value,
             &str,
+            u64,
             tokio::sync::mpsc::UnboundedSender<halcon_core::types::PermissionDecision>,
         ) + Send
         + Sync,
@@ -2168,9 +2184,10 @@ impl RenderSink for SubAgentSink {
     fn stream_full_text(&self) -> String { String::new() }
 
     fn permission_awaiting(&self, tool: &str, args: &serde_json::Value, risk_level: &str) {
+        let timeout_secs = timeout_for_risk(risk_level);
         // Invoke the callback which notifies the parent UI and embeds the reply_tx
         // so the TUI can route the user's decision back to this sub-agent's
         // PermissionChecker (which is waiting on perm_reply_tx's paired receiver).
-        (self.perm_awaiter)(tool, args, risk_level, self.perm_reply_tx.clone());
+        (self.perm_awaiter)(tool, args, risk_level, timeout_secs, self.perm_reply_tx.clone());
     }
 }

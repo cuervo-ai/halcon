@@ -12,11 +12,25 @@
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
+/// Outcome of a completed tool execution.
+///
+/// Separating success, error, and denied as distinct variants lets the renderer
+/// apply the correct icon and color without boolean-flag ambiguity.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ToolOutcome {
+    /// Tool executed and returned a result.
+    Success,
+    /// Tool executed but returned an error result.
+    Error,
+    /// Tool was denied by the permission system before execution.
+    Denied,
+}
+
 /// Result of a completed tool execution.
 #[derive(Debug, Clone)]
 pub struct ToolResult {
     pub content: String,
-    pub is_error: bool,
+    pub outcome: ToolOutcome,
     pub duration_ms: u64,
 }
 

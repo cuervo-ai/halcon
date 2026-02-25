@@ -15,7 +15,7 @@ use anyhow::Result;
 use halcon_core::traits::ModelProvider;
 use halcon_core::types::{
     AgentLimits, AgentResult, AgentType, ChatMessage, ContentBlock, DomainEvent, EventPayload,
-    MessageContent, ModelRequest, Role, Session,
+    MessageContent, ModelRequest, Role, RoutingTier, Session,
 };
 use halcon_core::EventSender;
 use halcon_providers::ProviderRegistry;
@@ -101,7 +101,7 @@ pub(super) async fn run(
     // `forced_routing_bias` is consumed (take) in the model selection block below.
     if state.model_downgrade_advisory_active {
         state.model_downgrade_advisory_active = false;
-        state.forced_routing_bias = Some("fast".to_string());
+        state.forced_routing_bias = Some(RoutingTier::Fast.as_bias_str().to_string());
         tracing::warn!(
             round,
             "round_setup: model downgrade advisory — forcing 'fast' routing tier for this round \
@@ -539,6 +539,51 @@ pub(super) async fn run(
 
         // Consume tool_decision — orchestration has processed it; resets to Allow.
         state.tool_decision.consume();
+    }
+
+    // Phase 3B: Synthesis phase system prompt sanitization.
+    //
+    // Defense-in-depth: whenever tools are absent from the request (regardless of HOW
+    // they were removed — pre-loop synthesis guard, ForceNoToolsRule, ModelCapabilityRule,
+    // conversational mode, or compaction timeout), strip the halcon-native tool-mode
+    // directives from the system prompt.
+    //
+    // Without this, the system prompt may still contain:
+    //   "## Autonomous Agent Behavior — Use tools proactively..."
+    //   "## Tool Usage Policy — Only call tools when you need NEW information..."
+    //
+    // Those instructions cause providers like deepseek-chat to emit XML tool-call syntax
+    // (`<function_calls><invoke name="...">`) as plain text even with tools=[], because
+    // the model correctly follows the system instructions to use tools — just without a
+    // schema to validate against.  The result is phantom XML in full_text and a 15%
+    // LoopCritic confidence score despite all real tools having executed successfully.
+    //
+    // Invariant enforced: `round_request.tools.is_empty()` ⟹ system prompt contains no
+    // `## Autonomous Agent Behavior` or `## Tool Usage Policy` sections.
+    if round_request.tools.is_empty() {
+        if let Some(ref mut sys) = round_request.system {
+            // Both directives are injected together; find the first occurrence.
+            // They appear at the END of the system prompt so truncation is safe.
+            const AUTONOMOUS_MARKER: &str = "\n\n## Autonomous Agent Behavior\n";
+            const TOOL_POLICY_MARKER: &str = "\n\n## Tool Usage Policy\n";
+            let trunc_pos = [
+                sys.find(AUTONOMOUS_MARKER),
+                sys.find(TOOL_POLICY_MARKER),
+            ]
+            .into_iter()
+            .flatten()
+            .min();
+            if let Some(pos) = trunc_pos {
+                tracing::debug!(
+                    pos,
+                    provider = effective_provider.name(),
+                    model = %selected_model,
+                    round,
+                    "Phase 3B: stripped tool-mode directives from system prompt (tools=[])"
+                );
+                sys.truncate(pos);
+            }
+        }
     }
 
     // Sprint 2: ProviderNormalizationAdapter — log wire format + validate schema compat.

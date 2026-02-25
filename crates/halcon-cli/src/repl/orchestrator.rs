@@ -511,14 +511,27 @@ pub async fn run_orchestrator(
                     match loop_result {
                         Ok(Ok(result)) => {
                             // A sub-agent is successful if it produced non-empty output,
-                            // had a clean EndTurn exit, OR executed at least one tool round.
-                            // Without the `executed_tools` check, a sub-agent that calls ONLY
-                            // file_write (no accompanying text) is wrongly classified as failed:
-                            // full_text="" (no TextDelta) + stop_condition≠EndTurn (ConvergenceHalt
-                            // after tool) → success=false even though the file was written.
+                            // had a clean EndTurn exit, OR executed at least one tool successfully.
+                            //
+                            // AUDIT FIX (2026-02-23): The previous condition `result.rounds > 0`
+                            // checked whether any round ran — NOT whether any tool actually succeeded.
+                            // A sub-agent running rounds with ALL tools failing (file_write denied,
+                            // bash error, permission timeout) would still get `success=true`, causing:
+                            //   1. record_delegation_results marks plan step as TaskStatus::Completed
+                            //   2. tracker.is_complete() → true → coordinator enters synthesis mode
+                            //   3. Coordinator synthesizes "I created file X" without file existing
+                            //
+                            // Correct condition: `!result.tools_executed.is_empty()` — tools_executed
+                            // is populated ONLY for successful tool calls in post_batch::run() via
+                            // `state.tools_executed.extend(tool_successes.iter().cloned())`.
+                            //
+                            // Edge-case preservation: a sub-agent calling ONLY file_write (no text
+                            // output, ConvergenceHalt stop) is still classified as success when
+                            // file_write actually succeeded — tools_executed = ["file_write"] is
+                            // non-empty, so `executed_tools = true`. No regression.
                             let produced_output = !result.full_text.is_empty();
                             let clean_exit = result.stop_condition == agent::StopCondition::EndTurn;
-                            let executed_tools = result.rounds > 0;
+                            let executed_tools = !result.tools_executed.is_empty();
                             let success = produced_output || clean_exit || executed_tools;
                             SubAgentResult {
                             task_id,

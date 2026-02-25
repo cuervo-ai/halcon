@@ -25,7 +25,7 @@ export interface UserPreferences {
 export interface TerminalPreferences {
   fontSize: number;
   fontFamily: string;
-  colorScheme: 'cuervo-dark' | 'cuervo-light' | 'system';
+  colorScheme: 'halcon-dark' | 'halcon-light' | 'system';
 }
 
 export interface NotificationPreferences {

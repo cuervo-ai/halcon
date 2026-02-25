@@ -434,6 +434,8 @@ impl TuiApp {
     /// the decision goes there. Otherwise it goes to the main agent's `perm_tx`.
     /// The sub-agent slot is consumed (take) so subsequent requests start fresh.
     pub(super) fn send_perm_decision(&mut self, decision: halcon_core::types::PermissionDecision) {
+        // Clear countdown so the run_loop tick handler doesn't fire a redundant auto-deny.
+        self.state.overlay.permission_deadline = None;
         if let Some(tx) = self.pending_perm_reply_tx.take() {
             let _ = tx.send(decision);
         } else {

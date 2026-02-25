@@ -13,8 +13,9 @@ use chrono::Utc;
 use futures::StreamExt;
 use halcon_core::traits::ModelProvider;
 use halcon_core::types::{
-    AgentLimits, AgentResult, AgentType, ChatMessage, ContentBlock, DomainEvent, EventPayload,
-    MessageContent, ModelChunk, ModelRequest, Role, RoutingConfig, Session, StopReason, TokenUsage,
+    AgentLimits, AgentResult, AgentType, ChatMessage, ContentBlock, DEFAULT_CONTEXT_WINDOW_TOKENS,
+    DomainEvent, EventPayload, MessageContent, ModelChunk, ModelRequest, Role, RoutingConfig,
+    Session, StopReason, TokenUsage,
 };
 use halcon_core::EventSender;
 use halcon_storage::{AsyncDatabase, InvocationMetric, TraceStepType};
@@ -31,6 +32,102 @@ use super::budget_guards;
 use crate::render::sink::RenderSink;
 
 use super::super::agent_types::StopCondition;
+
+// ── Phase 3C: XML artifact filter ─────────────────────────────────────────────
+//
+// Some providers (deepseek-chat, certain Ollama models) emit XML tool-call syntax
+// as plain text when the system prompt contains tool-mode instructions but the API
+// request has tools=[].  Example:
+//
+//   <function_calls><invoke name="file_write">...</invoke></function_calls>
+//
+// This text is never executed (stop_reason=end_turn, not tool_use), but it:
+//   1. Contaminates `state.full_text` — pollutes session output shown to the user
+//   2. Poisons the response cache — subsequent requests return XML garbage instantly
+//   3. Confuses the LoopCritic — critic sees XML as "final response" and rates 15%
+//
+// The filter removes these artifacts from synthesis-round text before any of the
+// downstream consumers (full_text accumulation, cache storage, trace recording).
+//
+// Pattern coverage:
+//   • `<function_calls>` ... `</function_calls>` (Anthropic/halcon XML format)
+//   • `<invoke name="...">` ... `</invoke>` (standalone invoke blocks)
+//   • `<halcon::tool_call>` ... `</halcon::tool_call>` (legacy halcon format)
+//   • Residual `<parameters>`, `<parameter>` tags that follow stripped blocks
+//
+// The filter is applied ONLY to non-tool-use rounds (synthesis path) to avoid
+// accidentally stripping valid tool output from tool-use rounds.
+
+/// Strip XML tool-call artifacts from synthesis round text.
+///
+/// Returns the sanitized text.  If no artifacts are found, returns the input
+/// unchanged without any allocation.
+fn strip_tool_xml_artifacts(text: &str) -> std::borrow::Cow<'_, str> {
+    // Fast path: avoid regex / allocation when no XML markers present.
+    if !text.contains("<function_calls>")
+        && !text.contains("<invoke ")
+        && !text.contains("<halcon::tool_call>")
+    {
+        return std::borrow::Cow::Borrowed(text);
+    }
+
+    let mut result = String::with_capacity(text.len());
+    let mut rest = text;
+    let mut stripped = false;
+
+    // Patterns to strip (open-tag, close-tag pairs).
+    // Process outer containers first — stripping <function_calls> also removes inner <invoke>.
+    const PATTERNS: &[(&str, &str)] = &[
+        ("<function_calls>", "</function_calls>"),
+        ("<halcon::tool_call>", "</halcon::tool_call>"),
+        ("<invoke ", "</invoke>"),
+    ];
+
+    // Simple single-pass linear scan.  We advance `rest` through the string,
+    // copying non-artifact spans to `result` and skipping artifact spans.
+    'outer: loop {
+        for (open, close) in PATTERNS {
+            if let Some(start) = rest.find(open) {
+                // Copy text before the opening tag.
+                result.push_str(&rest[..start]);
+                rest = &rest[start..];
+                // Find and skip to end of closing tag.
+                if let Some(end_rel) = rest.find(close) {
+                    let end_abs = end_rel + close.len();
+                    rest = &rest[end_abs..];
+                    stripped = true;
+                    continue 'outer;
+                } else {
+                    // No closing tag found — strip from open tag to end of string.
+                    stripped = true;
+                    rest = "";
+                    break 'outer;
+                }
+            }
+        }
+        // No more artifact markers found — copy remainder and exit.
+        result.push_str(rest);
+        break;
+    }
+
+    if stripped {
+        // Trim any leading/trailing blank lines produced by the removal.
+        let trimmed = result.trim_matches('\n');
+        std::borrow::Cow::Owned(trimmed.to_string())
+    } else {
+        std::borrow::Cow::Borrowed(text)
+    }
+}
+
+/// Returns `true` if the text contains XML tool-call artifacts.
+///
+/// Used to decide whether to skip response caching for a synthesis round.
+fn contains_tool_xml_artifacts(text: &str) -> bool {
+    text.contains("<function_calls>")
+        || text.contains("<invoke ")
+        || text.contains("<halcon::tool_call>")
+}
+
 
 /// Plain-data struct for early returns from the provider round phase.
 /// The caller in `mod.rs` reconstructs the full `AgentLoopResult` adding
@@ -382,7 +479,7 @@ pub(super) async fn run(
                         .iter()
                         .find(|m| m.id == round_request.model)
                         .map(|m| m.context_window)
-                        .unwrap_or(64_000);
+                        .unwrap_or(DEFAULT_CONTEXT_WINDOW_TOKENS);
                     let new_pipeline_budget = {
                         let input_fraction = (fallback_context_window as f64 * 0.80) as u32;
                         if limits.max_total_tokens > 0 {
@@ -888,9 +985,38 @@ pub(super) async fn run(
     } else {
         std::mem::take(&mut silent_text)
     };
-    state.full_text.push_str(&round_text);
+
+    // Phase 3C: apply XML artifact filter before accumulating into state.full_text.
+    // Only applied on non-tool-use rounds (synthesis path) where XML in text is always
+    // a hallucination artifact.  Tool-use rounds go through the ToolUse branch below
+    // and never reach this code path.
+    // Note: `round_request.tools` reflects the tool list sent to the provider this round.
+    // When tools=[], any XML tool syntax in the response is spurious.
+    let round_text_clean: std::borrow::Cow<'_, str> = if round_request.tools.is_empty() {
+        let filtered = strip_tool_xml_artifacts(&round_text);
+        if matches!(filtered, std::borrow::Cow::Owned(_)) {
+            tracing::warn!(
+                round,
+                provider = %round_provider_name,
+                model = %round_model_name,
+                "Phase 3C: stripped XML tool-call artifacts from synthesis round text \
+                 (tools=[] but provider emitted tool XML in end_turn response)"
+            );
+            if !state.silent {
+                render_sink.warning(
+                    "[synthesis] XML tool artifacts removed from response \
+                     (provider emitted tool syntax in text-only round)",
+                    Some("This is a provider hallucination — the model ignored tools=[] context"),
+                );
+            }
+        }
+        filtered
+    } else {
+        std::borrow::Cow::Borrowed(&round_text)
+    };
+    state.full_text.push_str(&round_text_clean);
     // Phase 2: save a copy for RoundScorer coherence scoring (round_text may be moved later).
-    let round_text_for_scorer = round_text.clone();
+    let round_text_for_scorer = round_text_clean.as_ref().to_string();
 
     // Guardrail post-invocation check on model output.
     if !guardrails.is_empty() && !round_text.is_empty() {
@@ -927,19 +1053,33 @@ pub(super) async fn run(
     let pending_trace_latency = round_latency_ms;
 
     // Store response in cache (cache.store() internally skips tool_use).
+    //
+    // Phase 3C: skip caching when the synthesis response contains XML tool artifacts.
+    // Caching a contaminated response would poison future requests with the same
+    // conversation fingerprint, causing them to receive XML garbage instantly (5s)
+    // without any tool execution.  Better to re-invoke the provider on the next request.
     if let Some(cache) = response_cache {
-        let usage_json = serde_json::json!({
-            "input_tokens": round_usage.input_tokens,
-            "output_tokens": round_usage.output_tokens,
-        })
-        .to_string();
-        cache.store(
-            &round_request,
-            &round_text,
-            stop_reason_str,
-            &usage_json,
-            None,
-        ).await;
+        let has_xml_artifacts = contains_tool_xml_artifacts(&round_text);
+        if has_xml_artifacts {
+            tracing::warn!(
+                round,
+                "Phase 3C: skipping response cache — XML tool artifacts detected in synthesis text \
+                 (caching would poison future requests with the same conversation fingerprint)"
+            );
+        } else {
+            let usage_json = serde_json::json!({
+                "input_tokens": round_usage.input_tokens,
+                "output_tokens": round_usage.output_tokens,
+            })
+            .to_string();
+            cache.store(
+                &round_request,
+                &round_text,
+                stop_reason_str,
+                &usage_json,
+                None,
+            ).await;
+        }
     }
 
     // Note: state.messages Vec is preserved (not moved into round_request).

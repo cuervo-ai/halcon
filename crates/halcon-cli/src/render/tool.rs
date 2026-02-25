@@ -153,7 +153,7 @@ fn summarize_tool_args(name: &str, args: &serde_json::Value) -> String {
         "bash" => {
             let cmd = args["command"].as_str().unwrap_or("?");
             if cmd.len() > 50 {
-                format!("{}...", &cmd[..47])
+                format!("{}...", &cmd[..{ let mut _fcb = (47).min(cmd.len()); while _fcb > 0 && !cmd.is_char_boundary(_fcb) { _fcb -= 1; } _fcb }])
             } else {
                 cmd.to_string()
             }
@@ -167,7 +167,7 @@ fn summarize_tool_args(name: &str, args: &serde_json::Value) -> String {
         _ => {
             let s = serde_json::to_string(args).unwrap_or_default();
             if s.len() > 60 {
-                format!("{}...", &s[..57])
+                format!("{}...", &s[..{ let mut _fcb = (57).min(s.len()); while _fcb > 0 && !s.is_char_boundary(_fcb) { _fcb -= 1; } _fcb }])
             } else {
                 s
             }

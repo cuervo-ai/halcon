@@ -13,7 +13,8 @@ use std::sync::Arc;
 use anyhow::Result;
 use halcon_core::traits::ModelProvider;
 use halcon_core::types::{
-    AgentLimits, DomainEvent, EventPayload, MessageContent, ModelRequest, Role,
+    AgentLimits, CompletionTrace, ConvergenceDecision, DomainEvent, EventPayload, MessageContent,
+    ModelRequest, Role, TerminationSource, TracedCriticVerdict,
 };
 use halcon_core::EventSender;
 
@@ -149,6 +150,68 @@ pub(super) async fn build(
         StopCondition::EndTurn
     };
 
+    // ── PHASE-1 INSTRUMENTATION ────────────────────────────────────────────
+    // Build and log a CompletionTrace for every agent turn. This is purely
+    // observability — it does not affect any return path or caller behavior.
+    {
+        let termination_source = match stop_condition {
+            StopCondition::EndTurn => TerminationSource::ModelEndTurn,
+            StopCondition::ForcedSynthesis => {
+                if state.loop_guard.plan_complete() {
+                    TerminationSource::PlanComplete
+                } else {
+                    TerminationSource::ConvergenceForced
+                }
+            }
+            StopCondition::MaxRounds => TerminationSource::MaxRounds,
+            StopCondition::TokenBudget | StopCondition::DurationBudget | StopCondition::CostBudget => {
+                TerminationSource::Budget
+            }
+            StopCondition::Interrupted => TerminationSource::UserInterrupt,
+            StopCondition::ProviderError => TerminationSource::ProviderError,
+            StopCondition::EnvironmentError => TerminationSource::EnvironmentError,
+            StopCondition::SupervisorDenied => TerminationSource::SupervisorDenied,
+        };
+        let convergence_decision = if state.rounds >= limits.max_rounds {
+            Some(ConvergenceDecision::MaxRoundsExhausted)
+        } else if state.loop_guard.detect_oscillation() {
+            Some(ConvergenceDecision::Stagnated {
+                consecutive_rounds: state.loop_guard.consecutive_rounds() as u32,
+            })
+        } else if state.loop_guard.plan_complete() {
+            Some(ConvergenceDecision::NaturalEnd)
+        } else if state.forced_synthesis_detected {
+            Some(ConvergenceDecision::OracleForcedSynthesis)
+        } else {
+            None
+        };
+        let traced_critic = critic_verdict_holder.as_ref().map(|v| TracedCriticVerdict {
+            achieved: v.achieved,
+            confidence: v.confidence,
+            gap_count: v.gaps.len(),
+        });
+        let plan_ratio = state.execution_tracker.as_ref().map(|t| {
+            let (completed, total, _) = t.progress();
+            if total > 0 { (completed as f32 / total as f32).clamp(0.0, 1.0) } else { 0.0 }
+        }).unwrap_or(0.0);
+        let semantic_success = matches!(
+            stop_condition,
+            StopCondition::EndTurn | StopCondition::ForcedSynthesis
+        );
+        let trace = CompletionTrace::new(
+            state.rounds as u32,
+            termination_source,
+            convergence_decision,
+            traced_critic,
+            plan_ratio,
+            state.tools_executed.len(),
+            0, // tool_failure_count not available here; tracked in post_batch
+            semantic_success,
+        );
+        trace.log();
+    }
+    // ── END PHASE-1 INSTRUMENTATION ───────────────────────────────────────
+
     // Phase E5: Emit final agent state transition (Complete or Failed).
     // P4 FIX: Use state.current_fsm_state (tracked throughout) as from_state instead of
     // hardcoded "executing". The loop may have exited from "reflecting", "planning",
@@ -185,6 +248,50 @@ pub(super) async fn build(
             tools_used: vec![],
         },
     }));
+
+    // ── PHASE-2 COMPLETION VALIDATOR (advisory only, feature-gated) ──────────
+    // When feature = "completion-validator" is enabled, run a keyword-based
+    // semantic check and log the verdict. This does NOT alter stop_condition
+    // or any return value — it is purely observability for Phase 2.
+    // Phase 3+ may use the verdict to trigger repair or clarification.
+    #[cfg(feature = "completion-validator")]
+    {
+        use halcon_core::traits::{CompletionEvidence, CompletionValidator, KeywordCompletionValidator};
+        // Extract goal text from the last user message.
+        let goal_text = state.messages
+            .iter()
+            .rev()
+            .find(|m| m.role == Role::User)
+            .map(|m| match &m.content {
+                MessageContent::Text(t) => t.as_str(),
+                _ => "",
+            })
+            .unwrap_or("");
+
+        if !goal_text.is_empty() && !state.full_text.is_empty() {
+            let validator = KeywordCompletionValidator::from_goal_text(goal_text, 0.6);
+            let evidence = CompletionEvidence {
+                goal_text,
+                tool_successes: &state.tools_executed,
+                tool_failures: &[],
+                final_text: &state.full_text,
+                round: state.rounds as u32,
+                plan_steps_completed: state.execution_tracker.as_ref()
+                    .map(|t| t.progress().0).unwrap_or(0),
+                plan_steps_total: state.execution_tracker.as_ref()
+                    .map(|t| t.progress().1).unwrap_or(0),
+            };
+            let verdict = validator.validate(&evidence).await;
+            tracing::debug!(
+                validator = validator.name(),
+                verdict_coverage = verdict.coverage(),
+                verdict_success = verdict.is_success(),
+                stop_condition = ?stop_condition,
+                "completion_validator result (advisory)"
+            );
+        }
+    }
+    // ── END PHASE-2 COMPLETION VALIDATOR ──────────────────────────────────
 
     // Flush L4 archive to disk (persist cross-session knowledge).
     if let Some(parent) = state.l4_archive_path.parent() {

@@ -812,6 +812,7 @@
             tool: "bash".into(),
             args: serde_json::json!({"command": "echo test"}),
             risk_level: "Low".into(),
+            timeout_secs: 60,
             reply_tx: None,
         });
         // Type 'y' then Enter to approve.
@@ -834,6 +835,7 @@
             tool: "bash".into(),
             args: serde_json::json!({"command": "rm -rf /tmp/*.txt"}),
             risk_level: "High".into(),
+            timeout_secs: 180,
             reply_tx: None,
         });
         // Type 'n' then Enter to reject.
@@ -856,6 +858,7 @@
             tool: "file_write".into(),
             args: serde_json::json!({"path": "/tmp/test.txt", "content": "Hello"}),
             risk_level: "Medium".into(),
+            timeout_secs: 120,
             reply_tx: None,
         });
         // Type 'yes' then Enter to approve.
@@ -918,6 +921,7 @@
             tool: "bash".into(),
             args: serde_json::json!({"command": "echo test"}),
             risk_level: "Low".into(),
+            timeout_secs: 60,
             reply_tx: None,
         });
         assert!(!app.toasts.is_empty());
@@ -1095,7 +1099,7 @@
             UiEvent::CompactionComplete { old_msgs: 10, new_msgs: 5, tokens_saved: 100 },
             UiEvent::CacheStatus { hit: true, source: "s".into() },
             UiEvent::SpeculativeResult { tool: "t".into(), hit: false },
-            UiEvent::PermissionAwaiting { tool: "bash".into(), args: serde_json::json!({}), risk_level: "Low".into(), reply_tx: None },
+            UiEvent::PermissionAwaiting { tool: "bash".into(), args: serde_json::json!({}), risk_level: "Low".into(), timeout_secs: 60, reply_tx: None },
             UiEvent::ReflectionStarted,
             UiEvent::ReflectionComplete { analysis: "a".into(), score: 0.5 },
             UiEvent::ConsolidationStatus { action: "a".into() },

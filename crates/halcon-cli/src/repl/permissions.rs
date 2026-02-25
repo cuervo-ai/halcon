@@ -42,11 +42,14 @@ pub struct PermissionChecker {
     /// tool was denied even if they missed the modal.
     #[cfg(feature = "tui")]
     notification_tx: Option<tokio::sync::mpsc::UnboundedSender<crate::tui::events::UiEvent>>,
-    /// Timeout for TUI permission prompt in seconds (from config `prompt_timeout_secs`).
+    /// Kept for non-breaking constructor compatibility (`with_config()`).
     ///
-    /// The TUI modal auto-denies after this duration (fail-closed). Stored here so
-    /// the TUI path uses the same value as the middleware's stdin path.
+    /// No longer used in the TUI path — the TUI now owns the deadline via the
+    /// countdown bar (`OverlayState::permission_deadline`). The backend's
+    /// `authorize()` waits indefinitely; the TUI sends `Denied` when the timer
+    /// expires, so there is no `tokio::time::timeout` in the backend.
     #[cfg(feature = "tui")]
+    #[allow(dead_code)]
     tui_timeout_secs: u64,
 }
 
@@ -230,22 +233,21 @@ impl PermissionChecker {
         input: &ToolInput,
     ) -> PermissionDecision {
         // TUI mode: intercept before middleware's stdin prompt.
+        // Backend waits indefinitely — TUI owns the deadline via the countdown bar.
+        // When the countdown reaches 0, the TUI sends Denied and closes the modal.
+        // If the channel closes unexpectedly (TUI crash/exit), we fail-closed.
         #[cfg(feature = "tui")]
         if let Some(ref tui_rx) = self.tui_approve_rx {
             if self.needs_prompt(tool_name, perm_level) {
                 let mut rx = tui_rx.lock().await;
                 // Drain any stale approvals from previous permission requests.
                 while rx.try_recv().is_ok() {}
-                // Wait for fresh TUI user decision with configurable timeout (fail-safe: deny).
-                let timeout_secs = self.tui_timeout_secs;
-                match tokio::time::timeout(
-                    std::time::Duration::from_secs(timeout_secs),
-                    rx.recv(),
-                ).await {
-                    Ok(Some(decision)) => return decision,
-                    Ok(None) => {
-                        // Channel closed — TUI exited.
-                        tracing::warn!(tool = %tool_name, "TUI permission channel closed — denying");
+                // Wait indefinitely — TUI sends a decision (or Denied on countdown expiry).
+                match rx.recv().await {
+                    Some(decision) => return decision,
+                    None => {
+                        // Channel closed — TUI exited or crashed: fail-closed.
+                        tracing::warn!(tool = %tool_name, "TUI permission channel closed — denying (TUI exited?)");
                         if let Some(ref tx) = self.notification_tx {
                             let _ = tx.send(crate::tui::events::UiEvent::Warning {
                                 message: format!(
@@ -253,31 +255,6 @@ impl PermissionChecker {
                                     tool_name
                                 ),
                                 hint: None,
-                            });
-                        }
-                        return PermissionDecision::Denied;
-                    }
-                    Err(_timeout) => {
-                        // G-TIMEOUT: no user interaction within timeout = deny (fail-closed).
-                        // This protects against: TUI crash, orphaned modal, frozen UI.
-                        // Emitted as warn (not info) so operators notice blocked approvals.
-                        tracing::warn!(
-                            tool = %tool_name,
-                            timeout_secs,
-                            "TUI permission prompt timed out — denied (fail-closed). \
-                             User did not respond within the timeout."
-                        );
-                        // Notify TUI activity panel so user sees why the tool was denied.
-                        if let Some(ref tx) = self.notification_tx {
-                            let _ = tx.send(crate::tui::events::UiEvent::Warning {
-                                message: format!(
-                                    "Permission timed out — '{}' denied (no response within {}s)",
-                                    tool_name, timeout_secs
-                                ),
-                                hint: Some(format!(
-                                    "Approve or deny the permission modal before {}s to allow the tool.",
-                                    timeout_secs
-                                )),
                             });
                         }
                         return PermissionDecision::Denied;

@@ -72,7 +72,35 @@ impl Tool for FileWriteTool {
 
         let bytes = self.fs.atomic_write(&resolved, content.as_bytes()).await?;
 
-        let mut output_text = format!("Wrote {} bytes to {}", bytes, resolved.display());
+        // Post-write verification: confirm the file actually exists on disk with the
+        // expected byte count. Atomic rename can succeed but the file can be missing
+        // in edge cases (cross-device rename failure, filesystem anomalies, NFS lag).
+        // This turns silent data loss into an explicit error the agent can act on.
+        match tokio::fs::metadata(&resolved).await {
+            Ok(meta) => {
+                let on_disk = meta.len();
+                if on_disk != bytes {
+                    return Err(HalconError::ToolExecutionFailed {
+                        tool: "file_write".into(),
+                        message: format!(
+                            "post-write verification failed: wrote {} bytes but disk shows {} bytes at {}",
+                            bytes, on_disk, resolved.display()
+                        ),
+                    });
+                }
+            }
+            Err(e) => {
+                return Err(HalconError::ToolExecutionFailed {
+                    tool: "file_write".into(),
+                    message: format!(
+                        "post-write verification failed: file not found after write to {}: {e}",
+                        resolved.display()
+                    ),
+                });
+            }
+        }
+
+        let mut output_text = format!("Wrote {} bytes to {} [verified]", bytes, resolved.display());
 
         // Run syntax verification on the written file.
         let path_str_for_check = resolved.display().to_string();

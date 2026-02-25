@@ -382,9 +382,12 @@ impl TuiApp {
                         overlay::render_search(frame, area, &self.state.overlay.input, match_count, current);
                     }
                     Some(OverlayKind::PermissionPrompt { .. }) => {
-                        // Phase 2.2: Render permission modal with momoto colors.
+                        // Phase 2.2: Render permission modal with momoto colors + countdown bar.
                         if let Some(ref modal) = self.permission_modal {
-                            modal.render(frame, area, self.state.overlay.show_advanced_permissions);
+                            let remaining_secs = self.state.overlay.permission_deadline
+                                .map(|d| d.saturating_duration_since(std::time::Instant::now()).as_secs());
+                            let total_secs = self.state.overlay.permission_total_secs;
+                            modal.render(frame, area, self.state.overlay.show_advanced_permissions, remaining_secs, total_secs);
                         } else if let Some(ref conv_overlay) = self.conversational_overlay {
                             // Fallback to conversational overlay (legacy).
                             conv_overlay.render(area, frame.buffer_mut());
@@ -695,6 +698,31 @@ impl TuiApp {
                     // Phase 2.3: Force render if active transitions/highlights.
                     if self.transition_engine.has_active() || self.highlights.has_active() {
                         needs_render = true;
+                    }
+
+                    // Permission deadline guard (defensive fallback only).
+                    // In normal operation, permission_deadline is always None —
+                    // the agent waits indefinitely for user input.
+                    // This block only fires if an external caller explicitly sets a deadline.
+                    if matches!(self.state.overlay.active, Some(OverlayKind::PermissionPrompt { .. })) {
+                        if let Some(deadline) = self.state.overlay.permission_deadline {
+                            if std::time::Instant::now() >= deadline {
+                                self.state.overlay.permission_deadline = None;
+                                self.send_perm_decision(halcon_core::types::PermissionDecision::Denied);
+                                self.permission_modal = None;
+                                self.state.overlay.close();
+                                self.state.overlay.show_advanced_permissions = false;
+                                self.activity_model.push_info("[permission] deadline expired — auto-denied");
+                                use crate::tui::input_state::InputState;
+                                self.prompt.set_input_state(InputState::Idle);
+                                self.highlights.stop("permission_prompt");
+                                self.state.agent_control = AgentControl::Running;
+                                needs_render = true;
+                            } else {
+                                // Force re-render on every tick so countdown bar updates live.
+                                needs_render = true;
+                            }
+                        }
                     }
                 }
             }

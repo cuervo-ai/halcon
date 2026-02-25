@@ -1,17 +1,62 @@
 {
-  "version": "0.2.0",
-  "published_at": "2026-02-18T22:18:13Z",
+  "version": "0.3.0",
+  "published_at": "2026-02-23T00:00:00Z",
   "artifacts": [
     {
-      "name": "halcon-0.2.0-aarch64-apple-darwin.tar.gz",
+      "name": "halcon-0.3.0-aarch64-apple-darwin.tar.gz",
       "target": "aarch64-apple-darwin",
       "os": "macos",
       "arch": "aarch64",
       "ext": "tar.gz",
-      "sha256": "edf83da55760043e141e4f25831173f6bbae12c1255e246b8de2f9b5f93d66f3",
-      "size": 13288175
+      "sha256": "",
+      "size": 0
+    },
+    {
+      "name": "halcon-0.3.0-x86_64-apple-darwin.tar.gz",
+      "target": "x86_64-apple-darwin",
+      "os": "macos",
+      "arch": "x86_64",
+      "ext": "tar.gz",
+      "sha256": "",
+      "size": 0
+    },
+    {
+      "name": "halcon-0.3.0-x86_64-unknown-linux-gnu.tar.gz",
+      "target": "x86_64-unknown-linux-gnu",
+      "os": "linux",
+      "arch": "x86_64",
+      "ext": "tar.gz",
+      "sha256": "",
+      "size": 0
+    },
+    {
+      "name": "halcon-0.3.0-x86_64-unknown-linux-musl.tar.gz",
+      "target": "x86_64-unknown-linux-musl",
+      "os": "linux",
+      "arch": "x86_64",
+      "ext": "tar.gz",
+      "sha256": "",
+      "size": 0
+    },
+    {
+      "name": "halcon-0.3.0-aarch64-unknown-linux-gnu.tar.gz",
+      "target": "aarch64-unknown-linux-gnu",
+      "os": "linux",
+      "arch": "aarch64",
+      "ext": "tar.gz",
+      "sha256": "",
+      "size": 0
+    },
+    {
+      "name": "halcon-0.3.0-x86_64-pc-windows-msvc.zip",
+      "target": "x86_64-pc-windows-msvc",
+      "os": "windows",
+      "arch": "x86_64",
+      "ext": "zip",
+      "sha256": "",
+      "size": 0
     }
   ],
-  "checksums_url": "https://cuervo.cloud/releases/latest/checksums.txt",
-  "release_notes": "https://github.com/cuervo-ai/cuervo-cli/releases/tag/v0.2.0"
+  "checksums_url": "https://releases.cli.cuervo.cloud/latest/checksums.txt",
+  "release_notes": "https://github.com/cuervo-ai/halcon-cli/releases/tag/v0.3.0"
 }

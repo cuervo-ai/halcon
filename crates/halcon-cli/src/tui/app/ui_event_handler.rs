@@ -131,14 +131,19 @@ impl TuiApp {
                 self.highlights.start_subtle("tool_execution", p.delegated);
             }
             UiEvent::ToolOutput { name, content, is_error, duration_ms } => {
-                // Phase B2: Remove from executing tools (shimmer animation complete)
+                use crate::tui::activity_types::ToolOutcome;
+                // Remove from executing map — stops the shimmer animation on the next frame.
                 self.executing_tools.remove(&name);
-
-                self.activity_model.complete_tool(&name, content.clone(), is_error, duration_ms);
+                let outcome = if is_error { ToolOutcome::Error } else { ToolOutcome::Success };
+                self.activity_model.complete_tool(&name, content.clone(), outcome, duration_ms);
             }
             UiEvent::ToolDenied(name) => {
-                let msg = format!("Tool denied: {name}");
-                self.activity_model.push_warning(&msg, None);
+                // FIX: Remove from executing_tools so the shimmer stops immediately,
+                // then mutate the ToolExec card to Denied state.
+                // Previously this left a zombie spinner (result=None forever) plus a
+                // separate Warning line below it.
+                self.executing_tools.remove(&name);
+                self.activity_model.deny_tool(&name);
                 self.toasts.push(Toast::new(format!("Denied: {name}"), ToastLevel::Warning));
             }
             UiEvent::SpinnerStart(label) => {
@@ -394,13 +399,24 @@ impl TuiApp {
             UiEvent::SpeculativeResult { tool: _, hit: _ } => {
                 // Speculative execution results: panel-only visibility
             }
-            UiEvent::PermissionAwaiting { tool, args, risk_level, reply_tx } => {
-                self.activity_model.push_info(&format!("[permission] awaiting approval for {tool}"));
+            UiEvent::PermissionAwaiting { tool, args, risk_level, timeout_secs: _, reply_tx } => {
+                // Sub-agent tools (reply_tx = Some): auto-approve and log to activity panel.
+                // Sub-agents run with confirm_destructive=false — permissions.authorize() already
+                // auto-approved the tool before this event reached the TUI. Showing a blocking
+                // modal here would create an orphan modal that nobody is waiting on (the tool
+                // already executed). Send Allowed immediately to unblock the reply channel.
+                if let Some(tx) = reply_tx {
+                    self.activity_model.push_info(&format!("[sub-agent] ▶ executing `{tool}` (auto-approved)"));
+                    let _ = tx.send(halcon_core::types::PermissionDecision::Allowed);
+                    return;
+                }
+
+                // Main agent (reply_tx = None): show blocking modal — agent is waiting for user.
+                self.activity_model.push_info(&format!("[permission] ⏸ agent paused — awaiting your decision for `{tool}`"));
                 self.state.agent_control = crate::tui::state::AgentControl::WaitingApproval;
 
-                // Store sub-agent reply channel (if present) so decisions are routed correctly.
-                // None = main agent, decisions go via self.perm_tx as before.
-                self.pending_perm_reply_tx = reply_tx;
+                // Main agent uses the stored perm_tx channel; pending_perm_reply_tx stays None.
+                self.pending_perm_reply_tx = None;
 
                 // Phase 2.1: Keep input available during permission prompt (for queuing).
                 // Input state stays Queued or Idle - user can still type.
@@ -415,6 +431,10 @@ impl TuiApp {
                 // All permission keys (Y/N/A/D/S/P/X) now route directly to PermissionOptions.
 
                 self.state.overlay.open(OverlayKind::PermissionPrompt { tool: tool.clone() });
+                // Indefinite wait — NO auto-deny. Agent blocks until user approves or rejects.
+                // Backend already waits indefinitely on rx.recv(); TUI now mirrors that.
+                // User MUST press Y/N/A/D/S/P/X to continue.
+                self.state.overlay.permission_deadline = None;
                 self.toasts.push(Toast::new(
                     format!("Approval needed: {tool} ({} risk)", risk.label()),
                     ToastLevel::Warning,

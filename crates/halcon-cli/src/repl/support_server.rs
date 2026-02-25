@@ -198,7 +198,7 @@ impl ContextSource for SupportServer {
             let repro_steps = if let Some(steps) = &incident.reproduction_steps {
                 // Truncate steps to max 400 chars
                 let steps_preview = if steps.len() > 400 {
-                    format!("{}...", &steps[..400])
+                    format!("{}...", &steps[..{ let mut _fcb = (400).min(steps.len()); while _fcb > 0 && !steps.is_char_boundary(_fcb) { _fcb -= 1; } _fcb }])
                 } else {
                     steps.clone()
                 };
@@ -210,7 +210,7 @@ impl ContextSource for SupportServer {
             let error_info = if let Some(err) = &incident.error_message {
                 // Truncate error to max 300 chars
                 let err_preview = if err.len() > 300 {
-                    format!("{}...", &err[..300])
+                    format!("{}...", &err[..{ let mut _fcb = (300).min(err.len()); while _fcb > 0 && !err.is_char_boundary(_fcb) { _fcb -= 1; } _fcb }])
                 } else {
                     err.clone()
                 };
@@ -222,7 +222,7 @@ impl ContextSource for SupportServer {
             let resolution_info = if let Some(res) = &incident.resolution {
                 // Truncate resolution to max 400 chars
                 let res_preview = if res.len() > 400 {
-                    format!("{}...", &res[..400])
+                    format!("{}...", &res[..{ let mut _fcb = (400).min(res.len()); while _fcb > 0 && !res.is_char_boundary(_fcb) { _fcb -= 1; } _fcb }])
                 } else {
                     res.clone()
                 };

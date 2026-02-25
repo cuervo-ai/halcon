@@ -7,7 +7,7 @@ export const ui = {
     'meta.index.title':     'Halcón CLI — AI coding assistant for your terminal',
     'meta.index.desc':      'Connect Claude, GPT-4o, DeepSeek, Gemini, or any local Ollama model to your terminal. 21 built-in tools, full permission control, MCP server built in.',
     'meta.download.title':  'Download Halcón CLI',
-    'meta.download.desc':   'Download Halcón CLI v0.2.0 for macOS, Linux, and Windows.',
+    'meta.download.desc':   'Download Halcón CLI v0.3.0 for macOS, Linux, and Windows.',
     'meta.docs.title':      'Documentation — Halcón CLI',
     'meta.docs.desc':       'Get started with Halcón CLI. Configuration, commands, tools, and provider setup.',
 
@@ -23,7 +23,7 @@ export const ui = {
     /* ── Hero ─────────────────────────────────────────────────────── */
     'hero.headline':   'The terminal AI agent\nthat runs on any model.',
     'hero.sub':        'Halcón connects your terminal to Claude, GPT-4o, DeepSeek, Gemini, or any local Ollama model — with 21 built-in tools, layered permissions, and a native MCP server for your IDE.',
-    'hero.cta_dl':     'Download v0.2.0',
+    'hero.cta_dl':     'Download v0.3.0',
     'hero.cta_docs':   'Read the docs',
     'hero.platforms':  'macOS · Linux · Windows',
     'hero.install_label': 'One-line install',
@@ -63,7 +63,7 @@ export const ui = {
 
     /* ── Download page ────────────────────────────────────────────── */
     'dl.heading':       'Download Halcón CLI',
-    'dl.badge':         'Latest release · v0.2.0',
+    'dl.badge':         'Latest release · v0.3.0',
     'dl.sub':           'AI-powered coding agent for your terminal.\nMulti-model. Native performance.',
     'dl.smart_heading': 'Recommended for your system',
     'dl.methods':       'Install methods',
@@ -120,7 +120,7 @@ export const ui = {
     'meta.index.title':     'Halcón CLI — Agente IA de desarrollo para tu terminal',
     'meta.index.desc':      'Conecta Claude, GPT-4o, DeepSeek, Gemini o cualquier modelo Ollama local a tu terminal. 21 herramientas integradas, permisos completos, servidor MCP incluido.',
     'meta.download.title':  'Descargar Halcón CLI',
-    'meta.download.desc':   'Descarga Halcón CLI v0.2.0 para macOS, Linux y Windows.',
+    'meta.download.desc':   'Descarga Halcón CLI v0.3.0 para macOS, Linux y Windows.',
     'meta.docs.title':      'Documentación — Halcón CLI',
     'meta.docs.desc':       'Primeros pasos con Halcón CLI. Configuración, comandos, herramientas y proveedores.',
 
@@ -134,7 +134,7 @@ export const ui = {
 
     'hero.headline':   'El agente IA para tu terminal\nque funciona con cualquier modelo.',
     'hero.sub':        'Halcón conecta tu terminal a Claude, GPT-4o, DeepSeek, Gemini o cualquier modelo Ollama local — con 21 herramientas integradas, permisos por capas y un servidor MCP nativo para tu IDE.',
-    'hero.cta_dl':     'Descargar v0.2.0',
+    'hero.cta_dl':     'Descargar v0.3.0',
     'hero.cta_docs':   'Leer documentación',
     'hero.platforms':  'macOS · Linux · Windows',
     'hero.install_label': 'Instalación en una línea',
@@ -170,7 +170,7 @@ export const ui = {
     'qs.all_providers': 'Compatible con Anthropic, OpenAI, DeepSeek, Gemini y Ollama local.',
 
     'dl.heading':       'Descargar Halcón CLI',
-    'dl.badge':         'Última versión · v0.2.0',
+    'dl.badge':         'Última versión · v0.3.0',
     'dl.sub':           'Agente IA de desarrollo para tu terminal.\nMulti-modelo. Rendimiento nativo.',
     'dl.smart_heading': 'Recomendado para tu sistema',
     'dl.methods':       'Métodos de instalación',

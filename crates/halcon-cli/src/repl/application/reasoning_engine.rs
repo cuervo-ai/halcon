@@ -116,12 +116,14 @@ impl ReasoningEngine {
         // defaults when the provider list is empty (backward-compatible behaviour).
         plan.routing_bias = ModelRouter::from_provider_models(provider_models).routing_bias_for(&profile);
 
-        // Use IntentProfile's suggested_max_rounds as an upper cap on the strategy plan.
-        // This prevents the static UCB1 table from over-allocating rounds for conversational
-        // queries (where 2 rounds is always sufficient) or under-allocating for system-wide
-        // tasks (where 20 rounds may be needed).
+        // NOTE: intentionally do NOT cap plan.max_rounds by profile.suggested_max_rounds().
+        // The profile suggestion is used by ConvergenceController for EARLY-EXIT signals
+        // (stagnation, goal-coverage) — it is guidance, not a hard ceiling.
+        // Using it as a cap here produced a double-min() that limited top-level agents to
+        // 4 rounds for "Simple" tasks regardless of the user-configured max_rounds=40.
+        // The StrategySelector's plan.max_rounds is kept as a convergence-phase hint
+        // (e.g. "aim for 5 rounds") consumed by LoopCritic / Reflexion timing logic.
         let profile_max = profile.suggested_max_rounds() as usize;
-        plan.max_rounds = plan.max_rounds.min(profile_max);
 
         tracing::info!(
             task_type = ?analysis.task_type,
@@ -131,11 +133,17 @@ impl ReasoningEngine {
             reasoning_depth = ?profile.reasoning_depth,
             routing_bias = ?plan.routing_bias,
             plan_max_rounds = plan.max_rounds,
+            profile_suggested_max = profile_max,
+            config_max_rounds = base_limits.max_rounds,
             "Reasoning pre-loop (SOTA 2026)"
         );
 
+        // For top-level agents the user-configured max_rounds is the authoritative hard limit.
+        // Sub-agents use cap_max_rounds() (not set_max_rounds()) in mod.rs, which keeps their
+        // 6-round hard cap intact. This layer only sets the ceiling; convergence signals
+        // (ConvergenceController stagnation, coverage, LoopCritic) drive early exit.
         let adjusted_limits = AgentLimits {
-            max_rounds: plan.max_rounds.min(base_limits.max_rounds),
+            max_rounds: base_limits.max_rounds,
             ..base_limits.clone()
         };
 
@@ -297,7 +305,9 @@ mod tests {
         let analysis = engine.pre_loop("hello", &limits, &[]);
 
         assert_eq!(analysis.analysis.complexity, TaskComplexity::Simple);
-        assert!(analysis.adjusted_limits.max_rounds <= limits.max_rounds);
+        // adjusted_limits.max_rounds == base_limits.max_rounds (config is authoritative ceiling).
+        // profile.suggested_max_rounds() is guidance only — not a hard cap on adjusted_limits.
+        assert_eq!(analysis.adjusted_limits.max_rounds, limits.max_rounds);
     }
 
     #[test]

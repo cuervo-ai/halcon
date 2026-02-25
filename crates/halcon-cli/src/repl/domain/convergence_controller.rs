@@ -189,8 +189,27 @@ impl ConvergenceController {
     /// cap (e.g., StrategySelector limits PlanExecuteReflect+Complex to 8 rounds while
     /// the IntentProfile suggests 16 for a ProjectWide query). Ensures ConvergenceController
     /// and the outer agent loop use the same effective round budget — single source of truth.
+    ///
+    /// This only REDUCES `max_rounds` (cap from above). For sub-agents this is correct:
+    /// the profile sets a hard sub-agent limit (6), and the parent can further constrain it.
+    /// For top-level agents, use [`set_max_rounds`] instead so the user-configured limit
+    /// is honored as both floor and ceiling.
     pub fn cap_max_rounds(&mut self, max: usize) {
         self.max_rounds = self.max_rounds.min(max as u32);
+    }
+
+    /// Set the max_rounds budget unconditionally.
+    ///
+    /// Used for top-level agents where the user-configured `max_rounds` is the
+    /// authoritative hard limit. Unlike `cap_max_rounds`, this can INCREASE
+    /// `max_rounds` beyond the IntentProfile's suggestion (e.g., profile suggests
+    /// 4 rounds for a Simple-classified task, but user configured `max_rounds = 40`).
+    /// The profile's stagnation/coverage thresholds still apply for early synthesis.
+    ///
+    /// Also used for K5-1 budget expansion when the plan requires more rounds than
+    /// the initial profile estimate.
+    pub fn set_max_rounds(&mut self, max: usize) {
+        self.max_rounds = max as u32;
     }
 
     /// Lower the synthesis trigger threshold based on oscillation urgency.

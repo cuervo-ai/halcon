@@ -515,12 +515,42 @@ impl ActivityModel {
     }
 
     /// Complete a tool execution by filling in the result on the matching entry.
-    /// Finds the last ToolExec with matching name and no result, then updates it.
-    /// Phase A3: Enables ToolOutput dual-write.
-    pub fn complete_tool(&mut self, tool_name: &str, content: String, is_error: bool, duration_ms: u64) {
+    ///
+    /// Finds the last `ToolExec` with matching name and no result, then mutates it
+    /// in place. The shimmer animation stops automatically on the next render frame
+    /// because the `result` field is now `Some`.
+    pub fn complete_tool(
+        &mut self,
+        tool_name: &str,
+        content: String,
+        outcome: super::activity_types::ToolOutcome,
+        duration_ms: u64,
+    ) {
         use super::activity_types::{ActivityLine, ToolResult};
 
-        // Find the last ToolExec with matching name and no result
+        for line in self.lines.iter_mut().rev() {
+            if let ActivityLine::ToolExec {
+                name,
+                result: ref mut r,
+                ..
+            } = line
+            {
+                if name == tool_name && r.is_none() {
+                    *r = Some(ToolResult { content, outcome, duration_ms });
+                    break;
+                }
+            }
+        }
+    }
+
+    /// Mark a running tool execution as denied by the permission system.
+    ///
+    /// Stops the shimmer animation and transitions the `ToolExec` card to `⊘ Denied`
+    /// visual state. Without this call, `ToolDenied` events leave zombie spinners
+    /// (cards stuck at `result = None`) because `complete_tool` is never invoked.
+    pub fn deny_tool(&mut self, tool_name: &str) {
+        use super::activity_types::{ActivityLine, ToolOutcome, ToolResult};
+
         for line in self.lines.iter_mut().rev() {
             if let ActivityLine::ToolExec {
                 name,
@@ -530,9 +560,9 @@ impl ActivityModel {
             {
                 if name == tool_name && r.is_none() {
                     *r = Some(ToolResult {
-                        content,
-                        is_error,
-                        duration_ms,
+                        content: String::new(),
+                        outcome: ToolOutcome::Denied,
+                        duration_ms: 0,
                     });
                     break;
                 }
@@ -1111,7 +1141,7 @@ mod tests {
 
     #[test]
     fn complete_tool_finds_last_matching() {
-        use super::super::activity_types::ToolResult;
+        use super::super::activity_types::{ToolOutcome, ToolResult};
 
         let mut model = ActivityModel::new();
 
@@ -1130,16 +1160,47 @@ mod tests {
         });
 
         // Complete should target the LAST one
-        model.complete_tool("file_read", "content".into(), false, 100);
+        model.complete_tool("file_read", "content".into(), ToolOutcome::Success, 100);
 
         // First should still be None
         assert!(matches!(model.get(0), Some(ActivityLine::ToolExec { result: None, .. })));
 
-        // Second should be completed
+        // Second should be completed with Success outcome
         assert!(matches!(model.get(1), Some(ActivityLine::ToolExec {
-            result: Some(ToolResult { ref content, is_error, duration_ms }),
+            result: Some(ToolResult { ref content, outcome, duration_ms }),
             ..
-        }) if content == "content" && !is_error && *duration_ms == 100));
+        }) if content == "content" && *outcome == ToolOutcome::Success && *duration_ms == 100));
+    }
+
+    #[test]
+    fn deny_tool_stops_zombie_spinner() {
+        use super::super::activity_types::{ToolOutcome, ToolResult};
+
+        let mut model = ActivityModel::new();
+        model.push_tool_start("bash", "rm -rf /tmp/test");
+
+        // Before deny: card is in loading state
+        assert!(matches!(model.get(0), Some(ActivityLine::ToolExec { result: None, .. })));
+
+        model.deny_tool("bash");
+
+        // After deny: card shows Denied outcome with empty content
+        assert!(matches!(model.get(0), Some(ActivityLine::ToolExec {
+            result: Some(ToolResult { outcome, content, duration_ms }),
+            ..
+        }) if *outcome == ToolOutcome::Denied && content.is_empty() && *duration_ms == 0));
+    }
+
+    #[test]
+    fn deny_tool_noop_when_no_match() {
+        let mut model = ActivityModel::new();
+        model.push_info("some info");
+
+        // deny_tool on unknown name should not panic
+        model.deny_tool("nonexistent");
+
+        // Model unchanged
+        assert_eq!(model.len(), 1);
     }
 
     // --- P0.4A: Convenience wrapper tests ---
@@ -1247,9 +1308,10 @@ mod tests {
 
     #[test]
     fn has_loading_tools_false_when_all_complete() {
+        use super::super::activity_types::ToolOutcome;
         let mut model = ActivityModel::new();
         model.push_tool_start("bash", "ls -la");
-        model.complete_tool("bash", "output".into(), false, 100);
+        model.complete_tool("bash", "output".into(), ToolOutcome::Success, 100);
 
         assert!(!model.has_loading_tools());
     }

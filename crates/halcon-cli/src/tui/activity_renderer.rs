@@ -954,7 +954,7 @@ impl ActivityRenderer {
                     char_count.to_string()
                 };
                 let snippet = if preview.len() > 80 {
-                    format!("{}...", &preview[..80])
+                    format!("{}...", &preview[..{ let mut _fcb = (80).min(preview.len()); while _fcb > 0 && !preview.is_char_boundary(_fcb) { _fcb -= 1; } _fcb }])
                 } else {
                     preview.clone()
                 };
@@ -1052,18 +1052,32 @@ impl ActivityRenderer {
                     }
 
                     Some(res) => {
-                        // Completed: ✓/✗ name  duration  ▸/▾
-                        let (icon_char, icon_color) = if res.is_error {
-                            ("✗", c_error)
-                        } else {
-                            ("✓", c_success)
+                        use crate::tui::activity_types::ToolOutcome;
+                        // Icon and color are outcome-driven (3-state: success / error / denied).
+                        let (icon_char, icon_color) = match res.outcome {
+                            ToolOutcome::Success => ("✓", c_success),
+                            ToolOutcome::Error   => ("✗", c_error),
+                            ToolOutcome::Denied  => ("⊘", c_warning),
                         };
-                        let duration_str = if res.duration_ms < 1000 {
-                            format!("{}ms", res.duration_ms)
+                        // Duration: omit for denied tools (execution never started).
+                        let duration_str = if res.duration_ms == 0 {
+                            String::new()
+                        } else if res.duration_ms < 1000 {
+                            format!("  {}ms", res.duration_ms)
                         } else {
-                            format!("{:.1}s", res.duration_ms as f64 / 1000.0)
+                            format!("  {:.1}s", res.duration_ms as f64 / 1000.0)
                         };
-                        let expand_hint = if is_expanded { " ▾" } else { " ▸" };
+                        // Expand hint only when there is content to expand.
+                        let expand_hint = if res.content.is_empty() {
+                            String::new()
+                        } else if is_expanded {
+                            "  ▾".to_string()
+                        } else {
+                            "  ▸".to_string()
+                        };
+                        // Retain the input preview in the completed header so the user
+                        // can see what args were passed without expanding the card.
+                        let preview_short: String = input_preview.chars().take(35).collect();
 
                         lines.push(Line::from(vec![
                             Span::styled(
@@ -1080,7 +1094,13 @@ impl ActivityRenderer {
                                     .bg(bg.unwrap_or(Color::Reset)),
                             ),
                             Span::styled(
-                                format!("  {duration_str}{expand_hint}"),
+                                format!("  {preview_short}"),
+                                Style::default()
+                                    .fg(c_muted)
+                                    .bg(bg.unwrap_or(Color::Reset)),
+                            ),
+                            Span::styled(
+                                format!("{duration_str}{expand_hint}"),
                                 Style::default()
                                     .fg(c_muted)
                                     .bg(bg.unwrap_or(Color::Reset)),
@@ -1089,7 +1109,10 @@ impl ActivityRenderer {
 
                         // Content: expanded or collapsed preview
                         if !res.content.is_empty() {
-                            let content_color = if res.is_error { c_error } else { c_muted };
+                            let content_color = match res.outcome {
+                                ToolOutcome::Error  => c_error,
+                                _                   => c_muted,
+                            };
 
                             if is_expanded {
                                 // Phase B1: Smooth expansion animation

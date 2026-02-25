@@ -60,6 +60,10 @@ Halcon CLI es la primera plataforma de IA para desarrollo que unifica modelos pr
 | **Compliance** | Diseñado para cumplimiento normativo (GDPR, LGPD, etc.) | ✅ |
 | **MCP Native** | Integración nativa con Model Context Protocol | ✅ |
 | **Memoria Persistente** | Sistema de memoria semántica con búsqueda vectorial | ✅ |
+| **Control Plane API** | Servidor HTTP/WebSocket para integración con apps externas | ✅ |
+| **Desktop App** | Aplicación nativa egui con chat en tiempo real + streaming WS | ✅ |
+| **Claude Code Provider** | Integración con Claude Code CLI como proveedor de modelos | ✅ |
+| **Multimodal** | Análisis de imágenes/archivos adjuntos en chat (base64 inline) | ✅ |
 
 ## 📦 Instalación
 
@@ -92,7 +96,7 @@ iwr -useb https://raw.githubusercontent.com/cuervo-ai/halcon-cli/main/scripts/in
 - ✅ **Detecta automáticamente** tu sistema operativo y arquitectura (x86_64, ARM64, etc.)
 - ✅ **Descarga el binario** precompilado desde [GitHub Releases](https://github.com/cuervo-ai/halcon-cli/releases/latest)
 - ✅ **Verifica integridad** con checksums SHA256
-- ✅ **Instala en** `~/.local/bin/cuervo` (Unix) o `%USERPROFILE%\.local\bin\cuervo.exe` (Windows)
+- ✅ **Instala en** `~/.local/bin/halcon` (Unix) o `%USERPROFILE%\.local\bin\halcon.exe` (Windows)
 - ✅ **Configura PATH** automáticamente para tu shell (bash, zsh, fish, PowerShell)
 - ✅ **Fallback inteligente** a `cargo install` si no hay binario para tu plataforma
 
@@ -102,17 +106,17 @@ Después de instalar, verifica que funcione correctamente:
 
 ```bash
 # Verificar versión
-cuervo --version
-# Salida esperada: cuervo 0.1.0 (f8f41dd0, aarch64-apple-darwin)
+halcon --version
+# Salida esperada: halcon 0.3.0 (2e33dd1f, aarch64-apple-darwin)
 
 # Ejecutar diagnósticos
-cuervo doctor
+halcon doctor
 
 # Mostrar ayuda
-cuervo --help
+halcon --help
 ```
 
-Si el comando `cuervo` no se encuentra, recarga tu shell:
+Si el comando `halcon` no se encuentra, recarga tu shell:
 ```bash
 # Bash
 source ~/.bashrc
@@ -139,7 +143,7 @@ source ~/.config/fish/config.fish
 # Instalar desde repositorio Git
 cargo install --git https://github.com/cuervo-ai/halcon-cli --features tui --locked
 
-# El binario se instalará en ~/.cargo/bin/cuervo
+# El binario se instalará en ~/.cargo/bin/halcon
 ```
 
 **Ventajas:**
@@ -159,36 +163,36 @@ cargo install --git https://github.com/cuervo-ai/halcon-cli --features tui --loc
 
 1. Ve a la página de [Releases](https://github.com/cuervo-ai/halcon-cli/releases/latest)
 2. Descarga el archivo para tu plataforma:
-   - **Linux x64 (glibc)**: `cuervo-x86_64-unknown-linux-gnu.tar.gz`
-   - **Linux x64 (musl/Alpine)**: `cuervo-x86_64-unknown-linux-musl.tar.gz`
-   - **macOS Intel**: `cuervo-x86_64-apple-darwin.tar.gz`
-   - **macOS Apple Silicon (M1/M2/M3/M4)**: `cuervo-aarch64-apple-darwin.tar.gz`
-   - **Windows x64**: `cuervo-x86_64-pc-windows-msvc.zip`
+   - **Linux x64 (glibc)**: `halcon-x86_64-unknown-linux-gnu.tar.gz`
+   - **Linux x64 (musl/Alpine)**: `halcon-x86_64-unknown-linux-musl.tar.gz`
+   - **macOS Intel**: `halcon-x86_64-apple-darwin.tar.gz`
+   - **macOS Apple Silicon (M1/M2/M3/M4)**: `halcon-aarch64-apple-darwin.tar.gz`
+   - **Windows x64**: `halcon-x86_64-pc-windows-msvc.zip`
 3. Descarga también el archivo `.sha256` correspondiente
 4. Verifica el checksum:
    ```bash
    # Linux/macOS
-   sha256sum -c cuervo-*.tar.gz.sha256
+   sha256sum -c halcon-*.tar.gz.sha256
 
    # Windows (PowerShell)
-   (Get-FileHash cuervo-*.zip).Hash -eq (Get-Content cuervo-*.zip.sha256).Split()[0]
+   (Get-FileHash halcon-*.zip).Hash -eq (Get-Content halcon-*.zip.sha256).Split()[0]
    ```
 5. Extrae el archivo:
    ```bash
    # Linux/macOS
-   tar xzf cuervo-*.tar.gz
+   tar xzf halcon-*.tar.gz
 
    # Windows
-   Expand-Archive cuervo-*.zip
+   Expand-Archive halcon-*.zip
    ```
 6. Mueve el binario a una ubicación en tu PATH:
    ```bash
    # Linux/macOS
-   mv cuervo ~/.local/bin/
-   chmod +x ~/.local/bin/cuervo
+   mv halcon ~/.local/bin/
+   chmod +x ~/.local/bin/halcon
 
    # Windows
-   move cuervo.exe %USERPROFILE%\.local\bin\
+   move halcon.exe %USERPROFILE%\.local\bin\
    ```
 
 </details>
@@ -210,14 +214,14 @@ cargo build --features tui
 cargo build --release --features tui
 
 # El binario estará en:
-# - Debug: ./target/debug/cuervo
-# - Release: ./target/release/cuervo
+# - Debug: ./target/debug/halcon
+# - Release: ./target/release/halcon
 
 # Ejecutar sin instalar
 cargo run --features tui -- --help
 
 # Instalar localmente desde el código fuente
-cargo install --path crates/cuervo-cli --features tui
+cargo install --path crates/halcon-cli --features tui
 ```
 
 </details>
@@ -230,16 +234,16 @@ Después de instalar, configura tus credenciales de API:
 
 ```bash
 # Método 1: Asistente interactivo (recomendado)
-cuervo init
+halcon init
 
 # Método 2: Configuración manual por proveedor
-cuervo auth login anthropic   # Para Claude (Anthropic)
-cuervo auth login openai      # Para GPT (OpenAI)
-cuervo auth login deepseek    # Para DeepSeek
-cuervo auth login ollama      # Para modelos locales (Ollama)
+halcon auth login anthropic   # Para Claude (Anthropic)
+halcon auth login openai      # Para GPT (OpenAI)
+halcon auth login deepseek    # Para DeepSeek
+halcon auth login ollama      # Para modelos locales (Ollama)
 
 # Verificar configuración
-cuervo config show
+halcon config show
 ```
 
 **Variables de entorno (alternativa):**
@@ -263,35 +267,57 @@ export DEEPSEEK_API_KEY="sk-..."
 ### Chat Interactivo (REPL)
 ```bash
 # Iniciar sesión interactiva (modo por defecto)
-cuervo
+halcon
 
 # Con prompt inicial
-cuervo "Ayúdame a escribir una función en Rust"
+halcon "Ayúdame a escribir una función en Rust"
 
 # Especificar proveedor y modelo
-cuervo --provider ollama --model llama3.2 "Explica este código"
+halcon --provider ollama --model llama3.2 "Explica este código"
 ```
 
 ### Comandos Principales
 ```bash
 # Gestión de configuración
-cuervo config show
-cuervo config set general.default_model "claude-sonnet-4-5-20250929"
+halcon config show
+halcon config set general.default_model "claude-sonnet-4-6"
 
 # Estado del sistema
-cuervo status
-cuervo doctor
+halcon status
+halcon doctor
 
 # Gestión de sesiones
-cuervo chat --resume <session-id>
-cuervo trace export <session-id>
+halcon chat --resume <session-id>
+halcon trace export <session-id>
 
 # Memoria semántica
-cuervo memory search "patrones de diseño"
-cuervo memory list --type code_snippet
+halcon memory search "patrones de diseño"
+halcon memory list --type code_snippet
 
 # Inicializar proyecto
-cuervo init --force
+halcon init --force
+```
+
+### Modo Servidor (Control Plane API)
+```bash
+# Iniciar servidor HTTP/WebSocket en puerto 9000
+halcon serve --port 9000
+
+# Con variables de entorno
+export ANTHROPIC_API_KEY="sk-ant-..."
+export DEEPSEEK_API_KEY="sk-..."
+halcon serve --port 9000
+
+# El servidor expone:
+# - REST API:  http://localhost:9000/api/v1/
+# - WebSocket: ws://localhost:9000/api/v1/ws
+# - Auth token en variable HALCON_API_TOKEN
+
+# Ejemplo: crear sesión de chat via API
+curl -X POST http://localhost:9000/api/v1/chat/sessions \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"model":"claude-haiku-4-5-20251001","provider":"anthropic"}'
 ```
 
 ### Comandos REPL (dentro de sesión interactiva)
@@ -307,24 +333,26 @@ cuervo init --force
 
 ## 🏗️ Arquitectura
 
-### Estructura del Workspace (14 crates)
+### Estructura del Workspace (20 crates)
 ```
-cuervo-cli/
+halcon-cli/
 ├── crates/
-│   ├── cuervo-cli/          # Binary: REPL, TUI, commands, rendering
-│   ├── cuervo-core/         # Domain: types, traits, events (zero I/O)
-│   ├── cuervo-providers/    # Model adapters: Anthropic, OpenAI, DeepSeek, Gemini, Ollama
-│   ├── cuervo-tools/        # 23 tool implementations: file ops, bash, git, search
-│   ├── cuervo-auth/         # Auth: device flow, keychain, JWT, OAuth PKCE
-│   ├── cuervo-storage/      # Persistence: SQLite, migrations, audit, cache, metrics
-│   ├── cuervo-security/     # Cross-cutting: PII detection, permissions, sanitizer
-│   ├── cuervo-context/      # Context engine v2: L0-L4 tiers, pipeline, elider
-│   ├── cuervo-mcp/          # MCP runtime: host, server, stdio transport
-│   ├── cuervo-files/        # File intelligence: 12 format handlers
-│   ├── cuervo-runtime/      # Multi-agent runtime: registry, federation, executor
-│   ├── cuervo-api/          # Shared API types + axum server
-│   ├── cuervo-client/       # Async typed SDK (HTTP + WebSocket)
-│   └── cuervo-desktop/      # egui native desktop app
+│   ├── halcon-cli/          # Binary: REPL, TUI, commands, rendering
+│   ├── halcon-core/         # Domain: types, traits, events (zero I/O)
+│   ├── halcon-providers/    # Model adapters: Anthropic, OpenAI, DeepSeek, Gemini, Ollama
+│   ├── halcon-tools/        # 21+ tool implementations: file ops, bash, git, search
+│   ├── halcon-auth/         # Auth: device flow, keychain, JWT, OAuth PKCE
+│   ├── halcon-storage/      # Persistence: SQLite, migrations, audit, cache, metrics
+│   ├── halcon-security/     # Cross-cutting: PII detection, permissions, sanitizer
+│   ├── halcon-context/      # Context engine v2: L0-L4 tiers, pipeline, elider
+│   ├── halcon-mcp/          # MCP runtime: host, server, stdio transport
+│   ├── halcon-files/        # File intelligence: 12 format handlers
+│   ├── halcon-runtime/      # Multi-agent runtime: registry, federation, executor
+│   ├── halcon-api/          # Shared API types + axum server
+│   ├── halcon-client/       # Async typed SDK (HTTP + WebSocket)
+│   ├── halcon-agent-core/   # 10-layer GDEM architecture (127 tests)
+│   ├── halcon-sandbox/      # macOS/Linux sandboxing (policy + executor)
+│   └── halcon-desktop/      # egui native desktop app
 ├── docs/                    # Documentation
 ├── config/                  # Default configurations
 └── scripts/                 # Build and test scripts
@@ -333,11 +361,12 @@ cuervo-cli/
 ### Proveedores Soportados
 | Proveedor | Modelos | Local | Cloud | API Key |
 |-----------|---------|-------|-------|---------|
-| **Anthropic** | Claude Sonnet, Haiku, Opus | ❌ | ✅ | ✅ |
+| **Anthropic** | Claude Sonnet 4.6, Haiku 4.5, Opus 4.6 | ❌ | ✅ | ✅ |
 | **Ollama** | Llama, Mistral, CodeLlama, etc. | ✅ | ❌ | ❌ |
 | **OpenAI** | GPT-4o, GPT-4 Turbo | ❌ | ✅ | ✅ |
 | **Gemini** | Gemini Pro, Flash | ❌ | ✅ | ✅ |
-| **DeepSeek** | DeepSeek Coder, Chat | ❌ | ✅ | ✅ |
+| **DeepSeek** | DeepSeek Coder, Chat, Reasoner | ❌ | ✅ | ✅ |
+| **Claude Code** | Subprocess via Claude CLI (NDJSON) | ✅ | ✅ | ❌ |
 | **OpenAI Compat** | Compatible con APIs OpenAI | ✅/❌ | ✅/❌ | Opcional |
 | **Echo** | Debug/testing | ✅ | ❌ | ❌ |
 | **Replay** | Reproducción de trazas | ✅ | ❌ | ❌ |
@@ -428,8 +457,8 @@ requires_explicit_approval = false
 ### Archivos de Configuración
 Halcon CLI utiliza configuración jerárquica:
 1. **Comandos CLI** (--model, --provider)
-2. **Variables de entorno** (CUERVO_MODEL, CUERVO_PROVIDER)
-3. **Config local** (`./.cuervo/config.toml`)
+2. **Variables de entorno** (HALCON_MODEL, HALCON_PROVIDER)
+3. **Config local** (`./.halcon/config.toml`)
 4. **Config global** (`~/.halcon/config.toml`)
 5. **Config por defecto** (`config/default.toml`)
 
@@ -511,16 +540,16 @@ enum MemoryEntryType {
 ### Comandos de Memoria
 ```bash
 # Búsqueda semántica
-cuervo memory search "patrón singleton en Rust"
+halcon memory search "patrón singleton en Rust"
 
 # Listado filtrado
-cuervo memory list --type code_snippet --limit 20
+halcon memory list --type code_snippet --limit 20
 
 # Estadísticas
-cuervo memory stats
+halcon memory stats
 
 # Mantenimiento
-cuervo memory prune --force
+halcon memory prune --force
 ```
 
 ## 🔄 Integración MCP (Model Context Protocol)
@@ -529,7 +558,7 @@ Halcon CLI incluye soporte nativo para MCP, permitiendo:
 
 ```bash
 # Iniciar servidor MCP para integración con IDEs
-cuervo mcp-server --working-dir ./project
+halcon mcp-server --working-dir ./project
 
 # Los clientes MCP pueden conectarse via stdio
 # para acceder a herramientas y contexto
@@ -569,15 +598,22 @@ python tests/interactive/run_pty_tests.py
 
 ### Fase Actual (Q1 2026) — COMPLETO
 - [x] CLI básico con REPL interactivo
-- [x] Soporte multi-proveedor (Anthropic, Ollama, OpenAI)
-- [x] Sistema de herramientas nativas (23 herramientas)
+- [x] Soporte multi-proveedor (Anthropic, Ollama, OpenAI, DeepSeek, Claude Code)
+- [x] Sistema de herramientas nativas (61 herramientas: 23 core + 33 plugins + 5 meta)
 - [x] Almacenamiento persistente con SQLite
 - [x] Sistema de memoria semántica
 - [x] Integración MCP nativa
 - [x] **Sistema de plugins V3** — 7 plugins, 33 herramientas especializadas
 - [x] **SOTA meta-cognición** — UCB1, ReasoningEngine, LoopCritic, RoundScorer
 - [x] **TUI multi-panel** con tema fire/amber adaptativo
-- [x] **Multimodal** — análisis de imágenes y audio
+- [x] **Multimodal** — análisis de imágenes inline (base64) con MIME detection
+- [x] **Control Plane API** — servidor HTTP/WS con sesiones de chat persistentes
+- [x] **Desktop App** — interfaz egui nativa con streaming en tiempo real
+- [x] **Claude Code Provider** — subprocess NDJSON, modo auto/chat, root detection
+- [x] **GDEM Architecture** — 10-layer Goal-Driven Execution Machine (127 tests)
+- [x] **Synthesis Hardening** — 5 vulnerabilidades V1-V5 corregidas, XML artifact stripping
+- [x] **UTF-8 Safety** — truncación segura por char boundary en segmentos de contexto
+- [x] **Sub-agent Orchestration** — orphan modal fix, clean pill labels, spinner sync
 
 ### Próximas Fases
 - [ ] Fine-tuning integrado (Q2 2026)

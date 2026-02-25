@@ -1,11 +1,16 @@
 mod budget_guards;
 mod convergence_phase;
 mod loop_state;
+// Phase 4: LoopState decomposition scaffolding — additive snapshot types.
+// Future migration will embed these as owned sub-structs inside LoopState.
+mod loop_state_roles;
 mod plan_formatter;
 mod planning_policy;
 mod post_batch;
 mod provider_client;
 mod provider_round;
+// Phase 2: repair engine (feature = "repair-loop", additive only)
+pub(crate) mod repair;
 mod result_assembly;
 mod round_setup;
 
@@ -28,9 +33,9 @@ use tracing::instrument;
 
 use halcon_core::traits::{ExecutionPlan, ModelProvider, Planner, StepOutcome};
 use halcon_core::types::{
-    AgentLimits, ChatMessage, ContentBlock, DomainEvent, EventPayload, MessageContent, ModelChunk,
-    ModelRequest, OrchestratorConfig, Phase14Context, PlanningConfig, Role, RoutingConfig, Session,
-    StopReason, TaskContext, TokenUsage,
+    AgentLimits, ChatMessage, ContentBlock, DEFAULT_CONTEXT_WINDOW_TOKENS, DomainEvent,
+    EventPayload, MessageContent, ModelChunk, ModelRequest, OrchestratorConfig, Phase14Context,
+    PlanningConfig, Role, RoutingConfig, Session, StopReason, TaskContext, TokenUsage,
 };
 use halcon_core::EventSender;
 use halcon_providers::ProviderRegistry;
@@ -289,7 +294,7 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
         .iter()
         .find(|m| m.id == request.model)
         .map(|m| m.context_window)
-        .unwrap_or(64_000); // Conservative fallback — 64K covers most modern providers.
+        .unwrap_or(DEFAULT_CONTEXT_WINDOW_TOKENS); // Conservative fallback — 64K covers most modern providers.
     // 20% output reservation: prevents the model from running out of output budget
     // when input fills the entire context window.
     // mut: Dynamic Budget Reconciliation may shrink this on provider fallback.
@@ -765,11 +770,17 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
 
             // Emit orchestrator wave header and per-task spawn events.
             render_sink.orchestrator_wave(1, 1, task_count);
-            for (i, task) in tasks.iter().enumerate() {
+            for task in tasks.iter() {
+                // Use the same step_idx that task_id_to_step will return for this task
+                // so that sub_agent_completed can find the spawned line (step_index must match).
+                let step_idx = task_id_to_step.get(&task.task_id).copied().unwrap_or(0);
+                // Use agent_type as the label — the raw instruction is verbose and contains
+                // "IMPORTANT: Call the `tool` NOW to..." which leaks into the activity panel.
+                let agent_label = format!("{:?} [{}/{}]", task.agent_type, step_idx, task_count);
                 render_sink.sub_agent_spawned(
-                    i + 1,
+                    step_idx,
                     task_count,
-                    &task.instruction.chars().take(60).collect::<String>(),
+                    &agent_label,
                     &format!("{:?}", task.agent_type),
                 );
             }
@@ -785,6 +796,7 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
                         move |tool: &str,
                               args: &serde_json::Value,
                               risk: &str,
+                              timeout_secs: u64,
                               reply_tx: tokio::sync::mpsc::UnboundedSender<
                             halcon_core::types::PermissionDecision,
                         >| {
@@ -792,6 +804,7 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
                                 tool: tool.to_string(),
                                 args: args.clone(),
                                 risk_level: risk.to_string(),
+                                timeout_secs,
                                 reply_tx: Some(reply_tx),
                             });
                         },
@@ -907,8 +920,13 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
                         let text = match &validation.status {
                             super::subagent_contract_validator::ValidationStatus::Valid => {
                                 // Output is valid — truncate for context budget.
+                                // Use char-boundary-safe truncation: `str::floor_char_boundary`
+                                // (stable since Rust 1.65) finds the largest byte index ≤ 600
+                                // that falls on a valid UTF-8 char boundary, so multi-byte chars
+                                // like '├' (3 bytes) are never split mid-sequence.
                                 if effective_output.len() > 600 {
-                                    format!("{}…", &effective_output[..600])
+                                    let boundary = { let mut _fcb = (600).min(effective_output.len()); while _fcb > 0 && !effective_output.is_char_boundary(_fcb) { _fcb -= 1; } _fcb };
+                                    format!("{}…", &effective_output[..boundary])
                                 } else {
                                     effective_output.clone()
                                 }
@@ -1094,8 +1112,53 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
         }
     }
 
+    // ── Phase 3A: Pre-loop synthesis guard — MUST RUN BEFORE tool directive injection ──
+    //
+    // Root cause (vucem3-qa benchmark + session e2adfb4f analysis):
+    // When all remaining plan steps are synthesis-only, clearing cached_tools ensures
+    // the coordinator API call has tools=[] AND — critically — the tool-mode directives
+    // (AUTONOMOUS_AGENT_DIRECTIVE, TOOL_USAGE_POLICY) are NOT injected into the system
+    // prompt because they are gated on `!cached_tools.is_empty()` below.
+    //
+    // Previously this guard ran AFTER the directive injection (lines 1310–1352 in the
+    // original file), causing the system prompt to instruct the model to "use tools
+    // proactively" even though tools=[] in the API request.  Providers such as
+    // deepseek-chat responded by emitting `<function_calls><invoke>` XML embedded in
+    // end_turn text — never executed, but polluting full_text and causing the LoopCritic
+    // to rate the session at 15% confidence.
+    //
+    // Fix: move this guard FIRST so directive injection sees the final cached_tools state.
+    if let Some(ref tracker) = execution_tracker {
+        let plan = tracker.plan();
+        let has_pending = plan.steps.iter().any(|s| s.outcome.is_none());
+        let all_pending_synthesis = plan.steps.iter()
+            .filter(|s| s.outcome.is_none())
+            .all(|s| s.tool_name.is_none());
+
+        if has_pending && all_pending_synthesis {
+            let removed = cached_tools.len();
+            cached_tools.clear();
+            if removed > 0 {
+                tracing::info!(
+                    removed_tools = removed,
+                    "Pre-loop synthesis guard: all pending steps are synthesis-only — \
+                     clearing coordinator tool list to force pure-text synthesis mode \
+                     (tool directives will NOT be injected into system prompt)"
+                );
+                if !silent {
+                    render_sink.info(&format!(
+                        "[synthesis] coordinator tool list cleared ({} tools removed) — \
+                         all remaining steps are synthesis-only",
+                        removed
+                    ));
+                }
+            }
+        }
+    }
+
     // AUTONOMY FIX: Inject autonomous agent directive to promote proactive behavior.
     // This instructs the model to plan, execute completely, and solve problems autonomously.
+    // INVARIANT: only injected when cached_tools is non-empty (synthesis mode gets no tool directives).
     const AUTONOMOUS_AGENT_DIRECTIVE: &str = "\n\n## Autonomous Agent Behavior\n\
         You are an autonomous coding assistant with planning and execution capabilities.\n\
         \n\
@@ -1114,6 +1177,7 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
     // Phase 33: inject tool usage policy into the system prompt.
     // Instructs the model to converge: prefer fewer tool calls, don't repeat,
     // respond directly once enough information is gathered.
+    // INVARIANT: only injected when cached_tools is non-empty (synthesis mode gets no tool directives).
     const TOOL_USAGE_POLICY: &str = "\n\n## Tool Usage Policy\n\
         - Only call tools when you need NEW information you don't already have.\n\
         - After gathering data with tools, respond directly to the user.\n\
@@ -1237,7 +1301,18 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
         // ConvergenceController and the outer loop share a single source of truth for max rounds.
         super::convergence_controller::ConvergenceController::new(&task_analysis, &user_msg)
     };
-    conv_ctrl.cap_max_rounds(ctx.limits.max_rounds);
+    // For sub-agents: cap to min(profile_limit=6, parent_limits.max_rounds).
+    // For top-level agents: honor user config as the authoritative max_rounds.
+    //   The IntentProfile's suggestion (e.g. 4 for Simple tasks) is an internal
+    //   convergence hint — the stagnation/coverage checks will still trigger early
+    //   synthesis when appropriate. But a "Simple"-classified task like
+    //   "inicia el proceso de implementacion" must NOT be hard-capped at 4 rounds
+    //   when the user explicitly configured max_rounds = 40.
+    if ctx.is_sub_agent {
+        conv_ctrl.cap_max_rounds(ctx.limits.max_rounds);
+    } else {
+        conv_ctrl.set_max_rounds(ctx.limits.max_rounds);
+    }
 
     // Phase L fix B6+B3: Enforce budget invariant — max_rounds must cover all plan steps.
     // Called AFTER plan creation (active_plan is set) and AFTER conv_ctrl is created.
@@ -1257,7 +1332,9 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
                     "Phase L K5-1: expanding effective_max_rounds to satisfy budget invariant"
                 );
                 effective_max_rounds = required;
-                conv_ctrl.cap_max_rounds(effective_max_rounds);
+                // Use set_max_rounds (not cap) so the K5-1 expansion can exceed the
+                // initial config value when the plan genuinely requires more rounds.
+                conv_ctrl.set_max_rounds(effective_max_rounds);
             }
         }
     }
@@ -1294,50 +1371,6 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
     let mut environment_error_halt = false;
     // Track the model used in the last agent round for post-loop quality recording (Phase 4).
     let mut last_round_model_name = request.model.clone();
-
-    // FIX: Pre-loop synthesis guard — clear all tools when only synthesis steps remain.
-    //
-    // Root cause (vucem3-qa benchmark): after sub-agents completed list_directory + grep,
-    // the coordinator's Round 1 had ALL tools available. deepseek-chat, instead of
-    // synthesizing the sub-agent results directly, output a `<halcon::tool_call>` XML
-    // fragment embedded in `end_turn` text (stop_reason=end_turn, NOT tool_use).
-    // This text tool call is never executed — it is only rendered as text in the TUI
-    // activity panel — causing the synthesis step to remain Pending and the session to
-    // end at 2/3 plan steps completed.
-    //
-    // fix_post_batch already applies set_force_next() AFTER round 1, but that is too late.
-    // The synthesis step fires in round 1 (the first and only coordinator round), so we
-    // must strip tools PRE-LOOP before LoopState.cached_tools is populated.
-    //
-    // By clearing cached_tools here, the coordinator makes its API call with tools=[]
-    // and is forced into pure text-synthesis mode — cannot produce XML tool calls even
-    // if the model hallucinates, because there are no tool definitions to reference.
-    if let Some(ref tracker) = execution_tracker {
-        let plan = tracker.plan();
-        let has_pending = plan.steps.iter().any(|s| s.outcome.is_none());
-        let all_pending_synthesis = plan.steps.iter()
-            .filter(|s| s.outcome.is_none())
-            .all(|s| s.tool_name.is_none());
-
-        if has_pending && all_pending_synthesis {
-            let removed = cached_tools.len();
-            cached_tools.clear();
-            if removed > 0 {
-                tracing::info!(
-                    removed_tools = removed,
-                    "Pre-loop synthesis guard: all pending steps are synthesis-only — \
-                     clearing coordinator tool list to force pure-text synthesis mode"
-                );
-                if !silent {
-                    render_sink.info(&format!(
-                        "[synthesis] coordinator tool list cleared ({} tools removed) — \
-                         all remaining steps are synthesis-only",
-                        removed
-                    ));
-                }
-            }
-        }
-    }
 
     // ── Bundle all owned mutable state into LoopState ─────────────────────
     // From here, the loop and post-loop sections access owned state via `state.xxx`.

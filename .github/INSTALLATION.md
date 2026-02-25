@@ -4,14 +4,14 @@ Guía de referencia rápida de todos los métodos de instalación disponibles.
 
 ---
 
-## 📦 Método 1: Binarios Precompilados (Recomendado)
+## 📦 Método 1: Script de Instalación (Recomendado)
 
 **⏱️ Tiempo: ~10 segundos**
 
 ### Linux / macOS
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/cuervo-ai/cuervo-cli/main/scripts/install-binary.sh | sh
+curl -sSfL https://cli.cuervo.cloud/install.sh | sh
 ```
 
 **Lo que hace:**
@@ -24,26 +24,36 @@ curl -fsSL https://raw.githubusercontent.com/cuervo-ai/cuervo-cli/main/scripts/i
 ### Windows (PowerShell)
 
 ```powershell
-iwr -useb https://raw.githubusercontent.com/cuervo-ai/cuervo-cli/main/scripts/install-binary.ps1 | iex
+iwr -useb https://cli.cuervo.cloud/install.ps1 | iex
 ```
 
 **Lo que hace:**
-- ✅ Detecta arquitectura (x64/x86)
+- ✅ Detecta arquitectura (x64/ARM64)
 - ✅ Descarga el ZIP correcto
-- ✅ Verifica checksum
-- ✅ Instala en `%USERPROFILE%\.local\bin\cuervo.exe`
+- ✅ Verifica checksum SHA256
+- ✅ Instala en `%LOCALAPPDATA%\halcon\bin\halcon.exe`
 - ✅ Configura PATH en variables de entorno de usuario
+
+### Instalar versión específica
+
+```bash
+# Unix — versión específica
+curl -sSfL https://cli.cuervo.cloud/install.sh | sh -s -- --version v0.3.0
+
+# Windows — versión específica
+& ([scriptblock]::Create((iwr -useb https://cli.cuervo.cloud/install.ps1))) -Version v0.3.0
+```
 
 ### Personalizar directorio de instalación
 
 ```bash
 # Unix
-export CUERVO_INSTALL_DIR="$HOME/bin"
-curl -fsSL https://raw.githubusercontent.com/cuervo-ai/cuervo-cli/main/scripts/install-binary.sh | sh
+export HALCON_INSTALL_DIR="$HOME/bin"
+curl -sSfL https://cli.cuervo.cloud/install.sh | sh
 
 # Windows
-$env:CUERVO_INSTALL_DIR = "C:\Tools"
-iwr -useb https://raw.githubusercontent.com/cuervo-ai/cuervo-cli/main/scripts/install-binary.ps1 | iex
+$env:InstallDir = "C:\Tools\halcon\bin"
+iwr -useb https://cli.cuervo.cloud/install.ps1 | iex
 ```
 
 ---
@@ -63,10 +73,10 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 ```bash
 # Desde el repositorio Git (recomendado)
-cargo install --git https://github.com/cuervo-ai/cuervo-cli --features tui --locked
+cargo install --git https://github.com/cuervo-ai/halcon-cli halcon-cli
 
-# Desde crates.io (cuando esté publicado)
-cargo install cuervo-cli --features tui
+# Con todas las features
+cargo install --git https://github.com/cuervo-ai/halcon-cli halcon-cli --features tui --locked
 ```
 
 **Ventajas:**
@@ -95,7 +105,7 @@ cargo install cargo-binstall
 ### Instalación
 
 ```bash
-cargo binstall cuervo-cli
+cargo binstall halcon-cli
 ```
 
 **Ventajas:**
@@ -111,44 +121,46 @@ cargo binstall cuervo-cli
 
 ### Pasos
 
-1. **Descarga** desde [GitHub Releases](https://github.com/cuervo-ai/cuervo-cli/releases/latest)
+1. **Descarga** desde [GitHub Releases](https://github.com/cuervo-ai/halcon-cli/releases/latest)
 
 2. **Selecciona tu plataforma:**
-   - `cuervo-x86_64-unknown-linux-gnu.tar.gz` (Linux x64 glibc)
-   - `cuervo-x86_64-unknown-linux-musl.tar.gz` (Linux x64 musl/Alpine)
-   - `cuervo-aarch64-unknown-linux-gnu.tar.gz` (Linux ARM64)
-   - `cuervo-x86_64-apple-darwin.tar.gz` (macOS Intel)
-   - `cuervo-aarch64-apple-darwin.tar.gz` (macOS M1/M2/M3/M4)
-   - `cuervo-x86_64-pc-windows-msvc.zip` (Windows x64)
+   - `halcon-x86_64-unknown-linux-gnu.tar.gz` (Linux x64 glibc)
+   - `halcon-x86_64-unknown-linux-musl.tar.gz` (Linux x64 musl/Alpine)
+   - `halcon-aarch64-unknown-linux-gnu.tar.gz` (Linux ARM64)
+   - `halcon-x86_64-apple-darwin.tar.gz` (macOS Intel)
+   - `halcon-aarch64-apple-darwin.tar.gz` (macOS M1/M2/M3/M4)
+   - `halcon-x86_64-pc-windows-msvc.zip` (Windows x64)
 
-3. **Descarga el checksum** (archivo `.sha256`)
-
-4. **Verifica:**
+3. **Verifica checksum:**
    ```bash
    # Linux/macOS
-   sha256sum -c cuervo-*.tar.gz.sha256
+   curl -sSfL https://releases.cli.cuervo.cloud/latest/checksums.txt | \
+     grep halcon-*.tar.gz | sha256sum -c
 
    # Windows (PowerShell)
-   (Get-FileHash cuervo-*.zip).Hash -eq (Get-Content cuervo-*.zip.sha256).Split()[0]
+   $hash = (Get-FileHash halcon-*.zip -Algorithm SHA256).Hash.ToLower()
+   $expected = (Invoke-RestMethod https://releases.cli.cuervo.cloud/latest/checksums.txt) |
+     Select-String "halcon-.*\.zip" | ForEach-Object { ($_ -split '\s+')[0] }
+   $hash -eq $expected
    ```
 
-5. **Extrae:**
+4. **Extrae:**
    ```bash
    # Linux/macOS
-   tar xzf cuervo-*.tar.gz
+   tar xzf halcon-*.tar.gz
 
    # Windows
-   Expand-Archive cuervo-*.zip
+   Expand-Archive halcon-*.zip
    ```
 
-6. **Instala:**
+5. **Instala:**
    ```bash
    # Linux/macOS
-   mv cuervo ~/.local/bin/
-   chmod +x ~/.local/bin/halcon
+   chmod +x halcon
+   mv halcon ~/.local/bin/
 
    # Windows
-   move cuervo.exe %USERPROFILE%\.local\bin\
+   move halcon.exe %LOCALAPPDATA%\halcon\bin\
    ```
 
 ---
@@ -161,8 +173,8 @@ cargo binstall cuervo-cli
 
 ```bash
 # Clonar repositorio
-git clone https://github.com/cuervo-ai/cuervo-cli.git
-cd cuervo-cli
+git clone https://github.com/cuervo-ai/halcon-cli.git
+cd halcon-cli
 
 # Compilar (debug - rápido)
 cargo build --features tui
@@ -174,7 +186,7 @@ cargo build --release --features tui
 cargo run --features tui -- --help
 
 # Instalar desde código local
-cargo install --path crates/cuervo-cli --features tui
+cargo install --path crates/halcon-cli --features tui
 ```
 
 ---
@@ -187,11 +199,11 @@ cargo install --path crates/cuervo-cli --features tui
 FROM ubuntu:22.04
 
 RUN apt-get update && apt-get install -y curl ca-certificates && \
-    curl -fsSL https://raw.githubusercontent.com/cuervo-ai/cuervo-cli/main/scripts/install-binary.sh | sh
+    curl -sSfL https://cli.cuervo.cloud/install.sh | sh
 
 ENV PATH="/root/.local/bin:${PATH}"
 
-RUN cuervo --version
+RUN halcon --version
 ```
 
 ### GitHub Actions
@@ -200,21 +212,21 @@ RUN cuervo --version
 steps:
   - name: Install Halcon CLI
     run: |
-      curl -fsSL https://raw.githubusercontent.com/cuervo-ai/cuervo-cli/main/scripts/install-binary.sh | sh
+      curl -sSfL https://cli.cuervo.cloud/install.sh | sh
       echo "$HOME/.local/bin" >> $GITHUB_PATH
 
   - name: Verify
-    run: cuervo --version
+    run: halcon --version
 ```
 
 ### GitLab CI
 
 ```yaml
-install_cuervo:
+install_halcon:
   script:
-    - curl -fsSL https://raw.githubusercontent.com/cuervo-ai/cuervo-cli/main/scripts/install-binary.sh | sh
+    - curl -sSfL https://cli.cuervo.cloud/install.sh | sh
     - export PATH="$HOME/.local/bin:$PATH"
-    - cuervo --version
+    - halcon --version
 ```
 
 ---
@@ -223,71 +235,69 @@ install_cuervo:
 
 ```bash
 # Verificar versión
-cuervo --version
+halcon --version
 
 # Ejecutar diagnósticos
-cuervo doctor
+halcon doctor
 
 # Mostrar ayuda
-cuervo --help
+halcon --help
 ```
 
 ---
 
 ## 🔄 Actualización
 
-### Binarios Precompilados
-
-Re-ejecuta el instalador:
+### Script de instalación (sobrescribe binario existente)
 
 ```bash
 # Linux/macOS
-curl -fsSL https://raw.githubusercontent.com/cuervo-ai/cuervo-cli/main/scripts/install-binary.sh | sh
+curl -sSfL https://cli.cuervo.cloud/install.sh | sh
 
 # Windows
-iwr -useb https://raw.githubusercontent.com/cuervo-ai/cuervo-cli/main/scripts/install-binary.ps1 | iex
+iwr -useb https://cli.cuervo.cloud/install.ps1 | iex
 ```
 
 ### cargo install
 
 ```bash
-cargo install --git https://github.com/cuervo-ai/cuervo-cli --features tui --force
+cargo install --git https://github.com/cuervo-ai/halcon-cli halcon-cli --force
 ```
 
 ---
 
 ## 🗑️ Desinstalación
 
-### Binarios
+### Binario
 
 ```bash
 # Linux/macOS
 rm ~/.local/bin/halcon
-rm -rf ~/.cuervo  # Opcional: elimina config y datos
+rm -rf ~/.halcon  # Opcional: elimina config y datos
 
-# Windows
-Remove-Item "$env:USERPROFILE\.local\bin\cuervo.exe"
-Remove-Item -Recurse "$env:USERPROFILE\.cuervo"  # Opcional
+# Windows (PowerShell)
+Remove-Item "$env:LOCALAPPDATA\halcon\bin\halcon.exe"
+Remove-Item -Recurse "$env:LOCALAPPDATA\halcon"  # Opcional
 ```
 
 ### cargo install
 
 ```bash
-cargo uninstall cuervo-cli
-rm -rf ~/.cuervo  # Opcional
+cargo uninstall halcon-cli
+rm -rf ~/.halcon  # Opcional
 ```
 
 ---
 
 ## 🆘 Troubleshooting
 
-### "Command not found: cuervo"
+### "Command not found: halcon"
 
 ```bash
 # Verificar que existe
 ls ~/.local/bin/halcon
 
-# Añadir a PATH
+# Añadir a PATH (bash/zsh)
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
 source ~/.bashrc
 ```
@@ -301,11 +311,11 @@ chmod +x ~/.local/bin/halcon
 ### Checksum verification fails
 
 ```bash
-# Re-descargar
-curl -fsSL https://raw.githubusercontent.com/cuervo-ai/cuervo-cli/main/scripts/install-binary.sh | sh
+# Re-descargar (script siempre obtiene la versión más reciente)
+curl -sSfL https://cli.cuervo.cloud/install.sh | sh
 
-# O instalar desde cargo
-cargo install --git https://github.com/cuervo-ai/cuervo-cli --features tui
+# O instalar desde código fuente
+cargo install --git https://github.com/cuervo-ai/halcon-cli halcon-cli
 ```
 
 ---
@@ -314,20 +324,11 @@ cargo install --git https://github.com/cuervo-ai/cuervo-cli --features tui
 
 | Método | Tiempo | Requisitos | Ventaja Principal |
 |--------|--------|------------|-------------------|
-| **Binario precompilado** | ~10s | curl/wget | ✅ Más rápido |
+| **Script de instalación** | ~10s | curl/wget | ✅ Más rápido |
 | **cargo-binstall** | ~15s | Rust + cargo-binstall | Integrado con cargo |
 | **cargo install** | ~2-5min | Rust | Siempre actualizado |
 | **Manual** | ~2min | Ninguno | Control total |
 | **Desde código** | ~5-10min | Rust + Git | Desarrollo |
-
----
-
-## 📚 Documentación Adicional
-
-- **[Guía de Inicio Rápido](../QUICKSTART.md)** - Tutorial paso a paso
-- **[Guía de Instalación Completa](../INSTALL.md)** - Detalles y troubleshooting
-- **[Ejemplos de Instalación](../docs/INSTALLATION_EXAMPLES.md)** - Salidas esperadas
-- **[Guía de Releases](../RELEASE.md)** - Para mantenedores
 
 ---
 
@@ -344,6 +345,6 @@ cargo install --git https://github.com/cuervo-ai/cuervo-cli --features tui
 
 ---
 
-**Última actualización:** 2026-02-14
+**Última actualización:** 2026-02-23
 
-**¿Problemas?** Abre un [issue](https://github.com/cuervo-ai/cuervo-cli/issues) o consulta la [documentación completa](../INSTALL.md).
+**¿Problemas?** Abre un [issue](https://github.com/cuervo-ai/halcon-cli/issues) o visita la [documentación](https://halcon.cuervo.cloud/docs).

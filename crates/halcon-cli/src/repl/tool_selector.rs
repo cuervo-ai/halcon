@@ -29,25 +29,61 @@ pub(crate) enum TaskIntent {
 /// Core tools that are always included regardless of intent.
 const CORE_TOOLS: &[&str] = &["file_read", "bash", "grep"];
 
+/// Message prefixes that indicate a pure conversational exchange (no task tools needed).
+/// Only matched when the message is ≤ 8 words AND starts with one of these.
+const GREETING_PREFIXES: &[&str] = &[
+    "hello", "hi ", "hey ", "hola", "buenos", "buenas", "good morning", "good afternoon",
+    "thanks", "thank you", "gracias", "ok ", "okay", "sure", "yes", "no ",
+    "what is your", "what are you", "quién eres", "qué eres",
+    "how are you", "cómo estás",
+];
+
 /// Keywords that signal each intent category.
 const FILE_KEYWORDS: &[&str] = &[
     "read", "write", "edit", "create file", "delete file", "list files",
     "directory", "tree", "inspect", "file",
+    // Analysis / exploration (en+es) — project/codebase investigation tasks
+    "analyze", "analiza", "analysis", "análisis",
+    "explore", "explora", "explorar",
+    "examine", "examina", "examinar",
+    "review", "revisa", "revisar",
+    "show", "muestra", "muéstrame",
+    "project", "proyecto",
+    "codebase", "código", "repository", "repositorio",
+    "structure", "estructura",
+    "check", "verifica",
+    "open", "abre",
+    "what is", "qué es", "qué hay",
+    "list", "lista",
+    "contents", "contenido",
 ];
 const EXEC_KEYWORDS: &[&str] = &[
     "run", "execute", "compile", "test", "build", "script", "command",
     "install", "npm", "cargo", "make",
+    // Spanish execution keywords
+    "ejecuta", "ejecutar", "compila", "prueba",
+    "instala",
 ];
 const SEARCH_KEYWORDS: &[&str] = &[
     "find", "search", "grep", "look for", "where is", "locate", "symbol",
+    // Broader discovery — the most common cause of agent path failures
+    "where", "donde", "donde está", "dónde",
+    "busca", "buscar", "encuentra", "encontrar",
+    "which", "cuál",
+    "discover", "descubre",
+    "path", "ruta", "ubicación", "location",
 ];
 const GIT_KEYWORDS: &[&str] = &[
     "commit", "diff", "status", "log", "branch", "push", "pull", "merge",
     "git", "staged",
+    // Spanish git terms
+    "rama", "historial", "cambios",
 ];
 const WEB_KEYWORDS: &[&str] = &[
     "fetch", "download", "url", "web", "http", "api call", "request",
     "search", "find online", "look up", "index", "crawl",
+    // Spanish web terms
+    "descarga", "busca en internet", "busca online",
 ];
 
 /// Tool names associated with each intent.
@@ -132,9 +168,21 @@ impl ToolSelector {
 
         match intent_count {
             0 => {
-                // Short messages with no tool keywords → conversational.
-                if user_message.split_whitespace().count() < 30 {
+                // Classify as Conversational only for true greetings/short Q&A.
+                // Heuristic: ≤ 8 words AND starts with a greeting or question word
+                // (no actionable task implied). Anything longer → Mixed (send all tools)
+                // so the model can decide whether tools are needed.
+                let word_count = user_message.split_whitespace().count();
+                let is_greeting = GREETING_PREFIXES
+                    .iter()
+                    .any(|g| lower.starts_with(g));
+                if word_count <= 8 && is_greeting {
                     TaskIntent::Conversational
+                } else if word_count < 30 {
+                    // Short but not a greeting → could be an implicit task (e.g.,
+                    // "analyze mon-key", "show me the structure"). Use Mixed so the
+                    // model receives all tools and can decide what to call.
+                    TaskIntent::Mixed
                 } else {
                     TaskIntent::Mixed
                 }

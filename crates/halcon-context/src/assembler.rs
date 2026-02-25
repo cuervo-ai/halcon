@@ -68,16 +68,22 @@ pub fn chunks_to_system_prompt(chunks: &[ContextChunk]) -> String {
 
 /// Estimate token count for a string.
 ///
-/// Simple heuristic: ~4 characters per token (English text average).
+/// Simple heuristic: ~4 Unicode characters per token (English text average).
 /// Good enough for budgeting; exact counting requires a tokenizer.
+///
+/// Uses `chars().count()` — Unicode scalar values — instead of `.len()` (bytes).
+/// This prevents CJK text (3 bytes/char) and emoji (4 bytes/char) from inflating
+/// token estimates by 3–4× compared to their actual token cost.
 pub fn estimate_tokens(text: &str) -> usize {
-    text.len().div_ceil(4)
+    text.chars().count().div_ceil(4)
 }
 
 /// Estimate token count calibrated to a specific provider's BPE density.
 ///
 /// Anthropic Claude uses a denser BPE (~3.5 chars/token) than OpenAI (~4.0)
 /// or DeepSeek (~4.2). Use this when provider is known to avoid over/under-budgeting.
+///
+/// Uses `chars().count()` — Unicode scalar values — instead of `.len()` (bytes).
 pub fn estimate_tokens_for_provider(content: &str, provider: &str) -> usize {
     let chars_per_token: f32 = match provider {
         "anthropic" => 3.5,
@@ -85,7 +91,7 @@ pub fn estimate_tokens_for_provider(content: &str, provider: &str) -> usize {
         "openai" | "openai_compat" => 4.0,
         _ => 4.0, // safe default
     };
-    ((content.len() as f32) / chars_per_token).ceil() as usize
+    ((content.chars().count() as f32) / chars_per_token).ceil() as usize
 }
 
 #[cfg(test)]
@@ -277,5 +283,70 @@ mod tests {
         // ~100 chars → ~25 tokens
         let text = "a".repeat(100);
         assert_eq!(estimate_tokens(&text), 25);
+    }
+
+    // ── UTF-8 accuracy tests ──────────────────────────────────────────────────
+
+    /// CJK chars are 3 bytes each. Using .len()/4 would give 3× too many tokens.
+    /// estimate_tokens must use chars().count() to count Unicode scalars, not bytes.
+    #[test]
+    fn estimate_tokens_cjk_uses_char_count_not_byte_count() {
+        // "日本語" = 3 chars = 9 bytes
+        // Correct: ceil(3/4) = 1 token
+        // Wrong (byte-based): ceil(9/4) = 3 tokens
+        assert_eq!(estimate_tokens("日本語"), 1,
+            "CJK: 3 chars should give 1 token, not 3 (byte-based)");
+
+        // 4 CJK chars = ceil(4/4) = 1 token
+        assert_eq!(estimate_tokens("こんにちは"), 2,
+            "5 CJK chars: ceil(5/4) = 2 tokens");
+
+        // 100 CJK chars = 25 tokens (same as 100 ASCII chars)
+        let cjk_100 = "字".repeat(100);
+        assert_eq!(estimate_tokens(&cjk_100), 25,
+            "100 CJK chars should estimate same as 100 ASCII chars");
+    }
+
+    /// Emoji are 4 bytes each. Using .len()/4 would give 4× too many tokens.
+    #[test]
+    fn estimate_tokens_emoji_uses_char_count_not_byte_count() {
+        // "🦀" = 1 char = 4 bytes
+        // Correct: ceil(1/4) = 1 token
+        // Wrong (byte-based): ceil(4/4) = 1 token (coincidentally same for exactly 1)
+        assert_eq!(estimate_tokens("🦀"), 1);
+
+        // 5 emoji = 5 chars = 20 bytes
+        // Correct: ceil(5/4) = 2 tokens
+        // Wrong (byte-based): ceil(20/4) = 5 tokens
+        let emoji5 = "🦀🚀🎉💻🌍";
+        assert_eq!(estimate_tokens(emoji5), 2,
+            "5 emoji = ceil(5/4) = 2 tokens, not 5 (byte-based)");
+
+        // 100 emoji = 25 tokens
+        let emoji100: String = "🚀".repeat(100);
+        assert_eq!(estimate_tokens(&emoji100), 25,
+            "100 emoji should estimate same as 100 ASCII chars");
+    }
+
+    /// Mixed content: ASCII + CJK + emoji should count by chars not bytes.
+    #[test]
+    fn estimate_tokens_mixed_unicode() {
+        // "Hi 日🦀" = 5 chars (H, i, space, 日, 🦀) = ceil(5/4) = 2 tokens
+        // byte-based: 1+1+1+3+4 = 10 bytes → ceil(10/4) = 3 tokens (wrong)
+        let mixed = "Hi 日🦀";
+        assert_eq!(estimate_tokens(mixed), 2,
+            "5 mixed chars should give 2 tokens");
+    }
+
+    /// provider-calibrated estimator must also use char count, not byte count.
+    #[test]
+    fn estimate_tokens_for_provider_cjk() {
+        // 14 CJK chars, anthropic rate 3.5 chars/token → ceil(14/3.5) = 4 tokens
+        // byte-based: 42 bytes / 3.5 → 12 tokens (wrong — 3× inflated)
+        let cjk = "これはテストです。"; // 9 chars = 27 bytes
+        let tokens = estimate_tokens_for_provider(cjk, "anthropic");
+        // 9 chars / 3.5 = 2.57 → ceil = 3 tokens
+        assert_eq!(tokens, 3,
+            "9 CJK chars at 3.5/token = 3 tokens (not 8 which byte-based gives)");
     }
 }

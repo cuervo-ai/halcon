@@ -37,16 +37,18 @@ impl PermissionModal {
 
     /// Render the permission modal.
     ///
-    /// Modal is centered at 60% width, 50% height with momoto-backed colors.
+    /// Modal is centered at 60% width, 55% height with momoto-backed colors.
     ///
     /// # Arguments
     /// * `show_advanced` - Whether to show advanced permission options (AlwaysThisTool, ThisDirectory, etc.)
-    pub fn render(&self, frame: &mut Frame, area: Rect, show_advanced: bool) {
+    /// * `remaining_secs` - Countdown remaining (None = no deadline set).
+    /// * `total_secs` - Total countdown duration for progress bar fraction.
+    pub fn render(&self, frame: &mut Frame, area: Rect, show_advanced: bool, remaining_secs: Option<u64>, total_secs: u64) {
         let p = &theme::active().palette;
         let risk_color = self.context.risk_level.color(p);
 
-        // Centered modal (60% width, 50% height)
-        let rect = centered_rect(area, 60, 50);
+        // Centered modal (60% width, 55% height — extra row for countdown bar)
+        let rect = centered_rect(area, 60, 55);
         frame.render_widget(Clear, rect);
 
         // Build content with momoto colors
@@ -219,6 +221,20 @@ impl PermissionModal {
                     .add_modifier(Modifier::ITALIC),
             )));
         }
+
+        // Static pause indicator — agent is blocked waiting for user decision.
+        // No countdown: user has unlimited time to review and decide.
+        let _ = (remaining_secs, total_secs); // fields retained in struct for API compatibility
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled("⏸  ", Style::default().fg(p.warning_ratatui())),
+            Span::styled(
+                "Agent paused — approve or deny to continue",
+                Style::default()
+                    .fg(p.warning_ratatui())
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]));
 
         let modal = Paragraph::new(lines)
             .block(

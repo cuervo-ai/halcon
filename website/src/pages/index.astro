@@ -120,7 +120,7 @@ const providers = [
                class="inline-flex items-center gap-2 px-3.5 py-1.5 mb-7 rounded-full border font-mono text-xs font-medium"
                style="border-color:rgba(232,82,0,0.30);background:rgba(232,82,0,0.07);color:var(--c-gold);animation:badge-breathe 3.6s ease-in-out infinite;">
             <span style="width:6px;height:6px;border-radius:50%;background:var(--c-p);animation:live-pulse 2.3s ease-in-out infinite;display:inline-block;"></span>
-            v0.2.0
+            v0.3.0
             <span style="font-size:10px;padding:1px 6px;border-radius:4px;background:rgba(245,160,0,0.09);color:var(--c-t3);">stable</span>
           </div>
 
@@ -150,7 +150,7 @@ const providers = [
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
                       d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
               </svg>
-              Download v0.2.0
+              Download v0.3.0
             </a>
             <a href="/docs" class="btn-outline" style="padding:0.875rem 1.75rem;font-size:0.9375rem;">
               Read the docs
@@ -164,11 +164,11 @@ const providers = [
           <div data-reveal data-delay="4" class="max-w-lg mx-auto lg:mx-0">
             <div class="flex gap-1 mb-2" role="tablist" aria-label="Install method">
               <button class="install-tab active" role="tab" aria-selected="true"
-                      data-cmd="curl -sSfL cuervo.cloud/install.sh | sh" data-label="bash">curl</button>
+                      data-cmd="curl -sSfL https://cli.cuervo.cloud/install.sh | sh" data-label="bash">curl</button>
               <button class="install-tab" role="tab" aria-selected="false"
-                      data-cmd="brew install cuervo-ai/tap/cuervo" data-label="brew">brew</button>
+                      data-cmd="brew tap cuervo-ai/tap &amp;&amp; brew install halcon" data-label="brew">brew</button>
               <button class="install-tab" role="tab" aria-selected="false"
-                      data-cmd="cargo install cuervo-cli" data-label="cargo">cargo</button>
+                      data-cmd="cargo install --git https://github.com/cuervo-ai/halcon-cli halcon-cli" data-label="cargo">cargo</button>
             </div>
             <div class="glass rounded-xl overflow-hidden text-left" style="border-color:rgba(232,82,0,0.14);">
               <div class="flex items-center justify-between px-4 py-2 border-b"
@@ -184,7 +184,7 @@ const providers = [
                    style="color:var(--c-p);">
                 <div>
                   <span style="color:var(--c-t4);">$ </span>
-                  <span id="hero-cmd-text">curl -sSfL cuervo.cloud/install.sh | sh</span>
+                  <span id="hero-cmd-text">curl -sSfL https://cli.cuervo.cloud/install.sh | sh</span>
                 </div>
                 <button id="hero-copy-btn" title="Copy"
                         class="flex-shrink-0 p-1.5 rounded transition-colors"
@@ -206,7 +206,7 @@ const providers = [
           <!-- Trust row -->
           <div data-reveal data-delay="5" class="flex items-center justify-center lg:justify-start gap-x-3 gap-y-1 mt-7 flex-wrap"
                aria-label="Platform support">
-            <span class="font-mono text-xs font-semibold" style="color:var(--c-p);">v0.2.0</span>
+            <span class="font-mono text-xs font-semibold" style="color:var(--c-p);">v0.3.0</span>
             <span style="color:var(--c-t4);" aria-hidden="true">·</span>
             <span class="text-xs" style="color:var(--c-t3);">macOS</span>
             <span style="color:var(--c-t4);" aria-hidden="true">·</span>
@@ -420,8 +420,8 @@ const providers = [
           <div class="bento-preview">
             <div><span class="bm">╌╌ R2</span></div>
             <div><span class="bg">▸</span> <span class="bt">Read project structure</span></div>
-            <div><span class="bp">⟳</span> <span class="bt">directory_tree</span> <span class="bm">cuervo-cli/</span></div>
-            <div><span class="be">✓</span> <span class="bm">14 crates · 2.3s</span></div>
+            <div><span class="bp">⟳</span> <span class="bt">directory_tree</span> <span class="bm">halcon-cli/</span></div>
+            <div><span class="be">✓</span> <span class="bm">20 crates · 2.3s</span></div>
             <div><span class="bp">⟳</span> <span class="bt">file_read</span> <span class="bm">src/main.rs</span></div>
             <div><span class="be">✓</span> <span class="bp">grep</span> <span class="bm">"fn main" · 0.4s</span></div>
             <div class="mt-1"><span class="bg">◆</span> <span class="bt">Found entry point at line 42…</span></div>
@@ -764,7 +764,7 @@ const providers = [
             n: '1',
             title: t(lang, 'qs.step1'),
             note: t(lang, 'qs.step1_note'),
-            code: 'curl -sSfL cuervo.cloud/install.sh | sh',
+            code: 'curl -sSfL https://cli.cuervo.cloud/install.sh | sh',
           },
           {
             n: '2',
@@ -847,7 +847,7 @@ const providers = [
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
                   d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
           </svg>
-          Download v0.2.0
+          Download v0.3.0
         </a>
         <a href="/docs" class="btn-outline cta-btn-lg">
           Read the docs
@@ -862,7 +862,7 @@ const providers = [
            class="inline-flex items-center gap-3 px-5 py-3 rounded-xl font-mono text-sm"
            style="background:rgba(7,4,1,0.82);border:1px solid rgba(200,80,0,0.16);backdrop-filter:blur(16px);">
         <span style="color:var(--c-t4);">$</span>
-        <span style="color:var(--c-p);">curl -sSfL cuervo.cloud/install.sh | sh</span>
+        <span style="color:var(--c-p);">curl -sSfL https://cli.cuervo.cloud/install.sh | sh</span>
       </div>
 
       <!-- Trust marks -->
@@ -1425,9 +1425,7 @@ const providers = [
     if (!btn) return;
     btn.addEventListener('click', async () => {
       const raw = document.getElementById('hero-cmd-text')?.textContent || '';
-      const text = raw.includes('cuervo.cloud')
-        ? 'curl -sSfL https://cuervo.cloud/install.sh | sh'
-        : raw;
+      const text = raw;
       try {
         await navigator.clipboard.writeText(text);
         const svg = btn.querySelector('svg');

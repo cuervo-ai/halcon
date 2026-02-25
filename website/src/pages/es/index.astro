@@ -98,7 +98,7 @@ const features = [
       <div class="inline-flex items-center gap-2 px-3 py-1.5 mb-8 rounded-full border text-xs font-medium font-mono"
            style="border-color: rgba(232,82,0,0.35); background: rgba(232,82,0,0.08); color: var(--c-gold);">
         <span class="w-1.5 h-1.5 rounded-full animate-pulse" style="background: var(--c-p);"></span>
-        v0.2.0 · macOS · Linux · Windows
+        v0.3.0 · macOS · Linux · Windows
       </div>
 
       <h1 class="text-5xl sm:text-6xl md:text-7xl font-black leading-none tracking-tight mb-6 font-display">
@@ -142,7 +142,7 @@ const features = [
             <span class="text-xs font-mono" style="color: var(--c-t4);">bash</span>
           </div>
           <div class="px-4 py-3.5 font-mono text-sm" style="color: var(--c-p);">
-            <span style="color: var(--c-t4);">$ </span>curl -sSfL cuervo.cloud/install.sh | sh
+            <span style="color: var(--c-t4);">$ </span>curl -sSfL https://cli.cuervo.cloud/install.sh | sh
           </div>
         </div>
         <p class="text-xs mt-2 text-center" style="color: var(--c-t4);">Verificado con SHA-256 · sin sudo · instala en ~/.local/bin</p>
@@ -235,7 +235,7 @@ const features = [
       </div>
       <div class="space-y-4">
         {[
-          { n: '1', title: t(lang, 'qs.step1'), note: t(lang, 'qs.step1_note'), code: 'curl -sSfL cuervo.cloud/install.sh | sh' },
+          { n: '1', title: t(lang, 'qs.step1'), note: t(lang, 'qs.step1_note'), code: 'curl -sSfL https://cli.cuervo.cloud/install.sh | sh' },
           { n: '2', title: t(lang, 'qs.step2'), note: t(lang, 'qs.step2_note'), code: 'halcon auth login anthropic' },
           { n: '3', title: t(lang, 'qs.step3'), note: t(lang, 'qs.step3_note'), code: 'halcon chat "Refactoriza mi función de login para usar async/await"' },
         ].map(step => (

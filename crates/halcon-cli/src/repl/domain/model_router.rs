@@ -27,7 +27,7 @@
 
 use std::collections::HashMap;
 
-use halcon_core::types::ModelInfo;
+use halcon_core::types::{ModelInfo, ModelRouterConfig, RoutingTier};
 
 use super::intent_scorer::{IntentProfile, LatencyTolerance, QueryLanguage, ReasoningDepth, TaskScope};
 use super::task_analyzer::TaskType;
@@ -117,13 +117,21 @@ impl ModelRouter {
         }
     }
 
+    /// Build router from a `ModelRouterConfig`.
+    ///
+    /// Preferred constructor — model IDs come from config, no provider baked into source.
+    /// `deepseek_defaults()` is a backward-compatible alias that calls this with
+    /// `ModelRouterConfig::default()`.
+    pub fn from_config(config: &ModelRouterConfig) -> Self {
+        Self::new(&config.fast_model, &config.balanced_model, &config.deep_model)
+    }
+
     /// Build router with DeepSeek defaults (covers most deployments).
     ///
-    /// **Deprecated use**: prefer `from_provider_models()` when provider models are available.
-    /// This constructor is kept for backward compatibility and as the fallback when no
-    /// provider model list is supplied.
+    /// **Deprecated use**: prefer `from_config()` or `from_provider_models()`.
+    /// Kept for backward compatibility — equivalent to `from_config(&ModelRouterConfig::default())`.
     pub fn deepseek_defaults() -> Self {
-        Self::new("deepseek-chat", "deepseek-chat", "deepseek-reasoner")
+        Self::from_config(&ModelRouterConfig::default())
     }
 
     /// Build a provider-aware router by classifying models from provider metadata.
@@ -164,14 +172,41 @@ impl ModelRouter {
             .map(|m| m.id.clone())
             .unwrap_or_else(|| tool_models[0].id.clone());
 
-        // Balanced tier: tool-capable, non-reasoning, largest context window.
-        // Falls back to any tool-capable model with the largest context window when
-        // no non-reasoning model is available (e.g. provider is reasoning-only).
+        // Balanced tier: tool-capable, non-reasoning, most cost-effective for multi-round tasks.
+        //
+        // Selection strategy: lowest cost_per_output_token among non-reasoning models that
+        // are NOT the fast model, with max_output_tokens as a tiebreaker to prefer the most
+        // capable model at the same price point.
+        //
+        // Rationale: for providers like Anthropic where all models share the same context
+        // window (200k), the previous `max_by_key(context_window)` picked the LAST model
+        // in the list (opus, $75/M) instead of the intended balanced tier (sonnet, $15/M).
+        // The new strategy correctly assigns:
+        //   Anthropic:   haiku=$4 → Fast,  sonnet=$15 → Balanced (lowest non-fast cost)
+        //   OpenAI:      gpt-4o-mini → Fast,  gpt-4o → Balanced
+        //   DeepSeek:    deepseek-chat → Fast,  deepseek-chat → Balanced (only non-reasoning model)
         let balanced_model = tool_models.iter()
-            .filter(|m| !m.supports_reasoning)
-            .max_by_key(|m| m.context_window)
+            .filter(|m| !m.supports_reasoning && m.id != fast_model)
+            .min_by(|a, b| {
+                // Primary: lowest cost (skip Fast-tier price, pick the "value" tier).
+                a.cost_per_output_token
+                    .partial_cmp(&b.cost_per_output_token)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+                    // Secondary: highest max_output_tokens (prefer the most capable at same price).
+                    .then_with(|| b.max_output_tokens.cmp(&a.max_output_tokens))
+            })
             .map(|m| m.id.clone())
             .or_else(|| {
+                // Fallback 1: fast model doubles as balanced when it's the only non-reasoning
+                // tool model (e.g. DeepSeek: deepseek-chat is both Fast and Balanced).
+                tool_models.iter()
+                    .filter(|m| !m.supports_reasoning)
+                    .max_by_key(|m| m.context_window)
+                    .map(|m| m.id.clone())
+            })
+            .or_else(|| {
+                // Fallback 2: any tool-capable model with the largest context window
+                // (reasoning-only providers).
                 tool_models.iter()
                     .max_by_key(|m| m.context_window)
                     .map(|m| m.id.clone())
@@ -230,13 +265,30 @@ impl ModelRouter {
 
     fn build_rules(&self) -> Vec<RoutingRule> {
         vec![
+            // P0 — Spanish task query: always route to Balanced, regardless of scope.
+            //
+            // Spanish-speaking developers typically give short imperative commands ("continua",
+            // "revisa", "implementa") that the IntentScorer classifies as Conversational scope
+            // even though they represent complex multi-step operations.  Without this rule,
+            // P1 (Conversational→Fast=haiku) fires first and routes ALL Spanish task queries to
+            // the cheapest model, degrading quality for the user's entire session.
+            //
+            // Guard: word_count >= 3 so pure greetings ("hola", "ok") still route to Fast via P1.
+            RoutingRule {
+                priority: 0,
+                name: "spanish_task_balanced",
+                matches: |p| p.detected_language == QueryLanguage::Spanish && p.word_count >= 3,
+                tier: ModelTier::Balanced,
+                model_override: Some(RoutingTier::Balanced.as_placeholder()),
+                confidence: 0.80,
+            },
             // P1 — Conversational: always fast, no tools, no planning.
             RoutingRule {
                 priority: 1,
                 name: "conversational_fast",
                 matches: |p| p.scope == TaskScope::Conversational,
                 tier: ModelTier::Fast,
-                model_override: Some("__fast__"),
+                model_override: Some(RoutingTier::Fast.as_placeholder()),
                 confidence: 0.95,
             },
             // P2 — Instant latency required: fast model only.
@@ -245,7 +297,7 @@ impl ModelRouter {
                 name: "instant_latency",
                 matches: |p| p.latency_tolerance == LatencyTolerance::Instant,
                 tier: ModelTier::Fast,
-                model_override: Some("__fast__"),
+                model_override: Some(RoutingTier::Fast.as_placeholder()),
                 confidence: 0.90,
             },
             // P3 — Deep exhaustive reasoning over a SINGLE artifact (chain-of-thought beneficial).
@@ -259,7 +311,7 @@ impl ModelRouter {
                         && p.estimated_tool_calls <= 3
                 },
                 tier: ModelTier::Deep,
-                model_override: Some("__deep__"),
+                model_override: Some(RoutingTier::Deep.as_placeholder()),
                 confidence: 0.80,
             },
             // P4 — Project-wide + exhaustive: balanced model (NOT reasoner — too slow for 12+ rounds).
@@ -268,7 +320,7 @@ impl ModelRouter {
                 name: "project_wide_use_balanced",
                 matches: |p| p.scope >= TaskScope::ProjectWide,
                 tier: ModelTier::Balanced,
-                model_override: Some("__balanced__"),
+                model_override: Some(RoutingTier::Balanced.as_placeholder()),
                 confidence: 0.85,
             },
             // P5 — Spanish query: balanced model (no difference in quality but logs it).
@@ -277,7 +329,7 @@ impl ModelRouter {
                 name: "spanish_query_balanced",
                 matches: |p| p.detected_language == QueryLanguage::Spanish,
                 tier: ModelTier::Balanced,
-                model_override: Some("__balanced__"),
+                model_override: Some(RoutingTier::Balanced.as_placeholder()),
                 confidence: 0.75,
             },
             // P6 — Light analysis / single artifact: balanced is sufficient.
@@ -289,7 +341,7 @@ impl ModelRouter {
                         && p.scope <= TaskScope::SingleArtifact
                 },
                 tier: ModelTier::Balanced,
-                model_override: Some("__balanced__"),
+                model_override: Some(RoutingTier::Balanced.as_placeholder()),
                 confidence: 0.70,
             },
             // P7 — Deep local context: balanced (enough depth without reasoning overhead).
@@ -300,7 +352,7 @@ impl ModelRouter {
                     p.scope == TaskScope::LocalContext && p.reasoning_depth >= ReasoningDepth::Deep
                 },
                 tier: ModelTier::Balanced,
-                model_override: Some("__balanced__"),
+                model_override: Some(RoutingTier::Balanced.as_placeholder()),
                 confidence: 0.70,
             },
             // P8 — Debugging: balanced (tool-heavy, chain-of-thought not helpful per round).
@@ -309,7 +361,7 @@ impl ModelRouter {
                 name: "debugging_balanced",
                 matches: |p| p.task_type == TaskType::Debugging,
                 tier: ModelTier::Balanced,
-                model_override: Some("__balanced__"),
+                model_override: Some(RoutingTier::Balanced.as_placeholder()),
                 confidence: 0.65,
             },
         ]
@@ -405,6 +457,28 @@ mod tests {
         let profile = IntentScorer::score("analiza mi código y revisa los errores");
         let decision = router().route(&profile);
         assert_ne!(decision.tier, ModelTier::Fast);
+    }
+
+    #[test]
+    fn spanish_short_greeting_still_fast() {
+        // Pure greetings (word_count < 3) fall through P0 → P1 (Conversational) → Fast.
+        let profile = IntentScorer::score("hola");
+        let decision = router().route(&profile);
+        // "hola" is conversational scope + word_count=1, does NOT match P0 (word_count >= 3).
+        // P1 (Conversational→Fast) fires instead.
+        assert_eq!(decision.tier, ModelTier::Fast, "short greeting must stay Fast: {}", decision.reason);
+    }
+
+    #[test]
+    fn spanish_task_command_routes_to_balanced_not_fast() {
+        // The key regression: "continua con los proximos 5 pasos" looked Conversational
+        // to the IntentScorer but is a complex task command → must use Balanced, not haiku.
+        let profile = IntentScorer::score("continua con los proximos 5 pasos pendientes");
+        let decision = router().route(&profile);
+        assert_ne!(decision.tier, ModelTier::Fast,
+            "Spanish task command must not route to Fast (haiku); got reason: {}", decision.reason);
+        assert_eq!(decision.tier, ModelTier::Balanced,
+            "Spanish task command must route to Balanced; got reason: {}", decision.reason);
     }
 
     #[test]
@@ -537,15 +611,56 @@ mod tests {
     }
 
     #[test]
-    fn from_provider_models_largest_non_reasoning_is_balanced() {
+    fn from_provider_models_cheapest_non_fast_is_balanced() {
+        // Balanced = lowest cost among non-reasoning models excluding Fast tier.
+        // gpt-4o-mini is Fast (cheapest); gpt-4o is Balanced (next cheapest non-reasoning).
         let models = vec![
             make_model("gpt-4o-mini", 16_000, true, false, 0.0006),
-            make_model("gpt-4o", 128_000, true, false, 0.005),  // largest non-reasoning
+            make_model("gpt-4o", 128_000, true, false, 0.005),
             make_model("o3-mini", 200_000, true, true, 0.011),
         ];
         let r = ModelRouter::from_provider_models(&models);
         assert_eq!(r.balanced_model, "gpt-4o",
-            "largest non-reasoning tool-capable model must be assigned Balanced tier");
+            "lowest-cost non-fast non-reasoning model must be assigned Balanced tier");
+    }
+
+    #[test]
+    fn from_provider_models_anthropic_balanced_is_sonnet_not_opus() {
+        // The key regression test: for Anthropic-style models (all 200k context),
+        // Balanced must be sonnet ($15/M, 16k out), not opus ($75/M, 32k out).
+        // Old code: max_by(context_window) → opus (last with 200k) → WRONG.
+        // New code: min_by(cost excluding fast) + max_output_tokens tiebreaker → sonnet-4-6 → CORRECT.
+        //
+        // Use actual Anthropic output-token specs so the tiebreaker works correctly:
+        //   haiku-4-5:  $4/M output, 8k max output  → Fast
+        //   sonnet-4-5: $15/M output, 8k max output
+        //   sonnet-4-6: $15/M output, 16k max output → Balanced (tied cost, highest output)
+        //   opus-4-6:   $75/M output, 32k max output → excluded (highest cost)
+        let make_full = |id: &str, max_out: u32, cost: f64| ModelInfo {
+            id: id.to_string(),
+            name: id.to_string(),
+            provider: "anthropic".to_string(),
+            context_window: 200_000,
+            max_output_tokens: max_out,
+            supports_streaming: true,
+            supports_tools: true,
+            supports_vision: true,
+            supports_reasoning: false,
+            cost_per_input_token: cost / 3.0,
+            cost_per_output_token: cost,
+        };
+        let models = vec![
+            make_full("claude-haiku-4-5",  8_192,  0.000004),
+            make_full("claude-sonnet-4-5", 8_192,  0.000015),
+            make_full("claude-sonnet-4-6", 16_000, 0.000015),  // same price, higher output → wins
+            make_full("claude-opus-4-6",   32_000, 0.000075),
+        ];
+        let r = ModelRouter::from_provider_models(&models);
+        assert_eq!(r.fast_model, "claude-haiku-4-5", "cheapest model must be Fast");
+        assert_eq!(r.balanced_model, "claude-sonnet-4-6",
+            "sonnet-4-6 must be Balanced (lowest non-fast cost, highest output among tied-price models)");
+        assert_eq!(r.deep_model, r.balanced_model,
+            "no reasoning model → Deep falls back to Balanced");
     }
 
     #[test]
@@ -564,6 +679,7 @@ mod tests {
     fn from_provider_models_anthropic_style_no_reasoning_model() {
         // Anthropic models: claude-haiku (small/fast), claude-sonnet (balanced), claude-opus (large).
         // None have supports_reasoning=true → deep falls back to balanced.
+        // Balanced = lowest-cost non-fast = claude-sonnet-4-6 (next cheapest after haiku).
         let models = vec![
             make_model("claude-haiku-4-5", 200_000, true, false, 0.00025),
             make_model("claude-sonnet-4-6", 200_000, true, false, 0.003),
@@ -572,6 +688,8 @@ mod tests {
         let r = ModelRouter::from_provider_models(&models);
         assert_eq!(r.fast_model, "claude-haiku-4-5",
             "cheapest model must be Fast");
+        assert_eq!(r.balanced_model, "claude-sonnet-4-6",
+            "sonnet is Balanced (lowest non-fast cost)");
         assert_eq!(r.deep_model, r.balanced_model,
             "when no reasoning model available, Deep and Balanced must be the same");
     }
