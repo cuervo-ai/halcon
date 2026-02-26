@@ -26,7 +26,7 @@ use super::super::agent_utils::{auto_checkpoint, classify_error_hint, compute_fi
 use super::super::resilience::ResilienceManager;
 use super::super::round_scorer::RoundEvaluation;
 use super::super::tool_speculation::ToolSpeculator;
-use super::loop_state::LoopState;
+use super::loop_state::{LoopState, SynthesisOrigin};
 use super::provider_client::{check_control, invoke_with_fallback};
 use super::budget_guards;
 use crate::render::sink::RenderSink;
@@ -285,6 +285,7 @@ pub(super) async fn run(
                     Some("Increase max_total_tokens for complex tasks"),
                 );
             }
+            state.synthesis_origin = Some(SynthesisOrigin::CacheCorruption);
             state.forced_synthesis_detected = true;
             return Ok(ProviderRoundOutcome::BreakLoop);
         }
@@ -1175,6 +1176,7 @@ pub(super) async fn run(
         state.loop_guard.record_text_round();
         if state.loop_guard.detect_cross_type_oscillation() {
             render_sink.warning("[loop-guard] cross-type Tool↔Text oscillation — forcing synthesis", None);
+            state.synthesis_origin = Some(SynthesisOrigin::OscillationDetected);
             state.forced_synthesis_detected = true;
             return Ok(ProviderRoundOutcome::BreakLoop);
         }

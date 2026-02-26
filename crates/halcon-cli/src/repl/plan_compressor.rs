@@ -44,8 +44,9 @@ use uuid::Uuid;
 // ── Constants ─────────────────────────────────────────────────────────────
 
 /// Maximum steps shown to the user (including synthesis).
-/// Keeps macro feedback at most [1/4] → [4/4].
-pub const MAX_VISIBLE_STEPS: usize = 4;
+/// Raised to 8 to accommodate execution tasks (install → build → run → verify → synthesize).
+/// Investigation tasks self-limit via the planner prompt (max 4 steps).
+pub const MAX_VISIBLE_STEPS: usize = 8;
 
 /// Read-only tools that can be merged into a grouped read step.
 const READONLY_MERGEABLE: &[&str] = &[
@@ -59,6 +60,28 @@ const READONLY_MERGEABLE: &[&str] = &[
     "git_log",
     "git_diff",
     "git_status",
+];
+
+/// Tool names whose steps are PROTECTED from hard-cap truncation.
+///
+/// These represent commands that must execute to achieve the task objective.
+/// Execution-protected steps are never removed by Rule 5; only read-only
+/// analysis steps can be dropped when the plan exceeds `MAX_VISIBLE_STEPS`.
+const EXECUTION_PROTECTED: &[&str] = &[
+    "bash",
+    "file_write",
+    "edit_file",
+    "run_command",
+    "terminal",
+    "apply_patch",
+    "code_execution",
+];
+
+/// Safety-critical tool names patterns used by both Rule 2 and Rule 5.
+const SAFETY_CRITICAL_PATTERNS: &[&str] = &[
+    "file_delete",
+    "git_push",
+    "git_commit",
 ];
 
 /// Trivial patterns — step descriptions matching these prefixes are candidates
@@ -447,32 +470,56 @@ fn enforce_cap(steps: &mut Vec<PlanStep>) -> usize {
         // for all others — then select the top max_tool_steps by key. Filter the
         // original Vec in original order (drain preserves order).
 
-        let mut indexed: Vec<(usize, f64)> = steps
+        // BUG-C1 FIX: Preserve original step order by filtering via tracked indices.
+        // BUG-H2 FIX: Always protect step at index 0.
+        //
+        // Phase 3 / EXECUTION_PROTECTED: Execution tool steps (bash, file_write, etc.) and
+        // safety-critical steps are NEVER removed by the hard cap — only read-only analysis
+        // steps are candidates for removal. If there are not enough analysis steps to reach
+        // the cap, we remove as many as possible (cap becomes a soft limit for execution tasks).
+        //
+        // Strategy: classify each step as protected or non-protected, then remove the
+        // lowest-confidence non-protected steps first. Protected steps are always kept.
+
+        let is_step_protected = |i: usize, s: &PlanStep| -> bool {
+            i == 0
+                || s.tool_name.as_deref()
+                    .map(|t| {
+                        EXECUTION_PROTECTED.contains(&t)
+                            || SAFETY_CRITICAL_PATTERNS.iter().any(|p| t.contains(p))
+                    })
+                    .unwrap_or(true) // synthesis (tool_name=None) is also protected
+        };
+
+        // Collect removable (non-protected) indices sorted by confidence ascending.
+        let mut removable: Vec<(usize, f64)> = steps
             .iter()
             .enumerate()
-            .map(|(i, s)| (i, if i == 0 { f64::MAX } else { s.confidence }))
+            .filter(|(i, s)| !is_step_protected(*i, s))
+            .map(|(i, s)| (i, s.confidence))
             .collect();
 
-        // Sort by score descending to identify which steps to KEEP.
-        indexed.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+        // Sort ascending — lowest confidence removed first.
+        removable.sort_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
 
-        let keep_indices: std::collections::HashSet<usize> = indexed
+        // Remove at most `excess` non-protected steps; can't remove more than available.
+        let to_remove_count = excess.min(removable.len());
+        let remove_indices: std::collections::HashSet<usize> = removable
             .iter()
-            .take(max_tool_steps)
+            .take(to_remove_count)
             .map(|(i, _)| *i)
             .collect();
 
         // BUG-C1 FIX: Filter while preserving original order.
-        // drain() traverses in original order, so filtering by index gives original order.
         let kept: Vec<PlanStep> = steps
             .drain(..)
             .enumerate()
-            .filter(|(i, _)| keep_indices.contains(i))
+            .filter(|(i, _)| !remove_indices.contains(i))
             .map(|(_, s)| s)
             .collect();
 
         *steps = kept;
-        excess
+        to_remove_count
     } else {
         0
     };
@@ -764,13 +811,19 @@ mod tests {
 
     #[test]
     fn cap_enforced_at_max_visible_steps() {
-        // Create plan with 6 steps — should be capped to MAX_VISIBLE_STEPS.
+        // Create plan with 9 steps — should be capped to MAX_VISIBLE_STEPS (8).
+        // Note: MAX_VISIBLE_STEPS was raised from 4 to 8 to support execution tasks.
+        // Use "inspect" (not in READONLY_MERGEABLE, not in EXECUTION_PROTECTED) so neither
+        // Rule 1 (read-merge) nor Phase 3 (execution protection) prevents the cap from firing.
         let plan = make_plan(vec![
-            make_step("Write file A", Some("file_write"), 0.9),
-            make_step("Write file B", Some("file_write"), 0.8),
-            make_step("Write file C", Some("file_write"), 0.7),
-            make_step("Write file D", Some("file_write"), 0.6),
-            make_step("Write file E", Some("file_write"), 0.5),
+            make_step("Inspect file A", Some("inspect"), 0.9),
+            make_step("Inspect file B", Some("inspect"), 0.85),
+            make_step("Inspect file C", Some("inspect"), 0.8),
+            make_step("Inspect file D", Some("inspect"), 0.75),
+            make_step("Inspect file E", Some("inspect"), 0.7),
+            make_step("Inspect file F", Some("inspect"), 0.65),
+            make_step("Inspect file G", Some("inspect"), 0.6),
+            make_step("Inspect file H", Some("inspect"), 0.5),
             make_step("Synthesize", None, 1.0),
         ]);
 
@@ -802,20 +855,27 @@ mod tests {
     #[test]
     fn cap_preserves_first_step_and_original_order() {
         // Steps with deliberately non-monotone confidence so the old sort would
-        // re-order them: step 0 = 0.5, step 1 = 0.9, step 2 = 0.8, step 3 = 0.7.
-        // MAX_VISIBLE_STEPS=4, total=5 (4 tool + synthesis) → 1 tool step dropped.
-        // Step 3 (conf=0.7, lowest unprotected) is removed; step 0 (index 0) is always kept.
-        // Result must be in original order [step0, step1, step2, synthesis].
+        // re-order them. MAX_VISIBLE_STEPS=8, total=9 (8 tool + synthesis) → 1 tool step dropped.
+        // Lowest-confidence non-protected step is removed; step 0 (index 0) is always kept.
+        // Result must be in original order.
+        //
+        // Use "inspect" (not in READONLY_MERGEABLE, not in EXECUTION_PROTECTED) so:
+        // - Rule 1 (read-merge) doesn't consume all steps before the cap fires
+        // - Phase 3 (execution protection) doesn't block cap from removing one step
         let plan = make_plan(vec![
-            make_step("Write initial config", Some("file_write"), 0.5), // index 0 — always kept
-            make_step("Run tests", Some("bash"), 0.9),                   // index 1 — highest conf
-            make_step("Write report A", Some("file_write"), 0.8),       // index 2 — kept
-            make_step("Write report B", Some("file_write"), 0.7),       // index 3 — dropped
+            make_step("Inspect initial config", Some("inspect"), 0.5), // index 0 — always kept (BUG-H2)
+            make_step("Inspect tests result", Some("inspect"), 0.9),   // index 1 — highest conf, kept
+            make_step("Inspect report A", Some("inspect"), 0.8),       // index 2 — kept
+            make_step("Inspect report B", Some("inspect"), 0.75),      // index 3 — kept
+            make_step("Inspect report C", Some("inspect"), 0.70),      // index 4 — kept
+            make_step("Inspect report D", Some("inspect"), 0.65),      // index 5 — kept
+            make_step("Inspect report E", Some("inspect"), 0.60),      // index 6 — kept
+            make_step("Inspect report F", Some("inspect"), 0.55),      // index 7 — dropped (lowest non-protected)
             make_step("Synthesize", None, 1.0),
         ]);
 
         let (compressed, stats) = compress(plan);
-        // 5 steps total, MAX_VISIBLE_STEPS=4 → 1 tool step removed.
+        // 9 steps total, MAX_VISIBLE_STEPS=8 → 1 tool step removed.
         assert_eq!(stats.cap_truncated, 1, "One step should be removed by cap");
         assert_eq!(compressed.steps.len(), MAX_VISIBLE_STEPS);
 
@@ -826,7 +886,7 @@ mod tests {
         );
         // Verify original order preserved: step0 before step1 (BUG-C1).
         let pos_step0 = compressed.steps.iter().position(|s| s.description.contains("initial config"));
-        let pos_step1 = compressed.steps.iter().position(|s| s.description.contains("Run tests"));
+        let pos_step1 = compressed.steps.iter().position(|s| s.description.contains("tests result"));
         assert!(
             pos_step0 < pos_step1,
             "Original step order must be preserved after cap (BUG-C1)"
@@ -915,5 +975,71 @@ mod tests {
         assert_eq!(shorten_desc("Read the configuration file"), "the configuration file");
         assert_eq!(shorten_desc("Search for pattern in sources"), "for pattern in sources");
         assert_eq!(shorten_desc("Analyse dependencies"), "dependencies");
+    }
+
+    // ── Phase 3: EXECUTION_PROTECTED tests ───────────────────────────────────
+
+    /// Execution steps (bash, file_write) must never be truncated by the hard cap,
+    /// even when the plan exceeds MAX_VISIBLE_STEPS. The read-only step is dropped first;
+    /// if that's not enough to reach the cap, the plan stays over MAX_VISIBLE_STEPS but
+    /// all execution steps are preserved (execution correctness > display budget).
+    #[test]
+    fn execution_step_never_truncated_by_cap() {
+        // Plan with 7 bash steps + 2 file_read + synthesis = 10 steps (> MAX_VISIBLE_STEPS=8).
+        // Cap fires: remove 2 file_reads (non-protected). All 7 bash steps survive.
+        let mut steps: Vec<PlanStep> = (0..7)
+            .map(|i| make_step(&format!("Run bash step {i}"), Some("bash"), 0.5))
+            .collect();
+        steps.push(make_step("Read config A", Some("file_read"), 0.4));
+        steps.push(make_step("Read config B", Some("file_read"), 0.3));  // lowest conf
+        steps.push(make_step("Synthesize", None, 1.0));
+
+        let plan = make_plan(steps);
+        assert!(plan.steps.len() > MAX_VISIBLE_STEPS, "test requires steps > cap");
+
+        let (compressed, stats) = compress(plan);
+        assert!(stats.cap_truncated > 0, "cap must fire and remove read-only steps");
+
+        // All 7 bash execution steps must survive.
+        let bash_count = compressed.steps.iter()
+            .filter(|s| s.tool_name.as_deref() == Some("bash"))
+            .count();
+        assert_eq!(bash_count, 7,
+            "all bash execution steps must be preserved by cap (got {bash_count})");
+
+        // file_read steps must be gone (they were the non-protected removable steps).
+        assert!(!compressed.steps.iter().any(|s| s.tool_name.as_deref() == Some("file_read")),
+            "read-only steps must be truncated before execution steps");
+
+        // Synthesis must survive.
+        assert!(compressed.steps.last().unwrap().tool_name.is_none());
+    }
+
+    /// Read-only analysis steps should be truncated before execution steps.
+    #[test]
+    fn readonly_steps_truncated_before_execution_steps() {
+        // Plan: 4 bash + 5 file_read + synthesis = 10 steps (> MAX_VISIBLE_STEPS=8).
+        // Expected: some file_read steps dropped, all bash steps kept.
+        let mut steps: Vec<PlanStep> = (0..4)
+            .map(|i| make_step(&format!("Run bash {i}"), Some("bash"), 0.5))
+            .collect();
+        for i in 0..5 {
+            steps.push(make_step(&format!("Read file {i}"), Some("file_read"), 0.4 - i as f64 * 0.02));
+        }
+        steps.push(make_step("Synthesize", None, 1.0));
+
+        let plan = make_plan(steps);
+        let (compressed, stats) = compress(plan);
+
+        // Some truncation should have happened (either by merge or cap).
+        // All bash steps must be present.
+        let bash_count = compressed.steps.iter()
+            .filter(|s| s.tool_name.as_deref() == Some("bash"))
+            .count();
+        assert_eq!(bash_count, 4, "all bash execution steps must survive compression");
+
+        // Synthesis last.
+        assert!(compressed.steps.last().unwrap().tool_name.is_none());
+        let _ = stats; // stats checked implicitly
     }
 }

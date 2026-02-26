@@ -1001,6 +1001,25 @@ impl AsyncDatabase {
         .await
         .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
     }
+
+    // --- Phase 1: Loop Observability ---
+
+    /// Persist one structured loop event to `execution_loop_events` (Phase 1).
+    pub async fn save_loop_event(
+        &self,
+        session_id: String,
+        round: u32,
+        event_type: String,
+        event_json: String,
+    ) -> Result<()> {
+        let db = self.inner.clone();
+        tokio::task::spawn_blocking(move || {
+            db.save_loop_event(&session_id, round, &event_type, &event_json)
+        })
+        .await
+        .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
+    }
+
 }
 
 #[cfg(test)]

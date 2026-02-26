@@ -9,6 +9,7 @@ mod audit;
 mod cache_repo;
 mod checkpoints;
 mod episodes;
+mod loop_events_repo;
 mod memories;
 mod metrics_repo;
 pub mod palette_optimization;

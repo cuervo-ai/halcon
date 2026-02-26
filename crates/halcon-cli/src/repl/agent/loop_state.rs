@@ -62,6 +62,46 @@ impl ToolDecisionSignal {
     }
 }
 
+// ── ExecutionIntentPhase ──────────────────────────────────────────────────────
+
+/// Phase of the agent's execution intent, derived from the plan at loop start.
+///
+/// Controls whether synthesis guards are allowed to suppress tools mid-task.
+/// `Execution` tasks (bash/file_write/etc.) keep tools active until all steps
+/// are finished; only then does the intent transition to `Complete`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(super) enum ExecutionIntentPhase {
+    /// No plan, or plan not yet analyzed.
+    #[default]
+    Uncategorized,
+    /// analyze/explore/understand — synthesis allowed when goal is covered.
+    Investigation,
+    /// build/run/install/deploy — synthesis LOCKED until all steps complete.
+    Execution,
+    /// All executable steps finished — synthesis now permitted.
+    Complete,
+}
+
+// ── SynthesisOrigin ───────────────────────────────────────────────────────────
+
+/// Documents the origin of a forced synthesis decision (for tracing/metrics).
+///
+/// Set whenever `forced_synthesis_detected` transitions to `true`. Enables
+/// root-cause debugging without changing control flow.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum SynthesisOrigin {
+    /// convergence_phase oracle dispatch (authoritative convergence signal).
+    OracleConvergence,
+    /// post_batch supervisor strict-mode failure (heuristic).
+    SupervisorFailure,
+    /// post_batch parallel batch collapse / replan timeout (heuristic fallback).
+    ReplanTimeout,
+    /// provider_round response cache failure (heuristic).
+    CacheCorruption,
+    /// provider_round cross-type Tool↔Text oscillation (heuristic).
+    OscillationDetected,
+}
+
 pub(super) struct LoopState {
     // ── Messaging ──────────────────────────────────────────────────────────
     pub messages: Vec<ChatMessage>,
@@ -150,6 +190,16 @@ pub(super) struct LoopState {
     /// `ForcedByOracle` = oracle's explicit ForceNoTools arm (highest authority).
     /// Cleared by `round_setup::run()` via `tool_decision.consume()`.
     pub tool_decision: ToolDecisionSignal,
+    /// Execution intent phase derived from the plan at loop start.
+    ///
+    /// `Execution` blocks synthesis guards from suppressing tools mid-task.
+    /// Transitions to `Complete` when all executable plan steps finish.
+    pub execution_intent: ExecutionIntentPhase,
+    /// Origin of the most recent forced synthesis decision — for tracing/metrics.
+    ///
+    /// Set whenever `forced_synthesis_detected` transitions to `true`.
+    /// Enables root-cause debugging without changing control flow.
+    pub synthesis_origin: Option<SynthesisOrigin>,
 
     // ── FSM & telemetry ────────────────────────────────────────────────────
     pub current_fsm_state: &'static str,
@@ -196,7 +246,7 @@ pub(super) struct LoopState {
 
 #[cfg(test)]
 mod tests {
-    use super::ToolDecisionSignal;
+    use super::{ExecutionIntentPhase, SynthesisOrigin, ToolDecisionSignal};
 
     #[test]
     fn allow_is_not_active() {
@@ -310,5 +360,33 @@ mod tests {
         let strategy_bias: Option<&str> = None;
         let result: Option<&str> = forced.as_deref().or(strategy_bias);
         assert!(result.is_none(), "both absent must yield None");
+    }
+
+    // ── ExecutionIntentPhase tests ────────────────────────────────────────────
+
+    #[test]
+    fn execution_intent_defaults_to_uncategorized() {
+        let intent: ExecutionIntentPhase = Default::default();
+        assert_eq!(intent, ExecutionIntentPhase::Uncategorized);
+    }
+
+    #[test]
+    fn execution_intent_execution_ne_investigation() {
+        assert_ne!(ExecutionIntentPhase::Execution, ExecutionIntentPhase::Investigation);
+        assert_ne!(ExecutionIntentPhase::Execution, ExecutionIntentPhase::Complete);
+    }
+
+    #[test]
+    fn execution_intent_complete_ne_execution() {
+        // Complete allows synthesis; Execution does not.
+        assert_ne!(ExecutionIntentPhase::Complete, ExecutionIntentPhase::Execution);
+    }
+
+    #[test]
+    fn synthesis_origin_distinct_variants() {
+        // All variants are distinct — no accidental aliasing.
+        assert_ne!(SynthesisOrigin::OracleConvergence, SynthesisOrigin::SupervisorFailure);
+        assert_ne!(SynthesisOrigin::ReplanTimeout, SynthesisOrigin::CacheCorruption);
+        assert_ne!(SynthesisOrigin::OscillationDetected, SynthesisOrigin::OracleConvergence);
     }
 }

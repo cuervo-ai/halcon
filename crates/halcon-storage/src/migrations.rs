@@ -36,6 +36,7 @@ const MIGRATIONS: &[(u32, &str, &str)] = &[
     (32, "audit_hmac_key", MIGRATION_032),
     (33, "media_index_description", MIGRATION_033),
     (34, "plugin_circuit_state", MIGRATION_034),
+    (35, "execution_loop_events", MIGRATION_035),
 ];
 
 const MIGRATION_001: &str = r#"
@@ -1137,6 +1138,24 @@ CREATE TABLE IF NOT EXISTS plugin_circuit_state (
 );
 "#;
 
+const MIGRATION_035: &str = r#"
+-- M35: execution_loop_events — structured event log emitted by the agent loop.
+-- Phase 1: State Externalization & Observability (additive — zero behavior change).
+-- Each row captures one typed event (round_started, guard_fired, convergence_decided,
+-- checkpoint_saved, intent_rescored, critic_evaluated, critic_failed) with its full
+-- JSON payload for offline analysis and post-mortem debugging.
+CREATE TABLE IF NOT EXISTS execution_loop_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id  TEXT    NOT NULL,
+    round       INTEGER NOT NULL,
+    event_type  TEXT    NOT NULL,
+    event_json  TEXT    NOT NULL,
+    emitted_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_loop_events_session
+    ON execution_loop_events (session_id, round);
+"#;
+
 /// Run all pending migrations.
 pub fn run_migrations(conn: &Connection) -> Result<(), halcon_core::error::HalconError> {
     // Ensure migrations table exists
@@ -1191,7 +1210,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(version, 34);
+        assert_eq!(version, 35);
     }
 
     #[test]
@@ -1205,7 +1224,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(count, 34);
+        assert_eq!(count, 35);
     }
 
     #[test]
@@ -1268,6 +1287,50 @@ mod tests {
             [],
         );
         assert!(bad_insert.is_err(), "invalid state must be rejected by CHECK constraint");
+    }
+
+    #[test]
+    fn migration_035_creates_execution_loop_events_table() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+
+        // Verify table exists.
+        let table_exists: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='execution_loop_events'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(table_exists, "execution_loop_events table must exist after M35");
+
+        // Verify index exists.
+        let index_exists: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='index' AND name='idx_loop_events_session'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(index_exists, "idx_loop_events_session index must exist after M35");
+
+        // Verify insert and retrieval work.
+        let session_id = uuid::Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO execution_loop_events (session_id, round, event_type, event_json)
+             VALUES (?1, 0, 'round_started', '{\"type\":\"round_started\",\"round\":0}')",
+            rusqlite::params![session_id],
+        ).expect("should insert loop event");
+
+        let (event_type, json): (String, String) = conn
+            .query_row(
+                "SELECT event_type, event_json FROM execution_loop_events WHERE session_id = ?1",
+                rusqlite::params![session_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(event_type, "round_started");
+        assert!(json.contains("round_started"), "json={json}");
     }
 
     #[test]

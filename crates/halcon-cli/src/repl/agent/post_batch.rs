@@ -28,7 +28,7 @@ use super::super::executor;
 use super::super::failure_tracker::ToolFailureTracker;
 use super::super::loop_guard::hash_tool_args;
 use super::super::accumulator::CompletedToolUse;
-use super::loop_state::LoopState;
+use super::loop_state::{ExecutionIntentPhase, LoopState, SynthesisOrigin};
 use super::plan_formatter::{format_plan_for_prompt, update_plan_in_system};
 use super::provider_client::check_control;
 use super::ControlAction;
@@ -397,10 +397,15 @@ pub(super) async fn run(
                     })
                     .all(|(_, s)| s.tool_name.is_none());
 
+                // ExecutionIntent guard: skip tool suppression when task is Execution-type.
+                // Execution tasks need tools available until all steps complete; premature
+                // suppression forces synthesis before bash/file_write steps run.
                 if pending_are_all_synthesis && !plan.steps.is_empty()
                     && plan.steps.iter().any(|s| s.outcome.is_none())
+                    && state.execution_intent != ExecutionIntentPhase::Execution
                 {
                     tracing::info!(
+                        intent = ?state.execution_intent,
                         "All remaining plan steps are synthesis-only (no tool_name) — \
                          suppressing tools for coordinator synthesis round"
                     );
@@ -542,6 +547,7 @@ pub(super) async fn run(
                         "strict enforcement: task permanently failed",
                         Some("Use --full without --expert to allow continued execution on task failure"),
                     );
+                    state.synthesis_origin = Some(SynthesisOrigin::SupervisorFailure);
                     state.forced_synthesis_detected = true;
                     return Ok(PostBatchOutcome::BreakLoop);
                 }
@@ -1053,6 +1059,7 @@ pub(super) async fn run(
                     ),
                 );
             }
+            state.synthesis_origin = Some(SynthesisOrigin::ReplanTimeout);
             state.forced_synthesis_detected = true;
             // Use force_no_tools so convergence phase collects final round signals before
             // result_assembly sees forced_synthesis_detected and builds the synthesis result.

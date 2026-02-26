@@ -415,6 +415,16 @@ impl ModelRouter {
         let decision = self.route(profile);
         Some(decision.tier.as_routing_bias().to_string())
     }
+
+    /// Return the Balanced-tier model ID for this provider.
+    ///
+    /// Used by `LlmPlanner` to select the most capable non-fast model for planning,
+    /// independent of the session model. Returns `None` if the router was not built
+    /// from provider models (i.e. uses deepseek defaults, where the model is always
+    /// "deepseek-chat" which can serve as a fallback).
+    pub fn balanced_model(&self) -> &str {
+        &self.balanced_model
+    }
 }
 
 impl Default for ModelRouter {
@@ -713,6 +723,25 @@ mod tests {
         let profile = IntentScorer::score("fix bug in auth");
         let decision = router().route(&profile);
         assert!(!decision.reason.is_empty());
+    }
+
+    #[test]
+    fn planner_uses_balanced_tier_when_no_explicit_model() {
+        // Verify ModelRouter::from_provider_models() selects Balanced tier for planning.
+        // This is the model the LlmPlanner uses when no explicit planner_model is configured.
+        let models = vec![
+            make_model("fast-model", 128_000, true, false, 0.0006),
+            make_model("balanced-model", 128_000, true, false, 0.005),
+            make_model("reasoning-model", 200_000, true, true, 0.011),
+        ];
+        let router = ModelRouter::from_provider_models(&models);
+        // Balanced tier model should be the one selected for planning.
+        assert_eq!(router.balanced_model(), "balanced-model",
+            "balanced_model() must return the Balanced tier model ID");
+        assert_ne!(router.balanced_model(), "fast-model",
+            "Planner must not use the fast model (too cheap/limited for planning)");
+        assert_ne!(router.balanced_model(), "reasoning-model",
+            "Planner must not use reasoning model by default (too slow)");
     }
 
     #[test]

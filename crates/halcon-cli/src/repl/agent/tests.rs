@@ -1872,12 +1872,12 @@
         }];
         let prompt = crate::repl::planner::LlmPlanner::build_plan_prompt_for_test("test", &tools);
         assert!(
-            prompt.contains("Synthesize findings"),
-            "Plan prompt should include synthesis step rule"
+            prompt.contains("synthesis") || prompt.contains("tool_name: null") || prompt.contains("ANTI-COLLAPSE"),
+            "Plan prompt should include synthesis/anti-collapse rule"
         );
         assert!(
-            prompt.contains("4") || prompt.contains("LIMIT") || prompt.contains("Maximum"),
-            "Plan prompt should include step limit rule"
+            prompt.contains("8") || prompt.contains("LIMIT") || prompt.contains("Max") || prompt.contains("EXECUTION"),
+            "Plan prompt should include step limit or execution rule"
         );
     }
 

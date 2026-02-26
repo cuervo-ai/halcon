@@ -2415,12 +2415,14 @@ impl Repl {
                     } else if planner_prov.validate_model(&self.model).is_ok() {
                         self.model.clone()
                     } else {
-                        planner_prov.supported_models()
-                            .iter()
-                            .filter(|m| m.supports_tools)
-                            .max_by_key(|m| m.context_window)
-                            .map(|m| m.id.clone())
-                            .unwrap_or_else(|| self.model.clone())
+                        // Use ModelRouter::from_provider_models() to select the Balanced tier
+                        // model for planning. Balanced tier is best for planning: reliable tool
+                        // calling, not too slow/expensive, avoids over-indexing on context window
+                        // (which previously selected opus $75/M over sonnet $15/M).
+                        let router = model_router::ModelRouter::from_provider_models(
+                            &planner_prov.supported_models(),
+                        );
+                        router.balanced_model().to_string()
                     };
                     tracing::debug!(
                         provider = planner_prov.name(),

@@ -19,7 +19,7 @@ use halcon_storage::AsyncDatabase;
 use super::super::agent_types::ControlReceiver;
 use super::super::anomaly_detector::AgentAnomaly;
 use super::super::loop_guard::LoopAction;
-use super::loop_state::{LoopState, ToolDecisionSignal};
+use super::loop_state::{ExecutionIntentPhase, LoopState, SynthesisOrigin, ToolDecisionSignal};
 use super::plan_formatter::{format_plan_for_prompt, update_plan_in_system};
 use super::provider_client::check_control;
 use super::PhaseOutcome;
@@ -126,6 +126,39 @@ pub(super) async fn run(
                 }
             }
             ConvergenceAction::Continue => {}
+        }
+    }
+
+    // Phase 1: Mid-session intent over-run detector (additive — detection only, no behavior change).
+    //
+    // When `tools_executed` exceeds `plan_steps_total * 2`, the loop is doing significantly more
+    // work than initially estimated. Emit a structured `IntentRescored` event for telemetry;
+    // Phase 6 will act on this via `IntentLock`. No state mutation here.
+    {
+        let plan_steps_total = state.active_plan.as_ref().map(|p| p.steps.len()).unwrap_or(0);
+        let tools_count = state.tools_executed.len();
+        if plan_steps_total > 0 && tools_count >= plan_steps_total.saturating_mul(2) {
+            let intent_str = format!("{:?}", state.execution_intent);
+            tracing::info!(
+                round,
+                tools_count,
+                plan_steps_total,
+                intent = %intent_str,
+                "Phase1/intent-overscan: tools_executed ({tools_count}) \
+                 >= plan_steps ({plan_steps_total}) * 2 — scope may need re-evaluation"
+            );
+            super::loop_events::emit(
+                &state.session_id.to_string(),
+                round as u32,
+                super::loop_events::LoopEvent::IntentRescored {
+                    old_scope: intent_str.clone(),
+                    new_scope: intent_str,
+                    trigger: "tools_overrun_2x".into(),
+                    tools_executed_count: tools_count,
+                    plan_steps_total,
+                },
+                trace_db,
+            );
         }
     }
 
@@ -467,6 +500,7 @@ pub(super) async fn run(
                     );
                 }
                         // Mark as ForcedSynthesis so post-loop correctly classifies this stop.
+                state.synthesis_origin = Some(SynthesisOrigin::OracleConvergence);
                 state.forced_synthesis_detected = true;
             }
             // FIX: Instead of breaking the loop immediately (which produces no final
@@ -474,6 +508,7 @@ pub(super) async fn run(
             // round. Guard: if forced_synthesis_detected was already true (we already
             // did a synthesis sub-round but oracle fired Halt again), break for real.
             if !state.forced_synthesis_detected {
+                state.synthesis_origin = Some(SynthesisOrigin::OracleConvergence);
                 state.forced_synthesis_detected = true;
                 let synth_msg = ChatMessage {
                     role: Role::User,
@@ -502,6 +537,7 @@ pub(super) async fn run(
                     // FIX: Same pattern as Halt — inject synthesis directive and allow
                     // one final tool-free round so the model produces a real response.
                     if !state.forced_synthesis_detected {
+                        state.synthesis_origin = Some(SynthesisOrigin::OracleConvergence);
                         state.forced_synthesis_detected = true;
                         let synth_msg = ChatMessage {
                             role: Role::User,
@@ -864,6 +900,18 @@ pub(super) async fn run(
 
         // ── Precedence 5: Continue ──────────────────────────────────────────
         TerminationDecision::Continue => {}
+    }
+
+    // ExecutionIntent transition: Execution → Complete when all plan steps finish.
+    // This unblocks synthesis guards for the final synthesis round.
+    if state.execution_intent == ExecutionIntentPhase::Execution {
+        if let Some(ref tracker) = state.execution_tracker {
+            let all_done = tracker.plan().steps.iter().all(|s| s.outcome.is_some());
+            if all_done {
+                state.execution_intent = ExecutionIntentPhase::Complete;
+                tracing::info!("ExecutionIntent: Execution → Complete (all steps finished)");
+            }
+        }
     }
 
     // Self-correction context injection: when tools fail, inject a structured

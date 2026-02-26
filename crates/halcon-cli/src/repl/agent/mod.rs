@@ -1,9 +1,13 @@
 mod budget_guards;
+// Phase 1: State Externalization — serializable LoopState snapshot, fire-and-forget persist.
+mod checkpoint;
 mod convergence_phase;
 mod loop_state;
 // Phase 4: LoopState decomposition scaffolding — additive snapshot types.
 // Future migration will embed these as owned sub-structs inside LoopState.
 mod loop_state_roles;
+// Phase 1: Structured loop event emission (round_started, guard_fired, etc.).
+mod loop_events;
 mod plan_formatter;
 mod planning_policy;
 mod post_batch;
@@ -14,7 +18,7 @@ pub(crate) mod repair;
 mod result_assembly;
 mod round_setup;
 
-use loop_state::{LoopState, ToolDecisionSignal};
+use loop_state::{ExecutionIntentPhase, LoopState, SynthesisOrigin, ToolDecisionSignal};
 
 use plan_formatter::{
     format_plan_for_prompt, update_plan_in_system, validate_plan,
@@ -1112,6 +1116,43 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
         }
     }
 
+    // ── ExecutionIntentPhase derivation — must run before pre-loop guard ──────────
+    //
+    // Derive the task's execution intent from the plan. This controls whether synthesis
+    // guards are allowed to suppress tools. Execution tasks (bash, file_write, etc.)
+    // must keep tools active until all steps are done to avoid premature synthesis.
+
+    /// Tool names that signal an EXECUTION-type task (not read-only analysis).
+    const EXECUTION_TOOL_NAMES: &[&str] = &[
+        "bash",
+        "file_write",
+        "edit_file",
+        "run_command",
+        "terminal",
+        "apply_patch",
+        "code_execution",
+    ];
+
+    let execution_intent = if let Some(ref tracker) = execution_tracker {
+        let plan = tracker.plan();
+        let has_executable = plan.steps.iter()
+            .any(|s| s.tool_name.as_deref()
+                .map(|t| EXECUTION_TOOL_NAMES.contains(&t))
+                .unwrap_or(false));
+        let tool_steps = plan.steps.iter().filter(|s| s.tool_name.is_some()).count();
+
+        if has_executable && tool_steps >= 2 {
+            ExecutionIntentPhase::Execution
+        } else if tool_steps >= 1 {
+            ExecutionIntentPhase::Investigation
+        } else {
+            ExecutionIntentPhase::Uncategorized
+        }
+    } else {
+        ExecutionIntentPhase::Uncategorized
+    };
+    tracing::debug!(intent = ?execution_intent, "ExecutionIntent derived from plan");
+
     // ── Phase 3A: Pre-loop synthesis guard — MUST RUN BEFORE tool directive injection ──
     //
     // Root cause (vucem3-qa benchmark + session e2adfb4f analysis):
@@ -1128,6 +1169,8 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
     // to rate the session at 15% confidence.
     //
     // Fix: move this guard FIRST so directive injection sees the final cached_tools state.
+    // ExecutionIntent guard: skip clearing tools when task is Execution-type to prevent
+    // premature synthesis before all bash/file_write steps have been executed.
     if let Some(ref tracker) = execution_tracker {
         let plan = tracker.plan();
         let has_pending = plan.steps.iter().any(|s| s.outcome.is_none());
@@ -1135,7 +1178,9 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
             .filter(|s| s.outcome.is_none())
             .all(|s| s.tool_name.is_none());
 
-        if has_pending && all_pending_synthesis {
+        if has_pending && all_pending_synthesis
+            && execution_intent != ExecutionIntentPhase::Execution
+        {
             let removed = cached_tools.len();
             cached_tools.clear();
             if removed > 0 {
@@ -1172,18 +1217,25 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
         - If asked to \"analyze\", \"improve\", \"fix\", or \"refactor\" — DO IT COMPLETELY.\n\
         - Use tools strategically to understand context, make changes, and validate results.\n\
         - Execute all necessary steps to solve the problem, not just answer questions about it.\n\
-        - Your goal is to DELIVER WORKING SOLUTIONS, not provide guidance.\n";
+        - Your goal is to DELIVER WORKING SOLUTIONS, not provide guidance.\n\
+        \n\
+        ANTI-COLLAPSE RULE (CRITICAL):\n\
+        - NEVER synthesize or summarize before all executable steps are complete.\n\
+        - If the task involves build, install, run, deploy, or test commands — execute ALL of them with tools.\n\
+        - Do NOT convert executable work into narrative explanation.\n\
+        - Synthesis is only allowed when: (a) no further tool actions are needed AND (b) the objective is fully achieved.\n\
+        - Execution loop: PLAN → EXECUTE → ANALYZE → ADAPT → CONTINUE until done.\n";
 
     // Phase 33: inject tool usage policy into the system prompt.
     // Instructs the model to converge: prefer fewer tool calls, don't repeat,
     // respond directly once enough information is gathered.
     // INVARIANT: only injected when cached_tools is non-empty (synthesis mode gets no tool directives).
     const TOOL_USAGE_POLICY: &str = "\n\n## Tool Usage Policy\n\
-        - Only call tools when you need NEW information you don't already have.\n\
-        - After gathering data with tools, respond directly to the user.\n\
+        - Only call tools when you need NEW information or need to perform an action.\n\
         - Never call the same tool twice with the same or very similar arguments.\n\
-        - Prefer fewer tool calls. 1-3 tool rounds should suffice for most tasks.\n\
-        - When you have enough information to answer, STOP calling tools and respond.\n\
+        - For INVESTIGATION tasks: prefer fewer tool calls (1-3 rounds). Stop when you have enough info.\n\
+        - For EXECUTION tasks (build/run/install/deploy): call as many tools as needed to complete ALL steps.\n\
+        - When the objective is complete, stop calling tools and provide a final summary.\n\
         - If a tool fails, try a different approach or inform the user — do not retry the same call.\n";
 
     if !cached_tools.is_empty() {
@@ -1424,6 +1476,8 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
         model_downgrade_advisory_active: false,
         forced_routing_bias: None,
         tool_decision: ToolDecisionSignal::Allow,
+        execution_intent,
+        synthesis_origin: None,
         current_fsm_state,
         last_round_model_name,
         next_round_restarts: 0,
@@ -1455,6 +1509,17 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
         .entered();
         let round_start = Instant::now();
         let mut round_usage = TokenUsage::default();
+
+        // Phase 1: emit RoundStarted event (additive — fire-and-forget, no behavior change).
+        loop_events::emit(
+            &state.session_id.to_string(),
+            round as u32,
+            loop_events::LoopEvent::RoundStarted {
+                round,
+                model: request.model.clone(),
+            },
+            trace_db,
+        );
 
         // ── Round setup phase ──────────────────────────────────────────────────────────────────
         // Compaction, model selection, capability orchestration, security gates, cache check.
@@ -1638,6 +1703,34 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
             &round_usage,
             &round_text_for_scorer,
         ).await?);
+
+        // Phase 1: Save LoopState checkpoint (Continue path — full round completed).
+        // Fire-and-forget: errors are logged but never propagate to the loop.
+        {
+            let cp_data = checkpoint::LoopCheckpointData::snapshot(&state, round);
+            let messages_json = serde_json::to_string(&state.messages).unwrap_or_default();
+            let usage_json = serde_json::json!({
+                "input_tokens": session.total_usage.input_tokens,
+                "output_tokens": session.total_usage.output_tokens,
+            })
+            .to_string();
+            let fingerprint = compute_fingerprint(&state.messages);
+            checkpoint::save_checkpoint_nonblocking(
+                cp_data,
+                trace_db,
+                &messages_json,
+                &usage_json,
+                &fingerprint,
+                state.trace_step_index,
+            );
+
+            loop_events::emit(
+                &state.session_id.to_string(),
+                round as u32,
+                loop_events::LoopEvent::CheckpointSaved { round },
+                trace_db,
+            );
+        }
     }
 
     result_assembly::build(

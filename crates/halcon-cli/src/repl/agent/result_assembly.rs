@@ -86,39 +86,58 @@ pub(super) async fn build(
                 critic_mdl_str.to_string(),
             );
 
-            if let Some(verdict) = critic
+            match critic
                 .evaluate(&original_request, &state.full_text, &step_summaries)
                 .await
             {
-                // Phase 1.2: Propagate FULL verdict (achieved + confidence + gaps + retry_instruction).
-                // Previously only (achieved, confidence) was stored — gaps and retry_instruction
-                // were LOST here. This was the root cause of advisory-only retry behavior.
-                critic_verdict_holder = Some(CriticVerdictSummary {
-                    achieved: verdict.achieved,
-                    confidence: verdict.confidence,
-                    gaps: verdict.gaps.clone(),
-                    retry_instruction: verdict.retry_instruction.clone(),
-                });
-                if verdict.achieved {
-                    tracing::debug!(
-                        confidence = verdict.confidence,
-                        "LoopCritic: goal achieved"
-                    );
-                } else {
+                Some(verdict) => {
+                    // Phase 1.2: Propagate FULL verdict (achieved + confidence + gaps + retry_instruction).
+                    // Previously only (achieved, confidence) was stored — gaps and retry_instruction
+                    // were LOST here. This was the root cause of advisory-only retry behavior.
+                    critic_verdict_holder = Some(CriticVerdictSummary {
+                        achieved: verdict.achieved,
+                        confidence: verdict.confidence,
+                        gaps: verdict.gaps.clone(),
+                        retry_instruction: verdict.retry_instruction.clone(),
+                    });
+                    if verdict.achieved {
+                        tracing::debug!(
+                            confidence = verdict.confidence,
+                            "LoopCritic: goal achieved"
+                        );
+                    } else {
+                        tracing::warn!(
+                            confidence = verdict.confidence,
+                            gaps = ?verdict.gaps,
+                            retry_has_instruction = verdict.retry_instruction.is_some(),
+                            "LoopCritic: goal NOT achieved"
+                        );
+                        if !state.silent {
+                            render_sink.warning(
+                                &format!(
+                                    "[critic] goal not fully achieved ({:.0}% confidence): {}",
+                                    verdict.confidence * 100.0,
+                                    verdict.gaps.join("; ")
+                                ),
+                                None,
+                            );
+                        }
+                    }
+                }
+                None => {
+                    // Phase 1 fix: LoopCritic returned None (provider failure, timeout, or
+                    // empty response). Previously this was a silent no-op — the verdict was
+                    // simply skipped and `critic_verdict_holder` stayed None. This made it
+                    // impossible to distinguish "not evaluated" from "not achieved" in telemetry.
                     tracing::warn!(
-                        confidence = verdict.confidence,
-                        gaps = ?verdict.gaps,
-                        retry_has_instruction = verdict.retry_instruction.is_some(),
-                        "LoopCritic: goal NOT achieved"
+                        session_id = %state.session_id,
+                        "LoopCritic: evaluate() returned None — provider failure or timeout; \
+                         goal completion status is UNKNOWN for this session"
                     );
                     if !state.silent {
                         render_sink.warning(
-                            &format!(
-                                "[critic] goal not fully achieved ({:.0}% confidence): {}",
-                                verdict.confidence * 100.0,
-                                verdict.gaps.join("; ")
-                            ),
-                            None,
+                            "[critic] evaluation unavailable — goal completion unverified",
+                            Some("LoopCritic provider did not respond; result may be incomplete"),
                         );
                     }
                 }
