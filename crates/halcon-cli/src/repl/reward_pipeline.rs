@@ -83,13 +83,37 @@ fn stop_condition_score(cond: &StopCondition, ratio: f32) -> f64 {
 ///         + coherence  × 0.20
 ///         - synthesis_penalty ).clamp(0.0, 1.0)
 /// ```
+///
+/// Critic dampening: when the LoopCritic verdict is `!achieved`, the raw stop_score
+/// is capped at `CRITIC_FAIL_STOP_CAP` (0.60) to prevent a fully-completed plan's
+/// EndTurn bonus from masking the failure. This ensures that even low-confidence
+/// failure verdicts push the final reward below `success_threshold` (0.60), triggering
+/// a `score_says_retry` path that re-runs the agent loop with a corrective instruction.
+///
+/// Cap derivation: EndTurn + plan_completion=1.0 + full coherence + critic=(false,0.10):
+///   final = cap×0.25 + cap×0.30 + 0.225×0.25 + 1.0×0.20 < 0.60
+///   → cap < 0.625  →  0.60 chosen with margin.
+const CRITIC_FAIL_STOP_CAP: f64 = 0.60;
+
 pub fn compute_reward(signals: &RawRewardSignals) -> RewardComputation {
-    let stop_score =
+    let raw_stop_score =
         stop_condition_score(&signals.stop_condition, signals.plan_completion_ratio);
 
+    // Critic dampening: cap stop_score when critic says goal was NOT achieved.
+    // Without this cap, EndTurn + plan_completion=1.0 yields stop_score=1.0, which
+    // overwhelms the critic penalty and prevents score_says_retry from firing even
+    // when the session clearly failed (e.g. sub-agents produced no tool output).
+    let critic_not_achieved = signals.critic_verdict.map_or(false, |(ach, _)| !ach);
+    let stop_score = if critic_not_achieved {
+        raw_stop_score.min(CRITIC_FAIL_STOP_CAP)
+    } else {
+        raw_stop_score
+    };
+
     // Trajectory: mean of per-round scores, discounted by oscillation instability.
+    // Falls back to (dampened) stop_score so the critic cap also reduces trajectory.
     let trajectory_score = if signals.round_scores.is_empty() {
-        // No per-round data — fall back to stop_score (backward-compatible).
+        // No per-round data — fall back to stop_score (critic-dampened when applicable).
         stop_score
     } else {
         let mean: f64 = signals.round_scores.iter().map(|&s| s as f64).sum::<f64>()
@@ -97,11 +121,16 @@ pub fn compute_reward(signals: &RawRewardSignals) -> RewardComputation {
         (mean * (1.0 - signals.oscillation_penalty.clamp(0.0, 1.0) as f64)).max(0.0)
     };
 
-    // Critic: full confidence when achieved, partial inverse credit when failed.
+    // Critic score:
+    //   achieved=true  → full confidence as reward signal
+    //   achieved=false → aggressive penalty: 0.25 × (1 - confidence)
+    //                    Using 0.25 instead of 0.5 so high-confidence failures
+    //                    drop the critic component close to zero.
+    //   None           → mirror raw_stop_score (no critic feedback = neutral)
     let critic_score = match signals.critic_verdict {
         Some((true, conf)) => conf as f64,
-        Some((false, conf)) => (1.0 - conf as f64) * 0.5,
-        None => stop_score, // no critic — mirror stop condition (neutral)
+        Some((false, conf)) => 0.25 * (1.0 - conf as f64),
+        None => raw_stop_score, // no critic — mirror raw stop (unaffected by dampening)
     };
 
     // Coherence: invert drift score (lower drift = higher coherence).
@@ -532,5 +561,105 @@ mod tests {
         // formula: 0.90 × 0.95 + 0.10 × 1.0 = 0.955 → clamped to 1.0 max
         assert!(result >= base * 0.90, "all-succeed should not degrade reward");
         assert!(result <= 1.0, "must be clamped to 1.0");
+    }
+
+    // ── Critic dampening — stop_score cap when !achieved (RC-4 fix) ──────────
+    //
+    // Root cause: EndTurn + plan_completion=1.0 gave stop_score=1.0, overwhelming
+    // the critic penalty. A sub-agent session where all delegated steps "completed"
+    // (even with empty output) would get reward=0.70+, blocking score_says_retry.
+    // Fix: when critic says !achieved, cap stop_score at CRITIC_FAIL_STOP_CAP=0.65.
+
+    /// Low-confidence failure (10% — the cotización session) must yield reward < 0.60
+    /// so score_says_retry fires even when EndTurn + plan fully completed.
+    #[test]
+    fn critic_low_confidence_failure_yields_below_retry_threshold() {
+        let signals = RawRewardSignals {
+            stop_condition: StopCondition::EndTurn,
+            round_scores: vec![],
+            critic_verdict: Some((false, 0.10)), // low confidence "not achieved"
+            plan_coherence_score: 0.0,
+            oscillation_penalty: 0.0,
+            plan_completion_ratio: 1.0, // all plan steps "completed" (even with empty output)
+            plugin_snapshots: vec![],
+        };
+        let result = compute_reward(&signals);
+        // stop_score capped at 0.60, critic_score = 0.25*(1-0.10) = 0.225
+        // trajectory fallback = 0.60; coherence = 1.0 (no drift, full plan)
+        // final ≈ 0.60*0.25 + 0.60*0.30 + 0.225*0.25 + 1.0*0.20 ≈ 0.587 < 0.60
+        assert!(
+            result.final_reward < 0.60,
+            "low-confidence critic failure must push reward below retry threshold 0.60, got {}",
+            result.final_reward
+        );
+    }
+
+    /// High-confidence failure (80%+) must yield even lower reward.
+    #[test]
+    fn critic_high_confidence_failure_yields_very_low_reward() {
+        let signals = RawRewardSignals {
+            stop_condition: StopCondition::EndTurn,
+            round_scores: vec![],
+            critic_verdict: Some((false, 0.90)),
+            plan_coherence_score: 0.0,
+            oscillation_penalty: 0.0,
+            plan_completion_ratio: 1.0,
+            plugin_snapshots: vec![],
+        };
+        let result = compute_reward(&signals);
+        // stop_score=0.65, critic_score=0.25*(1-0.90)=0.025
+        // final ≈ 0.65*0.25 + 0.65*0.30 + 0.025*0.25 + 1.0*0.20 ≈ 0.563
+        // Must be below low-confidence case AND below threshold
+        assert!(
+            result.final_reward < 0.60,
+            "high-confidence critic failure must be below retry threshold, got {}",
+            result.final_reward
+        );
+    }
+
+    /// Successful sessions are NOT dampened by the critic cap.
+    #[test]
+    fn critic_success_verdict_not_dampened() {
+        let signals = RawRewardSignals {
+            stop_condition: StopCondition::EndTurn,
+            round_scores: vec![],
+            critic_verdict: Some((true, 0.90)), // high confidence "achieved"
+            plan_coherence_score: 0.0,
+            oscillation_penalty: 0.0,
+            plan_completion_ratio: 1.0,
+            plugin_snapshots: vec![],
+        };
+        let result = compute_reward(&signals);
+        // stop_score = 1.0 (no cap on success); critic_score = 0.90
+        // trajectory = 1.0 (fallback to raw_stop); coherence = 1.0
+        // final = 1.0*0.25 + 1.0*0.30 + 0.90*0.25 + 1.0*0.20 = 0.975
+        assert!(
+            result.final_reward > 0.80,
+            "critic success verdict must not reduce reward, got {}",
+            result.final_reward
+        );
+    }
+
+    /// Critic dampening stops at CRITIC_FAIL_STOP_CAP — does not zero out stop_score.
+    #[test]
+    fn critic_fail_stop_cap_is_floor_not_zero() {
+        let signals = RawRewardSignals {
+            stop_condition: StopCondition::EndTurn,
+            round_scores: vec![],
+            critic_verdict: Some((false, 0.50)),
+            plan_coherence_score: 0.0,
+            oscillation_penalty: 0.0,
+            plan_completion_ratio: 1.0,
+            plugin_snapshots: vec![],
+        };
+        let result = compute_reward(&signals);
+        assert!(
+            result.breakdown.stop_score <= CRITIC_FAIL_STOP_CAP,
+            "stop_score must be capped at CRITIC_FAIL_STOP_CAP when !achieved"
+        );
+        assert!(
+            result.breakdown.stop_score > 0.0,
+            "stop_score must not be zeroed by critic dampening"
+        );
     }
 }

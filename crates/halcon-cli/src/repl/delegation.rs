@@ -213,18 +213,22 @@ impl DelegationRouter {
         };
 
         match tool {
-            // File and directory operations (Coder agent)
+            // File and directory operations (Coder agent) — halcon native tools
             "file_read" | "file_write" | "file_edit" | "file_delete" | "file_inspect"
             | "directory_tree" | "list_directory_with_sizes" | "list_directory"
             | "read_multiple_files" | "edit_file" | "apply_patch" => {
                 StepCapability::FileOperations
             }
+            // MCP filesystem server tools — named differently from halcon native tools
+            // (@modelcontextprotocol/server-filesystem: read_file, write_file, etc.)
+            "read_file" | "write_file" | "create_directory" | "move_file"
+            | "get_file_info" | "list_allowed_directories" => StepCapability::FileOperations,
             // Code execution (Coder agent)
             "bash" | "run_command" | "terminal" | "code_execution" | "dep_check"
             | "code_metrics" => StepCapability::CodeExecution,
-            // Search and analysis (Coder agent)
+            // Search and analysis (Coder agent) — halcon native + MCP filesystem search
             "grep" | "glob" | "fuzzy_find" | "symbol_search" | "native_search"
-            | "semantic_grep" | "ast_search" => StepCapability::Search,
+            | "semantic_grep" | "ast_search" | "search_files" => StepCapability::Search,
             // Git operations (Coder agent)
             "git_status" | "git_diff" | "git_log" | "git_add" | "git_commit"
             | "git_push" | "git_pull" | "git_branch" => StepCapability::GitOperations,
@@ -238,14 +242,19 @@ impl DelegationRouter {
     }
 
     /// Suggest the set of tools a sub-agent needs for a given capability.
+    ///
+    /// Always inserts `primary_tool` — even for the `General` fallback case where
+    /// the tool name was not recognised. Narrowing to at least the one required tool
+    /// prevents DeepSeek/GPT from receiving the full 63-tool surface and hesitating.
     fn tools_for_capability(capability: &StepCapability, primary_tool: &str) -> HashSet<String> {
         let mut tools = HashSet::new();
         tools.insert(primary_tool.to_string());
 
         match capability {
             StepCapability::FileOperations => {
-                // File tools often need bash for verification.
+                // File tools often need a read companion for verification.
                 tools.insert("file_read".into());
+                tools.insert("read_file".into()); // MCP filesystem alias
             }
             StepCapability::CodeExecution => {
                 // bash is self-contained.
@@ -254,13 +263,17 @@ impl DelegationRouter {
                 // Search tools are self-contained.
             }
             StepCapability::GitOperations => {
-                // Git ops may need related tools.
+                // Git ops may need status for context.
                 tools.insert("git_status".into());
             }
             StepCapability::WebAccess => {
                 // Web tools are self-contained.
             }
-            StepCapability::General => {}
+            StepCapability::General => {
+                // Unknown tool: keep the primary_tool so the sub-agent has a narrowed
+                // surface (just the one required tool) rather than the full 63-tool set.
+                // This dramatically improves tool-call reliability for models like DeepSeek.
+            }
         }
 
         tools
@@ -767,5 +780,102 @@ mod tests {
     fn infer_default_for_unknown() {
         assert_eq!(DelegationRouter::infer_file_path("write some output"), "output.txt");
         assert_eq!(DelegationRouter::infer_file_path(""), "output.txt");
+    }
+
+    // ── MCP filesystem tool coverage (RC-1 fix) ───────────────────────────────
+
+    /// search_files (MCP filesystem) must route to Search → Coder, not General → Chat.
+    /// This was the root cause of the "Chat [1/3] — 0 tools" failure in the cotización
+    /// document analysis session: deepseek generated `search_files` in the plan, which
+    /// fell to General/Chat because it wasn't listed in classify_step.
+    #[test]
+    fn classify_mcp_search_files_is_search_not_general() {
+        let step = make_step("Search for cuervo/zuclubit files", Some("search_files"), 0.9);
+        assert_eq!(
+            DelegationRouter::classify_step(&step),
+            StepCapability::Search,
+            "search_files (MCP filesystem) must route to Search, not General/Chat"
+        );
+    }
+
+    /// read_file (MCP filesystem, different from halcon native "file_read") → FileOperations.
+    #[test]
+    fn classify_mcp_read_file_is_file_operations() {
+        let step = make_step("Read document", Some("read_file"), 0.9);
+        assert_eq!(DelegationRouter::classify_step(&step), StepCapability::FileOperations);
+    }
+
+    /// write_file (MCP filesystem, different from halcon native "file_write") → FileOperations.
+    #[test]
+    fn classify_mcp_write_file_is_file_operations() {
+        let step = make_step("Write output", Some("write_file"), 0.9);
+        assert_eq!(DelegationRouter::classify_step(&step), StepCapability::FileOperations);
+    }
+
+    /// create_directory (MCP filesystem) → FileOperations.
+    #[test]
+    fn classify_mcp_create_directory_is_file_operations() {
+        let step = make_step("Create output dir", Some("create_directory"), 0.9);
+        assert_eq!(DelegationRouter::classify_step(&step), StepCapability::FileOperations);
+    }
+
+    /// move_file / get_file_info / list_allowed_directories (MCP filesystem) → FileOperations.
+    #[test]
+    fn classify_mcp_file_management_tools_are_file_operations() {
+        for tool in &["move_file", "get_file_info", "list_allowed_directories"] {
+            let step = make_step("File op", Some(tool), 0.9);
+            assert_eq!(
+                DelegationRouter::classify_step(&step),
+                StepCapability::FileOperations,
+                "{tool} must route to FileOperations"
+            );
+        }
+    }
+
+    /// MCP search_files routes to Coder (via Search), not Chat.
+    #[test]
+    fn mcp_search_files_routes_to_coder_agent_type() {
+        let capability = StepCapability::Search;
+        assert_eq!(
+            DelegationRouter::agent_type_for_capability(&capability),
+            AgentType::Coder,
+            "Search capability must map to Coder, not Chat"
+        );
+    }
+
+    // ── General fallback narrows to primary tool (RC-2 fix) ────────────────────
+
+    /// When classify_step returns General (unknown tool), tools_for_capability must
+    /// still include the primary tool name — not return an empty set.
+    /// Previously, empty set → orchestrator gave sub-agent all 63 tools → DeepSeek confused.
+    #[test]
+    fn general_capability_includes_primary_tool_not_empty() {
+        let tools = DelegationRouter::tools_for_capability(&StepCapability::General, "some_custom_tool");
+        assert!(
+            tools.contains("some_custom_tool"),
+            "General fallback must always include the primary tool for surface narrowing"
+        );
+    }
+
+    /// Verify that unknown tool name still triggers a retry-able delegation with narrowed surface.
+    #[test]
+    fn unknown_tool_plan_step_has_narrowed_tool_surface() {
+        let router = DelegationRouter::new(true);
+        let plan = make_plan(vec![
+            make_step("Do something custom", Some("custom_unknown_tool"), 0.9),
+            make_step("Synthesize", None, 1.0),
+        ]);
+        let decisions = router.analyze_plan(&plan);
+        assert_eq!(decisions.len(), 1, "custom tool step should be delegated");
+        let (_, ref decision) = decisions[0];
+        assert!(
+            decision.suggested_tools.contains("custom_unknown_tool"),
+            "suggested_tools must contain the custom tool even for unknown/General capability"
+        );
+        assert_eq!(
+            decision.suggested_tools.len(),
+            1,
+            "General capability should produce exactly 1 tool (the primary) not 63"
+        );
     }
 }
