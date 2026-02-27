@@ -274,10 +274,26 @@ pub async fn run_orchestrator(
         let eligible_tasks: Vec<&&SubAgentTask> = wave
             .iter()
             .filter(|task| {
-                let has_failed_dep = task.depends_on.iter().any(|dep| failed_task_ids.contains(dep));
+                let failed_deps: Vec<uuid::Uuid> = task.depends_on.iter()
+                    .filter(|dep| failed_task_ids.contains(*dep))
+                    .copied()
+                    .collect();
+                let has_failed_dep = !failed_deps.is_empty();
                 if has_failed_dep {
+                    // Build a descriptive error that names the blocking failed dependency IDs.
+                    let dep_ids = failed_deps.iter()
+                        .map(|id| id.to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let detail = format!(
+                        "error_type:dependency_cascade | blocked_by_task_ids:[{}] | \
+                         tool:{} | skipped_without_execution",
+                        dep_ids,
+                        task.instruction.lines().next().unwrap_or("unknown"),
+                    );
                     tracing::info!(
                         task_id = %task.task_id,
+                        failed_deps = %dep_ids,
                         "Skipping task due to failed dependency"
                     );
                     skipped.push(SubAgentResult {
@@ -286,7 +302,7 @@ pub async fn run_orchestrator(
                         output_text: String::new(),
                         agent_result: AgentResult {
                             success: false,
-                            summary: "Skipped: dependency failed".to_string(),
+                            summary: format!("Skipped: dependency cascade from task(s) [{}]", dep_ids),
                             files_modified: vec![],
                             tools_used: vec![],
                         },
@@ -295,7 +311,7 @@ pub async fn run_orchestrator(
                         cost_usd: 0.0,
                         latency_ms: 0,
                         rounds: 0,
-                        error: Some("dependency failed".to_string()),
+                        error: Some(detail),
                     });
                     false
                 } else {
@@ -419,10 +435,11 @@ pub async fn run_orchestrator(
                     // SOTA 2026: Hard cap sub-agent timeout at 200s.
                     // Sub-agents have focused, narrow tasks — a 10-minute default causes
                     // 31s+ stalls when the convergence controller gets stuck in a replan loop.
-                    // Audit 2026-02-23: raised from 120s to 200s after confirmed timeouts where
-                    // deepseek-chat needed 96-143s to generate large files (HTML Minecraft games).
-                    // 200s gives 40% headroom over the observed worst-case latency.
-                    const SUB_AGENT_MAX_TIMEOUT_SECS: u64 = 200;
+                    // Audit 2026-02-23: raised from 120s to 200s after confirmed timeouts.
+                    // Audit 2026-02-27: raised from 200s to 300s to accommodate dep_check on
+                    // Node.js projects (npm audit fetches from registry, needs 240s minimum).
+                    // dep_check.rs uses NODE_TIMEOUT=240s — sub-agent must exceed that.
+                    const SUB_AGENT_MAX_TIMEOUT_SECS: u64 = 300;
                     let timeout_dur = if limits.max_duration_secs > 0 {
                         Duration::from_secs(limits.max_duration_secs.min(SUB_AGENT_MAX_TIMEOUT_SECS))
                     } else {
@@ -567,22 +584,29 @@ pub async fn run_orchestrator(
                             rounds: 0,
                             error: Some(format!("{e}")),
                         },
-                        Err(_) => SubAgentResult {
-                            task_id,
-                            success: false,
-                            output_text: String::new(),
-                            agent_result: AgentResult {
+                        Err(_) => {
+                            let timeout_secs = timeout_dur.as_secs();
+                            SubAgentResult {
+                                task_id,
                                 success: false,
-                                summary: "Timed out".to_string(),
-                                files_modified: vec![],
-                                tools_used: vec![],
-                            },
-                            input_tokens: 0,
-                            output_tokens: 0,
-                            cost_usd: 0.0,
-                            latency_ms,
-                            rounds: 0,
-                            error: Some("sub-agent timed out".to_string()),
+                                output_text: String::new(),
+                                agent_result: AgentResult {
+                                    success: false,
+                                    summary: format!("Timed out after {}s", timeout_secs),
+                                    files_modified: vec![],
+                                    tools_used: vec![],
+                                },
+                                input_tokens: 0,
+                                output_tokens: 0,
+                                cost_usd: 0.0,
+                                latency_ms,
+                                rounds: 0,
+                                error: Some(format!(
+                                    "error_type:timeout | duration_secs:{} | \
+                                     task_id:{} | increase sub_agent_timeout_secs in config",
+                                    timeout_secs, task_id
+                                )),
+                            }
                         },
                     }
                 }
@@ -597,7 +621,29 @@ pub async fn run_orchestrator(
             budget.add_tokens(result.input_tokens + result.output_tokens);
 
             // Track failed tasks for downstream failure cascade.
+            // IMPORTANT: Timeout failures (error_type:timeout) are treated differently from
+            // hard failures (provider errors, permission denials). A timeout is a transient
+            // condition — the tool might succeed with more time (e.g. npm audit on large
+            // Node projects). Cascading immediately on timeout kills all dependent steps
+            // without giving them any chance to run.
+            //
+            // Soft cascade (timeout): add to failed_task_ids so dependents are skipped,
+            // but log a distinct warning so operators know it was timeout not a hard error.
+            // Note: the dep_check Node timeout is now mitigated by the 300s hard-cap +
+            // ecosystem-adaptive timeout (240s for Node), so this path should be rare.
             if !result.success {
+                let is_timeout = result.error.as_deref()
+                    .map(|e| e.contains("error_type:timeout"))
+                    .unwrap_or(false);
+                if is_timeout {
+                    tracing::warn!(
+                        task_id = %result.task_id,
+                        "Sub-agent timed out — dependent tasks will be skipped. \
+                         Consider increasing sub_agent_timeout_secs in config."
+                    );
+                } else {
+                    tracing::debug!(task_id = %result.task_id, "Sub-agent hard failure — cascading");
+                }
                 failed_task_ids.insert(result.task_id);
             }
 

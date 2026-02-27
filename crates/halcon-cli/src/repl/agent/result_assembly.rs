@@ -79,6 +79,9 @@ pub(super) async fn build(
 
             // Step 8h: Use critic_provider/critic_model if configured (G2 — critic separation).
             // Falls back to executor provider/model when not configured (backward compatible).
+            // Fallback logic: if configured critic_provider fails (returns None), retry with
+            // the session provider so cross-provider sessions (deepseek/openai) still get
+            // adversarial evaluation even when critic_provider="anthropic" has no credits.
             let critic_prov_ref = critic_provider.as_ref().unwrap_or(provider);
             let critic_mdl_str = critic_model.as_deref().unwrap_or(&request.model);
             let critic = super::super::supervisor::LoopCritic::new(
@@ -86,10 +89,27 @@ pub(super) async fn build(
                 critic_mdl_str.to_string(),
             );
 
-            match critic
+            let mut verdict_opt = critic
                 .evaluate(&original_request, &state.full_text, &step_summaries)
-                .await
-            {
+                .await;
+
+            // Fallback: if critic_provider was explicitly set (G2 separation) but failed,
+            // retry with the session provider so non-anthropic sessions aren't left unverified.
+            if verdict_opt.is_none() && critic_provider.is_some() {
+                tracing::info!(
+                    session_provider = %provider.name(),
+                    "LoopCritic: configured critic_provider failed — retrying with session provider"
+                );
+                let fallback_critic = super::super::supervisor::LoopCritic::new(
+                    provider.clone(),
+                    request.model.clone(),
+                );
+                verdict_opt = fallback_critic
+                    .evaluate(&original_request, &state.full_text, &step_summaries)
+                    .await;
+            }
+
+            match verdict_opt {
                 Some(verdict) => {
                     // Phase 1.2: Propagate FULL verdict (achieved + confidence + gaps + retry_instruction).
                     // Previously only (achieved, confidence) was stored — gaps and retry_instruction

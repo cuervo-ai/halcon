@@ -134,7 +134,7 @@ pub async fn run(
     // Precheck that the selected provider is available, falling back if needed.
     // In TUI mode, allow starting even without providers (show error on first prompt).
     let (provider, model) = if tui {
-        match provider_factory::precheck_providers(&registry, provider, model).await {
+        match provider_factory::precheck_providers_explicit(&registry, provider, model, explicit_model).await {
             Ok((p, m)) => (p, m),
             Err(e) => {
                 feedback::user_warning(
@@ -146,7 +146,7 @@ pub async fn run(
         }
     } else {
         // Classic mode requires a valid provider.
-        provider_factory::precheck_providers(&registry, provider, model).await?
+        provider_factory::precheck_providers_explicit(&registry, provider, model, explicit_model).await?
     };
     let provider = provider.as_str();
     let model = model.as_str();

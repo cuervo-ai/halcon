@@ -202,6 +202,10 @@ impl DelegationRouter {
     }
 
     /// Classify a plan step's capability from its `tool_name`.
+    ///
+    /// When a tool_name is not in the match list it falls through to General,
+    /// which maps to AgentType::Chat and provides no tool-surface narrowing.
+    /// All known tools should be listed explicitly to get the correct agent type.
     fn classify_step(step: &PlanStep) -> StepCapability {
         let tool = match step.tool_name.as_deref() {
             Some(t) => t,
@@ -209,14 +213,26 @@ impl DelegationRouter {
         };
 
         match tool {
+            // File and directory operations (Coder agent)
             "file_read" | "file_write" | "file_edit" | "file_delete" | "file_inspect"
-            | "directory_tree" => StepCapability::FileOperations,
-            "bash" => StepCapability::CodeExecution,
-            "grep" | "glob" | "fuzzy_find" | "symbol_search" => StepCapability::Search,
-            "git_status" | "git_diff" | "git_log" | "git_add" | "git_commit" => {
-                StepCapability::GitOperations
+            | "directory_tree" | "list_directory_with_sizes" | "list_directory"
+            | "read_multiple_files" | "edit_file" | "apply_patch" => {
+                StepCapability::FileOperations
             }
+            // Code execution (Coder agent)
+            "bash" | "run_command" | "terminal" | "code_execution" | "dep_check"
+            | "code_metrics" => StepCapability::CodeExecution,
+            // Search and analysis (Coder agent)
+            "grep" | "glob" | "fuzzy_find" | "symbol_search" | "native_search"
+            | "semantic_grep" | "ast_search" => StepCapability::Search,
+            // Git operations (Coder agent)
+            "git_status" | "git_diff" | "git_log" | "git_add" | "git_commit"
+            | "git_push" | "git_pull" | "git_branch" => StepCapability::GitOperations,
+            // Web access (Chat agent)
             "web_search" | "web_fetch" | "http_request" => StepCapability::WebAccess,
+            // Plugin sentinel tools → treat as code execution (needs real tools, not Chat)
+            t if t.starts_with("plugin_halcon_dev_sentinel_") => StepCapability::CodeExecution,
+            // Unknown tools: General (Chat agent, full tool surface)
             _ => StepCapability::General,
         }
     }

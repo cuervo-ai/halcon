@@ -14,7 +14,12 @@ use halcon_core::types::{PermissionLevel, ToolInput, ToolOutput};
 use tracing::instrument;
 
 const MAX_OUTPUT_BYTES: usize = 128 * 1024; // 128 KB cap on raw command output
-const DEFAULT_TIMEOUT: u64 = 120; // cargo audit can be slow
+const DEFAULT_TIMEOUT: u64 = 120; // cargo audit baseline
+// npm/pnpm audit fetches vulnerability DB from registry — much slower than cargo audit.
+// Node projects need a higher timeout to avoid cascade failures in sub-agents.
+const NODE_TIMEOUT: u64 = 240;
+// Python pip-audit also fetches from PyPI — give extra time.
+const PYTHON_TIMEOUT: u64 = 180;
 
 pub struct DepCheckTool {
     timeout_secs: u64,
@@ -396,10 +401,23 @@ impl Tool for DepCheckTool {
             })?
         };
 
+        // Use ecosystem-appropriate timeouts. npm/pip fetch from network registries and
+        // are significantly slower than cargo audit which uses a local advisory DB.
+        // The ecosystem-specific timeout must stay below sub_agent_timeout_secs (200s).
+        let effective_timeout = match &ecosystem {
+            Ecosystem::Rust => self.timeout_secs,               // 120s (local cargo-audit DB)
+            Ecosystem::Node => self.timeout_secs.max(NODE_TIMEOUT),    // 240s (npm/pnpm registry fetch)
+            Ecosystem::Python => self.timeout_secs.max(PYTHON_TIMEOUT), // 180s (PyPI fetch)
+        };
+        tracing::debug!(
+            ecosystem = ?ecosystem,
+            timeout_secs = effective_timeout,
+            "dep_check: using ecosystem-specific timeout"
+        );
         let mut output = match ecosystem {
-            Ecosystem::Rust => run_rust(working_dir, self.timeout_secs, check_vulns).await,
-            Ecosystem::Node => run_node(working_dir, self.timeout_secs, check_vulns).await,
-            Ecosystem::Python => run_python(working_dir, self.timeout_secs).await,
+            Ecosystem::Rust => run_rust(working_dir, effective_timeout, check_vulns).await,
+            Ecosystem::Node => run_node(working_dir, effective_timeout, check_vulns).await,
+            Ecosystem::Python => run_python(working_dir, effective_timeout).await,
         };
 
         output.tool_use_id = input.tool_use_id;

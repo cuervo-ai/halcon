@@ -178,10 +178,33 @@ pub async fn ensure_local_fallback(registry: &mut ProviderRegistry) {
 ///
 /// Returns the (provider_name, model) to use. If the primary is unavailable,
 /// tries other registered providers. Shows clear errors if nothing works.
+///
+/// `explicit_model`: true when the user passed `-m <model>` explicitly.
+/// When false (model came from global config default_model), model mismatches
+/// are resolved silently — the provider's best model is used without a warning.
 pub async fn precheck_providers(
     registry: &ProviderRegistry,
     primary: &str,
     model: &str,
+) -> Result<(String, String)> {
+    precheck_providers_with_explicit(registry, primary, model, false).await
+}
+
+/// Like `precheck_providers` but with explicit-model flag.
+pub async fn precheck_providers_explicit(
+    registry: &ProviderRegistry,
+    primary: &str,
+    model: &str,
+    explicit_model: bool,
+) -> Result<(String, String)> {
+    precheck_providers_with_explicit(registry, primary, model, explicit_model).await
+}
+
+async fn precheck_providers_with_explicit(
+    registry: &ProviderRegistry,
+    primary: &str,
+    model: &str,
+    explicit_model: bool,
 ) -> Result<(String, String)> {
     // Check if primary provider is in the registry and available.
     if let Some(p) = registry.get(primary) {
@@ -215,13 +238,26 @@ pub async fn precheck_providers(
                             .map(|m| m.id.clone())
                             .unwrap_or_else(|| model.to_string())
                     });
-                feedback::user_warning(
-                    &format!(
-                        "model '{model}' is not available on provider '{primary}', \
-                         using '{best}' instead"
-                    ),
-                    Some("Use -m to explicitly specify a model for this provider"),
-                );
+                // Only warn when the user explicitly passed -m <model>.
+                // When model came from the global config default_model (explicit_model=false),
+                // the mismatch is expected (e.g. default_model="claude-sonnet-4-6" on openai)
+                // — silently select the provider's best model instead.
+                if explicit_model {
+                    feedback::user_warning(
+                        &format!(
+                            "model '{model}' is not available on provider '{primary}', \
+                             using '{best}' instead"
+                        ),
+                        Some("Use -m to explicitly specify a model for this provider"),
+                    );
+                } else {
+                    tracing::debug!(
+                        global_default = model,
+                        resolved = %best,
+                        provider = primary,
+                        "model not valid for provider; using provider default (no warning — model came from global config)"
+                    );
+                }
                 best
             };
             return Ok((primary.to_string(), resolved_model));
