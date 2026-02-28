@@ -230,6 +230,16 @@ pub(super) struct LoopState {
     /// Surfaced in AgentLoopResult so orchestrator / TUI can show real tool counts.
     pub tools_executed: Vec<String>,
 
+    // ── Evidence Boundary System ───────────────────────────────────────────
+    /// Evidence bundle — tracks text evidence extracted from file-reading tools.
+    ///
+    /// Records bytes extracted by `read_file`/`read_multiple_files` and detects
+    /// binary-file indicators (PDF headers, "Binary file" grep messages).
+    /// `EvidenceGate` in convergence_phase checks this before synthesis injection
+    /// and replaces the synthesis directive with a limitation report when the
+    /// gate fires (`content_read_attempts > 0 && text_bytes_extracted < threshold`).
+    pub evidence_bundle: super::super::evidence_pipeline::EvidenceBundle,
+
     // ── Token attribution (Phase L) ────────────────────────────────────────
     /// Tokens consumed by planner LLM call (before entering the loop).
     pub tokens_planning: u64,

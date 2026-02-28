@@ -508,16 +508,80 @@ pub(super) async fn run(
             // round. Guard: if forced_synthesis_detected was already true (we already
             // did a synthesis sub-round but oracle fired Halt again), break for real.
             if !state.forced_synthesis_detected {
-                state.synthesis_origin = Some(SynthesisOrigin::OracleConvergence);
-                state.forced_synthesis_detected = true;
-                let synth_msg = ChatMessage {
-                    role: Role::User,
-                    content: MessageContent::Text(
+                // V5 fix (2026-02-27): Investigative task synthesis guard.
+                // If the oracle is attempting to force synthesis on an Investigation task
+                // but ZERO real tool calls were executed, this is suspicious — it likely
+                // means the plan was generated but tools never ran (empty tool surface,
+                // sub-agent failure, or MCP server unavailable). Emit a structured WARN
+                // so the session is visible in telemetry; synthesis still proceeds but
+                // the LoopCritic (V4 fix) will evaluate the output adversarially.
+                // Restriction: does NOT block synthesis (avoiding deadlock) but marks the
+                // session with `synthesis_origin = SupervisorFailure` for reward dampening.
+                if matches!(state.execution_intent, ExecutionIntentPhase::Investigation)
+                    && state.tools_executed.is_empty()
+                {
+                    tracing::warn!(
+                        session_id = %state.session_id,
+                        intent = "Investigation",
+                        tools_executed = 0,
+                        round = round,
+                        "AUDIT: Oracle injecting synthesis on Investigation task with 0 real tool calls. \
+                         Possible causes: empty tool surface, MCP unavailable, sub-agent spawn failure. \
+                         Marking synthesis_origin=SupervisorFailure for critic dampening."
+                    );
+                    if !state.silent {
+                        render_sink.warning(
+                            "[audit] synthesizing without tool execution — investigation task had 0 real tool calls",
+                            Some("Check MCP server availability and tool surface configuration"),
+                        );
+                    }
+                    // Mark as SupervisorFailure so reward pipeline applies synthesis penalty
+                    // AND LoopCritic (V4) will adversarially evaluate the fabricated output.
+                    state.synthesis_origin = Some(SynthesisOrigin::SupervisorFailure);
+                } else {
+                    state.synthesis_origin = Some(SynthesisOrigin::OracleConvergence);
+                }
+                // EBS Evidence Gate (EBS-1): check if sufficient readable content was
+                // extracted before allowing synthesis. Gate fires when content-read tools
+                // (read_file, read_multiple_files) were attempted but returned < threshold
+                // bytes — indicating binary files (PDF), empty files, or permission errors.
+                // When gate fires, the synthesis directive is replaced with a limitation
+                // report directive so the model honestly reports it cannot read the files
+                // instead of fabricating content from prior knowledge.
+                let synth_text_halt = {
+                    use super::super::evidence_pipeline::MIN_EVIDENCE_BYTES;
+                    if state.evidence_bundle.evidence_gate_fires() {
+                        state.evidence_bundle.synthesis_blocked = true;
+                        // Gate fires → always mark as SupervisorFailure for reward dampening.
+                        state.synthesis_origin = Some(SynthesisOrigin::SupervisorFailure);
+                        tracing::warn!(
+                            session_id = %state.session_id,
+                            text_bytes_extracted = state.evidence_bundle.text_bytes_extracted,
+                            content_read_attempts = state.evidence_bundle.content_read_attempts,
+                            binary_file_count = state.evidence_bundle.binary_file_count,
+                            min_threshold = MIN_EVIDENCE_BYTES,
+                            "EvidenceGate FIRED (Halt): synthesis replaced with limitation \
+                             report directive. Content-read tools ran but extracted \
+                             insufficient text (likely binary PDFs)."
+                        );
+                        if !state.silent {
+                            render_sink.warning(
+                                "[evidence-gate] synthesis blocked — file tools returned no readable text",
+                                Some("Files may be binary (PDF). Injecting limitation report directive."),
+                            );
+                        }
+                        state.evidence_bundle.gate_message()
+                    } else {
                         "[System: You have gathered sufficient information. \
                          Please synthesize all your findings into a comprehensive \
                          final response for the user. Do not call any more tools.]"
-                            .into(),
-                    ),
+                            .to_string()
+                    }
+                };
+                state.forced_synthesis_detected = true;
+                let synth_msg = ChatMessage {
+                    role: Role::User,
+                    content: MessageContent::Text(synth_text_halt.into()),
                 };
                 state.messages.push(synth_msg.clone());
                 state.context_pipeline.add_message(synth_msg.clone());
@@ -537,16 +601,43 @@ pub(super) async fn run(
                     // FIX: Same pattern as Halt — inject synthesis directive and allow
                     // one final tool-free round so the model produces a real response.
                     if !state.forced_synthesis_detected {
-                        state.synthesis_origin = Some(SynthesisOrigin::OracleConvergence);
-                        state.forced_synthesis_detected = true;
-                        let synth_msg = ChatMessage {
-                            role: Role::User,
-                            content: MessageContent::Text(
+                        // EBS Evidence Gate (EBS-2): same gate check for ConvergenceController
+                        // hard-stop path. Prevents fabrication when stagnation is caused by
+                        // unreadable binary files (tools ran in circles, found nothing).
+                        let synth_text_conv = {
+                            use super::super::evidence_pipeline::MIN_EVIDENCE_BYTES;
+                            if state.evidence_bundle.evidence_gate_fires() {
+                                state.evidence_bundle.synthesis_blocked = true;
+                                tracing::warn!(
+                                    session_id = %state.session_id,
+                                    text_bytes_extracted = state.evidence_bundle.text_bytes_extracted,
+                                    content_read_attempts = state.evidence_bundle.content_read_attempts,
+                                    binary_file_count = state.evidence_bundle.binary_file_count,
+                                    min_threshold = MIN_EVIDENCE_BYTES,
+                                    "EvidenceGate FIRED (ConvergenceCtrl): replacing synthesis \
+                                     with limitation report. Binary/unreadable files detected."
+                                );
+                                if !state.silent {
+                                    render_sink.warning(
+                                        "[evidence-gate] synthesis blocked — file tools returned no readable text",
+                                        Some("Files may be binary (PDF). Injecting limitation report directive."),
+                                    );
+                                }
+                                // Gate fires → SupervisorFailure for reward dampening.
+                                state.synthesis_origin = Some(SynthesisOrigin::SupervisorFailure);
+                                state.evidence_bundle.gate_message()
+                            } else {
+                                state.synthesis_origin = Some(SynthesisOrigin::OracleConvergence);
                                 "[System: You have gathered sufficient information. \
                                  Please synthesize all your findings into a comprehensive \
                                  final response for the user. Do not call any more tools.]"
-                                    .into(),
-                            ),
+                                    .to_string()
+                            }
+                        };
+                        state.forced_synthesis_detected = true;
+                        let synth_msg = ChatMessage {
+                            role: Role::User,
+                            content: MessageContent::Text(synth_text_conv.into()),
                         };
                         state.messages.push(synth_msg.clone());
                         state.context_pipeline.add_message(synth_msg.clone());
@@ -638,7 +729,16 @@ pub(super) async fn run(
                         state.messages.push(synth_msg.clone());
                         state.context_pipeline.add_message(synth_msg.clone());
                         session.add_message(synth_msg);
-                        state.tool_decision.set_force_next();
+                        // V2 fix (2026-02-27): Previously used set_force_next() which can
+                        // be downgraded by subsequent heuristics. Replan budget exhaustion
+                        // is an oracle-level decision — use ForcedByOracle so no subsequent
+                        // heuristic (e.g. ConversationalDirectiveRule, ForceNoToolsRule) can
+                        // override this synthesis injection with a weaker signal.
+                        state.tool_decision = ToolDecisionSignal::ForcedByOracle;
+                        tracing::warn!(
+                            attempts = state.replan_attempts,
+                            "Replan budget exhausted → ForcedByOracle (oracle-level, non-downgradable)"
+                        );
                         return Ok(PhaseOutcome::NextRound);
                     }
 
@@ -904,12 +1004,31 @@ pub(super) async fn run(
 
     // ExecutionIntent transition: Execution → Complete when all plan steps finish.
     // This unblocks synthesis guards for the final synthesis round.
+    //
+    // V1 fix (2026-02-27): Previously used `tracker.plan().steps.iter().all(|s| s.outcome.is_some())`.
+    // That condition stalled when steps were deduped, skipped, or had no outcome record even
+    // though they were terminal (e.g. depended on a failed step). Now uses
+    // `tracker.is_complete()` which checks `all(status.is_terminal())` — correctly covers
+    // Completed + Failed + Skipped states, preventing the Execution→Complete transition
+    // from stalling and synthesis from being permanently suppressed.
     if state.execution_intent == ExecutionIntentPhase::Execution {
         if let Some(ref tracker) = state.execution_tracker {
-            let all_done = tracker.plan().steps.iter().all(|s| s.outcome.is_some());
+            let all_done = tracker.is_complete();
             if all_done {
                 state.execution_intent = ExecutionIntentPhase::Complete;
-                tracing::info!("ExecutionIntent: Execution → Complete (all steps finished)");
+                tracing::info!(
+                    steps_total = tracker.tracked_steps().len(),
+                    "ExecutionIntent: Execution → Complete (tracker.is_complete())"
+                );
+            } else {
+                // Structured audit: log non-terminal step count for observability
+                let pending = tracker.tracked_steps().iter().filter(|s| !s.status.is_terminal()).count();
+                tracing::debug!(
+                    pending_steps = pending,
+                    total_steps = tracker.tracked_steps().len(),
+                    "ExecutionIntent: still Execution ({} steps pending)",
+                    pending
+                );
             }
         }
     }

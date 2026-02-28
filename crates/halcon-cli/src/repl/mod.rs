@@ -85,6 +85,9 @@ pub mod ci_detection;
 pub mod compaction;
 pub mod console;
 pub mod delegation;
+/// Evidence Boundary System — Zero Evidence → Zero Output policy.
+/// Tracks textual evidence from file-reading tools; blocks synthesis on binary/empty files.
+pub mod evidence_pipeline;
 pub mod execution_tracker;
 pub mod failure_tracker;
 pub mod health;

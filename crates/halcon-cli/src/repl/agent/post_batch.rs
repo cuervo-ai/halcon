@@ -279,6 +279,8 @@ pub(super) async fn run(
                         &result.tool_name, content, Some(elider_budget),
                     );
                     tool_successes.push(result.tool_name.clone());
+                    // EBS: record evidence from successful content-reading tool results.
+                    state.evidence_bundle.record_tool_result(&result.tool_name, content);
                 }
                 if let ContentBlock::ToolResult {
                     ref content,
@@ -302,6 +304,8 @@ pub(super) async fn run(
                         &result.tool_name, content, Some(elider_budget),
                     );
                     tool_successes.push(result.tool_name.clone());
+                    // EBS: record evidence from successful content-reading tool results.
+                    state.evidence_bundle.record_tool_result(&result.tool_name, content);
                 }
                 if let ContentBlock::ToolResult {
                     ref content,

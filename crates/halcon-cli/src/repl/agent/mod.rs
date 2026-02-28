@@ -1489,6 +1489,7 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
         l4_archive_path: l4_archive_path.clone(),
         strategy_context: strategy_context.clone(),
         tools_executed: Vec::new(),
+        evidence_bundle: Default::default(),
         tokens_planning: 0,
         tokens_subagents: pre_loop_tokens_subagents,
         tokens_critic: 0,
