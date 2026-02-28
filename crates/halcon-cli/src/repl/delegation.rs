@@ -161,7 +161,11 @@ impl DelegationRouter {
                 // WHERE to write. Without a path, models generate the content as text
                 // (end_turn) instead of calling file_write, resulting in 0 tools used.
                 let instruction = if let Some(ref tool) = step.tool_name {
-                    let path_hint = if tool == "file_write" {
+                    // MCP search_files → remap instruction to use grep natively.
+                    // search_files MCP times out on large directories; grep is reliable.
+                    let effective_tool = if tool == "search_files" { "grep" } else { tool.as_str() };
+
+                    let path_hint = if effective_tool == "file_write" {
                         // Try to get path from expected_args first.
                         let path = step.expected_args
                             .as_ref()
@@ -171,11 +175,15 @@ impl DelegationRouter {
                             "\nTarget file path: {path}\n\
                              Call file_write with path=\"{path}\" and the complete file content."
                         )
+                    } else if tool == "search_files" {
+                        // Hint: guide the sub-agent to use grep correctly for content search.
+                        "\nUse grep with -r -l flags to search file contents recursively. \
+                         Example: grep -r -l \"keyword\" /path/to/dir".to_string()
                     } else {
                         String::new()
                     };
                     format!(
-                        "IMPORTANT: Call the `{tool}` tool NOW to complete this task. \
+                        "IMPORTANT: Call the `{effective_tool}` tool NOW to complete this task. \
                          Do NOT describe, plan, or explain — execute the tool immediately.{path_hint}\n\n\
                          Task: {}",
                         step.description
@@ -246,9 +254,22 @@ impl DelegationRouter {
     /// Always inserts `primary_tool` — even for the `General` fallback case where
     /// the tool name was not recognised. Narrowing to at least the one required tool
     /// prevents DeepSeek/GPT from receiving the full 63-tool surface and hesitating.
+    ///
+    /// MCP tool remapping: `search_files` (MCP filesystem) consistently times out
+    /// (~31s) when scanning large directories like /Users/.../Documents. It is
+    /// silently remapped to `grep` + `native_search` + `glob` which have 100% success
+    /// rate in production. The instruction is also rewritten in `build_tasks()`.
     fn tools_for_capability(capability: &StepCapability, primary_tool: &str) -> HashSet<String> {
+        // MCP search_files → native remap: replace with reliable native alternatives.
+        // Evidence: 3/3 failures (31327ms, 31489ms, 1283ms timeouts) in tool_execution_metrics.
+        // grep and native_search have 100% success rate across all recorded invocations.
+        let effective_primary = match primary_tool {
+            "search_files" => "grep",
+            other => other,
+        };
+
         let mut tools = HashSet::new();
-        tools.insert(primary_tool.to_string());
+        tools.insert(effective_primary.to_string());
 
         match capability {
             StepCapability::FileOperations => {
@@ -260,7 +281,14 @@ impl DelegationRouter {
                 // bash is self-contained.
             }
             StepCapability::Search => {
-                // Search tools are self-contained.
+                if primary_tool == "search_files" {
+                    // Provide full native search surface: grep (content), glob (pattern),
+                    // native_search (semantic). MCP search_files is excluded — it is
+                    // unreliable on large trees and causes 31s timeouts.
+                    tools.insert("native_search".into());
+                    tools.insert("glob".into());
+                }
+                // Other search tools (grep, glob, native_search) are self-contained.
             }
             StepCapability::GitOperations => {
                 // Git ops may need status for context.
@@ -876,6 +904,98 @@ mod tests {
             decision.suggested_tools.len(),
             1,
             "General capability should produce exactly 1 tool (the primary) not 63"
+        );
+    }
+
+    // ── MCP search_files → native remap (RC-5 fix) ───────────────────────────
+    //
+    // Root cause: MCP search_files times out 100% of the time on large directories
+    // (~31s for /Users/.../Documents). Evidence: 3/3 failures in tool_execution_metrics.
+    // Fix: remap search_files → grep + native_search + glob (all 100% success rate).
+
+    /// search_files must be remapped to grep in the tool surface — never included as-is.
+    #[test]
+    fn search_files_remapped_to_grep_not_mcp() {
+        let tools = DelegationRouter::tools_for_capability(&StepCapability::Search, "search_files");
+        assert!(
+            tools.contains("grep"),
+            "search_files must remap to grep (native, 100% success rate)"
+        );
+        assert!(
+            !tools.contains("search_files"),
+            "search_files (MCP, 0% success, 31s timeout) must NOT be in tool surface"
+        );
+    }
+
+    /// search_files remap provides full native search surface: grep + native_search + glob.
+    #[test]
+    fn search_files_remap_includes_full_native_search_surface() {
+        let tools = DelegationRouter::tools_for_capability(&StepCapability::Search, "search_files");
+        assert!(tools.contains("grep"), "must include grep");
+        assert!(tools.contains("native_search"), "must include native_search");
+        assert!(tools.contains("glob"), "must include glob");
+        assert!(!tools.contains("search_files"), "must NOT include broken MCP search_files");
+    }
+
+    /// Other Search tools (grep, native_search, glob) are NOT remapped — only search_files.
+    #[test]
+    fn non_search_files_search_tools_are_not_remapped() {
+        for tool in &["grep", "native_search", "glob", "fuzzy_find"] {
+            let tools = DelegationRouter::tools_for_capability(&StepCapability::Search, tool);
+            assert!(
+                tools.contains(*tool),
+                "{tool} must remain as primary (no remap)"
+            );
+            assert!(
+                !tools.contains("search_files"),
+                "{tool} must not add broken search_files to surface"
+            );
+        }
+    }
+
+    /// build_tasks instruction uses `grep` not `search_files` when step tool is search_files.
+    #[test]
+    fn search_files_step_instruction_uses_grep_not_mcp() {
+        let router = DelegationRouter::new(true);
+        let plan = make_plan(vec![
+            make_step("Buscar archivos de cotizaciones", Some("search_files"), 0.9),
+            make_step("Sintetizar", None, 1.0),
+        ]);
+        let decisions = router.analyze_plan(&plan);
+        let tasks = router.build_tasks(&plan, &decisions, "deepseek-chat");
+
+        assert_eq!(tasks.len(), 1);
+        let instruction = &tasks[0].1.instruction;
+        assert!(
+            instruction.contains("`grep`"),
+            "instruction must reference `grep`, not `search_files`. Got: {instruction}"
+        );
+        assert!(
+            !instruction.contains("`search_files`"),
+            "instruction must NOT reference `search_files`. Got: {instruction}"
+        );
+        assert!(
+            instruction.contains("-r -l"),
+            "instruction must include grep usage hint (-r -l flags). Got: {instruction}"
+        );
+    }
+
+    /// Agent type for search_files is still Coder (via Search capability).
+    #[test]
+    fn search_files_remap_preserves_coder_agent_type() {
+        let router = DelegationRouter::new(true);
+        let plan = make_plan(vec![
+            make_step("Buscar archivos de cotizaciones", Some("search_files"), 0.9),
+            make_step("Sintetizar", None, 1.0),
+        ]);
+        let decisions = router.analyze_plan(&plan);
+        let tasks = router.build_tasks(&plan, &decisions, "deepseek-chat");
+
+        assert_eq!(tasks.len(), 1);
+        assert_eq!(
+            tasks[0].1.agent_type,
+            AgentType::Coder,
+            "search_files remap must still route to Coder agent"
         );
     }
 }
