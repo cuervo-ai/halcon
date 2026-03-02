@@ -107,8 +107,8 @@ jobs:
             archive: tar.gz
             features: headless
 
-          # macOS Intel
-          - os: macos-13
+          # macOS Intel (cross-compiled from ARM64 runner — macos-13 deprecated)
+          - os: macos-latest
             target: x86_64-apple-darwin
             use-cross: false
             archive: tar.gz
