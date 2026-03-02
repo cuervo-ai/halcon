@@ -82,6 +82,7 @@ tar = "0.4"
 zip = { version = "2", default-features = false, features = ["deflate"] }
 libc = { workspace = true }
 git2 = { workspace = true }
+openssl = { workspace = true, optional = true }
 base64 = { workspace = true }
 ratatui = { workspace = true, optional = true }
 tui-textarea = { workspace = true, optional = true }
@@ -93,6 +94,7 @@ default = ["color-science", "tui"]
 color-science = ["momoto-core", "momoto-metrics", "momoto-intelligence"]
 headless = []
 tui = ["headless", "ratatui", "tui-textarea", "arboard", "png"]
+vendored-openssl = ["openssl/vendored"]
 # ── Phase 2: optional architectural additions (all off by default) ─────────
 ## Enables the CompletionValidator trait and KeywordCompletionValidator.
 ## When enabled, a semantic completion check is logged after convergence.
