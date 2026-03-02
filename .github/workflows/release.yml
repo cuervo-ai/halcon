@@ -141,21 +141,29 @@ jobs:
       - name: Setup Zuclubit (momoto-ui) path
         shell: bash
         run: |
-          # The workspace Cargo.toml references ../Zuclubit/momoto-ui/... relative to workspace root.
-          # Clone the momoto-ui submodule to the expected path so optional color-science deps resolve.
+          # workspace Cargo.toml references ../Zuclubit/momoto-ui/momoto/crates/momoto-{core,metrics,intelligence}
+          # These are optional path deps (color-science feature) but cargo metadata resolves them always.
           PARENT_DIR="$(cd .. && pwd)"
           ZUCLUBIT_DIR="${PARENT_DIR}/Zuclubit"
-          mkdir -p "${ZUCLUBIT_DIR}"
-          if [ ! -d "${ZUCLUBIT_DIR}/momoto-ui" ]; then
-            git clone --depth=1 --branch main \
-              https://github.com/cuervo-ai/momoto-ui.git \
-              "${ZUCLUBIT_DIR}/momoto-ui" 2>/dev/null || \
+          MOMOTO_DIR="${ZUCLUBIT_DIR}/momoto-ui/momoto/crates"
+
+          # Try authenticated clone (succeeds if MOMOTO_TOKEN secret is configured)
+          CLONE_TOKEN="${{ secrets.MOMOTO_TOKEN }}"
+          if [ -n "$CLONE_TOKEN" ]; then
             git clone --depth=1 \
-              https://github.com/cuervo-ai/momoto-ui.git \
-              "${ZUCLUBIT_DIR}/momoto-ui" || \
-            echo "WARN: could not clone momoto-ui — color-science will be unavailable"
+              "https://x-access-token:${CLONE_TOKEN}@github.com/cuervo-ai/momoto-ui.git" \
+              "${ZUCLUBIT_DIR}/momoto-ui" 2>/dev/null && echo "✓ momoto-ui cloned" && exit 0 || true
           fi
-        continue-on-error: true
+
+          # Fallback: minimal cargo-metadata stubs (color-science disabled → stubs never compiled)
+          echo "INFO: creating momoto stub crates for cargo metadata resolution"
+          for CRATE in momoto-core momoto-metrics momoto-intelligence; do
+            mkdir -p "${MOMOTO_DIR}/${CRATE}/src"
+            printf '[package]\nname = "%s"\nversion = "0.1.0"\nedition = "2021"\npublish = false\n' \
+              "${CRATE}" > "${MOMOTO_DIR}/${CRATE}/Cargo.toml"
+            echo "// stub" > "${MOMOTO_DIR}/${CRATE}/src/lib.rs"
+          done
+          echo "✓ momoto stubs created"
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
