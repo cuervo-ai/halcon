@@ -764,4 +764,4 @@ Semana 4 (2026-03-30 a 2026-04-03)
 
 **FASE 3-A status**: `ci_detection.rs` is NOT unwired as the plan assumed. It IS wired via `authorization.rs:240` as `CIDetectionPolicy::new(auto_approve_in_ci)`. The gap is that it does not additionally call `set_non_interactive()` when CI is detected. FASE 3-A will add a `detect()` function and wire it into session initialization to also set non-interactive mode.
 
-**FASE 3-B**: Pending analysis.
+**FASE 3-B**: SKIPPED. `EpisodicSource`/`MemorySource` swap already correctly implemented in `mod.rs:432-451` via `if config.memory.episodic { EpisodicSource } else { MemorySource }` — mutual exclusion is enforced by the if/else branch. No duplicate injection possible.
