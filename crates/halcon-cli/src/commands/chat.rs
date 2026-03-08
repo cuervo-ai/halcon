@@ -96,6 +96,8 @@ pub async fn run(
     tui: bool,
     explicit_model: bool,
     flags: FeatureFlags,
+    // US-output-format (PASO 2-A): when true, use CiSink (NDJSON) instead of ClassicSink.
+    use_ci_sink: bool,
 ) -> Result<()> {
     // P2.1: Display imported trace if --trace-in was specified.
     if let Some(ref trace_path) = flags.trace_in {
@@ -275,6 +277,9 @@ pub async fn run(
 
     // Set expert mode (from --expert flag, --full flag, or config.toml display.ui_mode = "expert").
     repl.expert_mode = flags.expert || flags.full || config.display.ui_mode == "expert";
+
+    // US-output-format (PASO 2-A): activate CiSink when --output-format json is requested.
+    repl.use_ci_sink = use_ci_sink;
 
     // Initialize multimodal subsystem when --full enables it.
     // Non-fatal: if no API key is present or DB is unavailable, subsystem is simply absent.

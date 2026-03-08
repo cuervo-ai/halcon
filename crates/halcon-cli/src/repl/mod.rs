@@ -370,6 +370,12 @@ pub struct Repl {
     /// across turns so the LlmPlanner can avoid generating steps with blocked tools.
     /// Invariant: if a tool was blocked in turn N, the plan for turn N+1 excludes it.
     pub(crate) session_blocked_tools: Vec<(String, String)>,
+    /// US-output-format (PASO 2-A): when true, use CiSink (NDJSON) instead of ClassicSink.
+    /// Set from --output-format json on the CLI.
+    pub(crate) use_ci_sink: bool,
+    /// Shared CiSink instance for session_end emission after loop completes.
+    /// Only populated when use_ci_sink is true.
+    pub(crate) ci_sink: Option<std::sync::Arc<crate::render::ci_sink::CiSink>>,
 }
 
 // ── Multimodal helper ─────────────────────────────────────────────────────────
@@ -761,6 +767,10 @@ impl Repl {
             plugin_recommendation_done: false,
             // BRECHA-S3: No blocked tools at session start.
             session_blocked_tools: vec![],
+            // US-output-format (PASO 2-A): defaults to human-readable sink.
+            // Set to true externally (via commands/chat.rs) when --output-format json is used.
+            use_ci_sink: false,
+            ci_sink: None,
         })
     }
 
@@ -784,11 +794,24 @@ impl Repl {
 
         // Send session_id to render sink (for TUI status bar initialization).
         use crate::render::sink::RenderSink;
-        let sink = crate::render::sink::ClassicSink::with_expert(self.expert_mode);
-        sink.session_started(&self.session.id.to_string());
+        if self.use_ci_sink {
+            // Initialise the shared CiSink and emit session_start.
+            let ci = self.ci_sink.get_or_insert_with(|| {
+                std::sync::Arc::new(crate::render::ci_sink::CiSink::new())
+            }).clone();
+            ci.session_started(&self.session.id.to_string());
+        } else {
+            let sink = crate::render::sink::ClassicSink::with_expert(self.expert_mode);
+            sink.session_started(&self.session.id.to_string());
+        }
 
         // Run the prompt through handle_message (full agent loop with tools).
         self.handle_message(prompt).await?;
+
+        // Emit session_end for CI consumers.
+        if let Some(ref ci) = self.ci_sink {
+            ci.emit_session_end();
+        }
 
         // Save session.
         self.auto_save_session().await;
@@ -900,8 +923,15 @@ impl Repl {
 
         // Send session_id to render sink (for TUI status bar initialization).
         use crate::render::sink::RenderSink;
-        let sink = crate::render::sink::ClassicSink::with_expert(self.expert_mode);
-        sink.session_started(&self.session.id.to_string());
+        if self.use_ci_sink {
+            let ci = self.ci_sink.get_or_insert_with(|| {
+                std::sync::Arc::new(crate::render::ci_sink::CiSink::new())
+            }).clone();
+            ci.session_started(&self.session.id.to_string());
+        } else {
+            let sink = crate::render::sink::ClassicSink::with_expert(self.expert_mode);
+            sink.session_started(&self.session.id.to_string());
+        }
 
         loop {
             let sig = self.editor.read_line(&self.prompt);
@@ -2052,9 +2082,17 @@ impl Repl {
     }
 
     async fn handle_message(&mut self, input: &str) -> Result<()> {
-        let classic_sink = crate::render::sink::ClassicSink::with_expert(self.expert_mode);
-        self.handle_message_with_sink(input, &classic_sink).await?;
-        println!();
+        // US-output-format (PASO 2-A): route to CiSink when --output-format json is requested.
+        if self.use_ci_sink {
+            let ci = self.ci_sink.get_or_insert_with(|| {
+                std::sync::Arc::new(crate::render::ci_sink::CiSink::new())
+            }).clone();
+            self.handle_message_with_sink(input, ci.as_ref()).await?;
+        } else {
+            let classic_sink = crate::render::sink::ClassicSink::with_expert(self.expert_mode);
+            self.handle_message_with_sink(input, &classic_sink).await?;
+            println!();
+        }
         Ok(())
     }
 

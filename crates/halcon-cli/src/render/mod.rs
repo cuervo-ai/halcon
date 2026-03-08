@@ -22,6 +22,7 @@ pub mod feedback;
 pub mod markdown;
 pub mod spinner;
 pub mod stream;
+pub mod ci_sink;
 pub mod sink;
 pub mod syntax;
 pub mod theme;

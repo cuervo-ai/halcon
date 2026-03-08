@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use tracing_subscriber::EnvFilter;
 
 mod audit;
@@ -22,6 +22,22 @@ fn build_version() -> &'static str {
         env!("HALCON_TARGET"),
     );
     Box::leak(s.into_boxed_str())
+}
+
+/// Output format for machine-readable CI/CD integration.
+///
+/// - `human`: Colored, ANSI-decorated terminal output (default)
+/// - `json`:  NDJSON to stdout — one JSON object per line, parseable with `jq`
+/// - `junit`: JUnit XML to stdout (reserved for future use)
+/// - `plain`: Plain text, no color codes (for simple log capture)
+///
+/// See US-output-format (PASO 2-A).
+#[derive(Clone, Debug, PartialEq, Eq, ValueEnum)]
+pub enum OutputFormat {
+    Human,
+    Json,
+    Junit,
+    Plain,
 }
 
 /// Halcon — AI-powered CLI for software development.
@@ -58,6 +74,13 @@ struct Cli {
     /// Suppress the startup banner
     #[arg(long, env = "HALCON_NO_BANNER")]
     no_banner: bool,
+
+    /// Output format for machine-readable CI/CD integration.
+    ///
+    /// `json` emits NDJSON to stdout (one object per line) — pipe to `jq` with no
+    /// extra tooling. GitHub Actions, GitLab CI, and Datadog all consume NDJSON natively.
+    #[arg(long, value_enum, default_value = "human", global = true, env = "HALCON_OUTPUT_FORMAT")]
+    output_format: OutputFormat,
 
     /// Operating mode: "interactive" (default) or "json-rpc" (for IDE extensions)
     ///
@@ -704,6 +727,7 @@ async fn main() -> Result<()> {
             commands::chat::run(
                 &config, &provider, &model, prompt, resume, cli.no_banner, tui, explicit_model,
                 commands::chat::FeatureFlags { orchestrate, tasks, reflexion, metrics, timeline, full, expert, background_tools: false, trace_out, trace_in },
+                cli.output_format == OutputFormat::Json,
             ).await
         }
         Some(Commands::Config { action }) => match action {
@@ -865,6 +889,7 @@ async fn main() -> Result<()> {
             commands::chat::run(
                 &config, &provider, &model, None, None, cli.no_banner, false, explicit_model,
                 commands::chat::FeatureFlags::default(),
+                cli.output_format == OutputFormat::Json,
             ).await
         }
     }
