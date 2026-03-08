@@ -26,7 +26,7 @@ use super::super::agent_utils::{auto_checkpoint, classify_error_hint, compute_fi
 use super::super::resilience::ResilienceManager;
 use super::super::round_scorer::RoundEvaluation;
 use super::super::tool_speculation::ToolSpeculator;
-use super::loop_state::{LoopState, SynthesisOrigin};
+use super::loop_state::{LoopState, SynthesisOrigin, SynthesisPriority, SynthesisTrigger};
 use super::provider_client::{check_control, invoke_with_fallback};
 use super::budget_guards;
 use crate::render::sink::RenderSink;
@@ -186,6 +186,18 @@ pub(super) async fn run(
         }
     }
 
+    // GAP-5: Classic REPL (non-TUI) cancel check.
+    // try_recv() is non-blocking — it only fires if Ctrl-C was already pressed.
+    #[cfg(not(feature = "tui"))]
+    if let Some(ref mut rx) = ctrl_rx {
+        if rx.try_recv().is_ok() {
+            tracing::info!(round, "Classic REPL: Ctrl-C received — cancelling agent loop gracefully");
+            render_sink.info("Session cancelled by user (Ctrl-C). Partial results saved.");
+            state.ctrl_cancelled = true;
+            return Ok(ProviderRoundOutcome::BreakLoop);
+        }
+    }
+
     // Pre-invocation output headroom guard (RC-1a).
     //
     // Prevent mid-word response truncation by refusing to invoke the model when the
@@ -219,8 +231,12 @@ pub(super) async fn run(
                     Some("Increase max_total_tokens for complex tasks"),
                 );
             }
-            state.synthesis.synthesis_origin = Some(SynthesisOrigin::CacheCorruption);
-            state.synthesis.forced_synthesis_detected = true;
+            // Phase 2: route through governance gate (response cache failure → tool exhaustion).
+            state.request_synthesis_with_gate(
+                SynthesisTrigger::ToolExhaustion,
+                SynthesisOrigin::CacheCorruption,
+                SynthesisPriority::High,
+            );
             // EBS-R1 (OutputHeadroomCritical): if evidence gate fires, override origin to
             // SupervisorFailure so reward pipeline applies synthesis penalty.
             if state.evidence.bundle.evidence_gate_fires() {
@@ -264,9 +280,13 @@ pub(super) async fn run(
         use super::super::evidence_pipeline::MIN_EVIDENCE_BYTES;
         let gate_msg = state.evidence.bundle.gate_message();
         state.evidence.bundle.synthesis_blocked = true;
-        state.synthesis.synthesis_origin = Some(SynthesisOrigin::SupervisorFailure);
         state.evidence.deterministic_boundary_enforced = true;
-        state.synthesis.forced_synthesis_detected = true;
+        // Phase 2: route through governance gate (EBS-B2 boundary, tool-free round).
+        state.request_synthesis_with_gate(
+            SynthesisTrigger::ToolExhaustion,
+            SynthesisOrigin::SupervisorFailure,
+            SynthesisPriority::Critical,
+        );
         tracing::warn!(
             session_id = %state.session_id,
             round,
@@ -1152,7 +1172,23 @@ pub(super) async fn run(
     // is EndTurn but the text contains a recoverable format, extract the tool calls
     // and redirect to the tool-use path. Provider-agnostic: any model that emits
     // these patterns gets the same treatment. P1-B still applies.
-    if stop_reason != StopReason::ToolUse {
+    //
+    // FSM GUARD: skip format-recovery when already in Synthesizing phase.
+    // Injecting tool execution during Synthesizing causes an invalid
+    // Synthesizing→Executing transition (race condition: GovernanceRescue fired
+    // just before the provider responded with XML tool calls). Let the round
+    // fall through as EndTurn so synthesis can proceed uninterrupted.
+    let fsm_in_synthesizing = state.synthesis.phase() == super::loop_state::AgentPhase::Synthesizing;
+    if fsm_in_synthesizing {
+        tracing::warn!(
+            round,
+            "FASE 2: format-recovery SUPPRESSED — FSM is Synthesizing; XML tool calls discarded to preserve FSM invariant"
+        );
+        if !state.silent {
+            render_sink.warning("[format-recovery] suppressed: synthesis in progress — tool calls deferred", None);
+        }
+    }
+    if stop_reason != StopReason::ToolUse && !fsm_in_synthesizing {
         if let Some(recovered) = super::super::model_quirks::try_recover_tool_calls_from_text(&round_text) {
             tracing::info!(
                 round,
@@ -1174,6 +1210,88 @@ pub(super) async fn run(
                     name: call.name.clone(),
                     input: call.input.clone(),
                 });
+            }
+
+            // RP-2: Validate recovered tool names against the round's allowed tool surface.
+            // DeepSeek DSML recovery can produce a tool name that is NOT in the sub-agent's
+            // narrowed `round_request.tools` (e.g., model emits `directory_tree` but the
+            // planner allocated only `read_multiple_files`). The executor will silently reject
+            // any tool not in the allowed surface, producing 0 tool executions.
+            //
+            // When exactly one tool is allowed and the recovered name is wrong, remap to the
+            // intended tool. This handles the common "model knows one allowed tool but generates
+            // DSML for a different tool" hallucination pattern.
+            let allowed_tool_names: std::collections::HashSet<&str> =
+                round_request.tools.iter().map(|t| t.name.as_str()).collect();
+            for tool in &mut synthetic_tools {
+                if !allowed_tool_names.contains(tool.name.as_str()) {
+                    if round_request.tools.len() == 1 {
+                        let intended = round_request.tools[0].name.clone();
+                        tracing::warn!(
+                            recovered = %tool.name,
+                            remapped_to = %intended,
+                            round,
+                            "RP-2: DSML tool name not in allowed surface — remapping to single allowed tool"
+                        );
+                        if !state.silent {
+                            render_sink.info(&format!(
+                                "[format-recovery] RP-2: remapped `{}` → `{}` (not in sub-agent surface)",
+                                tool.name, intended
+                            ));
+                        }
+                        tool.name = intended;
+                    } else {
+                        tracing::warn!(
+                            recovered = %tool.name,
+                            allowed = ?allowed_tool_names,
+                            round,
+                            "RP-2: DSML tool name not in allowed surface — cannot remap (multiple allowed tools)"
+                        );
+                    }
+                }
+            }
+
+            // RP-1: Validate and coerce recovered args against tool input_schema.
+            // DeepSeek DSML frequently emits `paths: "/dir"` (string) when schema declares
+            // `type: "array"`. Coerce string → [string] to prevent tool failures with score 0.00.
+            for tool in &mut synthetic_tools {
+                if let Some(tool_def) = round_request.tools.iter().find(|t| t.name == tool.name) {
+                    let props = tool_def.input_schema
+                        .get("properties")
+                        .and_then(|p| p.as_object());
+                    if let Some(props_map) = props {
+                        if let serde_json::Value::Object(ref mut args) = tool.input {
+                            // Collect keys to coerce (avoid double-borrow during mutation).
+                            let to_coerce: Vec<String> = props_map
+                                .iter()
+                                .filter(|(prop_name, prop_schema)| {
+                                    let expects_array = prop_schema
+                                        .get("type")
+                                        .and_then(|t| t.as_str())
+                                        .map_or(false, |t| t == "array");
+                                    expects_array
+                                        && args
+                                            .get(prop_name.as_str())
+                                            .map_or(false, |v| v.is_string())
+                                })
+                                .map(|(k, _)| k.clone())
+                                .collect();
+                            for prop_name in to_coerce {
+                                if let Some(val) = args.get(&prop_name).cloned() {
+                                    tracing::warn!(
+                                        tool = %tool.name,
+                                        prop = %prop_name,
+                                        "RP-1: DSML arg coercion — string → array (schema mismatch)"
+                                    );
+                                    args.insert(
+                                        prop_name,
+                                        serde_json::Value::Array(vec![val]),
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
             }
 
             // Strip the DSML text from round_text so it doesn't contaminate full_text.
@@ -1281,8 +1399,12 @@ pub(super) async fn run(
         state.guards.loop_guard.record_text_round();
         if state.guards.loop_guard.detect_cross_type_oscillation() {
             render_sink.warning("[loop-guard] cross-type Tool↔Text oscillation — forcing synthesis", None);
-            state.synthesis.synthesis_origin = Some(SynthesisOrigin::OscillationDetected);
-            state.synthesis.forced_synthesis_detected = true;
+            // Phase 2: route through governance gate (Tool↔Text oscillation detected).
+            state.request_synthesis_with_gate(
+                SynthesisTrigger::LoopGuard,
+                SynthesisOrigin::OscillationDetected,
+                SynthesisPriority::High,
+            );
             // EBS-R1 (CrossTypeOscillationDetected): if evidence gate fires, override origin to
             // SupervisorFailure so reward pipeline applies synthesis penalty on unreadable files.
             if state.evidence.bundle.evidence_gate_fires() {

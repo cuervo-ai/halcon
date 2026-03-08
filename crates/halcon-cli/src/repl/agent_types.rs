@@ -2,8 +2,17 @@
 #[cfg(feature = "tui")]
 pub type ControlReceiver = tokio::sync::mpsc::UnboundedReceiver<crate::tui::events::ControlEvent>;
 
+// In Classic REPL (non-TUI) mode, use a simple cancel-only channel so Ctrl-C
+// can interrupt the agent loop gracefully (resolves GAP-5).
 #[cfg(not(feature = "tui"))]
-pub type ControlReceiver = ();
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClassicCancelSignal {
+    /// User pressed Ctrl-C — cancel the agent loop.
+    Cancel,
+}
+
+#[cfg(not(feature = "tui"))]
+pub type ControlReceiver = tokio::sync::mpsc::Receiver<ClassicCancelSignal>;
 
 /// Why the agent loop stopped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -168,6 +177,15 @@ pub struct AgentLoopResult {
     /// Fraction of Good evidence nodes referenced by synthesis. 1.0 = full coverage.
     /// Default 1.0 when no evidence graph is active.
     pub evidence_coverage: f64,
+
+    /// Semantic classification of the synthesis event from the governance gate (Phase 2).
+    /// `None` when no synthesis was triggered this loop (e.g. conversational turns,
+    /// or early-exit paths where `result_assembly::build` was never reached).
+    pub synthesis_kind: Option<crate::repl::domain::synthesis_gate::SynthesisKind>,
+
+    /// Trigger that caused synthesis from the governance gate (Phase 2).
+    /// `None` when no synthesis was triggered this loop.
+    pub synthesis_trigger: Option<crate::repl::domain::synthesis_gate::SynthesisTrigger>,
 }
 
 /// Categorization of why a sub-agent step failed (FASE 5).

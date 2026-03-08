@@ -52,6 +52,8 @@ pub mod orchestrator;
 pub mod orchestrator_metrics;
 pub mod model_quirks;
 pub(crate) mod decision_layer;
+/// Boundary Decision Engine — structured multi-layer routing pipeline.
+pub(crate) mod decision_engine;
 pub(crate) mod retry_mutation;
 pub(crate) mod sla_manager;
 pub(crate) mod tool_aliases;
@@ -109,11 +111,32 @@ pub mod resilience;
 pub mod response_cache;
 pub mod router;
 
+/// HALCON.md persistent instruction system (Feature 1 — Frontier Roadmap 2026).
+/// 4-scope hierarchy, @import resolution, path-glob rules, hot-reload via notify.
+pub mod instruction_store;
+
+/// User-accessible lifecycle hooks (Feature 2 — Frontier Roadmap 2026).
+/// Shell command and Rhai script hooks for PreToolUse, PostToolUse, UserPromptSubmit, Stop, etc.
+pub mod hooks;
+
+/// Auto-memory system (Feature 3 — Frontier Roadmap 2026).
+/// Heuristic scoring, bounded Markdown writes, session-start injection.
+pub mod auto_memory;
+
+/// Declarative sub-agent configuration registry (Feature 4 — Frontier Roadmap 2026).
+/// Agent definitions from .halcon/agents/*.md; skills from .halcon/skills/*.md.
+pub mod agent_registry;
+
+/// Semantic memory vector store context source (Feature 7 — Frontier Roadmap 2026).
+/// Pipeline-triggered retrieval from MEMORY.md via cosine similarity + MMR.
+pub mod vector_memory_source;
+
 // Communication and protocol.
 pub mod rule_matcher;
 pub mod conversation_protocol;
 pub mod conversation_state;
 pub mod input_normalizer;
+pub mod input_boundary;
 pub mod adaptive_prompt;
 pub mod validation;
 pub mod conversational_permission;
@@ -763,6 +786,31 @@ impl Repl {
         self.save_session();
 
         Ok(())
+    }
+
+    /// Execute one JSON-RPC chat turn with a caller-provided sink.
+    ///
+    /// Called by `commands::json_rpc::run` for each incoming `chat` request.
+    /// Handles session persistence internally so the caller only needs to supply
+    /// the message and a sink that serialises output as newline-delimited JSON.
+    pub async fn run_json_rpc_turn(
+        &mut self,
+        message: &str,
+        sink: &dyn crate::render::sink::RenderSink,
+    ) -> Result<()> {
+        self.handle_message_with_sink(message, sink).await?;
+        self.auto_save_session().await;
+        self.save_session();
+        Ok(())
+    }
+
+    /// Configure the session for non-interactive (headless) tool execution.
+    ///
+    /// In this mode all tool permission requests are auto-approved because there
+    /// is no TTY available to prompt the user.  Must be called once before the
+    /// first `run_json_rpc_turn`.
+    pub fn set_non_interactive_mode(&mut self) {
+        self.permissions.set_non_interactive();
     }
 
     /// Start CI polling in the background when environment variables are present.
@@ -2005,7 +2053,7 @@ impl Repl {
     ///
     /// Both classic REPL and TUI modes delegate here. The sink parameter
     /// abstracts away the rendering backend.
-    async fn handle_message_with_sink(
+    pub(crate) async fn handle_message_with_sink(
         &mut self,
         input: &str,
         sink: &dyn crate::render::sink::RenderSink,
@@ -2788,11 +2836,25 @@ impl Repl {
                     task_bridge: task_bridge_inst.as_mut(),
                     context_metrics: Some(&self.context_metrics),
                     context_manager: self.context_manager.as_mut(),
-                    // Phase 43: pass control channel receiver from TUI (if present).
+                    // Phase 43 / GAP-5: pass control channel receiver.
+                    // TUI: uses its own control channel (Pause/Step/Cancel from TUI events).
+                    // Classic REPL (non-TUI): create a simple cancel-only channel wired to
+                    // Ctrl-C via tokio::signal::ctrl_c() so the agent loop can exit gracefully.
                     #[cfg(feature = "tui")]
                     ctrl_rx: self.ctrl_rx.take(),
                     #[cfg(not(feature = "tui"))]
-                    ctrl_rx: None,
+                    ctrl_rx: {
+                        let (classic_ctrl_tx, classic_ctrl_rx) =
+                            tokio::sync::mpsc::channel::<crate::repl::agent_types::ClassicCancelSignal>(1);
+                        tokio::spawn(async move {
+                            if tokio::signal::ctrl_c().await.is_ok() {
+                                let _ = classic_ctrl_tx.send(
+                                    crate::repl::agent_types::ClassicCancelSignal::Cancel
+                                ).await;
+                            }
+                        });
+                        Some(classic_ctrl_rx)
+                    },
                     speculator: &self.speculator,
                     security_config: &self.config.security,
                     strategy_context: strategy_ctx.clone(),
