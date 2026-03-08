@@ -1,0 +1,73 @@
+name: Halcon AI Agent
+description: Run Halcon autonomous coding agent in GitHub Actions
+author: Cuervo AI
+
+inputs:
+  prompt:
+    description: Task to run
+    required: true
+  model:
+    description: Model to use
+    default: claude-sonnet-4-6
+  max-turns:
+    description: Maximum agent turns
+    default: '20'
+  output-format:
+    description: Output format (json|human|plain)
+    default: json
+  working-directory:
+    description: Directory to run in
+    default: '.'
+
+outputs:
+  result:
+    description: Agent final response text
+    value: ${{ steps.run.outputs.result }}
+  session-id:
+    description: Session ID for audit trail reference
+    value: ${{ steps.run.outputs.session-id }}
+  cost-usd:
+    description: Estimated cost of the run in USD
+    value: ${{ steps.run.outputs.cost-usd }}
+
+runs:
+  using: composite
+  steps:
+    - name: Install Halcon
+      shell: bash
+      run: |
+        if ! command -v halcon &>/dev/null; then
+          curl -fsSL https://install.halcon.ai/sh | sh
+          echo "$HOME/.halcon/bin" >> $GITHUB_PATH
+        fi
+
+    - name: Run Halcon agent
+      id: run
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        halcon \
+          --output-format "${{ inputs.output-format }}" \
+          --max-turns "${{ inputs.max-turns }}" \
+          --model "${{ inputs.model }}" \
+          "${{ inputs.prompt }}" \
+          | tee /tmp/halcon-run.jsonl
+
+        SESSION_ID=$(grep '"type":"session_start"' /tmp/halcon-run.jsonl | head -1 | jq -r '.session_id // ""')
+        RESULT=$(grep '"type":"response"' /tmp/halcon-run.jsonl | tail -1 | jq -r '.text // ""')
+        COST=$(grep '"type":"session_end"' /tmp/halcon-run.jsonl | head -1 | jq -r '.cost_usd // "0"')
+
+        echo "session-id=$SESSION_ID" >> $GITHUB_OUTPUT
+        echo "result=$RESULT" >> $GITHUB_OUTPUT
+        echo "cost-usd=$COST" >> $GITHUB_OUTPUT
+      env:
+        ANTHROPIC_API_KEY: ${{ env.ANTHROPIC_API_KEY }}
+        CLAUDE_CODE_USE_BEDROCK: ${{ env.CLAUDE_CODE_USE_BEDROCK }}
+        AWS_ACCESS_KEY_ID: ${{ env.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ env.AWS_SECRET_ACCESS_KEY }}
+        AWS_REGION: ${{ env.AWS_REGION }}
+        CLAUDE_CODE_USE_VERTEX: ${{ env.CLAUDE_CODE_USE_VERTEX }}
+        ANTHROPIC_VERTEX_PROJECT_ID: ${{ env.ANTHROPIC_VERTEX_PROJECT_ID }}
+        CLAUDE_CODE_USE_AZURE: ${{ env.CLAUDE_CODE_USE_AZURE }}
+        AZURE_AI_ENDPOINT: ${{ env.AZURE_AI_ENDPOINT }}
+        AZURE_API_KEY: ${{ env.AZURE_API_KEY }}
