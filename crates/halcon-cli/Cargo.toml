@@ -93,6 +93,7 @@ arboard = { version = "3.4", optional = true } # Cross-platform clipboard (Phase
 png = { version = "0.17", optional = true }     # PNG encoding for clipboard image paste (Phase 63)
 notify = "6"                                    # Filesystem watcher for HALCON.md hot-reload (Feature 1)
 rhai = { version = "1", default-features = false } # Sandboxed scripting for lifecycle hooks (Feature 2)
+croner = { workspace = true }                  # Cron expression parsing for scheduler (PASO 4-C)
 
 [features]
 default = ["color-science", "tui"]

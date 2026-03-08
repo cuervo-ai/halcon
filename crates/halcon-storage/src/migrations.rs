@@ -39,6 +39,7 @@ const MIGRATIONS: &[(u32, &str, &str)] = &[
     (35, "execution_loop_events", MIGRATION_035),
     (36, "daily_user_metrics", MIGRATION_036),
     (37, "mailbox_messages", MIGRATION_037),
+    (38, "scheduled_tasks", MIGRATION_038),
 ];
 
 const MIGRATION_001: &str = r#"
@@ -1202,6 +1203,25 @@ CREATE INDEX IF NOT EXISTS idx_mailbox_team_to
     ON mailbox_messages(team_id, to_agent, consumed, expires_at);
 "#;
 
+const MIGRATION_038: &str = r#"
+-- M38: scheduled_tasks — cron-based scheduled agent tasks (PASO 4-C).
+-- DECISION: stored in SQLite for persistence across process restarts.
+-- The scheduler polls this table every 60s in a tokio background task.
+-- 'enabled' allows pausing without deleting the task.
+CREATE TABLE IF NOT EXISTS scheduled_tasks (
+    id          TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    agent_id    TEXT,
+    instruction TEXT NOT NULL,
+    cron_expr   TEXT NOT NULL,
+    enabled     INTEGER NOT NULL DEFAULT 1,
+    last_run_at TEXT,
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_enabled
+    ON scheduled_tasks(enabled);
+"#;
+
 /// Run all pending migrations.
 pub fn run_migrations(conn: &Connection) -> Result<(), halcon_core::error::HalconError> {
     // Ensure migrations table exists
@@ -1256,7 +1276,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(version, 36);
+        assert_eq!(version, 38); // 36 original + 37 (mailbox_messages) + 38 (scheduled_tasks)
     }
 
     #[test]
@@ -1270,7 +1290,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(count, 36);
+        assert_eq!(count, 38); // 36 original + 37 (mailbox_messages) + 38 (scheduled_tasks)
     }
 
     #[test]

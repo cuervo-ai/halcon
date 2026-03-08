@@ -304,6 +304,19 @@ enum Commands {
         #[command(subcommand)]
         action: UsersAction,
     },
+
+    /// Manage cron-based scheduled agent tasks (US-scheduler — PASO 4-C)
+    ///
+    /// Examples:
+    ///   halcon schedule add --name "security-scan" --cron "0 2 * * 1" \
+    ///                       --instruction "Scan for vulnerabilities"
+    ///   halcon schedule list
+    ///   halcon schedule disable <id>
+    ///   halcon schedule run     <id>
+    Schedule {
+        #[command(subcommand)]
+        action: ScheduleAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -611,6 +624,43 @@ enum UsersAction {
         /// User email address to revoke
         #[arg(long)]
         email: String,
+    },
+}
+
+/// Actions for `halcon schedule` (PASO 4-C).
+#[derive(Subcommand)]
+enum ScheduleAction {
+    /// Add a new scheduled task
+    Add {
+        /// Human-readable name for this task
+        #[arg(long)]
+        name: String,
+        /// Standard cron expression (5-field, e.g., "0 2 * * 1")
+        #[arg(long)]
+        cron: String,
+        /// Natural-language instruction for the agent to execute
+        #[arg(long)]
+        instruction: String,
+        /// Optional agent definition ID to use
+        #[arg(long)]
+        agent: Option<String>,
+    },
+    /// List all scheduled tasks
+    List,
+    /// Disable a scheduled task (stops running but keeps the record)
+    Disable {
+        /// Task ID
+        id: String,
+    },
+    /// Re-enable a disabled scheduled task
+    Enable {
+        /// Task ID
+        id: String,
+    },
+    /// Force-run a task immediately (ignores the cron schedule)
+    Run {
+        /// Task ID
+        id: String,
     },
 }
 
@@ -975,6 +1025,28 @@ async fn main() -> Result<()> {
             UsersAction::List => commands::users::list(),
             UsersAction::Revoke { email } => commands::users::revoke(&email),
         },
+        // PASO 4-C: cron-based scheduled agent tasks (US-scheduler)
+        Some(Commands::Schedule { action }) => {
+            let db_path = config.storage.database_path
+                .clone()
+                .unwrap_or_else(|| {
+                    dirs::home_dir()
+                        .unwrap_or_else(|| std::path::PathBuf::from("."))
+                        .join(".halcon")
+                        .join("halcon.db")
+                });
+            let db = halcon_storage::Database::open(&db_path)
+                .context("failed to open database for schedule command")?;
+            match action {
+                ScheduleAction::Add { name, cron, instruction, agent } => {
+                    commands::schedule::add(&db, &name, &cron, &instruction, agent.as_deref())
+                }
+                ScheduleAction::List => commands::schedule::list(&db),
+                ScheduleAction::Disable { id } => commands::schedule::disable(&db, &id),
+                ScheduleAction::Enable { id } => commands::schedule::enable(&db, &id),
+                ScheduleAction::Run { id } => commands::schedule::run_now(&db, &id),
+            }
+        }
         None => {
             // Default: start interactive chat
             commands::chat::run(

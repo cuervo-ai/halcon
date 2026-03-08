@@ -146,6 +146,10 @@ pub mod auto_memory;
 /// Agent definitions from .halcon/agents/*.md; skills from .halcon/skills/*.md.
 pub mod agent_registry;
 
+/// Cron-based background scheduler for agent tasks (PASO 4-C — US-scheduler).
+/// Uses a 60s tokio::time::interval tick and the croner crate for expression parsing.
+pub mod agent_scheduler;
+
 /// Semantic memory vector store context source (Feature 7 — Frontier Roadmap 2026).
 /// Pipeline-triggered retrieval from MEMORY.md via cosine similarity + MMR.
 // vector_memory_source moved to context/vector_memory (C-4)

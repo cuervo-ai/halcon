@@ -112,6 +112,9 @@ gcp_auth = { package = "gcp_auth", version = "0.12" }
 # Compliance export (Feature 8)
 printpdf = "0.7"
 
+# Cron expression parsing (scheduler — PASO 4-C)
+croner = "2"
+
 # Testing
 assert_cmd = "2"
 predicates = "3"
