@@ -1,10 +1,12 @@
 //! Global SearchEngine singleton for native search functionality.
 
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, OnceLock};
+use tokio::sync::Mutex;
 use halcon_search::{SearchEngine, SearchEngineConfig};
 use halcon_storage::Database;
 
 /// Global SearchEngine singleton.
+/// Uses tokio::sync::Mutex so execute_search() can hold the lock across .await (COUPLING-001 fix).
 static SEARCH_ENGINE: OnceLock<Arc<Mutex<Option<SearchEngine>>>> = OnceLock::new();
 
 /// Initialize the global search engine with database and configuration.
@@ -40,7 +42,8 @@ pub async fn execute_search(query: &str) -> halcon_search::Result<halcon_search:
     let engine_lock = get_search_engine()
         .ok_or_else(|| halcon_search::SearchError::ConfigError("Search engine not initialized".to_string()))?;
 
-    let engine_guard = engine_lock.lock().unwrap();
+    // COUPLING-001 fix: tokio::sync::Mutex allows holding the guard across .await safely.
+    let engine_guard = engine_lock.lock().await;
     let engine = engine_guard.as_ref()
         .ok_or_else(|| halcon_search::SearchError::ConfigError("Search engine initialization failed".to_string()))?;
 

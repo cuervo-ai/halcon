@@ -41,17 +41,26 @@ impl PermissionLifecycle {
 
     /// Reload rules when working directory changes.
     pub async fn on_working_directory_change(&self, new_dir: PathBuf) -> Result<()> {
-        if let Ok(mut last_dir) = self.last_working_dir.lock() {
+        // COUPLING-001 fix: release the std::sync::Mutex BEFORE calling load_rules().await.
+        // Previously the lock was held across the .await point, which can stall the tokio
+        // thread pool if the async executor tries to reschedule while the lock is held.
+        let needs_reload = {
+            let mut last_dir = self.last_working_dir.lock().unwrap_or_else(|e| e.into_inner());
             if *last_dir != new_dir {
-                *last_dir = new_dir.clone();
-
-                // Clear cache and reload rules for new context
+                *last_dir = new_dir;
+                // Clear matcher cache synchronously while holding the lock.
                 if let Ok(mut matcher) = self.matcher.lock() {
                     matcher.clear_cache();
                 }
-
-                self.load_rules().await?;
+                true
+            } else {
+                false
             }
+            // lock is dropped here, BEFORE any .await
+        };
+
+        if needs_reload {
+            self.load_rules().await?;
         }
 
         Ok(())
