@@ -33,8 +33,8 @@ pub(crate) enum LoopAction {
 #[derive(Debug, Clone)]
 pub(crate) struct AnomalyResult {
     pub action: LoopAction,
-    pub anomaly: super::anomaly_detector::AgentAnomaly,
-    pub severity: super::anomaly_detector::AnomalySeverity,
+    pub anomaly: super::super::anomaly_detector::AgentAnomaly,
+    pub severity: super::super::anomaly_detector::AnomalySeverity,
 }
 
 /// Snapshot of plan execution progress (for plan-aware heuristics).
@@ -69,7 +69,7 @@ pub(crate) struct ToolLoopGuard {
     /// Track plan progress for context-aware dynamic thresholds (Sprint 2).
     plan_progress: Option<PlanProgress>,
     /// Bayesian anomaly detector (HICON integration).
-    anomaly_detector: super::anomaly_detector::BayesianAnomalyDetector,
+    anomaly_detector: super::super::anomaly_detector::BayesianAnomalyDetector,
     /// Token tracking for explosion detection.
     recent_token_counts: Vec<(u64, u64, u64)>, // (input, output, total)
     /// Recent errors for stagnation analysis.
@@ -118,7 +118,7 @@ impl ToolLoopGuard {
             force_threshold: 10,
             plan_complete: false,
             plan_progress: None,
-            anomaly_detector: super::anomaly_detector::BayesianAnomalyDetector::new(),
+            anomaly_detector: super::super::anomaly_detector::BayesianAnomalyDetector::new(),
             recent_token_counts: Vec::new(),
             recent_errors: Vec::new(),
             current_plan_hash: None,
@@ -483,7 +483,7 @@ impl ToolLoopGuard {
     /// Builds AgentSnapshot from current state and runs Bayesian detector.
     /// Returns Some(AnomalyResult) if critical/high anomaly detected, None otherwise.
     fn check_bayesian_anomalies(&mut self, _tools: &[(String, u64)]) -> Option<AnomalyResult> {
-        use super::anomaly_detector::AgentSnapshot;
+        use super::super::anomaly_detector::AgentSnapshot;
 
         // Build recent_tool_history from last 3 rounds (max, for performance)
         let recent_tool_history: Vec<Vec<(String, u64, Option<String>)>> = self
@@ -538,7 +538,7 @@ impl ToolLoopGuard {
         // Process anomalies by severity (critical/high trigger immediate action)
         for result in &detection_results {
             match result.severity {
-                super::anomaly_detector::AnomalySeverity::Critical => {
+                super::super::anomaly_detector::AnomalySeverity::Critical => {
                     // Critical anomalies require immediate action
                     tracing::error!(
                         anomaly_type = ?result.anomaly,
@@ -550,13 +550,13 @@ impl ToolLoopGuard {
                     // Determine action based on anomaly type
                     let (dyn_synth, dyn_force) = self.compute_dynamic_thresholds();
                     let action = match result.anomaly {
-                        super::anomaly_detector::AgentAnomaly::ToolCycle { .. } => {
+                        super::super::anomaly_detector::AgentAnomaly::ToolCycle { .. } => {
                             LoopAction::Break
                         }
-                        super::anomaly_detector::AgentAnomaly::PlanOscillation { .. } => {
+                        super::super::anomaly_detector::AgentAnomaly::PlanOscillation { .. } => {
                             LoopAction::Break
                         }
-                        super::anomaly_detector::AgentAnomaly::TokenExplosion { .. } => {
+                        super::super::anomaly_detector::AgentAnomaly::TokenExplosion { .. } => {
                             LoopAction::ForceNoTools
                         }
                         _ => {
@@ -577,7 +577,7 @@ impl ToolLoopGuard {
                         severity: result.severity.clone(),
                     });
                 }
-                super::anomaly_detector::AnomalySeverity::High => {
+                super::super::anomaly_detector::AnomalySeverity::High => {
                     tracing::warn!(
                         anomaly_type = ?result.anomaly,
                         confidence = result.confidence,
@@ -592,7 +592,7 @@ impl ToolLoopGuard {
                         severity: result.severity.clone(),
                     });
                 }
-                super::anomaly_detector::AnomalySeverity::Medium => {
+                super::super::anomaly_detector::AnomalySeverity::Medium => {
                     tracing::info!(
                         anomaly_type = ?result.anomaly,
                         confidence = result.confidence,
@@ -601,7 +601,7 @@ impl ToolLoopGuard {
                     );
                     // Medium severity: log but continue
                 }
-                super::anomaly_detector::AnomalySeverity::Low => {
+                super::super::anomaly_detector::AnomalySeverity::Low => {
                     // Low severity: silent monitoring
                 }
             }

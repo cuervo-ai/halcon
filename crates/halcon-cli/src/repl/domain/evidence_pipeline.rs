@@ -93,7 +93,7 @@ impl EvidenceBundle {
     /// search/listing tools (grep, ls, glob) are intentionally excluded because
     /// they return file *names* rather than file *content*.
     pub fn record_tool_result(&mut self, tool_name: &str, content: &str) {
-        let is_content_tool = super::tool_aliases::is_content_read_tool(tool_name);
+        let is_content_tool = super::super::tool_aliases::is_content_read_tool(tool_name);
 
         if !is_content_tool {
             return;

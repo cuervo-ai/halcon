@@ -4,7 +4,7 @@
 //! integration monitoring. Uses IIT (Integrated Information Theory) Φ metric to
 //! measure coherence quality.
 
-use super::anomaly_detector::{AgentAnomaly, AnomalySeverity};
+use super::super::anomaly_detector::{AgentAnomaly, AnomalySeverity};
 use super::self_corrector::CorrectionStats;
 use std::collections::HashMap;
 

@@ -4,7 +4,7 @@
 //! with targeted interventions. Each strategy addresses specific failure patterns
 //! detected by the anomaly detector.
 
-use super::anomaly_detector::{AgentAnomaly, AnomalySeverity};
+use super::super::anomaly_detector::{AgentAnomaly, AnomalySeverity};
 use halcon_core::types::{ChatMessage, ContentBlock, MessageContent, Role};
 use std::collections::HashMap;
 
