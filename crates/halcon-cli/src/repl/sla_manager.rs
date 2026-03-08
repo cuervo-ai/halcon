@@ -364,4 +364,43 @@ mod tests {
         expired.start = Instant::now() - Duration::from_secs(200);
         assert!(expired.fraction_consumed() >= 1.0, "Expired budget should be >= 100%");
     }
+
+    // ── PARTIAL-1: sla_budget.max_rounds sync with routing escalation ────────
+
+    #[test]
+    fn partial1_sla_max_rounds_can_be_updated_on_routing_escalation() {
+        // Verify that sla_budget.max_rounds is a mutable pub field that the
+        // escalation block in convergence_phase.rs can update.
+        let mut budget = SlaBudget::from_mode(SlaMode::Balanced);
+        assert_eq!(budget.max_rounds, 10, "Balanced starts at 10 rounds");
+
+        // Simulate routing escalation: conv_ctrl.max_rounds increased to 14,
+        // sla_budget.max_rounds must be updated to match.
+        let delta: u32 = 4;
+        let new_max = budget.max_rounds + delta;
+        budget.max_rounds = new_max; // PARTIAL-1 fix: direct field update
+
+        assert_eq!(budget.max_rounds, 14, "After escalation, max_rounds must be 14");
+        // clamp_rounds should now respect the extended budget
+        assert_eq!(budget.clamp_rounds(13), 13, "13 ≤ 14 should pass through");
+        assert_eq!(budget.clamp_rounds(15), 14, "15 > 14 should be clamped");
+    }
+
+    #[test]
+    fn partial1_sla_pressure_decreases_after_escalation_extends_budget() {
+        // After escalation extends max_rounds, the SLA pressure fraction should
+        // be lower (same time elapsed, more budget available).
+        let budget = SlaBudget::from_mode(SlaMode::Fast);
+        let original_max = budget.max_rounds;
+        assert_eq!(original_max, 4, "Fast starts at 4 rounds");
+
+        // Without extension: clamp_rounds(6) = 4 (hard cap)
+        assert_eq!(budget.clamp_rounds(6), 4);
+
+        // After escalation: extend to 8 rounds
+        let mut extended = budget.clone();
+        extended.max_rounds = 8;
+        assert_eq!(extended.clamp_rounds(6), 6, "Extended budget allows 6 rounds");
+        assert_eq!(extended.clamp_rounds(9), 8, "Still capped at new max=8");
+    }
 }

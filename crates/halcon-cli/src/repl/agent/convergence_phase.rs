@@ -617,7 +617,14 @@ pub(super) async fn run(
                         let new_max = state.convergence.conv_ctrl.max_rounds() as usize
                             + escalation.round_budget_increase as usize;
                         state.convergence.conv_ctrl.set_max_rounds(new_max);
+                        // PARTIAL-1 fix: keep sla_budget.max_rounds in sync with conv_ctrl
+                        // so SLA pressure metrics (sla_fraction, allows_retry) see the extended budget.
+                        if let Some(ref mut sla) = state.sla_budget {
+                            sla.max_rounds = new_max as u32;
+                        }
                     }
+                    // GAP-4 fix: record escalation for result_assembly surfacing.
+                    state.convergence.routing_escalation_count += 1;
                 }
             }
 

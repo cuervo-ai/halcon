@@ -2021,6 +2021,7 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
             strategy_weight_manager: super::domain::strategy_weights::StrategyWeightManager::new(
                 policy.clone(),
             ),
+            routing_escalation_count: 0,
         },
         guards: loop_state::LoopGuardState {
             loop_guard,
@@ -2218,6 +2219,7 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
                     // Phase 2: early-exit path — no synthesis triggered.
                     synthesis_kind:    state.synthesis.last_synthesis_kind,
                     synthesis_trigger: state.synthesis.last_synthesis_trigger,
+                    routing_escalation_count: state.convergence.routing_escalation_count,
                 });
             }
             round_setup::RoundSetupOutcome::Continue(out) => out,
@@ -2290,6 +2292,7 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
                     // Phase 2: early-return path — capture any gate classification so far.
                     synthesis_kind:    state.synthesis.last_synthesis_kind,
                     synthesis_trigger: state.synthesis.last_synthesis_trigger,
+                    routing_escalation_count: state.convergence.routing_escalation_count,
                 });
             }
             provider_round::ProviderRoundOutcome::ToolUse(out) => out,
@@ -2427,6 +2430,39 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
             final_utility = %format!("{:.3}", session_profile.final_utility),
             "Phase5 SessionRetrospective: post-session analysis"
         );
+
+        // GAP-2 fix: Persist SessionRetrospective to JSONL file for post-session surfacing.
+        // Written to {working_dir}/.halcon/retrospectives/sessions.jsonl (append).
+        // Fire-and-forget — never blocks the response path.
+        let retro_row = serde_json::json!({
+            "timestamp_utc": Utc::now().to_rfc3339(),
+            "convergence_efficiency": session_profile.convergence_efficiency,
+            "structural_instability_score": session_profile.structural_instability_score,
+            "dominant_failure_mode": session_profile.dominant_failure_mode.map(|m| m.label()),
+            "inferred_problem_class": session_profile.inferred_problem_class.label(),
+            "adaptation_utilization": session_profile.adaptation_utilization,
+            "evidence_trajectory": session_profile.evidence_trajectory.label(),
+            "decision_density": session_profile.decision_density,
+            "wasted_rounds": session_profile.wasted_rounds,
+            "peak_utility": session_profile.peak_utility,
+            "final_utility": session_profile.final_utility,
+        });
+        let retro_dir = std::path::Path::new(working_dir).join(".halcon").join("retrospectives");
+        let retro_row_str = format!("{}\n", retro_row);
+        tokio::spawn(async move {
+            if tokio::fs::create_dir_all(&retro_dir).await.is_ok() {
+                let retro_path = retro_dir.join("sessions.jsonl");
+                if let Ok(mut f) = tokio::fs::OpenOptions::new()
+                    .create(true)
+                    .append(true)
+                    .open(&retro_path)
+                    .await
+                {
+                    use tokio::io::AsyncWriteExt;
+                    let _ = f.write_all(retro_row_str.as_bytes()).await;
+                }
+            }
+        });
     }
 
     // Capture state fields needed for auto-memory before consuming state.

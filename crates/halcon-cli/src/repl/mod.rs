@@ -2938,6 +2938,10 @@ impl Repl {
                         );
                         let evaluation = engine.post_loop_with_reward(analysis, blended_reward as f64);
 
+                        // GAP-1 fix: per-round UCB1 signal (coexists with session-level update above).
+                        // raw_signals.round_scores still accessible here (not moved after this point).
+                        engine.record_per_round_signals(analysis, &raw_signals.round_scores);
+
                         // Phase 2 Causality Enforcement: capture pipeline reward for unified
                         // record_outcome() call after retry (reward contamination fix).
                         // Use blended_reward (includes plugin signal) as the canonical reward.

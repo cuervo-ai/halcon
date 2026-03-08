@@ -43,12 +43,8 @@ pub(super) async fn build(
     plugin_registry: Option<Arc<std::sync::Mutex<PluginRegistry>>>,
     permissions: &mut ConversationalPermissionHandler,
 ) -> Result<AgentLoopResult> {
-    // FSM: entering evaluation phase.
-    state.synthesis.phase = super::loop_state::transition(
-        state.synthesis.phase,
-        super::loop_state::AgentEvent::SynthesisComplete,
-    );
-    // phase already updated by fire() — no string sync needed.
+    // FSM: entering evaluation phase (1C: advance_phase replaces direct assignment).
+    state.synthesis.advance_phase(super::loop_state::AgentEvent::SynthesisComplete);
 
     // TBAC: pop the plan-derived context if we pushed one.
     if state.tbac_pushed {
@@ -82,7 +78,7 @@ pub(super) async fn build(
     // Guard: still skip for purely conversational turns (no plan AND no tools AND no forced
     // synthesis) to avoid the 20s critic overhead on simple greetings/questions.
     let has_tool_work = !state.tools_executed.is_empty();
-    let has_forced_synthesis = state.synthesis.forced_synthesis_detected;
+    let has_forced_synthesis = state.synthesis.is_synthesis_forced();
     let should_run_critic = (has_plan_execution || has_tool_work || has_forced_synthesis)
         && !state.full_text.is_empty();
     if should_run_critic {
@@ -265,7 +261,7 @@ pub(super) async fn build(
             );
         }
         StopCondition::MaxRounds
-    } else if state.synthesis.forced_synthesis_detected || state.guards.loop_guard.plan_complete() || state.guards.loop_guard.detect_oscillation() {
+    } else if state.synthesis.is_synthesis_forced() || state.guards.loop_guard.plan_complete() || state.guards.loop_guard.detect_oscillation() {
         StopCondition::ForcedSynthesis
     } else {
         StopCondition::EndTurn
@@ -301,7 +297,7 @@ pub(super) async fn build(
             })
         } else if state.guards.loop_guard.plan_complete() {
             Some(ConvergenceDecision::NaturalEnd)
-        } else if state.synthesis.forced_synthesis_detected {
+        } else if state.synthesis.is_synthesis_forced() {
             Some(ConvergenceDecision::OracleForcedSynthesis)
         } else {
             None
@@ -358,7 +354,7 @@ pub(super) async fn build(
         };
         // FASE 6: Ensure any open synthesis phase is closed before FSM transition.
         render_sink.phase_ended();
-        render_sink.agent_state_transition(state.synthesis.phase.as_str(), to_state, reason);
+        render_sink.agent_state_transition(state.synthesis.phase_str(), to_state, reason);
     }
 
     // Emit AgentCompleted event.
@@ -544,6 +540,11 @@ pub(super) async fn build(
         sla_budget: state.sla_budget,
         // Phase 3 EvidenceGraph: propagate synthesis coverage for reward signal.
         evidence_coverage: state.evidence.graph.synthesis_coverage(),
+        // Phase 2 Synthesis Governance: propagate gate classification for reward pipeline.
+        synthesis_kind:    state.synthesis.last_synthesis_kind,
+        synthesis_trigger: state.synthesis.last_synthesis_trigger,
+        // GAP-4: propagate routing escalation count for post-session surfacing.
+        routing_escalation_count: state.convergence.routing_escalation_count,
     };
 
     // BRECHA-A: DirectExecution hallucination guard.

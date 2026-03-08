@@ -186,6 +186,11 @@ pub struct AgentLoopResult {
     /// Trigger that caused synthesis from the governance gate (Phase 2).
     /// `None` when no synthesis was triggered this loop.
     pub synthesis_trigger: Option<crate::repl::domain::synthesis_gate::SynthesisTrigger>,
+
+    /// Number of mid-session routing escalations triggered by RoutingAdaptor (GAP-4).
+    /// Counts T1–T4 trigger events (SecuritySignals, ToolFailureCluster, LowEvidence, Complexity).
+    /// Used by mod.rs post-loop to surface escalation count in the session summary.
+    pub routing_escalation_count: u32,
 }
 
 /// Categorization of why a sub-agent step failed (FASE 5).

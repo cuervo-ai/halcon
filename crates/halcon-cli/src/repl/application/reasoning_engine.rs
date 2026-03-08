@@ -176,6 +176,59 @@ impl ReasoningEngine {
         }
     }
 
+    /// INTRA-SESSION (GAP-1 fix): Record per-round reward signals for richer UCB1 feedback.
+    ///
+    /// Called after each `run_agent_loop()` with the accumulated per-round scores from
+    /// `AgentLoopResult::round_evaluations`. Each round's combined_score is fed into the
+    /// UCB1 selector with an exponentially decaying weight (recent rounds count more).
+    ///
+    /// Coexists with `post_loop_with_reward()` — both are called, providing:
+    /// - Per-round granular feedback (this method)
+    /// - Session-level aggregate signal (post_loop_with_reward)
+    pub fn record_per_round_signals(
+        &mut self,
+        pre_analysis: &PreLoopAnalysis,
+        per_round_scores: &[f32],
+    ) {
+        if per_round_scores.is_empty() {
+            return;
+        }
+        let n = per_round_scores.len();
+        tracing::info!(
+            rounds = n,
+            task_type = ?pre_analysis.analysis.task_type,
+            strategy = ?pre_analysis.strategy,
+            "UCB1 per-round signal: recording {} round scores",
+            n
+        );
+        // Decay factor: most-recent round counts for 2x relative to earliest.
+        // Weights: w_i = 0.5 + 0.5 * (i / (n-1)) where i=0 is oldest, i=n-1 is newest.
+        // Sum of weights for n rounds: n * 0.5 + 0.5 * (n-1)/2 ≈ 0.75n for large n.
+        let total_weight: f64 = per_round_scores.iter().enumerate().map(|(i, _)| {
+            let frac = if n > 1 { i as f64 / (n - 1) as f64 } else { 1.0 };
+            0.5 + 0.5 * frac
+        }).sum();
+
+        let weighted_reward: f64 = per_round_scores.iter().enumerate().map(|(i, &score)| {
+            let frac = if n > 1 { i as f64 / (n - 1) as f64 } else { 1.0 };
+            let w = 0.5 + 0.5 * frac;
+            score as f64 * w
+        }).sum::<f64>() / total_weight.max(1e-9);
+
+        // Update UCB1 with the weighted average of per-round scores.
+        // This supplements the session-level update in post_loop_with_reward().
+        self.selector.update(
+            pre_analysis.analysis.task_type,
+            pre_analysis.strategy,
+            weighted_reward.clamp(0.0, 1.0),
+        );
+        tracing::debug!(
+            weighted_reward,
+            "UCB1 per-round signal: weighted reward computed from {} rounds",
+            n
+        );
+    }
+
     /// POST-LOOP: Evaluate agent execution and update experience.
     pub fn post_loop(
         &mut self,
@@ -344,6 +397,9 @@ mod tests {
             tool_trust_failures: vec![],
             sla_budget: None,
             evidence_coverage: 1.0,
+            synthesis_kind: None,
+            synthesis_trigger: None,
+            routing_escalation_count: 0,
         };
 
         let eval = engine.post_loop(&analysis, &result);
@@ -442,5 +498,67 @@ mod tests {
                 "total experience count must increment after each post_loop_with_reward"
             );
         }
+    }
+
+    // ── R2-B: record_per_round_signals UCB1 wiring ───────────────────────────
+
+    #[test]
+    fn record_per_round_signals_updates_ucb1_with_weighted_reward() {
+        let mut engine = ReasoningEngine::new(make_test_config());
+        let limits = make_test_limits();
+        let analysis = engine.pre_loop("analyze the build pipeline", &limits, &[]);
+        let task_type = analysis.analysis.task_type;
+        let strategy = analysis.strategy;
+
+        // 3 rounds: scores improve over time (recency-weighted average must be >0.5)
+        let round_scores = [0.4f32, 0.7, 0.9];
+        engine.record_per_round_signals(&analysis, &round_scores);
+
+        let stats = engine.selector.get_stats(task_type, strategy);
+        assert!(stats.is_some(), "UCB1 experience must be recorded after record_per_round_signals");
+        let stats = stats.unwrap();
+        assert_eq!(stats.uses, 1, "exactly one experience entry expected");
+        // Weighted reward = (0.4*0.5 + 0.7*0.75 + 0.9*1.0) / (0.5+0.75+1.0) ≈ 0.7222
+        assert!(
+            stats.avg_score > 0.5 && stats.avg_score <= 1.0,
+            "weighted avg_score must be > 0.5 given improving round scores, got {}",
+            stats.avg_score
+        );
+    }
+
+    #[test]
+    fn record_per_round_signals_empty_slice_is_noop() {
+        let mut engine = ReasoningEngine::new(make_test_config());
+        let limits = make_test_limits();
+        let analysis = engine.pre_loop("simple query", &limits, &[]);
+        let task_type = analysis.analysis.task_type;
+
+        engine.record_per_round_signals(&analysis, &[]);
+
+        let stats = engine.selector.get_stats(task_type, analysis.strategy);
+        assert!(
+            stats.is_none() || stats.unwrap().uses == 0,
+            "no experience should be recorded for empty round_scores"
+        );
+    }
+
+    #[test]
+    fn record_per_round_signals_single_round_uses_score_directly() {
+        let mut engine = ReasoningEngine::new(make_test_config());
+        let limits = make_test_limits();
+        let analysis = engine.pre_loop("quick fix", &limits, &[]);
+        let task_type = analysis.analysis.task_type;
+        let strategy = analysis.strategy;
+
+        engine.record_per_round_signals(&analysis, &[0.85]);
+
+        let stats = engine.selector.get_stats(task_type, strategy).unwrap();
+        assert_eq!(stats.uses, 1);
+        // Single round: frac=1.0 (n=1 branch), weight=1.0, so reward == 0.85
+        assert!(
+            (stats.avg_score - 0.85).abs() < 1e-6,
+            "single-round score must pass through unchanged, got {}",
+            stats.avg_score
+        );
     }
 }

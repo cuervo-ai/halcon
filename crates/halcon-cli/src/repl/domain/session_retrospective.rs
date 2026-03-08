@@ -496,6 +496,48 @@ mod tests {
         assert!((profile.decision_density - 1.5).abs() < 1e-4, "3 decisions / 2 rounds = 1.5");
     }
 
+    // ── GAP-2: JSON serialization for persistence ─────────────────────────────
+
+    #[test]
+    fn session_profile_fields_are_json_serializable_via_serde_json_json() {
+        // Verify that SessionProfile can be converted to a serde_json::Value
+        // using the same pattern used in agent/mod.rs GAP-2 persistence block.
+        let (trace, mut metrics, bounds, invariants) = empty_collectors();
+        let mut r = make_round(0);
+        r.tool_calls = 5;
+        r.tool_errors = 2;
+        r.evidence_coverage = 0.3;
+        metrics.record_round(r);
+        let profile = analyze(&trace, &metrics, &bounds, &invariants, &default_policy());
+
+        let row = serde_json::json!({
+            "convergence_efficiency": profile.convergence_efficiency,
+            "structural_instability_score": profile.structural_instability_score,
+            "dominant_failure_mode": profile.dominant_failure_mode.map(|m| m.label()),
+            "inferred_problem_class": profile.inferred_problem_class.label(),
+            "adaptation_utilization": profile.adaptation_utilization,
+            "evidence_trajectory": profile.evidence_trajectory.label(),
+            "decision_density": profile.decision_density,
+            "wasted_rounds": profile.wasted_rounds,
+            "peak_utility": profile.peak_utility,
+            "final_utility": profile.final_utility,
+        });
+
+        // All 10 keys must be present
+        for key in &["convergence_efficiency", "structural_instability_score",
+                     "dominant_failure_mode", "inferred_problem_class",
+                     "adaptation_utilization", "evidence_trajectory",
+                     "decision_density", "wasted_rounds", "peak_utility", "final_utility"] {
+            assert!(row.get(key).is_some(), "key '{}' missing from serialized row", key);
+        }
+
+        // Serialized output must be valid JSONL (a single line when serialized)
+        let line = format!("{}\n", row);
+        assert!(!line.trim().contains('\n'), "JSONL line must not contain embedded newlines in the JSON");
+        let parsed: serde_json::Value = serde_json::from_str(line.trim()).expect("must parse back");
+        assert_eq!(parsed["wasted_rounds"], serde_json::json!(profile.wasted_rounds));
+    }
+
     // Helper to test trajectory classification with raw coverages
     fn classify_evidence_trajectory_from_coverages(coverages: &[f64]) -> EvidenceTrajectory {
         let rounds: Vec<super::super::system_metrics::RoundMetrics> = coverages

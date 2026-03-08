@@ -460,6 +460,8 @@ pub(super) struct ConvergenceState {
     pub problem_classifier: super::super::domain::problem_classifier::ProblemClassifier,
     // Phase 5: Strategy weight manager (P5.3)
     pub strategy_weight_manager: super::super::domain::strategy_weights::StrategyWeightManager,
+    // GAP-4: Count mid-session routing escalations from RoutingAdaptor (T1–T4 triggers).
+    pub routing_escalation_count: u32,
 }
 
 /// Loop guard state — oscillation detection, failure tracking, capability orchestration.
