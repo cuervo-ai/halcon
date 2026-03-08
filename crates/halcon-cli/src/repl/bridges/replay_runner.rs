@@ -17,9 +17,9 @@ use halcon_providers::ReplayProvider;
 use halcon_storage::AsyncDatabase;
 use halcon_tools::ToolRegistry;
 
-use super::agent::{self, AgentContext};
+use super::super::agent::{self, AgentContext};
 use super::replay_executor::ReplayToolExecutor;
-use super::resilience::ResilienceManager;
+use super::super::resilience::ResilienceManager;
 
 /// Result of a replay execution.
 #[derive(Debug)]
@@ -102,13 +102,13 @@ pub async fn run_replay(
         ..Default::default()
     };
     let routing_config = RoutingConfig::default();
-    let mut permissions = super::conversational_permission::ConversationalPermissionHandler::new(true);
+    let mut permissions = super::super::conversational_permission::ConversationalPermissionHandler::new(true);
     let mut resilience = ResilienceManager::new(Default::default());
 
     let silent_sink = crate::render::sink::SilentSink::new();
     let default_planning_config = halcon_core::types::PlanningConfig::default();
     let default_orch_config = halcon_core::types::OrchestratorConfig::default();
-    let replay_speculator = super::tool_speculation::ToolSpeculator::new();
+    let replay_speculator = super::super::tool_speculation::ToolSpeculator::new();
     let ctx = AgentContext {
         provider: &provider,
         session: &mut replay_session,
