@@ -252,12 +252,19 @@ pub(crate) async fn check_control(
     }
 }
 
-/// Stub for check_control when TUI feature is disabled.
-/// Always returns Continue since there's no control channel.
+/// Classic REPL check_control — handles ClassicCancelSignal::Cancel from Ctrl-C channel.
+///
+/// DECISION (BUG-001 / GAP-CTRLC): ControlReceiver (non-TUI) was changed from `()` to
+/// `Receiver<ClassicCancelSignal>` to wire Ctrl-C support. This stub must match the type.
+/// A pending Cancel signal maps to ControlAction::Cancel; no signal → Continue.
 #[cfg(not(feature = "tui"))]
 pub(crate) async fn check_control(
-    _ctrl_rx: &mut (),
+    ctrl_rx: &mut tokio::sync::mpsc::Receiver<super::super::agent_types::ClassicCancelSignal>,
     _sink: &dyn RenderSink,
 ) -> super::ControlAction {
-    super::ControlAction::Continue
+    use super::super::agent_types::ClassicCancelSignal;
+    match ctrl_rx.try_recv() {
+        Ok(ClassicCancelSignal::Cancel) => super::ControlAction::Cancel,
+        Err(_) => super::ControlAction::Continue,
+    }
 }

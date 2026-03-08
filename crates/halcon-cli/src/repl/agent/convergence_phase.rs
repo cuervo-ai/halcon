@@ -532,11 +532,21 @@ pub(super) async fn run(
             let forecast_rounds_remaining = Some(forecast.estimated_rounds_remaining);
 
             // ARCH-SYNC-1: Compute GovernanceRescue gate BEFORE TerminationOracle runs.
-            // Mirrors SynthesisGate::evaluate(GovernanceRescue, ctx) suppression rule:
-            // block synthesis when reflection_score < 0.15 AND rounds_executed < 3.
-            // This flag is passed through RoundFeedback so TerminationOracle can enforce it.
-            let governance_rescue_active =
-                state.convergence.last_convergence_ratio < 0.15 && state.rounds < 3;
+            // DECISION (ARCH-SYNC-1): Call SynthesisGate::evaluate() directly instead of
+            // duplicating the suppression logic inline. This ensures that if the suppression
+            // thresholds change in synthesis_gate.rs, convergence_phase.rs automatically
+            // picks up the change — eliminating the risk of the two copies diverging.
+            // The gate must run BEFORE adjudicate() so TerminationOracle receives the
+            // governance_rescue_active flag and can downgrade InjectSynthesis to Continue.
+            let governance_rescue_active = {
+                let sg_ctx = state.build_synthesis_context();
+                let verdict = super::super::domain::synthesis_gate::evaluate(
+                    SynthesisTrigger::GovernanceRescue,
+                    &sg_ctx,
+                );
+                // governance_rescue_active = true when the gate would block synthesis
+                !verdict.allow
+            };
 
             let round_feedback = RoundFeedback {
                 round,
