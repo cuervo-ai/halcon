@@ -358,6 +358,8 @@ pub async fn run_orchestrator(
                 // Clone the Option<Arc<...>> so the async move block owns it.
                 let perm_awaiter_clone = perm_awaiter.clone();
                 let policy = policy.clone();
+                // Feature 4: agent registry system_prompt_prefix (skills + agent body).
+                let agent_system_prefix = task.system_prompt_prefix.clone();
 
                 // Inject shared context from previous waves into system prompt.
                 let system_prompt = if let Some(ref snap) = context_snapshot {
@@ -423,17 +425,39 @@ pub async fn run_orchestrator(
                         .iter()
                         .map(|t| t.name.clone())
                         .collect();
-                    for tool_name in &allowed_tools {
-                        if !available_tool_names.contains(tool_name.as_str()) {
-                            tracing::warn!(
-                                unregistered_tool = %tool_name,
-                                allowed_tools = ?allowed_tools,
-                                "AUDIT P1-A: allowed_tools contains unregistered tool — \
-                                 will be silently dropped by filter, risking empty tool surface. \
-                                 Check delegation.rs:classify_step() and tool registry registration."
-                            );
-                        }
-                    }
+                    // A3: Resolve unknown tool names via alias canonicalization before the
+                    // FASE 3 SECURITY empty-surface check. DeepSeek/GPT planners frequently
+                    // generate alias names (e.g. "list_directory_with_sizes", "run_command")
+                    // that map to registered canonical tools via tool_aliases::canonicalize().
+                    // Substituting here prevents FASE 3 from aborting valid delegations.
+                    let allowed_tools: std::collections::HashSet<String> = allowed_tools
+                        .into_iter()
+                        .map(|tool_name| {
+                            if available_tool_names.contains(tool_name.as_str()) {
+                                tool_name
+                            } else {
+                                let canonical =
+                                    super::tool_aliases::canonicalize(tool_name.as_str());
+                                if canonical != tool_name.as_str()
+                                    && available_tool_names.contains(canonical)
+                                {
+                                    tracing::info!(
+                                        original = %tool_name,
+                                        resolved = %canonical,
+                                        "A3: resolved unknown tool name to registered canonical"
+                                    );
+                                    canonical.to_string()
+                                } else {
+                                    tracing::warn!(
+                                        unregistered_tool = %tool_name,
+                                        "A3: allowed_tools contains unregistered tool with no alias — \
+                                         will be dropped by filter, risking empty tool surface."
+                                    );
+                                    tool_name
+                                }
+                            }
+                        })
+                        .collect();
                     let tool_defs: Vec<_> = if !allowed_tools.is_empty() {
                         tool_registry
                             .tool_definitions()
@@ -484,6 +508,17 @@ pub async fn run_orchestrator(
                             content_read_attempts: 0,
                         };
                     }
+                    // Feature 4: prepend agent registry system_prompt_prefix if present.
+                    // skills content + agent body from .md definition file.
+                    let system_prompt = if let Some(prefix) = agent_system_prefix {
+                        match system_prompt {
+                            Some(existing) => Some(format!("{prefix}\n\n{existing}")),
+                            None => Some(prefix),
+                        }
+                    } else {
+                        system_prompt
+                    };
+
                     // Dynamic max_tokens: use provider-reported model limit, falling back
                     // to conservative 8192 cap (deepseek-chat hard API limit).
                     let sub_agent_max_tokens = provider.model_max_output_tokens(&model).unwrap_or(8192);
@@ -1031,6 +1066,7 @@ mod tests {
                 limits_override: None,
                 depends_on: vec![],
                 priority: 0,
+            system_prompt_prefix: None,
             },
             SubAgentTask {
                 task_id: Uuid::new_v4(),
@@ -1042,6 +1078,7 @@ mod tests {
                 limits_override: None,
                 depends_on: vec![],
                 priority: 0,
+            system_prompt_prefix: None,
             },
         ];
         let waves = topological_waves(&tasks);
@@ -1065,6 +1102,7 @@ mod tests {
                 limits_override: None,
                 depends_on: vec![],
                 priority: 0,
+            system_prompt_prefix: None,
             },
             SubAgentTask {
                 task_id: b,
@@ -1076,6 +1114,7 @@ mod tests {
                 limits_override: None,
                 depends_on: vec![a],
                 priority: 0,
+            system_prompt_prefix: None,
             },
             SubAgentTask {
                 task_id: c,
@@ -1087,6 +1126,7 @@ mod tests {
                 limits_override: None,
                 depends_on: vec![b],
                 priority: 0,
+            system_prompt_prefix: None,
             },
         ];
         let waves = topological_waves(&tasks);
@@ -1113,6 +1153,7 @@ mod tests {
                 limits_override: None,
                 depends_on: vec![],
                 priority: 0,
+            system_prompt_prefix: None,
             },
             SubAgentTask {
                 task_id: b,
@@ -1124,6 +1165,7 @@ mod tests {
                 limits_override: None,
                 depends_on: vec![a],
                 priority: 10,
+            system_prompt_prefix: None,
             },
             SubAgentTask {
                 task_id: c,
@@ -1135,6 +1177,7 @@ mod tests {
                 limits_override: None,
                 depends_on: vec![a],
                 priority: 5,
+            system_prompt_prefix: None,
             },
             SubAgentTask {
                 task_id: d,
@@ -1146,6 +1189,7 @@ mod tests {
                 limits_override: None,
                 depends_on: vec![b, c],
                 priority: 0,
+            system_prompt_prefix: None,
             },
         ];
         let waves = topological_waves(&tasks);
@@ -1173,6 +1217,7 @@ mod tests {
                 limits_override: None,
                 depends_on: vec![b],
                 priority: 0,
+            system_prompt_prefix: None,
             },
             SubAgentTask {
                 task_id: b,
@@ -1184,6 +1229,7 @@ mod tests {
                 limits_override: None,
                 depends_on: vec![a],
                 priority: 0,
+            system_prompt_prefix: None,
             },
         ];
         let waves = topological_waves(&tasks);
@@ -1217,6 +1263,7 @@ mod tests {
                 model: None, provider: None,
                 allowed_tools: HashSet::new(), limits_override: None,
                 depends_on: vec![b], priority: 0,
+            system_prompt_prefix: None,
             },
             SubAgentTask {
                 task_id: b,
@@ -1225,6 +1272,7 @@ mod tests {
                 model: None, provider: None,
                 allowed_tools: HashSet::new(), limits_override: None,
                 depends_on: vec![a], priority: 0,
+            system_prompt_prefix: None,
             },
             SubAgentTask {
                 task_id: c,
@@ -1233,6 +1281,7 @@ mod tests {
                 model: None, provider: None,
                 allowed_tools: HashSet::new(), limits_override: None,
                 depends_on: vec![], priority: 0,
+            system_prompt_prefix: None,
             },
         ];
         let waves = topological_waves(&tasks);
@@ -1360,6 +1409,7 @@ mod tests {
             limits_override: None,
             depends_on: vec![],
             priority: 0,
+        system_prompt_prefix: None,
         }];
 
         let result = run_orchestrator(
@@ -1396,6 +1446,7 @@ mod tests {
                 limits_override: None,
                 depends_on: vec![],
                 priority: 0,
+            system_prompt_prefix: None,
             },
             SubAgentTask {
                 task_id: Uuid::new_v4(),
@@ -1407,6 +1458,7 @@ mod tests {
                 limits_override: None,
                 depends_on: vec![],
                 priority: 0,
+            system_prompt_prefix: None,
             },
         ];
 
@@ -1444,6 +1496,7 @@ mod tests {
                 limits_override: None,
                 depends_on: vec![],
                 priority: 0,
+            system_prompt_prefix: None,
             },
             SubAgentTask {
                 task_id: Uuid::new_v4(),
@@ -1455,6 +1508,7 @@ mod tests {
                 limits_override: None,
                 depends_on: vec![a_id],
                 priority: 0,
+            system_prompt_prefix: None,
             },
         ];
 
@@ -1490,6 +1544,7 @@ mod tests {
             limits_override: None,
             depends_on: vec![],
             priority: 0,
+        system_prompt_prefix: None,
         }];
 
         run_orchestrator(
@@ -1539,11 +1594,13 @@ mod tests {
                 task_id: a_id, instruction: "Wave 1".into(), agent_type: AgentType::Chat,
                 model: None, provider: None, allowed_tools: HashSet::new(),
                 limits_override: None, depends_on: vec![], priority: 0,
+            system_prompt_prefix: None,
             },
             SubAgentTask {
                 task_id: Uuid::new_v4(), instruction: "Wave 2".into(), agent_type: AgentType::Chat,
                 model: None, provider: None, allowed_tools: HashSet::new(),
                 limits_override: None, depends_on: vec![a_id], priority: 0,
+            system_prompt_prefix: None,
             },
         ];
 
@@ -1578,11 +1635,13 @@ mod tests {
                 task_id: a_id, instruction: "Wave 1 task".into(), agent_type: AgentType::Chat,
                 model: None, provider: None, allowed_tools: HashSet::new(),
                 limits_override: None, depends_on: vec![], priority: 0,
+            system_prompt_prefix: None,
             },
             SubAgentTask {
                 task_id: Uuid::new_v4(), instruction: "Wave 2 task".into(), agent_type: AgentType::Chat,
                 model: None, provider: None, allowed_tools: HashSet::new(),
                 limits_override: None, depends_on: vec![a_id], priority: 0,
+            system_prompt_prefix: None,
             },
         ];
 
@@ -1676,16 +1735,19 @@ mod tests {
                 task_id: a, instruction: "A fails".into(), agent_type: AgentType::Chat,
                 model: None, provider: None, allowed_tools: HashSet::new(),
                 limits_override: None, depends_on: vec![], priority: 0,
+            system_prompt_prefix: None,
             },
             SubAgentTask {
                 task_id: b, instruction: "B depends on A".into(), agent_type: AgentType::Chat,
                 model: None, provider: None, allowed_tools: HashSet::new(),
                 limits_override: None, depends_on: vec![a], priority: 0,
+            system_prompt_prefix: None,
             },
             SubAgentTask {
                 task_id: c, instruction: "C depends on B".into(), agent_type: AgentType::Chat,
                 model: None, provider: None, allowed_tools: HashSet::new(),
                 limits_override: None, depends_on: vec![b], priority: 0,
+            system_prompt_prefix: None,
             },
         ];
         let waves = topological_waves(&tasks);
@@ -1723,21 +1785,25 @@ mod tests {
                 task_id: a, instruction: "A".into(), agent_type: AgentType::Chat,
                 model: None, provider: None, allowed_tools: HashSet::new(),
                 limits_override: None, depends_on: vec![], priority: 0,
+            system_prompt_prefix: None,
             },
             SubAgentTask {
                 task_id: b, instruction: "B fails".into(), agent_type: AgentType::Chat,
                 model: None, provider: None, allowed_tools: HashSet::new(),
                 limits_override: None, depends_on: vec![a], priority: 0,
+            system_prompt_prefix: None,
             },
             SubAgentTask {
                 task_id: c, instruction: "C succeeds".into(), agent_type: AgentType::Chat,
                 model: None, provider: None, allowed_tools: HashSet::new(),
                 limits_override: None, depends_on: vec![a], priority: 0,
+            system_prompt_prefix: None,
             },
             SubAgentTask {
                 task_id: d, instruction: "D depends on B+C".into(), agent_type: AgentType::Chat,
                 model: None, provider: None, allowed_tools: HashSet::new(),
                 limits_override: None, depends_on: vec![b, c], priority: 0,
+            system_prompt_prefix: None,
             },
         ];
         let waves = topological_waves(&tasks);
@@ -1774,11 +1840,13 @@ mod tests {
                 task_id: a, instruction: "A".into(), agent_type: AgentType::Chat,
                 model: None, provider: None, allowed_tools: HashSet::new(),
                 limits_override: None, depends_on: vec![], priority: 0,
+            system_prompt_prefix: None,
             },
             SubAgentTask {
                 task_id: b, instruction: "B".into(), agent_type: AgentType::Chat,
                 model: None, provider: None, allowed_tools: HashSet::new(),
                 limits_override: None, depends_on: vec![], priority: 0,
+            system_prompt_prefix: None,
             },
         ];
         let waves = topological_waves(&tasks);

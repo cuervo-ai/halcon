@@ -43,12 +43,55 @@ impl PoolBackedBridge {
     }
 }
 
+/// Well-known read-only MCP tool names (from @modelcontextprotocol/server-filesystem
+/// and common MCP servers). These override keyword inference to prevent false
+/// Destructive classification from substring matches in descriptions.
+///
+/// Examples of false positives with naive substring matching:
+///   - "run" matches inside "Returns" → `directory_tree` → Destructive (wrong)
+///   - "set" matches inside "structure" → any tree tool → Destructive (wrong)
+///   - "execute" matches inside "executable" in file info descriptions
+const KNOWN_READONLY_TOOL_NAMES: &[&str] = &[
+    // @modelcontextprotocol/server-filesystem
+    "read_file",
+    "read_multiple_files",
+    "list_directory",
+    "directory_tree",
+    "get_file_info",
+    "list_allowed_directories",
+    // Common aliases / variants
+    "read_text_file",
+    "get_file_contents",
+    "show_directory",
+    "tree",
+    "ls",
+];
+
 /// Infer permission level from tool name + description keywords.
-/// Mirrors the logic in `halcon_mcp::bridge` for consistency.
+///
+/// Uses word-boundary matching (splits on non-alphanumeric characters) to avoid
+/// false positives from common substrings — e.g. "run" inside "Returns", "set"
+/// inside "structure", "send" inside "representation".
+///
+/// Known read-only tool names are short-circuited before keyword matching to
+/// provide a stable floor for well-understood MCP server tools.
 fn infer_permission_from_def(def: &McpToolDefinition) -> PermissionLevel {
     let name = def.name.to_lowercase();
+
+    // Short-circuit: explicit allowlist of known read-only tool names.
+    if KNOWN_READONLY_TOOL_NAMES.contains(&name.as_str()) {
+        return PermissionLevel::ReadOnly;
+    }
+
     let desc = def.description.as_deref().unwrap_or("").to_lowercase();
     let text = format!("{name} {desc}");
+
+    // Split text into words for word-boundary matching.
+    // This prevents "run" matching inside "Returns", "set" inside "structure", etc.
+    let words: std::collections::HashSet<&str> = text
+        .split(|c: char| !c.is_alphanumeric() && c != '_')
+        .filter(|w| !w.is_empty())
+        .collect();
 
     let write_signals = [
         "write", "create", "update", "delete", "remove", "set", "put", "post",
@@ -59,9 +102,9 @@ fn infer_permission_from_def(def: &McpToolDefinition) -> PermissionLevel {
         "describe", "count", "view",
     ];
 
-    if write_signals.iter().any(|s| text.contains(s)) {
+    if write_signals.iter().any(|s| words.contains(s)) {
         PermissionLevel::Destructive
-    } else if read_signals.iter().any(|s| text.contains(s)) {
+    } else if read_signals.iter().any(|s| words.contains(s)) {
         PermissionLevel::ReadOnly
     } else {
         PermissionLevel::Destructive // safe default
@@ -454,5 +497,72 @@ mod tests {
         let override_perm = Some(PermissionLevel::ReadOnly);
         let result = override_perm.unwrap_or_else(|| infer_permission_from_def(&def));
         assert_eq!(result, PermissionLevel::ReadOnly);
+    }
+
+    // ── Allowlist regression tests ──
+
+    #[test]
+    fn directory_tree_is_always_readonly_regardless_of_description() {
+        // Regression: naive substring matching found "run" inside "Returns" in the
+        // @modelcontextprotocol/server-filesystem directory_tree description,
+        // classifying it Destructive. Allowlist must short-circuit this.
+        let def = make_tool_def(
+            "directory_tree",
+            "Returns a recursive tree view of files and directories as a JSON structure. \
+             Each entry includes name, type (file/directory), and size for files. \
+             Files and empty directories are shown as objects.",
+        );
+        assert_eq!(
+            infer_permission_from_def(&def),
+            PermissionLevel::ReadOnly,
+            "directory_tree must be ReadOnly regardless of description keywords"
+        );
+    }
+
+    #[test]
+    fn list_directory_is_always_readonly() {
+        let def = make_tool_def("list_directory", "List directory contents. Set depth to control recursion.");
+        assert_eq!(infer_permission_from_def(&def), PermissionLevel::ReadOnly);
+    }
+
+    #[test]
+    fn read_multiple_files_allowlist_is_readonly() {
+        let def = make_tool_def("read_multiple_files", "Read the contents of multiple files simultaneously.");
+        assert_eq!(infer_permission_from_def(&def), PermissionLevel::ReadOnly);
+    }
+
+    // ── Word-boundary matching tests ──
+
+    #[test]
+    fn run_inside_returns_does_not_trigger_write_signal() {
+        // "Returns" contains "run" as substring — word-boundary match must reject it.
+        let def = make_tool_def("inspect_output", "Returns the output of a process.");
+        // "run" is NOT a standalone word in "Returns" → no write signal → falls to read/default
+        // "Returns" → word: "Returns" ≠ "run" → no write signal
+        // no read signal in words either → Destructive (safe default)
+        assert_eq!(infer_permission_from_def(&def), PermissionLevel::Destructive);
+    }
+
+    #[test]
+    fn set_as_standalone_word_is_write_signal() {
+        // "set" as a whole word must still trigger Destructive.
+        let def = make_tool_def("config_tool", "Get or set configuration values.");
+        assert_eq!(infer_permission_from_def(&def), PermissionLevel::Destructive);
+    }
+
+    #[test]
+    fn set_inside_structure_does_not_trigger_write_signal() {
+        // "structure" contains "set" as substring — word-boundary must reject it.
+        let def = make_tool_def("schema_info", "Returns the schema structure of the database.");
+        // words: {schema_info, Returns, the, schema, structure, of, database}
+        // no write signal as whole word; "Returns" ≠ "get" → no exact read signal either → Destructive
+        assert_eq!(infer_permission_from_def(&def), PermissionLevel::Destructive);
+    }
+
+    #[test]
+    fn get_as_standalone_word_is_read_signal() {
+        let def = make_tool_def("schema_info", "Get the schema of a table.");
+        // words include "Get" → lowercased to "get" when text is lowercased → ReadOnly
+        assert_eq!(infer_permission_from_def(&def), PermissionLevel::ReadOnly);
     }
 }

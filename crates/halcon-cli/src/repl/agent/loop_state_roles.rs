@@ -52,7 +52,7 @@ impl ControlSignals {
     /// Construct a snapshot from the current loop state.
     pub(super) fn from_loop_state(state: &LoopState) -> Self {
         Self {
-            forced_synthesis_detected:      state.synthesis.forced_synthesis_detected,
+            forced_synthesis_detected:      state.synthesis.is_synthesis_forced(),
             convergence_directive_injected: state.synthesis.convergence_directive_injected,
             environment_error_halt:         state.environment_error_halt,
             auto_pause:                     state.auto_pause,

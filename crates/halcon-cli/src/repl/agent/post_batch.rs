@@ -8,27 +8,20 @@
 //! The [`run`] function is called once per agent loop iteration whenever the model returned
 //! a `ToolUse` stop reason.
 
-use std::sync::{Arc, Mutex};
 
-use anyhow::Result;
 use chrono::Utc;
 use sha2::Digest;
 
 use halcon_core::traits::{Planner, StepOutcome};
 use halcon_core::types::{
-    AgentLimits, ChatMessage, ContentBlock, DomainEvent, EventPayload, MessageContent,
-    ModelRequest, PlanningConfig, Role, Session,
+    ChatMessage, ContentBlock, DomainEvent, EventPayload, MessageContent, Role,
 };
-use halcon_core::EventSender;
-use halcon_storage::{AsyncDatabase, MemoryEntry, MemoryEntryType};
-use halcon_tools::ToolRegistry;
 
-use super::super::agent_types::ControlReceiver;
 use super::super::executor;
 use super::super::failure_tracker::ToolFailureTracker;
 use super::super::loop_guard::hash_tool_args;
 use super::super::accumulator::CompletedToolUse;
-use super::loop_state::{ExecutionIntentPhase, LoopState, SynthesisOrigin};
+use super::loop_state::{ExecutionIntentPhase, LoopState, SynthesisOrigin, SynthesisPriority, SynthesisTrigger};
 use super::plan_formatter::{format_plan_for_prompt, update_plan_in_system};
 use super::provider_client::check_control;
 use super::ControlAction;
@@ -181,9 +174,14 @@ pub(super) async fn run(
             };
 
             // Phase E5: Enter ToolWait state while tools are executing.
-            if !state.silent && (!remaining_parallel.is_empty() || !plan.sequential_batch.is_empty()) {
-                render_sink.agent_state_transition(state.synthesis.phase.as_str(), "tool_wait", "executing tools");
-                state.synthesis.phase = state.synthesis.phase.fire(super::loop_state::AgentEvent::ToolsSubmitted);
+            // RP-3: Guard — skip FSM event if already in Synthesizing (prevents InvalidTransition).
+            let already_synthesizing = matches!(
+                state.synthesis.phase(),
+                super::loop_state::AgentPhase::Synthesizing
+            );
+            if !already_synthesizing && !state.silent && (!remaining_parallel.is_empty() || !plan.sequential_batch.is_empty()) {
+                render_sink.agent_state_transition(state.synthesis.phase_str(), "tool_wait", "executing tools");
+                state.synthesis.advance_phase(super::loop_state::AgentEvent::ToolsSubmitted);
             }
 
             // Execute remaining ReadOnly tools in parallel with concurrency cap.
@@ -249,8 +247,8 @@ pub(super) async fn run(
 
             // Phase E5: Return to Executing after tools complete.
             if !state.silent && (!parallel_results.is_empty() || !sequential_results.is_empty()) {
-                render_sink.agent_state_transition(state.synthesis.phase.as_str(), "executing", "tools complete");
-                state.synthesis.phase = state.synthesis.phase.fire(super::loop_state::AgentEvent::ToolBatchComplete);
+                render_sink.agent_state_transition(state.synthesis.phase_str(), "executing", "tools complete");
+                state.synthesis.advance_phase(super::loop_state::AgentEvent::ToolBatchComplete);
             }
 
             // Track tool invocations.
@@ -536,25 +534,74 @@ pub(super) async fn run(
             // provider_context_window(64000) >> call_input_tokens → correct remaining budget.
             let tokens_remaining =
                 (state.tokens.provider_context_window as u64).saturating_sub(state.tokens.call_input_tokens);
-            if let Some(reason) = state.convergence.convergence_detector.check_with_cost(
-                current_ratio,
-                tokens_remaining,
-                progress_delta,
-                state.tokens.call_input_tokens,
-            ) {
+            // Boundary convergence policy: consult per-session policy before allowing
+            // EvidenceThreshold or DiminishingReturns to fire.
+            // TokenHeadroom is always permitted regardless of policy (hard wall).
+            let conv_policy = state.boundary_decision
+                .as_ref()
+                .map(|bd| bd.convergence_policy.clone());
+
+            // Fix 4 (RC-3): Guard EvidenceThreshold when plan was SLA-truncated.
+            // After truncation to N steps, tracker.progress() = (N,N) → current_ratio=1.0
+            // which fires EvidenceThreshold(0.80) prematurely — the model only executed a
+            // fraction of the originally planned work. Suppress convergence fire when the plan
+            // was truncated AND the original step count is meaningfully larger than what ran.
+            let convergence_suppressed_by_truncation = state.plan_was_sla_truncated
+                && state.original_plan_step_count > 0
+                && current_ratio >= 1.0;
+            if convergence_suppressed_by_truncation {
                 tracing::info!(
-                    reason = %reason.description(),
-                    completion_ratio = current_ratio,
-                    tokens_remaining,
-                    "Early convergence triggered — requesting synthesis now"
+                    original_steps = state.original_plan_step_count,
+                    current_ratio,
+                    "Fix4: EvidenceThreshold suppressed — plan was SLA-truncated, ratio is artificially 1.0"
                 );
-                if !state.silent {
-                    render_sink.info(&format!(
-                        "[convergence] {}",
-                        reason.description()
-                    ));
+            } else {
+                // Check EvidenceThreshold / DiminishingReturns with policy gating.
+                // TokenHeadroom is extracted and handled unconditionally below.
+                use super::super::early_convergence::ConvergenceReason;
+                let conv_result = state.convergence.convergence_detector.check_with_cost(
+                    current_ratio,
+                    tokens_remaining,
+                    progress_delta,
+                    state.tokens.call_input_tokens,
+                );
+                if let Some(reason) = conv_result {
+                    let allowed = match &reason {
+                        ConvergenceReason::TokenHeadroom => true,
+                        ConvergenceReason::EvidenceThreshold => {
+                            conv_policy.as_ref().map_or(true, |p| {
+                                p.allows_evidence_threshold(state.rounds as u32)
+                            })
+                        }
+                        ConvergenceReason::DiminishingReturns => {
+                            conv_policy.as_ref().map_or(true, |p| {
+                                p.allows_diminishing_returns(state.rounds as u32)
+                            })
+                        }
+                    };
+                    if allowed {
+                        tracing::info!(
+                            reason = %reason.description(),
+                            completion_ratio = current_ratio,
+                            tokens_remaining,
+                            "Early convergence triggered — requesting synthesis now"
+                        );
+                        if !state.silent {
+                            render_sink.info(&format!(
+                                "[convergence] {}",
+                                reason.description()
+                            ));
+                        }
+                        state.guards.loop_guard.force_synthesis();
+                    } else {
+                        tracing::info!(
+                            reason = %reason.description(),
+                            domain = ?state.boundary_decision.as_ref().map(|bd| bd.domain.label()),
+                            round = state.rounds,
+                            "Convergence signal suppressed by boundary policy"
+                        );
+                    }
                 }
-                state.guards.loop_guard.force_synthesis();
             }
 
             // Planning V3: Advance MacroPlanView to emit [N/M] progress to the user.
@@ -631,8 +678,12 @@ pub(super) async fn run(
                         "strict enforcement: task permanently failed",
                         Some("Use --full without --expert to allow continued execution on task failure"),
                     );
-                    state.synthesis.synthesis_origin = Some(SynthesisOrigin::SupervisorFailure);
-                    state.synthesis.forced_synthesis_detected = true;
+                    // Phase 2: route through governance gate (supervisor strict-mode failure).
+                    state.request_synthesis_with_gate(
+                        SynthesisTrigger::ReflectionCollapse,
+                        SynthesisOrigin::SupervisorFailure,
+                        SynthesisPriority::High,
+                    );
                     return Ok(PostBatchOutcome::BreakLoop);
                 }
             }
@@ -859,16 +910,28 @@ pub(super) async fn run(
                 .map(|sc| sc.enable_reflection)
                 .unwrap_or(true);
 
-            if should_reflect && !matches!(outcome, super::super::reflexion::RoundOutcome::Success) {
+            // RP-3: Skip reflection FSM event if already synthesizing (prevents InvalidTransition).
+            let in_synthesizing = matches!(
+                state.synthesis.phase(),
+                super::loop_state::AgentPhase::Synthesizing
+            );
+            if should_reflect && !in_synthesizing && !matches!(outcome, super::super::reflexion::RoundOutcome::Success) {
                 // Phase E5: Transition to Reflecting state.
                 if !state.silent {
-                    render_sink.agent_state_transition(state.synthesis.phase.as_str(), "reflecting", "round had issues");
-                    state.synthesis.phase = state.synthesis.phase.fire(super::loop_state::AgentEvent::ReflectionComplete);
+                    render_sink.agent_state_transition(state.synthesis.phase_str(), "reflecting", "round had issues");
+                    state.synthesis.advance_phase(super::loop_state::AgentEvent::ReflectionComplete);
                 }
                 render_sink.reflection_started();
                 match reflector.reflect(round, &outcome, &state.messages).await {
                     Ok(Some(reflection)) => {
-                        render_sink.reflection_complete(&reflection.analysis, 0.0);
+                        // Heuristic quality score: normalized analysis length in [50, 500] chars.
+                        // A short analysis (<50 chars) scores 0.0; a thorough one (≥500) scores 1.0.
+                        // This is display-only — it does not affect agent control flow.
+                        let reflection_score = {
+                            let len = reflection.analysis.len() as f64;
+                            ((len - 50.0) / (500.0 - 50.0)).clamp(0.0, 1.0)
+                        };
+                        render_sink.reflection_complete(&reflection.analysis, reflection_score);
                         tracing::info!(
                             round,
                             analysis = %reflection.analysis,
@@ -930,8 +993,8 @@ pub(super) async fn run(
                 }
                 // Phase E5: Transition back from Reflecting.
                 if !state.silent {
-                    render_sink.agent_state_transition(state.synthesis.phase.as_str(), "executing", "reflection complete");
-                    state.synthesis.phase = state.synthesis.phase.fire(super::loop_state::AgentEvent::ToolBatchComplete);
+                    render_sink.agent_state_transition(state.synthesis.phase_str(), "executing", "reflection complete");
+                    state.synthesis.advance_phase(super::loop_state::AgentEvent::ToolBatchComplete);
                 }
             }
         }
@@ -947,6 +1010,25 @@ pub(super) async fn run(
                 );
                 if !state.silent {
                     render_sink.loop_guard_action("circuit_breaker", &format!("{failed_tool_name}: repeated failures"));
+                }
+                // When a read tool trips the circuit breaker, inject a directive suggesting
+                // file_inspect (which uses a token_budget to avoid context bloat and handles
+                // large files that file_read / read_multiple_files choke on).
+                let canonical = super::super::tool_aliases::canonicalize(failed_tool_name);
+                // read_multiple_files merges into file_read canonical — one check covers both
+                if canonical == "file_read" {
+                    let directive = format!(
+                        "[circuit-breaker] '{}' has failed repeatedly. \
+                         REQUIRED ACTION: First use 'directory_tree' or 'glob' to find the actual file paths, \
+                         then switch to 'file_inspect' with args {{\"path\": \"<actual_path>\", \"token_budget\": 2000}}. \
+                         Do NOT retry '{}' or guess paths again — verify paths exist first.",
+                        failed_tool_name, failed_tool_name
+                    );
+                    state.messages.push(halcon_core::types::ChatMessage {
+                        role: halcon_core::types::Role::User,
+                        content: halcon_core::types::MessageContent::Text(directive),
+                    });
+                    tracing::info!(tool = %failed_tool_name, "circuit-breaker: injected file_inspect fallback directive");
                 }
             }
         }
@@ -1130,6 +1212,39 @@ pub(super) async fn run(
         // will produce the same failing plan — force synthesis instead.
         // The `parallel_batch_collapsed` flag was computed before results were consumed above.
         if parallel_batch_collapsed && tool_successes.is_empty() {
+            // RP-2: If evidence is insufficient and replan budget exists, replan instead of
+            // synthesizing with zero evidence. This closes the bypass where parallel_batch_collapse
+            // forced synthesis without checking the evidence gate first.
+            if state.evidence.bundle.evidence_gate_fires()
+                && state.convergence.replan_attempts < state.policy.max_replan_attempts
+            {
+                state.convergence.replan_attempts += 1;
+                tracing::warn!(
+                    round,
+                    evidence_bytes = state.evidence.bundle.text_bytes_extracted,
+                    replan = state.convergence.replan_attempts,
+                    budget = state.policy.max_replan_attempts,
+                    "P1-A collapse + evidence gate: insufficient evidence — triggering replan instead of synthesis"
+                );
+                if !state.silent {
+                    render_sink.loop_guard_action(
+                        "parallel_collapse_evidence_gate",
+                        &format!(
+                            "all {} tool(s) failed with insufficient evidence — replan {}/{} instead of synthesis",
+                            tool_failures.len(),
+                            state.convergence.replan_attempts,
+                            state.policy.max_replan_attempts,
+                        ),
+                    );
+                }
+                // Do NOT request synthesis — let the agent loop continue with a fresh plan.
+                return Ok(PostBatchOutcome::Continue {
+                    round_tool_log,
+                    tool_failures,
+                    tool_successes,
+                });
+            }
+
             tracing::error!(
                 failed = tool_failures.len(),
                 "P1-A: parallel batch collapse — 0% success rate, forcing synthesis"
@@ -1143,17 +1258,21 @@ pub(super) async fn run(
                     ),
                 );
             }
-            state.synthesis.synthesis_origin = Some(SynthesisOrigin::ReplanTimeout);
-            state.synthesis.forced_synthesis_detected = true;
-            // EBS-R1 (ParallelBatchCollapse): if evidence gate fires, override origin to
-            // SupervisorFailure so reward pipeline applies synthesis penalty on unreadable files.
+            // Phase 2: route through governance gate (all batch tools failed).
+            state.request_synthesis_with_gate(
+                SynthesisTrigger::ParallelBatchCollapse,
+                SynthesisOrigin::ReplanTimeout,
+                SynthesisPriority::High,
+            );
+            // EBS-R1 (ParallelBatchCollapse): if evidence gate fires but replan budget is
+            // exhausted, override origin to SupervisorFailure for reward penalty.
             if state.evidence.bundle.evidence_gate_fires() {
                 state.evidence.bundle.synthesis_blocked = true;
                 state.synthesis.synthesis_origin = Some(SynthesisOrigin::SupervisorFailure);
                 tracing::warn!(
                     session_id = %state.session_id,
                     text_bytes_extracted = state.evidence.bundle.text_bytes_extracted,
-                    "EvidenceGate FIRED (ParallelBatchCollapse): origin overridden to SupervisorFailure"
+                    "EvidenceGate FIRED (ParallelBatchCollapse, replan budget exhausted): origin → SupervisorFailure"
                 );
             }
             // Use force_no_tools so convergence phase collects final round signals before
@@ -1186,11 +1305,10 @@ pub(super) async fn run(
         }
 
         // FSM: tool batch completed — stay in Executing.
-        state.synthesis.phase = super::loop_state::transition(
-            state.synthesis.phase,
-            super::loop_state::AgentEvent::ToolBatchComplete,
-        );
-        // phase already updated by fire() above — no string sync needed.
+        // RP-3: Skip if already in Synthesizing — batch completed after synthesis was requested.
+        if !matches!(state.synthesis.phase(), super::loop_state::AgentPhase::Synthesizing) {
+            state.synthesis.advance_phase(super::loop_state::AgentEvent::ToolBatchComplete);
+        }
 
         // P3.3: Feed semantic cycle detector with this round's tool calls.
         let cycle_calls: Vec<(String, String)> = round_tool_log.iter()
@@ -1204,6 +1322,9 @@ pub(super) async fn run(
                 "Phase3 SemanticCycleDetector: cycle detected"
             );
         }
+
+        // Phase 3: Goal Progress Control — update snapshot at each batch close.
+        state.update_progress_snapshot();
 
         Ok(PostBatchOutcome::Continue {
             round_tool_log,

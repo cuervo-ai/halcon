@@ -168,7 +168,12 @@ pub(super) async fn run(
                 for block in blocks.iter_mut() {
                     if let halcon_core::types::ContentBlock::ToolResult { ref mut content, .. } = block {
                         if content.len() > 2000 {
-                            content.truncate(2000);
+                            // UTF-8 safe truncation: walk back to a char boundary
+                            let mut boundary = 2000;
+                            while boundary > 0 && !content.is_char_boundary(boundary) {
+                                boundary -= 1;
+                            }
+                            content.truncate(boundary);
                             content.push_str("\n[... truncated by K5-2 compaction]");
                         }
                     }
@@ -423,16 +428,40 @@ pub(super) async fn run(
     }
 
     // Per-round instruction refresh: check if HALCON.md files changed on disk.
-    // Performs a stat syscall (~10μs) per instruction file — negligible overhead.
-    if let Some(new_instr) = state.context_pipeline.refresh_instructions(std::path::Path::new(working_dir)) {
-        if let Some(ref mut sys) = state.cached_system {
-            if let Some(ref old_instr) = state.cached_instructions {
-                // Surgically replace the instruction portion within the full system prompt.
-                *sys = sys.replacen(old_instr.as_str(), &new_instr, 1);
+    // Feature 1 path: use InstructionStore (hot-reload via PollWatcher, 250 ms interval).
+    // Legacy path: mtime-polling via ContextPipeline (used when use_halcon_md = false).
+    if let Some(ref mut store) = state.instruction_store {
+        // Feature 1: InstructionStore hot-reload (use_halcon_md = true).
+        if let Some(new_instr) = store.check_and_reload() {
+            if let Some(ref mut sys) = state.cached_system {
+                if let Some(ref old_instr) = state.cached_instructions {
+                    // Surgical replacement: swap instruction section in-place.
+                    *sys = sys.replacen(old_instr.as_str(), &new_instr, 1);
+                } else if !new_instr.is_empty() {
+                    sys.push_str("\n\n");
+                    sys.push_str(&new_instr);
+                }
+            } else if !new_instr.is_empty() {
+                state.cached_system = Some(new_instr.clone());
+            }
+            if !new_instr.is_empty() {
+                tracing::info!(round, "HALCON.md changed — system prompt updated (Feature 1)");
+                state.cached_instructions = Some(new_instr);
             }
         }
-        tracing::info!(round, "Instruction files changed on disk — system prompt updated");
-        state.cached_instructions = Some(new_instr);
+    } else {
+        // Legacy path: mtime-based polling via ContextPipeline.
+        // Performs a stat syscall (~10μs) per instruction file — negligible overhead.
+        if let Some(new_instr) = state.context_pipeline.refresh_instructions(std::path::Path::new(working_dir)) {
+            if let Some(ref mut sys) = state.cached_system {
+                if let Some(ref old_instr) = state.cached_instructions {
+                    // Surgically replace the instruction portion within the full system prompt.
+                    *sys = sys.replacen(old_instr.as_str(), &new_instr, 1);
+                }
+            }
+            tracing::info!(round, "Instruction files changed on disk — system prompt updated");
+            state.cached_instructions = Some(new_instr);
+        }
     }
 
     // Per-round plan section update: refresh step statuses and current step indicator.
@@ -665,7 +694,7 @@ pub(super) async fn run(
         let has_orchestrator_results = state.execution_tracker.as_ref()
             .map_or(false, |t| t.plan().steps.iter().any(|s| s.outcome.is_some()));
 
-        let is_synthesis_round = state.synthesis.forced_synthesis_detected
+        let is_synthesis_round = state.synthesis.is_synthesis_forced()
             || state.synthesis.synthesis_origin.is_some()
             || !state.tools_executed.is_empty()
             || state.evidence.bundle.content_read_attempts > 0

@@ -36,6 +36,8 @@ const GREETING_PREFIXES: &[&str] = &[
     "thanks", "thank you", "gracias", "ok ", "okay", "sure", "yes", "no ",
     "what is your", "what are you", "quién eres", "qué eres",
     "how are you", "cómo estás",
+    // Knowledge questions (short Q&A, no task implied)
+    "what is", "what's", "qué es", "cuál es",
 ];
 
 /// Keywords that signal each intent category.
@@ -47,13 +49,15 @@ const FILE_KEYWORDS: &[&str] = &[
     "explore", "explora", "explorar",
     "examine", "examina", "examinar",
     "review", "revisa", "revisar",
-    "show", "muestra", "muéstrame",
-    "project", "proyecto",
+    // NOTE: "show" removed — too generic (matches "show the git diff" → Mixed instead of GitOperation)
+    "muestra", "muéstrame",
+    // NOTE: "project"/"proyecto" removed — too broad (matches "compile the project" → Mixed)
     "codebase", "código", "repository", "repositorio",
     "structure", "estructura",
     "check", "verifica",
     "open", "abre",
-    "what is", "qué es", "qué hay",
+    // NOTE: "what is"/"qué es" removed — knowledge Q&A, moved to GREETING_PREFIXES
+    "qué hay",
     "list", "lista",
     "contents", "contenido",
 ];
@@ -138,6 +142,10 @@ impl ToolSelector {
     pub fn classify_intent(&self, user_message: &str) -> TaskIntent {
         if !self.enabled {
             return TaskIntent::Mixed;
+        }
+        // Empty input: no task implied — treat as conversational (e.g., accidental Enter key).
+        if user_message.trim().is_empty() {
+            return TaskIntent::Conversational;
         }
 
         let lower = user_message.to_lowercase();
@@ -385,6 +393,45 @@ mod tests {
     fn classify_empty_message_conversational() {
         let s = ToolSelector::new(true);
         assert_eq!(s.classify_intent(""), TaskIntent::Conversational);
+    }
+
+    #[test]
+    fn classify_whitespace_only_conversational() {
+        // Whitespace-only message should also be treated as empty → Conversational.
+        let s = ToolSelector::new(true);
+        assert_eq!(s.classify_intent("   "), TaskIntent::Conversational);
+        assert_eq!(s.classify_intent("\t\n"), TaskIntent::Conversational);
+    }
+
+    #[test]
+    fn classify_knowledge_question_conversational() {
+        // "what is X?" knowledge questions should be Conversational (short, no task).
+        let s = ToolSelector::new(true);
+        assert_eq!(s.classify_intent("what is Rust?"), TaskIntent::Conversational);
+        assert_eq!(s.classify_intent("what's the difference?"), TaskIntent::Conversational);
+    }
+
+    #[test]
+    fn classify_show_git_not_mixed() {
+        // "show the git diff" — "show" removed from FILE_KEYWORDS, so only GIT matches → GitOperation.
+        let s = ToolSelector::new(true);
+        assert_eq!(s.classify_intent("show the git diff"), TaskIntent::GitOperation);
+    }
+
+    #[test]
+    fn classify_file_keyword_still_wins_for_directories() {
+        // Removing "show" must not regress file operations that use other file keywords.
+        let s = ToolSelector::new(true);
+        assert_eq!(s.classify_intent("show me the directory tree"), TaskIntent::FileOperation);
+        assert_eq!(s.classify_intent("list the files"), TaskIntent::FileOperation);
+    }
+
+    #[test]
+    fn classify_compile_without_project_keyword() {
+        // "project" removed from FILE_KEYWORDS — "compile the project" should be CodeExecution.
+        let s = ToolSelector::new(true);
+        assert_eq!(s.classify_intent("compile the project"), TaskIntent::CodeExecution);
+        assert_eq!(s.classify_intent("build the project"), TaskIntent::CodeExecution);
     }
 
     #[test]

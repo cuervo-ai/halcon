@@ -4,6 +4,12 @@
 //! internal modules like render, tui, and repl without duplicating code.
 
 // Module declarations (same as main.rs)
+#[path = "audit/mod.rs"]
+pub mod audit;
+
+#[path = "config_loader.rs"]
+pub(crate) mod config_loader;
+
 #[path = "render/mod.rs"]
 pub mod render;
 

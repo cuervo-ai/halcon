@@ -495,4 +495,140 @@ mod tests {
         let text = "<function_calls><invoke name=\"test\"></invoke></function_calls>";
         assert!(try_recover_tool_calls_from_text(text).is_none());
     }
+
+    // ── RP-1: DSML arg coercion tests ────────────────────────────────────────
+
+    /// Verify that a DSML-recovered `paths` arg arrives as a string (the raw parse output).
+    /// The actual coercion (string → array) happens in provider_round.rs after recovery,
+    /// using the tool's input_schema. This test confirms the raw parse value for regression tracking.
+    #[test]
+    fn rp1_dsml_paths_arg_recovered_as_string() {
+        let text = "<\u{ff5c}DSML\u{ff5c}function_calls>\n\
+            <\u{ff5c}DSML\u{ff5c}invoke name=\"file_read\">\n\
+            <\u{ff5c}DSML\u{ff5c}parameter name=\"paths\">/some/path</\u{ff5c}DSML\u{ff5c}parameter>\n\
+            </\u{ff5c}DSML\u{ff5c}invoke>\n\
+            </\u{ff5c}DSML\u{ff5c}function_calls>";
+        let calls = try_recover_tool_calls_from_text(text).unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].name, "file_read");
+        // Raw DSML parse: paths arrives as a string — coercion to array happens downstream (RP-1 fix).
+        assert!(calls[0].input["paths"].is_string(), "raw DSML parse returns string for paths");
+        assert_eq!(calls[0].input["paths"], "/some/path");
+    }
+
+    /// Simulate the RP-1 coercion logic: verify string→array transformation.
+    #[test]
+    fn rp1_string_to_array_coercion_logic() {
+        // Simulate the coercion that happens in provider_round.rs after DSML recovery.
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "paths": {"type": "array", "items": {"type": "string"}},
+                "command": {"type": "string"}
+            }
+        });
+        let mut args = serde_json::json!({
+            "paths": "/some/path",   // string — should be coerced
+            "command": "ls"          // string — correct type, no coercion needed
+        });
+
+        // Apply the RP-1 coercion logic.
+        if let Some(props_map) = schema.get("properties").and_then(|p| p.as_object()) {
+            if let serde_json::Value::Object(ref mut arg_map) = args {
+                let to_coerce: Vec<String> = props_map
+                    .iter()
+                    .filter(|(prop_name, prop_schema)| {
+                        let expects_array = prop_schema
+                            .get("type")
+                            .and_then(|t| t.as_str())
+                            .map_or(false, |t| t == "array");
+                        expects_array && arg_map.get(prop_name.as_str()).map_or(false, |v| v.is_string())
+                    })
+                    .map(|(k, _)| k.clone())
+                    .collect();
+                for prop_name in to_coerce {
+                    if let Some(val) = arg_map.get(&prop_name).cloned() {
+                        arg_map.insert(prop_name, serde_json::Value::Array(vec![val]));
+                    }
+                }
+            }
+        }
+
+        // paths should now be an array.
+        assert!(args["paths"].is_array(), "paths should be coerced to array");
+        assert_eq!(args["paths"][0], "/some/path");
+        // command should remain a string (no coercion for non-array schema).
+        assert!(args["command"].is_string(), "command should remain a string");
+        assert_eq!(args["command"], "ls");
+    }
+
+    /// Verify coercion works for multiple array-type args in a single call.
+    #[test]
+    fn rp1_multiple_array_args_all_coerced() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {
+                "paths": {"type": "array"},
+                "patterns": {"type": "array"},
+                "flags": {"type": "string"}
+            }
+        });
+        let mut args = serde_json::json!({
+            "paths": "/dir",
+            "patterns": "*.rs",
+            "flags": "-r"
+        });
+        if let Some(props_map) = schema.get("properties").and_then(|p| p.as_object()) {
+            if let serde_json::Value::Object(ref mut arg_map) = args {
+                let to_coerce: Vec<String> = props_map
+                    .iter()
+                    .filter(|(prop_name, prop_schema)| {
+                        let expects_array = prop_schema
+                            .get("type").and_then(|t| t.as_str()).map_or(false, |t| t == "array");
+                        expects_array && arg_map.get(prop_name.as_str()).map_or(false, |v| v.is_string())
+                    })
+                    .map(|(k, _)| k.clone())
+                    .collect();
+                for prop_name in to_coerce {
+                    if let Some(val) = arg_map.get(&prop_name).cloned() {
+                        arg_map.insert(prop_name, serde_json::Value::Array(vec![val]));
+                    }
+                }
+            }
+        }
+        assert!(args["paths"].is_array());
+        assert!(args["patterns"].is_array());
+        assert!(args["flags"].is_string(), "non-array args must not be coerced");
+    }
+
+    /// Already-array arg should NOT be double-wrapped.
+    #[test]
+    fn rp1_already_array_not_double_wrapped() {
+        let schema = serde_json::json!({
+            "type": "object",
+            "properties": {"paths": {"type": "array"}}
+        });
+        let mut args = serde_json::json!({"paths": ["/dir1", "/dir2"]});
+        if let Some(props_map) = schema.get("properties").and_then(|p| p.as_object()) {
+            if let serde_json::Value::Object(ref mut arg_map) = args {
+                let to_coerce: Vec<String> = props_map
+                    .iter()
+                    .filter(|(prop_name, prop_schema)| {
+                        let expects_array = prop_schema
+                            .get("type").and_then(|t| t.as_str()).map_or(false, |t| t == "array");
+                        expects_array && arg_map.get(prop_name.as_str()).map_or(false, |v| v.is_string())
+                    })
+                    .map(|(k, _)| k.clone())
+                    .collect();
+                for prop_name in to_coerce {
+                    if let Some(val) = arg_map.get(&prop_name).cloned() {
+                        arg_map.insert(prop_name, serde_json::Value::Array(vec![val]));
+                    }
+                }
+            }
+        }
+        // The array ["/dir1", "/dir2"] should remain unchanged (filter excludes non-strings).
+        assert_eq!(args["paths"].as_array().unwrap().len(), 2);
+        assert_eq!(args["paths"][0], "/dir1");
+    }
 }

@@ -536,7 +536,12 @@ impl ActivityModel {
             } = line
             {
                 if name == tool_name && r.is_none() {
-                    *r = Some(ToolResult { content, outcome, duration_ms });
+                    *r = Some(ToolResult {
+                        content,
+                        outcome,
+                        duration_ms,
+                        result_source: crate::repl::domain::tool_result::ToolResultSource::RealExecution,
+                    });
                     break;
                 }
             }
@@ -563,6 +568,7 @@ impl ActivityModel {
                         content: String::new(),
                         outcome: ToolOutcome::Denied,
                         duration_ms: 0,
+                        result_source: crate::repl::domain::tool_result::ToolResultSource::RealExecution,
                     });
                     break;
                 }
@@ -799,6 +805,7 @@ impl ActivityModel {
         tools_used: Vec<String>,
         rounds: usize,
         summary: String,
+        error_hint: String,
     ) {
         use super::activity_types::{ActivityLine, SubAgentStatus};
 
@@ -823,6 +830,10 @@ impl ActivityModel {
                 // Rebuild index for the updated line — text_content changed.
                 let new_text = self.lines[line_idx].text_content();
                 self.index.index_line(line_idx, &new_text);
+                // When failed and an error hint is available, push a diagnostic line.
+                if !success && !error_hint.is_empty() {
+                    self.push_info(&format!("[sub-agent] error: {error_hint}"));
+                }
                 return;
             }
         }
@@ -833,6 +844,9 @@ impl ActivityModel {
             "[sub-agent] {icon} [{step_index}] ({:.1}s)",
             latency_ms as f64 / 1000.0
         ));
+        if !success && !error_hint.is_empty() {
+            self.push_info(&format!("[sub-agent] error: {error_hint}"));
+        }
     }
 
     /// Check if there are any loading tools (ToolExec with result=None).
@@ -1167,7 +1181,7 @@ mod tests {
 
         // Second should be completed with Success outcome
         assert!(matches!(model.get(1), Some(ActivityLine::ToolExec {
-            result: Some(ToolResult { ref content, outcome, duration_ms }),
+            result: Some(ToolResult { ref content, outcome, duration_ms, .. }),
             ..
         }) if content == "content" && *outcome == ToolOutcome::Success && *duration_ms == 100));
     }
@@ -1186,7 +1200,7 @@ mod tests {
 
         // After deny: card shows Denied outcome with empty content
         assert!(matches!(model.get(0), Some(ActivityLine::ToolExec {
-            result: Some(ToolResult { outcome, content, duration_ms }),
+            result: Some(ToolResult { outcome, content, duration_ms, .. }),
             ..
         }) if *outcome == ToolOutcome::Denied && content.is_empty() && *duration_ms == 0));
     }
@@ -1578,6 +1592,7 @@ mod tests {
             vec!["bash".into(), "file_read".into()],
             2,
             "Fixed JWT bug".into(),
+            String::new(),
         );
 
         // Should still be 1 line (mutated in-place, not a new push)
@@ -1597,7 +1612,7 @@ mod tests {
     fn update_sub_agent_complete_fallback_when_no_spawned_line() {
         let mut model = ActivityModel::new();
         // Complete without a prior spawn → should fall back to push_info
-        model.update_sub_agent_complete(99, true, 500, vec![], 1, String::new());
+        model.update_sub_agent_complete(99, true, 500, vec![], 1, String::new(), String::new());
         assert_eq!(model.len(), 1);
         assert!(matches!(model.get(0), Some(super::super::activity_types::ActivityLine::Info(_))));
     }
@@ -1607,7 +1622,7 @@ mod tests {
         use super::super::activity_types::{ActivityLine, SubAgentStatus};
         let mut model = ActivityModel::new();
         model.push_sub_agent_spawn(1, 1, "Run tests", "Tester");
-        model.update_sub_agent_complete(1, false, 800, vec!["bash".into()], 1, "Tests failed".into());
+        model.update_sub_agent_complete(1, false, 800, vec!["bash".into()], 1, "Tests failed".into(), String::new());
 
         match model.get(0) {
             Some(ActivityLine::SubAgentTask { status, .. }) => {

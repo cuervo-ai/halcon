@@ -1,6 +1,8 @@
 /// Circuit breaker for repeated tool failures.
 ///
-/// Tracks (tool_name, error_pattern) pairs and trips when a threshold is reached.
+/// Tracks (canonical_tool_name, error_pattern) pairs and trips when a threshold is reached.
+/// Tool names are canonicalized via `tool_aliases::canonicalize` before tracking so that
+/// aliased names (e.g. `read_file` and `file_read`) trip the same circuit.
 /// Once tripped, the agent loop can:
 /// 1. Inject a strong "stop retrying" directive to the model
 /// 2. Skip replanning for deterministic failures
@@ -24,7 +26,11 @@ impl ToolFailureTracker {
     /// Groups similar errors (e.g., different file paths but same "not found" error type).
     pub(crate) fn error_pattern(error: &str) -> String {
         let lower = error.to_lowercase();
-        if lower.contains("no such file or directory") || lower.contains("not found") {
+        if lower.contains("no such file or directory")
+            || lower.contains("not found")
+            || lower.contains("do not exist")   // FASE-2 path-existence gate errors
+            || lower.contains("does not exist")
+        {
             "not_found".to_string()
         } else if lower.contains("permission denied") {
             "permission_denied".to_string()
@@ -56,18 +62,22 @@ impl ToolFailureTracker {
 
     /// Record a tool failure. Returns `true` if the circuit has tripped
     /// (i.e., this failure pattern has reached the threshold).
+    /// Tool name is canonicalized so aliases (`read_file` ↔ `file_read`) share the same counter.
     pub(crate) fn record(&mut self, tool_name: &str, error: &str) -> bool {
+        let canonical = super::tool_aliases::canonicalize(tool_name).to_string();
         let pattern = Self::error_pattern(error);
-        let key = (tool_name.to_string(), pattern);
+        let key = (canonical, pattern);
         let count = self.failures.entry(key).or_insert(0);
         *count += 1;
         *count >= self.threshold
     }
 
     /// Check if a specific tool+error combination has already tripped.
+    /// Tool name is canonicalized for consistent lookup across aliases.
     pub(crate) fn is_tripped(&self, tool_name: &str, error: &str) -> bool {
+        let canonical = super::tool_aliases::canonicalize(tool_name).to_string();
         let pattern = Self::error_pattern(error);
-        let key = (tool_name.to_string(), pattern);
+        let key = (canonical, pattern);
         self.failures.get(&key).copied().unwrap_or(0) >= self.threshold
     }
 
@@ -75,8 +85,9 @@ impl ToolFailureTracker {
     /// Used for testing to inspect internal state.
     #[cfg(test)]
     pub(crate) fn failure_count(&self, tool_name: &str, error: &str) -> u32 {
+        let canonical = super::tool_aliases::canonicalize(tool_name).to_string();
         let pattern = Self::error_pattern(error);
-        let key = (tool_name.to_string(), pattern);
+        let key = (canonical, pattern);
         self.failures.get(&key).copied().unwrap_or(0)
     }
 
@@ -87,7 +98,8 @@ impl ToolFailureTracker {
     /// was restarted.  Without this, a once-tripped tool stays tripped for the entire
     /// session even if the environment recovers.
     pub(crate) fn reset_tool(&mut self, tool_name: &str) {
-        self.failures.retain(|(tool, _), _| tool != tool_name);
+        let canonical = super::tool_aliases::canonicalize(tool_name);
+        self.failures.retain(|(tool, _), _| tool != canonical);
     }
 
     /// Reset all circuit breakers (wipes every tool's failure history).

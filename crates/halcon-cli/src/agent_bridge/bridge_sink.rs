@@ -240,6 +240,7 @@ impl RenderSink for BridgeSink {
         tools_used: &[String],
         _rounds: usize,
         summary: &str,
+        _error_hint: &str,
     ) {
         self.emitter.emit(AgentStreamEvent::SubAgentCompleted {
             sub_agent_id: format!("sub-agent-{step}"),

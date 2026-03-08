@@ -249,6 +249,7 @@ impl Repl {
             limits_override: None,
             depends_on: vec![],
             priority: 0,
+        system_prompt_prefix: None,
         }];
 
         let orchestrator_id = uuid::Uuid::new_v4();
@@ -752,6 +753,7 @@ impl Repl {
                 limits_override: None,
                 depends_on: vec![],
                 priority: step.step_index,
+                system_prompt_prefix: None,
             })
             .collect();
 
@@ -1111,6 +1113,7 @@ impl Repl {
                 limits_override: None,
                 depends_on: vec![],
                 priority: 0,
+            system_prompt_prefix: None,
             })
             .collect();
 

@@ -757,26 +757,28 @@ impl TuiApp {
                 use crate::tui::events::AgentState as FsmState;
                 use crate::tui::widgets::activity_indicator::AgentState as BadgeState;
                 let badge_state = match &to {
-                    FsmState::Idle      => BadgeState::Idle,
-                    FsmState::Planning  => BadgeState::Planning,
-                    FsmState::Executing => BadgeState::Running,
-                    FsmState::ToolWait  => BadgeState::ToolExecution,
-                    FsmState::Reflecting => BadgeState::Running,
-                    FsmState::Paused    => BadgeState::WaitingPermission,
-                    FsmState::Complete  => BadgeState::Idle,
-                    FsmState::Failed    => BadgeState::Error,
+                    FsmState::Idle         => BadgeState::Idle,
+                    FsmState::Planning     => BadgeState::Planning,
+                    FsmState::Executing    => BadgeState::Running,
+                    FsmState::ToolWait     => BadgeState::ToolExecution,
+                    FsmState::Reflecting   => BadgeState::Running,
+                    FsmState::Synthesizing => BadgeState::Running,
+                    FsmState::Paused       => BadgeState::WaitingPermission,
+                    FsmState::Complete     => BadgeState::Idle,
+                    FsmState::Failed       => BadgeState::Error,
                 };
                 self.agent_badge.set_state(badge_state);
                 // Update badge detail label.
                 let detail = match &to {
-                    FsmState::Planning   => Some("Planning…".to_string()),
-                    FsmState::Executing  => Some("Running".to_string()),
-                    FsmState::ToolWait   => Some("Tools…".to_string()),
-                    FsmState::Reflecting => Some("Reflecting…".to_string()),
-                    FsmState::Paused     => Some("Paused".to_string()),
-                    FsmState::Complete   => Some("Done".to_string()),
-                    FsmState::Failed     => Some(format!("Failed: {reason}")),
-                    FsmState::Idle       => None,
+                    FsmState::Planning     => Some("Planning…".to_string()),
+                    FsmState::Executing    => Some("Running".to_string()),
+                    FsmState::ToolWait     => Some("Tools…".to_string()),
+                    FsmState::Reflecting   => Some("Reflecting…".to_string()),
+                    FsmState::Synthesizing => Some("Synthesizing…".to_string()),
+                    FsmState::Paused       => Some("Paused".to_string()),
+                    FsmState::Complete     => Some("Done".to_string()),
+                    FsmState::Failed       => Some(format!("Failed: {reason}")),
+                    FsmState::Idle         => None,
                 };
                 self.agent_badge.set_detail(detail);
                 // Toast for failure transitions.
@@ -905,8 +907,8 @@ impl TuiApp {
                 self.activity_model.push_sub_agent_spawn(step_index, total_steps, &description, &agent_type);
             }
 
-            UiEvent::SubAgentCompleted { step_index, total_steps: _, success, latency_ms, tools_used, rounds, summary } => {
-                self.activity_model.update_sub_agent_complete(step_index, success, latency_ms, tools_used, rounds, summary);
+            UiEvent::SubAgentCompleted { step_index, total_steps: _, success, latency_ms, tools_used, rounds, summary, error_hint } => {
+                self.activity_model.update_sub_agent_complete(step_index, success, latency_ms, tools_used, rounds, summary, error_hint);
             }
 
             UiEvent::MediaAnalysisStarted { count } => {

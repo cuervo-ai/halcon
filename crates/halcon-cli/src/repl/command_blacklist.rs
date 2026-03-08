@@ -1,4 +1,4 @@
-//! Command blacklist for detecting extremely dangerous operations.
+//! Command blacklist for detecting extremely dangerous operations (G7 HARD VETO gate).
 //!
 //! This module provides pattern-based detection of commands that should
 //! NEVER be auto-approved and always require explicit user consent.
@@ -8,6 +8,12 @@
 //! - `dd if=/dev/zero of=/dev/sda` - Disk wipe
 //! - `:(){ :|:& };:` - Fork bomb
 //! - `chmod -R 777 /` - Dangerous permission changes
+//!
+//! ## Single Source of Truth
+//!
+//! Patterns are defined in `halcon_core::security::DANGEROUS_COMMAND_PATTERNS`
+//! and compiled here. This eliminates duplication with the runtime blacklist
+//! in `halcon-tools/bash.rs`, which uses `halcon_core::security::CATASTROPHIC_PATTERNS`.
 
 use regex::Regex;
 use std::sync::LazyLock;
@@ -24,81 +30,19 @@ pub struct DangerousPattern {
 }
 
 /// Compiled blacklist patterns (initialized once at startup).
+///
+/// Sourced from `halcon_core::security::DANGEROUS_COMMAND_PATTERNS` — single source of truth.
 static BLACKLIST: LazyLock<Vec<DangerousPattern>> = LazyLock::new(|| {
-    vec![
-        DangerousPattern {
-            name: "Root filesystem deletion",
-            pattern: Regex::new(r"\brm\s+(-[a-zA-Z]*r[a-zA-Z]*f[a-zA-Z]*|--recursive.*--force)\s+(/$|/\s|/\*|/\.)")
-                .unwrap(),
-            reason: "Attempts to recursively delete root filesystem — unrecoverable data loss",
-        },
-        DangerousPattern {
-            name: "Disk wipe with dd",
-            pattern: Regex::new(r"\bdd\s+.*of=/dev/(sd[a-z]|nvme[0-9]|hd[a-z]|xvd[a-z])($|\s)")
-                .unwrap(),
-            reason: "Direct disk write — can destroy entire partitions or disks",
-        },
-        DangerousPattern {
-            name: "Filesystem creation on device",
-            pattern: Regex::new(r"\bmkfs\.[a-z0-9]+\s+/dev/(sd[a-z]|nvme[0-9]|hd[a-z]|xvd[a-z])")
-                .unwrap(),
-            reason: "Creates new filesystem — destroys all existing data on device",
-        },
-        DangerousPattern {
-            name: "Fork bomb",
-            pattern: Regex::new(r":\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:")
-                .unwrap(),
-            reason: "Fork bomb — exhausts system resources and crashes the system",
-        },
-        DangerousPattern {
-            name: "Global world-writable permissions",
-            pattern: Regex::new(r"\bchmod\s+(-R\s+)?777\s+(/$|/\s|/\*|/\.)")
-                .unwrap(),
-            reason: "Makes root filesystem world-writable — critical security vulnerability",
-        },
-        DangerousPattern {
-            name: "Disable SELinux/AppArmor",
-            pattern: Regex::new(r"\b(setenforce\s+0|systemctl\s+disable\s+apparmor)")
-                .unwrap(),
-            reason: "Disables security enforcement — removes critical security protections",
-        },
-        DangerousPattern {
-            name: "Kernel panic trigger",
-            pattern: Regex::new(r#"echo\s+['"]?c['"]?\s*>\s*/proc/sysrq-trigger"#)
-                .unwrap(),
-            reason: "Forces immediate kernel panic — crashes the system",
-        },
-        DangerousPattern {
-            name: "Memory device overwrite",
-            pattern: Regex::new(r"\bdd\s+.*of=/dev/(mem|kmem|null|zero|random)")
-                .unwrap(),
-            reason: "Writes to kernel memory devices — can corrupt system state",
-        },
-        DangerousPattern {
-            name: "Partition table destruction",
-            pattern: Regex::new(r"\b(fdisk|parted|gdisk)\s+/dev/(sd[a-z]|nvme[0-9]|hd[a-z])")
-                .unwrap(),
-            reason: "Modifies partition table — can make entire disk unreadable",
-        },
-        DangerousPattern {
-            name: "Global chown to non-root",
-            pattern: Regex::new(r"\bchown\s+(-R\s+)?[a-z][a-z0-9]*\s+(/$|/\s|/\*|/\.)")
-                .unwrap(),
-            reason: "Changes ownership of root filesystem — breaks system permissions",
-        },
-        DangerousPattern {
-            name: "Package manager removal",
-            pattern: Regex::new(r"\b(apt|yum|dnf)\s+(remove|purge|erase)\s+(-y\s+)?(apt|dpkg|rpm|yum)")
-                .unwrap(),
-            reason: "Removes package manager itself — breaks system update capability",
-        },
-        DangerousPattern {
-            name: "Swap disable on low memory",
-            pattern: Regex::new(r"\bswapoff\s+-a")
-                .unwrap(),
-            reason: "Disables all swap space — can cause out-of-memory crashes",
-        },
-    ]
+    halcon_core::security::DANGEROUS_COMMAND_PATTERNS
+        .iter()
+        .map(|(name, pattern, reason)| DangerousPattern {
+            name,
+            pattern: Regex::new(pattern).unwrap_or_else(|e| {
+                panic!("Invalid G7 blacklist pattern '{}': {}", pattern, e)
+            }),
+            reason,
+        })
+        .collect()
 });
 
 /// Result of command safety analysis.
@@ -300,8 +244,9 @@ mod tests {
 
     #[test]
     fn blacklist_has_all_patterns() {
-        // Verify all 12 expected patterns are loaded
+        // Verify all 12 patterns from halcon_core::security::DANGEROUS_COMMAND_PATTERNS are loaded
         assert_eq!(BLACKLIST.len(), 12);
+        assert_eq!(BLACKLIST.len(), halcon_core::security::DANGEROUS_COMMAND_PATTERNS.len());
     }
 
     #[test]
@@ -309,6 +254,17 @@ mod tests {
         for pattern in BLACKLIST.iter() {
             assert!(!pattern.name.is_empty());
             assert!(!pattern.reason.is_empty());
+        }
+    }
+
+    #[test]
+    fn centralized_source_matches_compiled_blacklist() {
+        // PASO 4: verify blacklist names match the centralized source exactly.
+        for (i, (name, _, _)) in halcon_core::security::DANGEROUS_COMMAND_PATTERNS.iter().enumerate() {
+            assert_eq!(
+                BLACKLIST[i].name, *name,
+                "Pattern {i} name mismatch between centralized source and compiled blacklist"
+            );
         }
     }
 }

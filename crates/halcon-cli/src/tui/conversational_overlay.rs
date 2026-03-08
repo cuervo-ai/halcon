@@ -214,7 +214,7 @@ impl ConversationalOverlay {
             &self.tool_args,
             aspect.clone(),
         );
-        details.title + "\n\n" + &details.summary
+        details.title + "\n\n" + details.summary.as_str()
     }
 
     /// Render the overlay into a ratatui buffer.

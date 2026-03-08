@@ -12,6 +12,8 @@
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
+use crate::repl::domain::tool_result::ToolResultSource;
+
 /// Outcome of a completed tool execution.
 ///
 /// Separating success, error, and denied as distinct variants lets the renderer
@@ -32,6 +34,8 @@ pub struct ToolResult {
     pub content: String,
     pub outcome: ToolOutcome,
     pub duration_ms: u64,
+    /// Provenance of this result — real execution or governance-layer synthetic.
+    pub result_source: ToolResultSource,
 }
 
 /// Status of a sub-agent task (running, completed, failed).

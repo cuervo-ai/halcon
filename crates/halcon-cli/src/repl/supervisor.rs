@@ -179,16 +179,39 @@ impl PostBatchSupervisor {
         // Gate 1: ≥2 critical deterministic failures → current plan cannot proceed.
         if critical_failures.len() >= 2 {
             let names: Vec<&str> = critical_failures.iter().map(|(n, _)| n.as_str()).collect();
+            // Suggest file_inspect as a fallback when read tools fail deterministically.
+            // file_inspect accepts a token_budget param that prevents context explosion,
+            // unlike file_read/read_multiple_files which return full file content.
+            let read_tools_failed = critical_failures.iter().any(|(name, _)| {
+                // read_multiple_files merges into file_read canonical — one check covers both
+                super::tool_aliases::canonicalize(name) == "file_read"
+            });
+            let hint = if read_tools_failed {
+                " REQUIRED: Use 'directory_tree' or 'glob' to discover actual paths first, \
+                 then use 'file_inspect' with verified paths and a token_budget parameter. \
+                 Do not retry file_read or read_multiple_files with unverified paths."
+            } else {
+                ""
+            };
             return BatchVerdict::ForceReplanNow(format!(
                 "Critical deterministic failures in tools {names:?}. \
-                 Current plan is not viable — replanning required."
+                 Current plan is not viable — replanning required.{hint}"
             ));
         }
 
         // Gate 2: Plan expected a specific tool that was not called.
         // Only fires when tools *were* executed (prevents false positives on text-only rounds).
+        // Uses canonical name comparison AND capability-group matching:
+        //   - aliases (read_file ↔ file_read) are equivalent via canonicalize()
+        //   - file_inspect is accepted as substitute for file_read/read_multiple_files
+        //     when the circuit breaker redirected the agent to it
         if let Some(expected) = expected_tool {
-            let ran = tools_executed.iter().any(|t| t == expected);
+            let ran = tools_executed.iter().any(|t| {
+                super::tool_aliases::are_equivalent(t, expected)
+                    // Accept any file-read-capable tool as substitute when plan expects one.
+                    || (super::tool_aliases::is_file_read_capable(expected)
+                        && super::tool_aliases::is_file_read_capable(t))
+            });
             if !ran && !tools_executed.is_empty() {
                 return BatchVerdict::InjectCorrection(format!(
                     "[Supervisor] The active plan step expected tool '{expected}' to be called \

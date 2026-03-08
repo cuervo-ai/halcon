@@ -338,6 +338,8 @@ pub enum UiEvent {
         rounds: usize,
         /// Short summary of the sub-agent's output (up to 120 chars).
         summary: String,
+        /// Error message when success=false (empty string on success).
+        error_hint: String,
     },
 
     // --- Multimodal Analysis Feedback ---
@@ -466,6 +468,7 @@ pub enum AgentState {
     Executing,
     ToolWait,
     Reflecting,
+    Synthesizing,
     Paused,
     Complete,
     Failed,
@@ -479,16 +482,23 @@ impl AgentState {
             AgentState::Idle => &[AgentState::Planning, AgentState::Executing],
             AgentState::Planning => &[AgentState::Executing, AgentState::Failed, AgentState::Paused],
             AgentState::Executing => &[
-                AgentState::Planning,   // Replanning mid-execution (e.g. after first round detects a plan is needed)
+                AgentState::Planning,       // Replanning mid-execution
                 AgentState::ToolWait,
                 AgentState::Reflecting,
+                AgentState::Synthesizing,   // Tools stripped — synthesis mode
                 AgentState::Complete,
                 AgentState::Failed,
                 AgentState::Paused,
             ],
             AgentState::ToolWait => &[
                 AgentState::Executing,
-                AgentState::Planning,   // Replan triggered after tool failure
+                AgentState::Planning,       // Replan triggered after tool failure
+                AgentState::Synthesizing,   // Direct synthesis from ToolWait
+                AgentState::Failed,
+                AgentState::Paused,
+            ],
+            AgentState::Synthesizing => &[
+                AgentState::Complete,
                 AgentState::Failed,
                 AgentState::Paused,
             ],

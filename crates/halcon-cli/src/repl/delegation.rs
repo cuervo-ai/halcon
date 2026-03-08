@@ -222,6 +222,7 @@ impl DelegationRouter {
                     limits_override: None,
                     depends_on,
                     priority: 0,
+                system_prompt_prefix: None,
                 };
 
                 Some((*step_idx, task))

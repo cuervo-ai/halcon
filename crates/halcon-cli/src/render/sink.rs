@@ -226,6 +226,7 @@ pub trait RenderSink: Send + Sync {
         _tools_used: &[String],
         _rounds: usize,
         _summary: &str,
+        _error_hint: &str,
     ) {
     }
 
@@ -732,6 +733,7 @@ impl RenderSink for ClassicSink {
         tools_used: &[String],
         _rounds: usize,
         _summary: &str,
+        error_hint: &str,
     ) {
         let pal = &super::theme::active().palette;
         let (c, icon) = if success { (pal.success.fg(), '✓') } else { (pal.destructive.fg(), '✗') };
@@ -742,6 +744,10 @@ impl RenderSink for ClassicSink {
             format!(" · {}", tools_used.join(" "))
         };
         eprintln!("{c}  [sub-agent] {icon} [{step}/{total}]{tools_str} ({:.1}s){r}", latency_ms as f64 / 1000.0);
+        if !success && !error_hint.is_empty() {
+            let ec = pal.destructive.fg();
+            eprintln!("{ec}  [sub-agent] error: {error_hint}{r}");
+        }
     }
 
     fn media_analysis_started(&self, count: usize) {
@@ -1249,9 +1255,15 @@ impl RenderSink for TuiSink {
                 "executing" => AgentState::Executing,
                 "tool_wait" => AgentState::ToolWait,
                 "reflecting" => AgentState::Reflecting,
-                "complete" => AgentState::Complete,
-                "failed" => AgentState::Failed,
-                _ => AgentState::Idle,
+                "synthesizing" | "synthesising" => AgentState::Synthesizing,
+                "evaluating" => AgentState::Executing,  // no TUI Evaluating variant — show as Executing
+                "complete" | "completed" => AgentState::Complete,
+                "failed" | "halted" => AgentState::Failed,
+                "paused" => AgentState::Paused,
+                unknown => {
+                    tracing::warn!(state = unknown, "parse_state: unknown FSM state string — defaulting to Idle");
+                    AgentState::Idle
+                }
             }
         };
         self.send(crate::tui::events::UiEvent::AgentStateTransition {
@@ -1425,6 +1437,7 @@ impl RenderSink for TuiSink {
         tools_used: &[String],
         rounds: usize,
         summary: &str,
+        error_hint: &str,
     ) {
         self.send(crate::tui::events::UiEvent::SubAgentCompleted {
             step_index,
@@ -1434,6 +1447,7 @@ impl RenderSink for TuiSink {
             tools_used: tools_used.to_vec(),
             rounds,
             summary: summary.to_string(),
+            error_hint: error_hint.to_string(),
         });
     }
 

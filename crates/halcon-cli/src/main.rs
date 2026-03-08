@@ -2,6 +2,7 @@ use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use tracing_subscriber::EnvFilter;
 
+mod audit;
 mod commands;
 mod config_loader;
 mod render;
@@ -57,6 +58,17 @@ struct Cli {
     /// Suppress the startup banner
     #[arg(long, env = "HALCON_NO_BANNER")]
     no_banner: bool,
+
+    /// Operating mode: "interactive" (default) or "json-rpc" (for IDE extensions)
+    ///
+    /// In json-rpc mode Halcon reads newline-delimited JSON requests from stdin
+    /// and writes streaming JSON events to stdout. All TUI/ANSI output is suppressed.
+    #[arg(long, value_name = "MODE", env = "HALCON_MODE")]
+    mode: Option<String>,
+
+    /// Maximum agent loop turns (used by json-rpc mode and chat --max-turns)
+    #[arg(long, value_name = "N", env = "HALCON_MAX_TURNS")]
+    max_turns: Option<u32>,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -152,6 +164,12 @@ enum Commands {
         verify: bool,
     },
 
+    /// Manage declarative sub-agent configurations (Feature 4)
+    Agents {
+        #[command(subcommand)]
+        action: AgentsAction,
+    },
+
     /// Manage persistent semantic memory
     Memory {
         #[command(subcommand)]
@@ -179,6 +197,15 @@ enum Commands {
     /// Content-Length framing protocol. Supports textDocument/* notifications
     /// and custom $/halcon/* methods for context injection.
     Lsp,
+
+    /// Manage MCP (Model Context Protocol) server connections
+    ///
+    /// Supports HTTP (OAuth 2.1 + PKCE) and stdio transports.
+    /// Configuration is stored in three scopes: local > project > user.
+    Mcp {
+        #[command(subcommand)]
+        action: McpAction,
+    },
 
     /// Start an MCP server over stdio (for IDE sidecar integration)
     #[command(name = "mcp-server")]
@@ -225,6 +252,15 @@ enum Commands {
     Plugin {
         #[command(subcommand)]
         action: PluginAction,
+    },
+
+    /// Compliance and audit export (SOC 2)
+    ///
+    /// Query existing session data and export it as JSONL, CSV, or PDF.
+    /// Verify the HMAC-SHA256 hash chain to detect tampered audit records.
+    Audit {
+        #[command(subcommand)]
+        action: AuditAction,
     },
 }
 
@@ -280,6 +316,70 @@ enum MemoryAction {
     },
     /// Show memory store statistics
     Stats,
+    /// Clear auto-memory files for a given scope
+    Clear {
+        /// Memory scope to clear: 'project' (.halcon/memory/) or 'user' (~/.halcon/memory/<repo>/)
+        #[arg(default_value = "project")]
+        scope: String,
+    },
+}
+
+/// MCP server management subcommands.
+#[derive(Subcommand)]
+enum McpAction {
+    /// Add an HTTP or stdio MCP server to a scope
+    Add {
+        /// Server name (used in config and CLI references)
+        name: String,
+        /// HTTP server URL (use this OR --command, not both)
+        #[arg(long, conflicts_with = "command")]
+        url: Option<String>,
+        /// stdio server executable (use this OR --url, not both)
+        #[arg(long, conflicts_with = "url")]
+        command: Option<String>,
+        /// Arguments for the stdio command
+        #[arg(long, num_args = 0.., requires = "command")]
+        args: Vec<String>,
+        /// Environment variables for the stdio command (KEY=VALUE)
+        #[arg(long = "env", num_args = 0.., requires = "command")]
+        env_vars: Vec<String>,
+        /// Config scope: local, project, or user (default: project)
+        #[arg(long, default_value = "project")]
+        scope: String,
+    },
+    /// Remove an MCP server from a scope
+    Remove {
+        /// Server name to remove
+        name: String,
+        /// Scope to remove from (default: project)
+        #[arg(long, default_value = "project")]
+        scope: String,
+    },
+    /// List configured MCP servers
+    List {
+        /// Filter by scope: all, local, project, user (default: all)
+        #[arg(long, default_value = "all")]
+        scope: String,
+    },
+    /// Show detailed config for one server
+    Get {
+        /// Server name to inspect
+        name: String,
+    },
+    /// Run OAuth 2.1 + PKCE authorization flow for an HTTP server
+    Auth {
+        /// Server name to authorize
+        name: String,
+    },
+    /// Expose Halcon's tools as an MCP server (Feature 9)
+    Serve {
+        /// Transport mode: stdio (default) or http
+        #[arg(long, default_value = "stdio")]
+        transport: String,
+        /// HTTP port (only used with --transport http, default: 7777)
+        #[arg(long, default_value_t = 7777)]
+        port: u16,
+    },
 }
 
 #[derive(Subcommand)]
@@ -303,6 +403,21 @@ enum MetricsAction {
     },
     /// Generate integration decision based on baselines
     Decide,
+}
+
+#[derive(Subcommand)]
+enum AgentsAction {
+    /// List all registered sub-agent definitions
+    List {
+        /// Show the full routing manifest injected into the system prompt
+        #[arg(short, long)]
+        verbose: bool,
+    },
+    /// Validate agent definition files and report all errors
+    Validate {
+        /// Specific .md files to validate (default: discover from all scopes)
+        paths: Vec<std::path::PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -356,6 +471,61 @@ enum PluginAction {
     },
     /// Show plugin system status (directory, manifest count)
     Status,
+}
+
+#[derive(Subcommand)]
+enum AuditAction {
+    /// Export session audit events as JSONL, CSV, or PDF
+    Export {
+        /// Session UUID to export (exclusive with --since)
+        #[arg(long, short = 's')]
+        session: Option<String>,
+
+        /// Export all sessions starting after this ISO-8601 timestamp (exclusive with --session)
+        #[arg(long)]
+        since: Option<String>,
+
+        /// Output format: jsonl (default), csv, pdf
+        #[arg(long, short = 'f', default_value = "jsonl")]
+        format: String,
+
+        /// Output file path (default: stdout for jsonl/csv; auto-named for pdf)
+        #[arg(long, short = 'o')]
+        output: Option<std::path::PathBuf>,
+
+        /// Include raw tool inputs in exported payload
+        #[arg(long)]
+        include_tool_inputs: bool,
+
+        /// Include raw tool outputs in exported payload
+        #[arg(long)]
+        include_tool_outputs: bool,
+
+        /// Override database path (default: ~/.halcon/halcon.db)
+        #[arg(long)]
+        db: Option<std::path::PathBuf>,
+    },
+
+    /// List all sessions with compliance summary statistics
+    List {
+        /// Emit JSON instead of the default table view
+        #[arg(long)]
+        json: bool,
+
+        /// Override database path (default: ~/.halcon/halcon.db)
+        #[arg(long)]
+        db: Option<std::path::PathBuf>,
+    },
+
+    /// Verify the HMAC-SHA256 hash chain for a session
+    Verify {
+        /// Session UUID to verify
+        session_id: String,
+
+        /// Override database path (default: ~/.halcon/halcon.db)
+        #[arg(long)]
+        db: Option<std::path::PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -517,6 +687,18 @@ async fn main() -> Result<()> {
         .model
         .unwrap_or_else(|| config.general.default_model.clone());
 
+    // JSON-RPC mode: activated by `halcon --mode json-rpc` (used by the VS Code extension).
+    // Bypasses all subcommand handling — runs an async stdin/stdout JSON-RPC server.
+    if cli.mode.as_deref() == Some("json-rpc") {
+        return commands::json_rpc::run(
+            &config,
+            &provider,
+            &model,
+            cli.max_turns,
+            explicit_model,
+        ).await;
+    }
+
     match cli.command {
         Some(Commands::Chat { prompt, resume, tui, orchestrate, tasks, reflexion, metrics, timeline, full, expert, trace_out, trace_in }) => {
             commands::chat::run(
@@ -554,6 +736,16 @@ async fn main() -> Result<()> {
             }
             MemoryAction::Prune { force } => commands::memory::prune(&config, force),
             MemoryAction::Stats => commands::memory::stats(&config),
+            MemoryAction::Clear { scope } => {
+                let working_dir = std::env::current_dir()
+                    .unwrap_or_else(|_| std::path::PathBuf::from("."));
+                let repo_name = working_dir
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+                commands::memory::clear(&scope, &working_dir, &repo_name)
+            }
         },
         Some(Commands::Metrics { action }) => match action {
             MetricsAction::Show { recent } => {
@@ -571,6 +763,16 @@ async fn main() -> Result<()> {
             MetricsAction::Decide => {
                 commands::metrics::decision_report().await?;
                 Ok(())
+            }
+        },
+        Some(Commands::Agents { action }) => {
+            let working_dir = std::env::current_dir()
+                .unwrap_or_else(|_| std::path::PathBuf::from("."))
+                .display()
+                .to_string();
+            match action {
+                AgentsAction::List { verbose } => commands::agents::list(&working_dir, verbose),
+                AgentsAction::Validate { paths } => commands::agents::validate(&working_dir, &paths),
             }
         },
         Some(Commands::Doctor) => commands::doctor::run(&config, None),
@@ -591,6 +793,37 @@ async fn main() -> Result<()> {
         Some(Commands::McpServer { working_dir }) => {
             commands::mcp_server::run(&config, working_dir.as_deref()).await
         }
+        Some(Commands::Mcp { action }) => {
+            let working_dir = std::env::current_dir()
+                .unwrap_or_else(|_| std::path::PathBuf::from("."));
+            match action {
+                McpAction::Add { name, url, command, args, env_vars, scope } => {
+                    if let Some(url) = url {
+                        commands::mcp::add_http(&name, &url, &scope,
+                            std::collections::HashMap::new(), &working_dir)
+                    } else if let Some(cmd) = command {
+                        commands::mcp::add_stdio(&name, &cmd, args, env_vars, &scope, &working_dir)
+                    } else {
+                        Err(anyhow::anyhow!("Specify --url (HTTP) or --command (stdio)"))
+                    }
+                }
+                McpAction::Remove { name, scope } => {
+                    commands::mcp::remove(&name, &scope, &working_dir)
+                }
+                McpAction::List { scope } => {
+                    commands::mcp::list(&scope, &working_dir)
+                }
+                McpAction::Get { name } => {
+                    commands::mcp::get(&name, &working_dir)
+                }
+                McpAction::Auth { name } => {
+                    commands::mcp::auth(&name, &working_dir).await
+                }
+                McpAction::Serve { transport, port } => {
+                    commands::mcp_serve::run(&config, Some(transport.as_str()), Some(port)).await
+                }
+            }
+        }
         Some(Commands::Theme(args)) => {
             commands::theme::run(args)
         }
@@ -606,6 +839,27 @@ async fn main() -> Result<()> {
         Some(Commands::Serve { host, port, token }) => {
             commands::serve::run(&host, port, token).await
         }
+        Some(Commands::Audit { action }) => match action {
+            AuditAction::Export {
+                session,
+                since,
+                format,
+                output,
+                include_tool_inputs,
+                include_tool_outputs,
+                db,
+            } => commands::audit::export(
+                session,
+                since,
+                &format,
+                output,
+                include_tool_inputs,
+                include_tool_outputs,
+                db,
+            ),
+            AuditAction::List { json, db } => commands::audit::list(db, json),
+            AuditAction::Verify { session_id, db } => commands::audit::verify(&session_id, db),
+        },
         None => {
             // Default: start interactive chat
             commands::chat::run(

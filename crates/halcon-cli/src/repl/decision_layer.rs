@@ -64,7 +64,8 @@ const ACTION_VERBS: &[&str] = &[
     "deploy", "publish", "release", "ship",
     "analyze", "investigate", "review", "inspect", "explore",
     "configure", "setup", "install",
-    // Spanish
+    // Spanish — full stems (start_with match), not just full words, so conjugated
+    // forms like "revisa", "revisando", "revision", "realiza", "realizó" all match.
     "crear", "escribir", "agregar", "implementar", "construir",
     "arreglar", "reparar", "depurar", "corregir",
     "refactorizar", "reescribir",
@@ -73,6 +74,12 @@ const ACTION_VERBS: &[&str] = &[
     "desplegar", "publicar",
     "analizar", "investigar", "explorar",
     "configurar", "instalar",
+    // Spanish stems — matches conjugated/nominalized forms via starts_with prefix
+    "revis",   // revisar, revisa, revisando, revision, revises
+    "realiz",  // realizar, realiza, realizó, realización
+    "identif", // identificar, identifica, identificación
+    "buscar", "busca", // buscar/busca (search)
+    "evaluar", "evalu", // evaluar, evalúa, evaluación
 ];
 
 /// Domain indicators — each match counts as a separate domain.
@@ -96,6 +103,15 @@ const DOMAIN_INDICATORS: &[(&str, &str)] = &[
     ("construir", "build"), ("compilar", "build"),
     ("desplegar", "deploy"),
     ("seguridad", "security"), ("vulnerabilidad", "security"),
+    // Spanish code/review terms commonly absent from English lists
+    ("codigo", "code_ops"), ("código", "code_ops"),  // "código fuente"
+    ("fuente", "code_ops"),                           // "código fuente" / "fuentes"
+    ("brecha", "security"),                           // "brechas de seguridad"
+    ("revision", "quality"),                          // "revisión de código"
+    ("revisión", "quality"),
+    ("función", "code_ops"), ("funcion", "code_ops"),
+    ("error", "quality"), ("fallo", "quality"),
+    ("clase", "code_ops"), ("interfaz", "code_ops"),
 ];
 
 /// Multi-target indicators — suggests working across multiple files/components.
@@ -113,6 +129,13 @@ const INVESTIGATION_INDICATORS: &[&str] = &[
     "buscar", "encontrar", "identificar", "determinar",
     "entender", "explicar", "por qué", "cómo",
     "analizar", "investigar", "diagnosticar",
+    // Additional Spanish investigation signals
+    "revision", "revisión",  // "hacer una revisión", "revisión de código"
+    "profund",               // "análisis profundo", "profundamente"
+    "avanzad",               // "análisis avanzado", "revisión avanzada"
+    "detall",                // "detallado", "en detalle"
+    "exhaustiv",             // "revisión exhaustiva"
+    "compr",                 // "comprensivo", "comprensión"
 ];
 
 /// Estimate task complexity from user message and available context.

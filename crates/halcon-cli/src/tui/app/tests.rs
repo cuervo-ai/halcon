@@ -1124,7 +1124,7 @@
             // Multi-Agent Orchestration Visibility
             UiEvent::OrchestratorWave { wave_index: 1, total_waves: 1, task_count: 3 },
             UiEvent::SubAgentSpawned { step_index: 1, total_steps: 3, description: "Analyse project".into(), agent_type: "General".into() },
-            UiEvent::SubAgentCompleted { step_index: 1, total_steps: 3, success: true, latency_ms: 2100, tools_used: vec!["bash".into()], rounds: 2, summary: "Fixed auth bug".into() },
+            UiEvent::SubAgentCompleted { step_index: 1, total_steps: 3, success: true, latency_ms: 2100, tools_used: vec!["bash".into()], rounds: 2, summary: "Fixed auth bug".into(), error_hint: String::new() },
             // Multimodal
             UiEvent::MediaAnalysisStarted { count: 2 },
             UiEvent::MediaAnalysisComplete { filename: "photo.jpg".into(), tokens: 512 },

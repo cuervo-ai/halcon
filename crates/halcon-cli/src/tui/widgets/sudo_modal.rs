@@ -240,7 +240,7 @@ mod tests {
 
     #[test]
     fn sudo_modal_context_preview_truncates() {
-        let long_cmd = "sudo apt install ".to_string() + &"x".repeat(100);
+        let long_cmd = format!("sudo apt install {}", "x".repeat(100));
         let ctx = SudoModalContext::new("bash", &long_cmd, false);
         let preview = ctx.command_preview();
         assert!(preview.len() <= 82, "Preview should be at most 80 chars + ellipsis");
