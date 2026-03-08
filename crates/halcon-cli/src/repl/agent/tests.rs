@@ -57,6 +57,21 @@
     static TEST_SECURITY_CONFIG: std::sync::LazyLock<halcon_core::types::SecurityConfig> =
         std::sync::LazyLock::new(halcon_core::types::SecurityConfig::default);
 
+    /// Unit-test policy: filesystem-touching features disabled so tests are hermetic.
+    /// use_halcon_md / enable_auto_memory / enable_agent_registry all default true in
+    /// production (commit 71aa8dd) but must be false in tests to prevent:
+    ///   - system prompt injection from HALCON.md files in /tmp changing cache keys
+    ///   - background auto-memory writes touching the real filesystem
+    ///   - agent registry loading from ~/.halcon/agents/ contaminating test state
+    static TEST_POLICY_CONFIG: std::sync::LazyLock<halcon_core::types::PolicyConfig> =
+        std::sync::LazyLock::new(|| halcon_core::types::PolicyConfig {
+            use_halcon_md: false,
+            enable_auto_memory: false,
+            enable_agent_registry: false,
+            enable_semantic_memory: false,
+            ..halcon_core::types::PolicyConfig::default()
+        });
+
     /// Build an AgentContext with test defaults for optional fields.
     #[allow(clippy::too_many_arguments)]
     fn test_ctx<'a>(
@@ -113,7 +128,7 @@
             plugin_registry: None,
             is_sub_agent: false,
             requested_provider: None,
-            policy: std::sync::Arc::new(halcon_core::types::PolicyConfig::default()),
+            policy: std::sync::Arc::new(TEST_POLICY_CONFIG.clone()),
         }
     }
 
@@ -4752,6 +4767,7 @@
             security_signals_detected: false,
             tool_call_count: 0,
             tool_failure_count: 0,
+            governance_rescue_active: false,
         };
         assert_eq!(
             TerminationOracle::adjudicate(&fb),
@@ -4814,6 +4830,7 @@
             security_signals_detected: false,
             tool_call_count: 0,
             tool_failure_count: 0,
+            governance_rescue_active: false,
         };
         assert_eq!(
             TerminationOracle::adjudicate(&fb),
@@ -5153,6 +5170,7 @@
             security_signals_detected: false,
             tool_call_count: 0,
             tool_failure_count: 0,
+            governance_rescue_active: false,
         };
         assert_eq!(
             TerminationOracle::adjudicate(&fb),

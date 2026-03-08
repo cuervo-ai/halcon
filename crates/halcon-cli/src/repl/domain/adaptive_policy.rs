@@ -236,6 +236,20 @@ mod tests {
             complexity_upgraded: false,
             problem_class: None,
             forecast_rounds_remaining: None,
+            utility_should_synthesize: false,
+            synthesis_request_count: 0,
+            fsm_error_count: 0,
+            budget_iteration_count: 0,
+            budget_stagnation_count: 0,
+            budget_token_growth: 0,
+            budget_exhausted: false,
+            executive_signal_count: 0,
+            executive_force_reason: None,
+            capability_violation: None,
+            security_signals_detected: false,
+            tool_call_count: 0,
+            tool_failure_count: 0,
+            governance_rescue_active: false,
         }
     }
 
