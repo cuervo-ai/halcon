@@ -153,6 +153,27 @@ impl ConvergenceController {
         }
     }
 
+    /// Construct a controller calibrated to the given intent profile with a
+    /// pre-computed effective budget.
+    ///
+    /// This is the unified-pipeline variant of `new()`. It is called from `agent/mod.rs`
+    /// after `IntentPipeline::resolve()` has computed `effective_max_rounds` as the
+    /// authoritative reconciliation of IntentScorer and BoundaryDecisionEngine outputs.
+    /// Using this constructor ensures that the loop bound and the convergence controller
+    /// share a **single source of truth** for `max_rounds` — fixing BV-1 and BV-2.
+    ///
+    /// The stagnation/coverage calibration logic is identical to `new()` (derived from
+    /// `profile.scope` and `profile.reasoning_depth`); only `max_rounds` is overridden.
+    pub fn new_with_budget(
+        profile: &IntentProfile,
+        effective_max_rounds: u32,
+        original_query: &str,
+    ) -> Self {
+        let mut ctrl = Self::new(profile, original_query);
+        ctrl.max_rounds = effective_max_rounds;
+        ctrl
+    }
+
     /// Construct a tightly-tuned controller for sub-agent execution.
     ///
     /// Sub-agents have focused, narrow tasks — they should converge much faster
@@ -875,5 +896,33 @@ mod tests {
                 "if default synthesizes, boosted must also synthesize"
             );
         }
+    }
+
+    // ── BV-1 fix: ConvergenceController calibrates from final SLA budget ─────
+
+    #[test]
+    fn new_with_budget_sets_max_rounds_to_provided_budget() {
+        let profile = IntentScorer::score("fix bug in auth module");
+        // Profile might suggest 8 rounds; we force a short SLA budget of 5.
+        let short_budget = 5u32;
+        let ctrl = ConvergenceController::new_with_budget(&profile, short_budget, "fix bug");
+        assert_eq!(
+            ctrl.max_rounds, short_budget,
+            "ConvergenceController must use the provided SLA budget, not profile.suggested_max_rounds()"
+        );
+    }
+
+    #[test]
+    fn new_with_budget_stagnation_window_proportional_to_budget() {
+        let profile = IntentScorer::score("fix bug in auth module");
+        let short_budget = 5u32;
+        let ctrl = ConvergenceController::new_with_budget(&profile, short_budget, "fix bug");
+        // stagnation_window must be ≤ max_rounds so stagnation can actually fire
+        assert!(
+            ctrl.stagnation_window <= ctrl.max_rounds as usize,
+            "stagnation_window({}) must be <= max_rounds({}) — otherwise stagnation never fires",
+            ctrl.stagnation_window,
+            ctrl.max_rounds
+        );
     }
 }

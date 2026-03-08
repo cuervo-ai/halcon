@@ -3,6 +3,8 @@ mod budget_guards;
 mod checkpoint;
 // B1: AgentContext sub-struct definitions (AgentInfrastructure, AgentPolicyContext, AgentOptional).
 pub mod context;
+// B3: Setup helpers extracted from run_agent_loop() prologue.
+mod setup;
 mod convergence_phase;
 pub(crate) mod loop_state;
 // Phase 4: LoopState decomposition scaffolding — additive snapshot types.
@@ -385,48 +387,12 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
     // Derive the pipeline budget from the selected model's actual context_window:
     //   pipeline_budget = context_window × 0.80  (20% reserved for output tokens)
     // This ensures the pipeline's tier budgets naturally fit within provider limits.
-    let model_context_window: u32 = provider
-        .supported_models()
-        .iter()
-        .find(|m| m.id == request.model)
-        .map(|m| m.context_window)
-        .unwrap_or(DEFAULT_CONTEXT_WINDOW_TOKENS); // Conservative fallback — 64K covers most modern providers.
-    // 20% output reservation: prevents the model from running out of output budget
-    // when input fills the entire context window.
-    // mut: Dynamic Budget Reconciliation may shrink this on provider fallback.
-    let mut pipeline_budget = {
-        let input_fraction = (model_context_window as f64 * 0.80) as u32;
-        if limits.max_total_tokens > 0 {
-            input_fraction.min(limits.max_total_tokens)
-        } else {
-            input_fraction
-        }
-    };
-    tracing::debug!(
-        model = %request.model,
-        context_window = model_context_window,
-        pipeline_budget,
-        "Context pipeline budget derived from model context window"
-    );
-    let mut context_pipeline = halcon_context::ContextPipeline::new(
-        &halcon_context::ContextPipelineConfig {
-            max_context_tokens: pipeline_budget,
-            ..Default::default()
-        },
-    );
-    if let Some(ref sys) = request.system {
-        context_pipeline.initialize(sys, std::path::Path::new(working_dir));
-    }
-    // Load L4 archive from disk (cross-session knowledge persistence).
-    let l4_archive_path = dirs::data_dir()
-        .unwrap_or_else(|| std::path::PathBuf::from("."))
-        .join("halcon")
-        .join("l4_archive.bin");
-    context_pipeline.load_l4_archive(&l4_archive_path);
-
-    for msg in &messages {
-        context_pipeline.add_message(msg.clone());
-    }
+    // B3-a: Context pipeline construction extracted into setup::build_context_pipeline().
+    let setup_result = setup::build_context_pipeline(provider, request, limits, working_dir, &messages);
+    let model_context_window = setup_result.model_context_window;
+    let mut pipeline_budget = setup_result.pipeline_budget;
+    let mut context_pipeline = setup_result.pipeline;
+    let l4_archive_path = setup_result.l4_archive_path;
 
     let mut full_text = String::new();
     let mut rounds = 0;
@@ -1805,58 +1771,55 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
     // HICON Phase 6: Metacognitive loop for system-wide coherence monitoring.
     let mut metacognitive_loop = super::metacognitive_loop::MetacognitiveLoop::new();
 
-    // SOTA 2026: ConvergenceController — adaptive loop termination driven by IntentProfile.
-    // Sub-agents use new_for_sub_agent() with tighter limits + multilingual keyword extraction
-    // so Spanish-language instructions don't cause false-negative coverage misses.
-    // Top-level agents use new() with the IntentProfile-derived budget.
-    let mut conv_ctrl = if ctx.is_sub_agent {
-        super::convergence_controller::ConvergenceController::new_for_sub_agent(&user_msg)
-    } else if let Some(ref ri) = resolved_intent {
-        // IntentPipeline path (BV-1 fix): construct ConvergenceController with the
-        // pre-reconciled budget so calibration and loop bound share a single source of truth.
-        super::convergence_controller::ConvergenceController::new_with_budget(
-            &task_analysis,
-            ri.effective_max_rounds,
-            &user_msg,
-        )
-    } else {
-        // Legacy path: calibrate from IntentProfile, override below with SLA clamp.
-        // Reuses the IntentProfile already computed above (task_analysis) — avoids double scoring.
-        super::convergence_controller::ConvergenceController::new(&task_analysis, &user_msg)
-    };
-    // For sub-agents: cap to min(profile_limit=6, parent_limits.max_rounds).
-    // For top-level agents (legacy path only): honor user config as the authoritative max_rounds.
-    if ctx.is_sub_agent {
-        conv_ctrl.cap_max_rounds(ctx.limits.max_rounds);
-    } else if resolved_intent.is_none() {
-        // Legacy path only — IntentPipeline path already set the correct budget at construction.
-        conv_ctrl.set_max_rounds(ctx.limits.max_rounds);
-    }
-
-    // Phase L fix B6+B3: Enforce budget invariant — max_rounds must cover all plan steps.
-    // When IntentPipeline is active, effective_max_rounds comes directly from resolved_intent
-    // (already reconciles IntentScorer + BoundaryDecisionEngine). Legacy path preserves
-    // the previous SLA-clamp behavior.
-    let mut effective_max_rounds = if let Some(ref ri) = resolved_intent {
+    // BV-1 fix (complete): Compute the final effective budget BEFORE constructing
+    // ConvergenceController so calibration and loop bound share a single source of truth.
+    // Legacy path now uses new_with_budget() just like the IntentPipeline path,
+    // eliminating the previous multi-step set_max_rounds() overwrite pattern.
+    //
+    // Order of precedence (highest to lowest):
+    //   1. IntentPipeline resolved_intent.effective_max_rounds (unified BDE+SLA reconciliation)
+    //   2. SLA-clamped user config (legacy path: clamp_rounds(ctx.limits.max_rounds))
+    //   3. User config max_rounds (no SLA) as fallback
+    //   4. Sub-agent cap: min(profile_limit=6, parent_limits.max_rounds)
+    let mut effective_max_rounds: usize = if let Some(ref ri) = resolved_intent {
         ri.effective_max_rounds as usize
     } else {
         match &sla_budget {
-        Some(b) => {
-            let clamped = b.clamp_rounds(ctx.limits.max_rounds as u32) as usize;
-            if clamped < ctx.limits.max_rounds {
-                tracing::info!(
-                    config = ctx.limits.max_rounds,
-                    sla_clamped = clamped,
-                    mode = ?b.mode,
-                    "SlaManager: clamped max_rounds"
-                );
-                conv_ctrl.set_max_rounds(clamped);
+            Some(b) => {
+                let clamped = b.clamp_rounds(ctx.limits.max_rounds as u32) as usize;
+                if clamped < ctx.limits.max_rounds {
+                    tracing::info!(
+                        config = ctx.limits.max_rounds,
+                        sla_clamped = clamped,
+                        mode = ?b.mode,
+                        "SlaManager: clamped max_rounds (BV-1 fix: resolved before ConvergenceController construction)"
+                    );
+                }
+                clamped
             }
-            clamped
+            None => ctx.limits.max_rounds,
         }
-        None => ctx.limits.max_rounds,
-    }
     };
+
+    // SOTA 2026: ConvergenceController — adaptive loop termination driven by IntentProfile.
+    // Sub-agents use new_for_sub_agent() with tighter limits + multilingual keyword extraction
+    // so Spanish-language instructions don't cause false-negative coverage misses.
+    // Top-level agents use new_with_budget() with the final resolved budget (BV-1 fix).
+    let mut conv_ctrl = if ctx.is_sub_agent {
+        super::convergence_controller::ConvergenceController::new_for_sub_agent(&user_msg)
+    } else {
+        // Both IntentPipeline and legacy paths now use new_with_budget() with the
+        // pre-computed effective_max_rounds — single construction, no post-override needed.
+        super::convergence_controller::ConvergenceController::new_with_budget(
+            &task_analysis,
+            effective_max_rounds as u32,
+            &user_msg,
+        )
+    };
+    // Sub-agents only: cap to min(profile_limit=6, parent_limits.max_rounds).
+    if ctx.is_sub_agent {
+        conv_ctrl.cap_max_rounds(ctx.limits.max_rounds);
+    }
     // Fix 2/3: Track plan truncation so the EvidenceThreshold guard (Fix 4) and
     // post-loop telemetry can detect SLA-driven silent truncation.
     let mut plan_was_sla_truncated = false;
