@@ -285,6 +285,15 @@ enum Commands {
         #[command(subcommand)]
         action: AuditAction,
     },
+
+    /// Manage user accounts and role assignments (RBAC)
+    ///
+    /// Provisions users in ~/.halcon/users.toml with roles:
+    /// Admin | Developer | ReadOnly | AuditViewer
+    Users {
+        #[command(subcommand)]
+        action: UsersAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -548,6 +557,27 @@ enum AuditAction {
         /// Override database path (default: ~/.halcon/halcon.db)
         #[arg(long)]
         db: Option<std::path::PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+enum UsersAction {
+    /// Provision a new user with a role
+    Add {
+        /// User email address
+        #[arg(long)]
+        email: String,
+        /// Role to assign: Admin, Developer, ReadOnly, or AuditViewer
+        #[arg(long)]
+        role: String,
+    },
+    /// List all provisioned users and their roles
+    List,
+    /// Revoke a user's access (soft delete, record retained for audit)
+    Revoke {
+        /// User email address to revoke
+        #[arg(long)]
+        email: String,
     },
 }
 
@@ -883,6 +913,11 @@ async fn main() -> Result<()> {
             ),
             AuditAction::List { json, db } => commands::audit::list(db, json),
             AuditAction::Verify { session_id, db } => commands::audit::verify(&session_id, db),
+        },
+        Some(Commands::Users { action }) => match action {
+            UsersAction::Add { email, role } => commands::users::add(&email, &role),
+            UsersAction::List => commands::users::list(),
+            UsersAction::Revoke { email } => commands::users::revoke(&email),
         },
         None => {
             // Default: start interactive chat

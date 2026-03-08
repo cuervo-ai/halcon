@@ -10,7 +10,9 @@
 pub mod keystore;
 pub mod oauth;
 pub mod pkce;
+pub mod rbac;
 
 pub use keystore::KeyStore;
 pub use oauth::{AuthorizeRequest, OAuthFlow, TokenResponse};
 pub use pkce::PkceChallenge;
+pub use rbac::Role;
