@@ -52,7 +52,8 @@ pub(crate) use security::subagent_contract as subagent_contract_validator;
 pub(crate) mod runtime_bridge;
 /// Multi-agent wave orchestration — parallel task scheduling with dependency resolution.
 pub mod orchestrator;
-pub mod orchestrator_metrics;
+// orchestrator_metrics moved to metrics/ (C-6)
+pub use metrics::orchestrator as orchestrator_metrics;
 pub mod model_quirks;
 // decision_layer, sla_manager moved to planning/ (C-3)
 pub(crate) use planning::decision_layer;
@@ -65,9 +66,9 @@ pub(crate) mod tool_aliases;
 pub(crate) use security::tool_policy;
 pub(crate) use security::tool_trust;
 
-// Anomaly detection and loop integrity.
-pub mod anomaly_detector;
-pub mod arima_predictor;
+// Anomaly detection and loop integrity. Moved to metrics/ (C-6)
+pub(crate) use metrics::anomaly as anomaly_detector;
+pub(crate) use metrics::arima as arima_predictor;
 pub mod metacognitive_loop;
 pub mod loop_guard;
 
@@ -113,11 +114,12 @@ pub mod evidence_pipeline;
 pub(crate) mod evidence_graph;
 pub mod execution_tracker;
 pub mod failure_tracker;
-pub mod health;
+// health, metrics_store moved to metrics/ (C-6)
+pub use metrics::health;
 pub mod idempotency;
 pub mod integration_decision;
 pub mod mcp_manager;
-pub mod metrics_store;
+pub use metrics::store as metrics_store;
 pub mod model_selector;
 pub mod optimizer;
 pub mod resilience;
@@ -183,7 +185,8 @@ pub mod replay_runner;
 pub mod search_engine_global;
 pub mod self_corrector;
 pub mod speculative;
-pub mod evaluator;
+// evaluator moved to metrics/ (C-6)
+pub use metrics::evaluator;
 // === APPLICATION LAYER ===
 // Orchestration and metacognition — coordinates domain services, no direct I/O.
 pub mod application;
@@ -194,10 +197,11 @@ pub use planning::coherence as plan_coherence;
 // capability_index/orchestrator/resolver moved to plugins/ (C-1)
 pub(crate) mod provider_normalization;
 pub mod plugins;
-pub mod reward_pipeline;
-pub mod round_scorer;
+// reward_pipeline, round_scorer, strategy_metrics moved to metrics/ (C-6)
+pub use metrics::reward as reward_pipeline;
+pub use metrics::scorer as round_scorer;
 pub mod supervisor;
-pub mod strategy_metrics;
+pub use metrics::strategy as strategy_metrics;
 pub mod task_backlog;
 pub mod task_bridge;
 pub mod task_scheduler;
@@ -230,7 +234,8 @@ pub mod dev_gateway;
 // ast_symbol_extractor moved to git_tools/ (C-5)
 pub use git_tools::ast_symbols as ast_symbol_extractor;
 // Phase 7 — Runtime Signal Ingestor (OTEL-compatible, feature-gated otel)
-pub mod runtime_signal_ingestor;
+// runtime_signal_ingestor moved to metrics/ (C-6)
+pub use metrics::signal_ingestor as runtime_signal_ingestor;
 // Phase 8 — Dev Ecosystem Integration Tests (cross-module invariant validation)
 #[cfg(test)]
 pub mod dev_ecosystem_integration_tests;
@@ -238,7 +243,8 @@ pub mod dev_ecosystem_integration_tests;
 // Planning V3 — Compression, Macro Feedback, Early Convergence
 // plan_compressor moved to planning/compressor (C-3)
 pub use planning::compressor as plan_compressor;
-pub mod macro_feedback;
+// macro_feedback moved to metrics/ (C-6)
+pub use metrics::macro_feedback;
 pub mod early_convergence;
 
 // Phase 94 — Project Onboarding System
