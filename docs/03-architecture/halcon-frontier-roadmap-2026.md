@@ -826,7 +826,7 @@ script = '''
 
 ---
 
-### FEATURE 3: Auto-Memory System
+### FEATURE 3: Auto-Memory System ✅ IMPLEMENTED (2026-03-08)
 
 **Phase**: 1
 **Gap(s) closed**: GAP-2
@@ -1039,7 +1039,7 @@ if policy.enable_auto_memory && is_first_round {
 
 ---
 
-### FEATURE 4: Declarative Sub-Agent Configuration
+### FEATURE 4: Declarative Sub-Agent Configuration ✅ IMPLEMENTED (2026-03-08)
 
 **Phase**: 1
 **Gap(s) closed**: GAP-4, GAP-7, GAP-9
@@ -1273,7 +1273,7 @@ let task = if let Some(def) = agent_registry.get(agent_name) {
 
 ---
 
-### FEATURE 5: MCP OAuth 2.1 + Scopes + Tool Search
+### FEATURE 5: MCP OAuth 2.1 + Scopes + Tool Search ✅ IMPLEMENTED (2026-03-08)
 
 **Phase**: 2
 **Gap(s) closed**: GAP-5
@@ -1849,6 +1849,104 @@ impl ServerHandler for HalconMcpServer {
 - CATASTROPHIC_PATTERNS (e.g., `rm -rf /`) blocked at `bash.rs` tool level — applies regardless of call path (stdio, HTTP, or direct)
 - HTTP auth: if `HALCON_MCP_SERVER_API_KEY` not set and `require_auth=true`, auto-generates a key and prints it at startup
 - `[mcp_server]` TOML section: `enabled`, `transport`, `port`, `expose_agents`, `require_auth`, `allowed_clients`, `session_ttl_secs`
+
+---
+
+### SPRINT 4: Agent Network Infrastructure ✅ IMPLEMENTED (2026-03-08)
+
+**Phase**: 1 (Agent Network)
+**Sprint**: 4 (weeks 7-10)
+**Gap(s) closed**: Multi-agent coordination, deterministic planning, scheduled execution
+
+#### PASO 4-A: Mailbox P2P for Agent-to-Agent Communication ✅ IMPLEMENTED
+
+**New file**: `crates/halcon-storage/src/mailbox.rs`
+
+SQLite-backed durable mailbox for P2P and broadcast messaging between sub-agents within a team. WAL mode ensures concurrent reads without blocking writes.
+
+**Key types**:
+- `MailboxMessage { id, from_agent, to_agent, team_id, payload, created_at, expires_at, consumed }`
+- `Mailbox::send()`, `receive()`, `broadcast()`, `mark_consumed()`, `purge_expired()`
+- Reserved string `"broadcast"` as `to_agent` sentinel for team-wide delivery
+
+**Migration 37**: `mailbox_messages` table with composite index on `(team_id, to_agent, consumed, expires_at)`.
+
+**Design decision**: SQLite over in-memory channels for durability + audit trail; consistent with existing storage architecture.
+
+**Tests (4)**: broadcast delivery, direct P2P reply, expired TTL filtering, mark_consumed idempotency.
+
+#### PASO 4-B: Agent Roles (Lead/Teammate/Specialist/Observer) ✅ IMPLEMENTED
+
+**Modified**: `crates/halcon-core/src/types/orchestrator.rs`, `crates/halcon-cli/src/repl/orchestrator.rs`, `slash_commands.rs`, `delegation.rs`
+
+```rust
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum AgentRole { Lead, Teammate, Specialist, Observer }
+
+impl AgentRole {
+    pub fn timeout_multiplier(&self) -> f64;  // Lead=1.0, Teammate=0.6, Specialist=0.8, Observer=0.1
+    pub fn max_rounds_multiplier(&self) -> f64; // Lead=1.0, Teammate=0.7, Specialist=0.5, Observer=0.0
+    pub fn can_execute_tools(&self) -> bool;    // Observer cannot
+    pub fn can_cancel_teammates(&self) -> bool; // Lead only
+}
+```
+
+**New fields on `SubAgentTask`** (all `#[serde(default)]` for backward compatibility):
+- `role: AgentRole` — default Lead (all existing code unchanged)
+- `team_id: Option<Uuid>` — links agents into a team for mailbox routing
+- `mailbox_id: Option<Uuid>` — agent's personal mailbox address
+
+Role multipliers applied in `orchestrator.rs` after limits are resolved — before sub-agent launch.
+
+**Tests (6)**: timeout multipliers, rounds multipliers, Observer blocks tools, Lead can cancel, backward compat.
+
+#### PASO 4-C: Cron-Based Scheduled Agent Tasks ✅ IMPLEMENTED
+
+**New files**:
+- `crates/halcon-cli/src/repl/agent_scheduler.rs` — `AgentScheduler`, `ScheduledTask`, `is_due()` cron check
+- `crates/halcon-cli/src/commands/schedule.rs` — CLI `halcon schedule add|list|disable|enable|run`
+
+**Migration 38**: `scheduled_tasks` table with enabled index.
+
+**Cron parsing**: `croner` v2.2.0 — pure Rust, 5-field + optional seconds, no system cron dependency.
+
+**Scheduler design**: `AgentScheduler::start(cancel)` runs a 60s `tokio::time::interval` background task. On each tick, due tasks are identified via `is_due(cron_expr, last_run, now)`. The scheduler marks `last_run_at` and logs the event — actual agent execution is dispatched via the event bridge (decoupled design).
+
+**CLI subcommands**:
+- `halcon schedule add --name <n> --cron <expr> --instruction <i> [--agent <id>]`
+- `halcon schedule list` — tabular output of all scheduled tasks
+- `halcon schedule disable <id>` / `enable <id>`
+- `halcon schedule run <id>` — force-run, updates last_run_at
+
+**Tests (7)**: add_and_list, disable_enable, add_invalid_cron_errors, is_due (4 cron logic tests).
+
+#### PASO 4-D: Wire PlaybookPlanner Before LlmPlanner ✅ IMPLEMENTED
+
+**Modified**: `crates/halcon-cli/src/repl/mod.rs` (retry `AgentContext` construction at line 3287)
+
+**Gap fixed**: The retry `AgentContext` (triggered by `ContextRefreshNeeded` error) unconditionally used `llm_planner`, bypassing `PlaybookPlanner`. The primary invocation path correctly checked `find_match()` first. This inconsistency meant repeated tasks fell back to slow LLM-planned paths on retry.
+
+**Fix**: Applied the same `find_match()` check to the retry path:
+```rust
+planner: if self.playbook_planner.find_match(input).is_some() {
+    Some(&self.playbook_planner as &dyn Planner)
+} else {
+    llm_planner.as_ref().map(|lp| lp as &dyn Planner)
+},
+```
+
+**Effect**: Repeated tasks (git commit, code review, test run) use deterministic zero-LLM plans on both first and retry invocations.
+
+#### Sprint 4 — Pre-existing Bugs Fixed
+
+| Bug | Location | Fix |
+|-----|----------|-----|
+| Stale `pub use reward::RewardPipeline` (type removed from reward.rs) | `repl/metrics/mod.rs:17` | Removed stale re-export |
+| Migration count assertions hard-coded to 36 | `halcon-storage/src/migrations.rs:1279,1293` | Updated to 38 (M37 mailbox + M38 scheduled_tasks) |
+| `HeuristicsConfig::default()` returned 0 for `default_context_window` | `halcon-core/src/types/heuristics_config.rs` | Replaced `#[derive(Default)]` with manual impl using named constants |
+| PlaybookPlanner bypassed on retry path | `repl/mod.rs:3287` | `find_match()` check added to retry `AgentContext` |
+
+**Total Sprint 4 tests**: 21 new tests (4 mailbox + 6 AgentRole + 7 scheduler + 4 heuristics). All pass with `cargo test --workspace --no-default-features`.
 
 ---
 
