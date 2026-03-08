@@ -1,3 +1,5 @@
+// MIGRATION-2026: accumulator moved from repl/ root to agent/
+pub mod accumulator;
 mod budget_guards;
 // Phase 1: State Externalization — serializable LoopState snapshot, fire-and-forget persist.
 mod checkpoint;

@@ -44,6 +44,11 @@ pub mod capability_orchestrator;
 pub mod capability_resolver;
 pub mod tool_manifest;
 
+// MIGRATION-2026: tool files migrated from repl/ root (C-8f)
+pub(crate) mod tool_aliases;
+pub mod tool_selector;
+pub mod tool_speculation;
+
 // Re-exports for capability types
 // capability_index, capability_orchestrator, capability_resolver: pub(crate) types — access via module path
 pub use capability_index::CapabilityIndex;

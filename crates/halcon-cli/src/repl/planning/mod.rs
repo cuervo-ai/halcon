@@ -9,6 +9,7 @@ pub mod coherence;
 pub mod compressor;
 pub(crate) mod diagnostics;
 pub mod metrics;
+pub mod model_quirks;
 pub mod model_selector;
 pub mod optimizer;
 pub mod provider_normalization;

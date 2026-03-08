@@ -38,6 +38,7 @@ pub mod conversational;
 pub mod idempotency;
 pub mod permissions;
 pub mod response_cache;
+pub mod retry_mutation;
 pub mod rule_matcher;
 pub mod schema_validator;
 pub mod validation;

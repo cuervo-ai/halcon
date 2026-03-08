@@ -33,7 +33,7 @@ pub use bridges::agent_comm;
 pub mod agent_task_manager;
 pub mod agent_types;
 pub mod agent_utils;
-pub mod accumulator;
+pub use agent::accumulator;
 
 // === INFRASTRUCTURE LAYER ===
 // I/O-bound modules: tool execution, storage, context assembly, resilience.
@@ -56,14 +56,14 @@ pub(crate) use bridges::runtime as runtime_bridge;
 pub mod orchestrator;
 // orchestrator_metrics moved to metrics/ (C-6)
 pub use metrics::orchestrator as orchestrator_metrics;
-pub mod model_quirks;
+pub use planning::model_quirks;
 // decision_layer, sla_manager moved to planning/ (C-3)
 pub(crate) use planning::decision_layer;
 pub(crate) use planning::sla as sla_manager;
 /// Boundary Decision Engine — structured multi-layer routing pipeline.
 pub(crate) mod decision_engine;
-pub(crate) mod retry_mutation;
-pub(crate) mod tool_aliases;
+pub(crate) use security::retry_mutation;
+pub(crate) use plugins::tool_aliases;
 // tool_policy and tool_trust moved to security/ subdir
 pub(crate) use security::tool_policy;
 pub(crate) use security::tool_trust;
@@ -215,8 +215,8 @@ pub use bridges::task_backlog;
 pub(crate) use bridges::task as task_bridge;
 pub use bridges::task_scheduler;
 // schema_validator moved to security/ (C-2)
-pub mod tool_selector;
-pub mod tool_speculation;
+pub use plugins::tool_selector;
+pub use plugins::tool_speculation;
 // git_tools/ migration (C-5): traceback, instrumentation, patch, edit, git, ci, ide
 pub use git_tools::traceback as traceback_parser;
 pub use git_tools::instrumentation as code_instrumentation;
