@@ -1,10 +1,15 @@
+pub mod agents;
+pub mod audit;
 pub mod auth;
 pub mod chat;
+pub mod json_rpc;
+pub mod mcp;
 pub mod config;
 pub mod doctor;
 pub mod init;
 pub mod lsp;
 pub mod mcp_server;
+pub mod mcp_serve;
 pub mod memory;
 pub mod metrics;
 pub mod plugin;

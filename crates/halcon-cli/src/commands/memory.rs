@@ -158,6 +158,17 @@ pub fn stats(config: &AppConfig) -> Result<()> {
     Ok(())
 }
 
+/// Clear auto-memory files for the given scope.
+///
+/// - `scope = "project"`: deletes `.halcon/memory/` in the working directory ancestors.
+/// - `scope = "user"`:    deletes `~/.halcon/memory/<repo_name>/`.
+pub fn clear(scope: &str, working_dir: &std::path::Path, repo_name: &str) -> Result<()> {
+    crate::repl::auto_memory::writer::clear_memory(scope, working_dir, repo_name)
+        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    println!("Auto-memory cleared for scope '{scope}'.");
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
