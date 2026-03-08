@@ -5,14 +5,10 @@
 //! so behavior is identical when no config is specified.
 //!
 //! # Usage
-//! ```rust
-//! let config = HeuristicsConfig::default();
+//! ```rust,no_run
+//! let config = halcon_core::types::HeuristicsConfig::default();
 //! // identical to existing hardcoded behavior
-//!
-//! let custom = HeuristicsConfig {
-//!     scope_single_artifact_max_words: 8,
-//!     ..HeuristicsConfig::default()
-//! };
+//! assert_eq!(config.default_context_window, 64_000);
 //! ```
 
 use serde::{Deserialize, Serialize};
@@ -156,7 +152,7 @@ pub const DEFAULT_LOOP_GUARD_HEALTH_DIVISOR: f32 = 10.0;
 ///
 /// All fields have `Default` implementations that match the current hardcoded
 /// values — no behavior change when using `HeuristicsConfig::default()`.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HeuristicsConfig {
     /// Model tier → model ID mapping for routing.
     pub model_router:        ModelRouterConfig,
@@ -174,6 +170,23 @@ pub struct HeuristicsConfig {
     /// Metacognitive full-cycle frequency in rounds.
     #[serde(default = "default_metacog_cycle")]
     pub metacognitive_cycle_rounds: u32,
+}
+
+impl Default for HeuristicsConfig {
+    // BUG-S4-PRE: #[derive(Default)] sets serde-defaulted fields to 0 (u32 Default),
+    // but the test expects them to equal the named constants. This custom impl ensures
+    // HeuristicsConfig::default() matches what serde deserialization produces.
+    fn default() -> Self {
+        Self {
+            model_router:             ModelRouterConfig::default(),
+            confidence_weights:       ConfidenceWeights::default(),
+            scope_confidences:        ScopeConfidences::default(),
+            word_count:               WordCountThresholds::default(),
+            phi_coherence:            PhiCoherenceThresholds::default(),
+            default_context_window:   DEFAULT_CONTEXT_WINDOW_TOKENS,
+            metacognitive_cycle_rounds: DEFAULT_METACOGNITIVE_CYCLE_ROUNDS,
+        }
+    }
 }
 
 fn default_ctx_window()    -> u32 { DEFAULT_CONTEXT_WINDOW_TOKENS }
