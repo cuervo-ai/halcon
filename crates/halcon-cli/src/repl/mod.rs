@@ -84,14 +84,20 @@ pub mod repo_map_source;
 
 // Commands and authorization and security.
 pub mod commands;
-pub mod authorization;
+// authorization, circuit_breaker, permissions moved to security/ (C-2)
+pub use security::authorization;
+pub use security::circuit_breaker;
+pub use security::permissions;
+pub use security::conversational as conversational_permission;
+pub use security::adaptive_prompt;
+pub use security::rule_matcher;
+pub use security::schema_validator;
+pub use security::validation;
 pub mod backpressure;
-pub mod circuit_breaker;
 // command_blacklist, permission_lifecycle, output_risk_scorer moved to security/
 pub use security::blacklist as command_blacklist;
 pub use security::lifecycle as permission_lifecycle;
 pub use security::output_risk as output_risk_scorer;
-pub mod permissions;
 
 // Session and resilience.
 pub mod ci_detection;
@@ -136,14 +142,11 @@ pub mod agent_registry;
 pub mod vector_memory_source;
 
 // Communication and protocol.
-pub mod rule_matcher;
+// rule_matcher, adaptive_prompt, validation, conversational_permission moved to security/ (C-2)
 pub mod conversation_protocol;
 pub mod conversation_state;
 pub mod input_normalizer;
 pub mod input_boundary;
-pub mod adaptive_prompt;
-pub mod validation;
-pub mod conversational_permission;
 
 // Session persistence — FASE F clean architecture extraction.
 // Contains: auto_save, save, summarize_to_memory as testable free functions.
@@ -190,7 +193,7 @@ pub mod strategy_metrics;
 pub mod task_backlog;
 pub mod task_bridge;
 pub mod task_scheduler;
-pub mod schema_validator;
+// schema_validator moved to security/ (C-2)
 pub mod tool_selector;
 pub mod tool_speculation;
 pub mod traceback_parser;

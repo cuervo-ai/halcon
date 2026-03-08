@@ -29,3 +29,23 @@ pub use subagent_contract::{
     SubAgentContract, SubAgentContractValidator, ValidationResult, ValidationStatus,
     RejectionReason, StepType,
 };
+
+// C-2: files migrated from repl/ root
+pub mod adaptive_prompt;
+pub mod authorization;
+pub mod circuit_breaker;
+pub mod conversational;
+pub mod permissions;
+pub mod rule_matcher;
+pub mod schema_validator;
+pub mod validation;
+
+// Re-exports — preserve API surface for callers outside security/
+pub use adaptive_prompt::AdaptivePromptBuilder;
+pub use authorization::{AuthorizationMiddleware, AuthorizationPolicy, AuthorizationState};
+pub use circuit_breaker::{BreakerState, ProviderBreaker};
+pub use conversational::ConversationalPermissionHandler;
+pub use permissions::PermissionChecker;
+pub use rule_matcher::RuleMatcher;
+pub use schema_validator::SchemaValidator;
+pub use validation::PermissionValidator;
