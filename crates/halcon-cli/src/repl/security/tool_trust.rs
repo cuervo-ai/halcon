@@ -205,10 +205,10 @@ impl ToolTrustScorer {
     }
 
     /// Get failure records for retry mutation — tools with at least one failure.
-    pub fn failure_records(&self) -> Vec<super::retry_mutation::ToolFailureRecord> {
+    pub fn failure_records(&self) -> Vec<super::super::retry_mutation::ToolFailureRecord> {
         self.metrics.iter()
             .filter(|(_, m)| m.failure_count > 0)
-            .map(|(name, m)| super::retry_mutation::ToolFailureRecord {
+            .map(|(name, m)| super::super::retry_mutation::ToolFailureRecord {
                 tool_name: name.clone(),
                 failure_count: m.failure_count,
             })

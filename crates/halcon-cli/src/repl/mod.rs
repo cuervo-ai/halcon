@@ -41,7 +41,9 @@ pub mod accumulator;
 /// Tool execution pipeline — file I/O, shell, risk scoring, permission gates.
 pub mod executor;
 pub(crate) mod plan_state_diagnostics;
-pub(crate) mod subagent_contract_validator;
+pub(crate) mod security;
+// Backward-compat: subagent_contract_validator was moved to security/subagent_contract.rs
+pub(crate) use security::subagent_contract as subagent_contract_validator;
 /// Runtime bridge: connects CLI tool execution to the halcon-runtime DAG executor.
 /// Provides `CliToolRuntime` — a `HalconRuntime` pre-populated with `LocalToolAgent`
 /// wrappers for every `ToolRegistry` entry. Parallel tool batches become single-wave
@@ -57,8 +59,9 @@ pub(crate) mod decision_engine;
 pub(crate) mod retry_mutation;
 pub(crate) mod sla_manager;
 pub(crate) mod tool_aliases;
-pub(crate) mod tool_policy;
-pub(crate) mod tool_trust;
+// tool_policy and tool_trust moved to security/ subdir
+pub(crate) use security::tool_policy;
+pub(crate) use security::tool_trust;
 
 // Anomaly detection and loop integrity.
 pub mod anomaly_detector;
@@ -84,10 +87,11 @@ pub mod commands;
 pub mod authorization;
 pub mod backpressure;
 pub mod circuit_breaker;
-pub mod command_blacklist;
+// command_blacklist, permission_lifecycle, output_risk_scorer moved to security/
+pub use security::blacklist as command_blacklist;
+pub use security::lifecycle as permission_lifecycle;
+pub use security::output_risk as output_risk_scorer;
 pub mod permissions;
-pub mod permission_lifecycle;
-pub mod output_risk_scorer;
 
 // Session and resilience.
 pub mod ci_detection;
@@ -191,7 +195,8 @@ pub mod tool_selector;
 pub mod tool_speculation;
 pub mod traceback_parser;
 pub mod code_instrumentation;
-pub mod risk_tier_classifier;
+// risk_tier_classifier moved to security/risk_tier.rs
+pub use security::risk_tier as risk_tier_classifier;
 pub mod patch_preview_engine;
 pub mod edit_transaction;
 pub mod safe_edit_manager;

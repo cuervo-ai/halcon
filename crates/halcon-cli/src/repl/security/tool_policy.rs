@@ -70,7 +70,7 @@ const EXECUTION_TOOLS: &[&str] = &[
 /// Resolves aliases via `tool_aliases::canonicalize()` before classification,
 /// so `write_file` → `file_write` → `Execution` works correctly.
 pub(crate) fn classify(tool_name: &str) -> ToolCategory {
-    let canonical = super::tool_aliases::canonicalize(tool_name);
+    let canonical = super::super::tool_aliases::canonicalize(tool_name);
     if EXECUTION_TOOLS.contains(&canonical) {
         ToolCategory::Execution
     } else {
