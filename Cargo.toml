@@ -32,6 +32,7 @@ repository = "https://github.com/cuervo-ai/halcon-cli"
 # Async runtime
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std", "io-util", "net", "time", "sync", "signal", "process", "fs"] }
 tokio-util = { version = "0.7", features = ["codec"] }
+tokio-stream = "0.1"
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
@@ -103,6 +104,9 @@ zstd = "0.13"
 sha2 = "0.10"
 hmac = "0.12"
 hex = "0.4"
+
+# Compliance export (Feature 8)
+printpdf = "0.7"
 
 # Testing
 assert_cmd = "2"

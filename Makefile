@@ -1,4 +1,5 @@
-.PHONY: wasm-rebuild wasm-verify build test test-color-science submodule-init
+.PHONY: wasm-rebuild wasm-verify build test test-color-science submodule-init \
+        release-build release-package release-sign release-checksums
 
 # ── WASM targets ─────────────────────────────────────────────────────────────
 ## Rebuild the Momoto UI Core WASM binary and sync to website/
@@ -72,3 +73,20 @@ build-linux-all: build-linux-x86 build-linux-arm64
 ## Show contents of dist/
 dist-list:
 	@ls -lh dist/ 2>/dev/null || echo "(dist/ is empty)"
+
+# ── Release pipeline (scripts/release/) ──────────────────────────────────────
+## Build release artifacts for all platforms (requires cross + Docker)
+release-build:
+	./scripts/release/build.sh
+
+## Package binaries into .tar.gz / .zip archives
+release-package:
+	./scripts/release/package.sh
+
+## Sign release artifacts (macOS ad-hoc codesign)
+release-sign:
+	./scripts/release/sign.sh
+
+## Generate SHA-256 checksums for all release archives
+release-checksums:
+	./scripts/release/checksums.sh

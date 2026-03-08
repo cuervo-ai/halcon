@@ -182,22 +182,15 @@ img/*.mov
 img/*.mp4
 
 # ── Halcon local state (DB, configs, plugins — user data) ───────────
-.halcon/
+# Use .halcon/* (not .halcon/) so git recurses and the negation below works
+.halcon/*
+!.halcon/HALCON.md
+# HALCON.local.md — per-checkout local instructions, never committed (Feature 1)
+HALCON.local.md
 
-# Root-level temp files
+# Dev session scratch/prototype files (root-level)
 test.txt
-
-# Architecture & audit reports generated during dev sessions
-ARCHITECTURAL_*.md
-ARCHITECTURE_TRACE.md
-BUDGET_ALIGNMENT_REPORT.md
-CRITIC_ALIGNMENT_REPORT.md
-RUNTIME_FAILURE_ANALYSIS.md
-TOKEN_AUDIT_REPORT.md
-
-# Dev session scratch/prototype files
 game.js
 index.html
 output.html
 style.css
-HALCON_DESKTOP_INTEGRATION_PLAN.md
