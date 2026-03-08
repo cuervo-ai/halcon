@@ -7,7 +7,7 @@
 //! 4. Synthesis (no executable tool found — direct text response required)
 
 use super::capability_index::{CapabilityCandidate, CapabilityIndex};
-use super::plugins::manifest::RiskTier;
+use super::manifest::RiskTier;
 
 /// Minimum BM25 score required to accept a plugin capability match.
 const MIN_PLUGIN_SCORE: f64 = 0.5;

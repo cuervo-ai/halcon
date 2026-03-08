@@ -13,8 +13,8 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use super::super::capability_index::CapabilityIndex;
-use super::super::capability_resolver::CapabilityResolver;
+use super::capability_index::CapabilityIndex;
+use super::capability_resolver::CapabilityResolver;
 use super::circuit_breaker::PluginCircuitBreaker;
 use super::cost_tracker::{PluginCostSnapshot, PluginCostTracker};
 use super::manifest::{PluginManifest, RiskTier};

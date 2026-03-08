@@ -45,7 +45,6 @@ pub mod capability_resolver;
 pub mod tool_manifest;
 
 // Re-exports for capability types
+// capability_index, capability_orchestrator, capability_resolver: pub(crate) types — access via module path
 pub use capability_index::CapabilityIndex;
-pub use capability_orchestrator::{CapabilityOrchestrationLayer, OrchestrationDecision, SuppressReason};
-pub use capability_resolver::{CapabilityResolver, CapabilitySource, ResolvedCapability};
 pub use tool_manifest::{ToolManifest, ExternalTool, load_external_tools_default};

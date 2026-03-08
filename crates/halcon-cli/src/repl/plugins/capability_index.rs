@@ -5,7 +5,7 @@
 //! approach as the L3 SemanticStore (split on non-alphanumeric, skip length-1 tokens).
 
 use std::collections::HashMap;
-use super::plugins::manifest::{PluginManifest, RiskTier};
+use super::manifest::{PluginManifest, RiskTier};
 
 // ─── BM25 Constants ───────────────────────────────────────────────────────────
 

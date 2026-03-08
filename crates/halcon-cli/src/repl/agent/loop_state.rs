@@ -469,7 +469,7 @@ pub(super) struct ConvergenceState {
 pub(super) struct LoopGuardState {
     pub loop_guard: super::super::loop_guard::ToolLoopGuard,
     pub failure_tracker: super::super::failure_tracker::ToolFailureTracker,
-    pub capability_orchestrator: super::super::capability_orchestrator::CapabilityOrchestrationLayer,
+    pub capability_orchestrator: super::super::plugins::capability_orchestrator::CapabilityOrchestrationLayer,
     // Phase 3: Semantic cycle detection (P3.3)
     pub semantic_cycle_detector: super::super::domain::semantic_cycle::SemanticCycleDetector,
 }

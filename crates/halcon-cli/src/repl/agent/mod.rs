@@ -1704,7 +1704,7 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
     // Replaces: conversational directive injection, force_no_tools ModelRequest
     // assignment, Ollama emulation strip, flag reset, and model capability check.
     let capability_orchestrator =
-        super::capability_orchestrator::CapabilityOrchestrationLayer::with_default_rules();
+        super::plugins::capability_orchestrator::CapabilityOrchestrationLayer::with_default_rules();
 
     // Step 8b: Apply UCB1 StrategyContext tightness to ToolLoopGuard thresholds.
     // DirectExecution+Simple (tightness=0.3) → relaxed thresholds; PlanExecuteReflect+Complex (0.8) → tight.

@@ -548,7 +548,7 @@ pub(super) async fn run(
     //   • !model.supports_tools → round_request.tools.clear()
     //   • state.is_conversational_intent → state.cached_system directive injection
     {
-        use super::super::capability_orchestrator::{RoundContext, SuppressReason};
+        use super::super::plugins::capability_orchestrator::{RoundContext, SuppressReason};
 
         // Pre-compute model capability from provider registry.
         // Fail-open for unknown models: assume tools supported to avoid breaking
