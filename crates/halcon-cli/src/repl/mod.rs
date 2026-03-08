@@ -125,7 +125,7 @@ pub(crate) use bridges::mcp_manager;
 pub use metrics::store as metrics_store;
 pub use planning::model_selector;
 pub use planning::optimizer;
-pub mod resilience;
+pub use security::resilience;
 pub use security::response_cache;
 // router moved to planning/router (C-3)
 pub use planning::router;
@@ -158,8 +158,8 @@ pub use context::vector_memory as vector_memory_source;
 // Communication and protocol.
 // rule_matcher, adaptive_prompt, validation, conversational_permission moved to security/ (C-2)
 // input_normalizer, input_boundary moved to planning/ (C-3)
-pub mod conversation_protocol;
-pub mod conversation_state;
+pub use security::conversation_protocol;
+pub use security::conversation_state;
 pub use planning::normalizer as input_normalizer;
 pub use planning::input_boundary;
 
@@ -260,7 +260,7 @@ pub use domain::early_convergence;
 // Phase 94 — Project Onboarding System
 // project_inspector moved to git_tools/ (C-5)
 pub use git_tools::project_inspector;
-pub mod onboarding;
+pub use application::onboarding;
 
 // Phase 95 — Plugin Auto-Implantation & Suggestion (now in plugins/ subdir)
 

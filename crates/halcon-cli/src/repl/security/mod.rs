@@ -34,9 +34,12 @@ pub use subagent_contract::{
 pub mod adaptive_prompt;
 pub mod authorization;
 pub mod circuit_breaker;
+pub mod conversation_protocol;
+pub mod conversation_state;
 pub mod conversational;
 pub mod idempotency;
 pub mod permissions;
+pub mod resilience;
 pub mod response_cache;
 pub mod retry_mutation;
 pub mod rule_matcher;

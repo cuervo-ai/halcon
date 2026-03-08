@@ -12,3 +12,6 @@
 
 /// FASE 3.1: Reasoning Engine Coordinator — UCB1 strategy selection + limit adjustment.
 pub mod reasoning_engine;
+
+// MIGRATION-2026: files moved from repl/ root (C-8h)
+pub mod onboarding;
