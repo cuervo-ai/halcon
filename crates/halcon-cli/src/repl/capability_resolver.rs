@@ -7,7 +7,7 @@
 //! 4. Synthesis (no executable tool found — direct text response required)
 
 use super::capability_index::{CapabilityCandidate, CapabilityIndex};
-use super::plugin_manifest::RiskTier;
+use super::plugins::manifest::RiskTier;
 
 /// Minimum BM25 score required to accept a plugin capability match.
 const MIN_PLUGIN_SCORE: f64 = 0.5;
@@ -137,7 +137,7 @@ impl CapabilityResolver {
 mod tests {
     use super::*;
     use super::super::capability_index::CapabilityIndex;
-    use super::super::plugin_manifest::{PluginManifest, ToolCapabilityDescriptor};
+    use crate::repl::plugins::manifest::{PluginManifest, ToolCapabilityDescriptor};
 
     fn empty_resolver() -> CapabilityResolver {
         CapabilityResolver::new(CapabilityIndex::build(&[]))

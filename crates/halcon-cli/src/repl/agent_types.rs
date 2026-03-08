@@ -132,7 +132,7 @@ pub struct AgentLoopResult {
     /// Populated from `PluginRegistry::cost_snapshot()` after loop completion.
     /// Empty when no plugins were active (all existing tests, non-plugin sessions).
     /// Used by `mod.rs` to apply `plugin_adjusted_reward()` in the UCB1 feedback path.
-    pub plugin_cost_snapshot: Vec<super::plugin_cost_tracker::PluginCostSnapshot>,
+    pub plugin_cost_snapshot: Vec<super::plugins::PluginCostSnapshot>,
     /// Names of all tools successfully executed during this agent loop, accumulated
     /// from `PostBatchOutcome::Continue.tool_successes` across all rounds.
     /// Used by orchestrator to populate `SubAgentResult.agent_result.tools_used`

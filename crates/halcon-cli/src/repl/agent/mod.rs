@@ -143,7 +143,7 @@ pub struct AgentContext<'a> {
     /// None = plugin system disabled (all existing tests, non-plugin sessions).
     /// The critical zero-regression invariant: all plugin code is guarded by `if let Some(pr)`.
     /// Arc<Mutex<>> so it can be cloned cheaply into the AgentContext and shared with executor.
-    pub plugin_registry: Option<std::sync::Arc<std::sync::Mutex<super::plugin_registry::PluginRegistry>>>,
+    pub plugin_registry: Option<std::sync::Arc<std::sync::Mutex<super::plugins::PluginRegistry>>>,
     /// Whether this agent is running as a sub-agent under an orchestrator.
     ///
     /// When `true`, the agent loop uses `ConvergenceController::new_for_sub_agent()` with

@@ -83,7 +83,7 @@ pub struct AgentOptional<'a> {
     pub critic_model: Option<String>,
     pub plugin_registry: Option<
         std::sync::Arc<
-            std::sync::Mutex<super::super::plugin_registry::PluginRegistry>,
+            std::sync::Mutex<super::super::plugins::PluginRegistry>,
         >,
     >,
     pub strategy_context: Option<StrategyContext>,

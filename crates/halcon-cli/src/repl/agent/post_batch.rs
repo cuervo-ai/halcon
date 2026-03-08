@@ -56,7 +56,7 @@ pub(super) async fn run(
     guardrails: &[Box<dyn halcon_security::Guardrail>],
     permissions: &mut super::super::conversational_permission::ConversationalPermissionHandler,
     tool_exec_config: &super::super::executor::ToolExecutionConfig<'_>,
-    plugin_registry: Option<&std::sync::Arc<std::sync::Mutex<super::super::plugin_registry::PluginRegistry>>>,
+    plugin_registry: Option<&std::sync::Arc<std::sync::Mutex<super::super::plugins::PluginRegistry>>>,
     replay_tool_executor: Option<&super::super::replay_executor::ReplayToolExecutor>,
     speculator: &super::super::tool_speculation::ToolSpeculator,
     task_bridge: &mut Option<&'_ mut super::super::task_bridge::TaskBridge>,

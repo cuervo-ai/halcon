@@ -5,7 +5,7 @@
 //! approach as the L3 SemanticStore (split on non-alphanumeric, skip length-1 tokens).
 
 use std::collections::HashMap;
-use super::plugin_manifest::{PluginManifest, RiskTier};
+use super::plugins::manifest::{PluginManifest, RiskTier};
 
 // ─── BM25 Constants ───────────────────────────────────────────────────────────
 
@@ -185,7 +185,7 @@ impl CapabilityIndex {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::super::plugin_manifest::{PluginManifest, ToolCapabilityDescriptor};
+    use crate::repl::plugins::manifest::{PluginManifest, ToolCapabilityDescriptor};
 
     fn make_manifest(id: &str, tools: &[(&str, &str)]) -> PluginManifest {
         let caps = tools.iter().map(|(name, desc)| ToolCapabilityDescriptor {

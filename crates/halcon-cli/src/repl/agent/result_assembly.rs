@@ -22,7 +22,7 @@ use super::super::agent_types::{AgentLoopResult, ControlReceiver, CriticVerdictS
 use super::super::agent_utils::compute_fingerprint;
 use super::super::conversational_permission::ConversationalPermissionHandler;
 use super::super::evidence_pipeline::detect_operational_claim;
-use super::super::plugin_registry::PluginRegistry;
+use super::super::plugins::PluginRegistry;
 use super::loop_state::LoopState;
 use crate::render::sink::RenderSink;
 

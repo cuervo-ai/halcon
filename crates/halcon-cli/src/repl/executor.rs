@@ -649,7 +649,7 @@ async fn execute_one_tool(
     idempotency: Option<&super::idempotency::IdempotencyRegistry>,
     retry_config: &ToolRetryConfig,
     render_sink: &dyn RenderSink,
-    plugin_registry: Option<&std::sync::Mutex<super::plugin_registry::PluginRegistry>>,
+    plugin_registry: Option<&std::sync::Mutex<super::plugins::PluginRegistry>>,
     hook_runner: Option<&super::hooks::HookRunner>,
     session_id_str: &str,
     session_tools: &[std::sync::Arc<dyn halcon_core::traits::Tool>],
@@ -665,7 +665,7 @@ async fn execute_one_tool(
         match pr_mutex.try_lock() {
             Ok(pr) => {
                 if let Some(plugin_id) = pr.plugin_id_for_tool(&tool_call.name).map(str::to_owned) {
-                    if let super::plugin_registry::InvokeGateResult::Deny(reason) =
+                    if let super::plugins::InvokeGateResult::Deny(reason) =
                         pr.pre_invoke_gate(&plugin_id, &tool_call.name, false)
                     {
                         return synthetic_plugin_denied_result(tool_call, &reason);
@@ -819,7 +819,7 @@ pub async fn execute_parallel_batch(
     max_parallel_tools: usize,
     exec_config: &ToolExecutionConfig<'_>,
     render_sink: &dyn RenderSink,
-    plugin_registry: Option<&std::sync::Mutex<super::plugin_registry::PluginRegistry>>,
+    plugin_registry: Option<&std::sync::Mutex<super::plugins::PluginRegistry>>,
 ) -> Vec<ToolExecResult> {
     if batch.is_empty() {
         return Vec::new();
@@ -1003,7 +1003,7 @@ pub async fn execute_sequential_tool(
     trace_step_index: &mut u32,
     exec_config: &ToolExecutionConfig<'_>,
     render_sink: &dyn RenderSink,
-    plugin_registry: Option<&std::sync::Mutex<super::plugin_registry::PluginRegistry>>,
+    plugin_registry: Option<&std::sync::Mutex<super::plugins::PluginRegistry>>,
 ) -> ToolExecResult {
     let canonical_name = super::tool_aliases::canonicalize(&tool_call.name);
     let Some(tool) = registry.get(&tool_call.name).or_else(|| registry.get(canonical_name)) else {

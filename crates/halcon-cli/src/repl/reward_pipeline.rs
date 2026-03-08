@@ -9,7 +9,7 @@
 //! - Oscillation penalty (cross-type instability from ToolLoopGuard)
 
 use super::agent::StopCondition;
-use super::plugin_cost_tracker::PluginCostSnapshot;
+use super::plugins::PluginCostSnapshot;
 
 /// All raw signals collected after a completed agent loop.
 #[derive(Debug, Clone)]
@@ -618,7 +618,7 @@ mod tests {
 
     #[test]
     fn plugin_adjusted_reward_all_fail_degrades_by_at_most_10_percent() {
-        use super::super::plugin_cost_tracker::PluginCostSnapshot;
+        use crate::repl::plugins::PluginCostSnapshot;
         // All calls failed — plugin_success_rate = 0.0
         let snaps = vec![PluginCostSnapshot {
             plugin_id: "p".into(),
@@ -636,7 +636,7 @@ mod tests {
 
     #[test]
     fn plugin_adjusted_reward_all_succeed_stays_clamped() {
-        use super::super::plugin_cost_tracker::PluginCostSnapshot;
+        use crate::repl::plugins::PluginCostSnapshot;
         // All calls succeeded — plugin_success_rate = 1.0
         let snaps = vec![PluginCostSnapshot {
             plugin_id: "p".into(),
