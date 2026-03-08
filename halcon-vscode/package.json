@@ -1,0 +1,117 @@
+{
+  "name": "halcon",
+  "displayName": "Halcon AI",
+  "description": "AI-powered coding assistant — multi-model, self-hosted, open source",
+  "version": "0.3.0",
+  "preview": true,
+  "publisher": "cuervo-ai",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cuervo-ai/halcon-cli"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": ["AI", "Chat", "Other"],
+  "keywords": ["ai", "agent", "mcp", "claude", "llm", "assistant"],
+  "icon": "media/icon.png",
+  "activationEvents": [
+    "onStartupFinished",
+    "onCommand:halcon.openPanel"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "halcon.openPanel",
+        "title": "Halcon: Open AI Panel"
+      },
+      {
+        "command": "halcon.askAboutSelection",
+        "title": "Halcon: Ask About Selection"
+      },
+      {
+        "command": "halcon.editFile",
+        "title": "Halcon: Edit Current File"
+      },
+      {
+        "command": "halcon.newSession",
+        "title": "Halcon: New Session"
+      },
+      {
+        "command": "halcon.cancelTask",
+        "title": "Halcon: Cancel Current Task"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "halcon.openPanel",
+        "key": "ctrl+shift+h",
+        "mac": "cmd+shift+h"
+      },
+      {
+        "command": "halcon.askAboutSelection",
+        "key": "ctrl+shift+a",
+        "mac": "cmd+shift+a",
+        "when": "editorHasSelection"
+      }
+    ],
+    "configuration": {
+      "title": "Halcon",
+      "properties": {
+        "halcon.binaryPath": {
+          "type": "string",
+          "default": "",
+          "description": "Override the bundled Halcon binary path. Leave empty to use the bundled binary."
+        },
+        "halcon.model": {
+          "type": "string",
+          "default": "",
+          "description": "Model to use (e.g. claude-sonnet-4-5-20250929). Defaults to Halcon CLI default."
+        },
+        "halcon.maxTurns": {
+          "type": "number",
+          "default": 20,
+          "minimum": 1,
+          "maximum": 100,
+          "description": "Maximum agent turns per session."
+        },
+        "halcon.provider": {
+          "type": "string",
+          "default": "",
+          "description": "Model provider (e.g. anthropic, ollama). Defaults to Halcon CLI default."
+        }
+      }
+    },
+    "menus": {
+      "editor/context": [
+        {
+          "command": "halcon.askAboutSelection",
+          "when": "editorHasSelection",
+          "group": "halcon@1"
+        },
+        {
+          "command": "halcon.editFile",
+          "group": "halcon@2"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run bundle",
+    "compile": "tsc -p ./tsconfig.json",
+    "watch": "tsc -watch -p ./tsconfig.json",
+    "bundle": "node esbuild.js",
+    "package": "vsce package --pre-release",
+    "publish": "vsce publish --pre-release",
+    "lint": "eslint src --ext ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^2.22.0",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.3.0"
+  }
+}

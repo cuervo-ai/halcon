@@ -1,0 +1,260 @@
+# Halcon CLI — Instrucciones de Instalación
+
+> Versión 0.3.0 · Construido el 2026-03-02
+
+## Contenido del paquete
+
+| Archivo | Plataforma | Notas |
+|---------|-----------|-------|
+| `halcon-0.3.0-aarch64-apple-darwin.tar.gz` | macOS Apple Silicon (M1/M2/M3/M4) | Con TUI completo |
+| `halcon-0.3.0-x86_64-unknown-linux-gnu.tar.gz` | Linux x86_64 (Ubuntu, Debian, RHEL, Fedora, Arch…) | Con TUI completo |
+| `halcon-0.3.0-aarch64-unknown-linux-gnu.tar.gz` | Linux ARM64 (Raspberry Pi 4/5, Ampere, Graviton, Oracle ARM…) | Sin portapapeles |
+
+---
+
+## macOS — Apple Silicon (M1 / M2 / M3 / M4)
+
+```bash
+# 1. Extraer
+tar xzf halcon-0.3.0-aarch64-apple-darwin.tar.gz
+cd halcon-0.3.0-aarch64-apple-darwin/
+
+# 2. Instalar en PATH del usuario (sin sudo)
+mkdir -p ~/.local/bin
+cp halcon ~/.local/bin/halcon
+chmod +x ~/.local/bin/halcon
+
+# Añadir ~/.local/bin al PATH si no está ya
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+
+# 3. En macOS necesita firma ad-hoc (evita el popup "dañado")
+codesign --sign - --force ~/.local/bin/halcon
+
+# 4. Verificar
+halcon --version
+```
+
+> **Nota macOS Gatekeeper**: Si aparece "el desarrollador no puede ser verificado",
+> ve a `Preferencias → Privacidad → Seguridad` y pulsa "Abrir de todas formas",
+> o ejecuta:
+> ```bash
+> xattr -d com.apple.quarantine ~/.local/bin/halcon
+> ```
+
+---
+
+## macOS — Intel (x86_64)
+
+El binario Intel no se incluye en este paquete porque requiere
+OpenSSL instalado en el sistema de compilación. Para compilarlo tú mismo:
+
+```bash
+# Prerrequisitos en Mac Intel
+brew install openssl@3
+
+# Compilar
+export OPENSSL_DIR=$(brew --prefix openssl@3)
+export OPENSSL_STATIC=1
+cargo build --release -p halcon-cli \
+  --no-default-features --features tui
+
+# Instalar
+cp target/release/halcon ~/.local/bin/halcon
+codesign --sign - --force ~/.local/bin/halcon
+```
+
+---
+
+## Linux x86_64 (Ubuntu / Debian / Fedora / Arch / RHEL)
+
+Requiere **glibc ≥ 2.17** (Ubuntu 14.04+, RHEL 7+).
+
+```bash
+# 1. Extraer
+tar xzf halcon-0.3.0-x86_64-unknown-linux-gnu.tar.gz
+cd halcon-0.3.0-x86_64-unknown-linux-gnu/
+
+# 2. Instalar en PATH del usuario (sin sudo)
+mkdir -p ~/.local/bin
+cp halcon ~/.local/bin/halcon
+chmod +x ~/.local/bin/halcon
+
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+
+# 3. Verificar
+halcon --version
+```
+
+**Instalación global (con sudo):**
+```bash
+sudo install -m 755 halcon /usr/local/bin/halcon
+halcon --version
+```
+
+**Dependencias en tiempo de ejecución:**
+```bash
+# Ubuntu/Debian (glibc ya incluido)
+sudo apt-get install -y libssl-dev libdbus-1-3
+
+# Fedora/RHEL
+sudo dnf install -y openssl-libs dbus-libs
+
+# Arch Linux
+sudo pacman -S openssl dbus
+```
+
+---
+
+## Linux ARM64 (Raspberry Pi 4/5, Ampere, AWS Graviton, Oracle ARM)
+
+```bash
+# 1. Extraer
+tar xzf halcon-0.3.0-aarch64-unknown-linux-gnu.tar.gz
+cd halcon-0.3.0-aarch64-unknown-linux-gnu/
+
+# 2. Instalar
+mkdir -p ~/.local/bin
+cp halcon ~/.local/bin/halcon
+chmod +x ~/.local/bin/halcon
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+
+# 3. Verificar
+halcon --version
+```
+
+---
+
+## Docker (cualquier arquitectura)
+
+```dockerfile
+# Dockerfile de ejemplo
+FROM ubuntu:22.04
+COPY halcon-0.3.0-x86_64-unknown-linux-gnu/halcon /usr/local/bin/halcon
+RUN chmod +x /usr/local/bin/halcon
+ENTRYPOINT ["halcon"]
+```
+
+```bash
+# Ejecutar en contenedor temporal
+docker run --rm \
+  -v ~/.halcon:/root/.halcon \
+  -e ANTHROPIC_API_KEY="$ANTHROPIC_API_KEY" \
+  ubuntu:22.04 /usr/local/bin/halcon
+```
+
+---
+
+## Windows (x86_64)
+
+El binario Windows **no está incluido** en este paquete.
+Debe compilarse en una máquina Windows con Visual Studio Build Tools.
+
+**Prerrequisitos:**
+```powershell
+# Desde PowerShell elevado
+winget install Rustlang.Rustup
+winget install Microsoft.VisualStudio.2022.BuildTools
+winget install Kitware.CMake
+winget install Git.Git
+```
+
+**Compilar:**
+```powershell
+# Clonar el repositorio
+git clone https://github.com/cuervo-ai/halcon-cli
+cd halcon-cli
+
+# Compilar
+$env:ORT_STRATEGY = "download"
+$env:LIBGIT2_SYS_USE_PKG_CONFIG = "0"
+$env:LIBGIT2_STATIC = "1"
+
+cargo build --release --target x86_64-pc-windows-msvc `
+  --no-default-features -p halcon-cli
+
+# Instalar
+$Dest = "$env:USERPROFILE\.local\bin"
+New-Item -ItemType Directory -Path $Dest -Force | Out-Null
+Copy-Item target\x86_64-pc-windows-msvc\release\halcon.exe "$Dest\halcon.exe"
+
+# Añadir al PATH
+[Environment]::SetEnvironmentVariable("Path",
+  [Environment]::GetEnvironmentVariable("Path","User") + ";$Dest", "User")
+```
+
+También puedes usar el script incluido en el repositorio:
+```powershell
+.\scripts\build-windows.ps1
+```
+
+---
+
+## Configuración inicial (todos los sistemas)
+
+```bash
+# 1. Crear directorio de configuración
+mkdir -p ~/.halcon
+
+# 2. Configurar proveedor y modelo
+cat > ~/.halcon/config.toml << 'EOF'
+default_provider = "anthropic"
+default_model    = "claude-sonnet-4-6"
+EOF
+
+# 3. Autenticarse con Anthropic
+halcon auth login
+# → sigue las instrucciones para pegar tu API key
+
+# 4. Verificar conectividad
+halcon ping
+
+# 5. ¡Listo!
+halcon "¿Qué archivos hay en este directorio?"
+```
+
+---
+
+## Verificar integridad SHA-256
+
+```bash
+# Linux/macOS
+sha256sum -c halcon-0.3.0-aarch64-apple-darwin.tar.gz.sha256
+sha256sum -c halcon-0.3.0-x86_64-unknown-linux-gnu.tar.gz.sha256
+sha256sum -c halcon-0.3.0-aarch64-unknown-linux-gnu.tar.gz.sha256
+
+# macOS (si sha256sum no está disponible)
+shasum -a 256 -c halcon-0.3.0-aarch64-apple-darwin.tar.gz.sha256
+```
+
+---
+
+## Actualizar halcon
+
+```bash
+halcon update
+```
+
+---
+
+## Desinstalar
+
+```bash
+# macOS / Linux
+rm ~/.local/bin/halcon
+rm -rf ~/.halcon      # elimina configuración y base de datos local
+
+# Windows
+Remove-Item "$env:USERPROFILE\.local\bin\halcon.exe"
+Remove-Item -Recurse "$env:USERPROFILE\.halcon"
+```
+
+---
+
+## Soporte
+
+- **Issues**: https://github.com/cuervo-ai/halcon-cli/issues
+- **Docs**: https://cli.cuervo.cloud
+- **Versión incluida**: 0.3.0 (build 2026-03-02)
