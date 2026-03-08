@@ -858,6 +858,14 @@ crates/halcon-cli/src/repl/
 
 </details>
 
+### Platform integration roadmap
+
+The full proposal for expanding to 11 user surfaces, 6 cloud providers, CI/CD native integration, and Agent Network (Lead/Teammate roles, Mailbox P2P) is documented in:
+
+**[`docs/03-architecture/05-platform-integration-proposal.md`](docs/03-architecture/05-platform-integration-proposal.md)**
+
+Covers: AWS Bedrock · Vertex AI · Azure AI Foundry · GitHub Actions · GitLab CI · Slack bot · Voice/TTS · Chrome Native Messaging · Web App · Agent Teams REST API · 5-phase roadmap.
+
 ---
 
 ## Contributing
