@@ -64,7 +64,7 @@ impl ToolFailureTracker {
     /// (i.e., this failure pattern has reached the threshold).
     /// Tool name is canonicalized so aliases (`read_file` ↔ `file_read`) share the same counter.
     pub(crate) fn record(&mut self, tool_name: &str, error: &str) -> bool {
-        let canonical = super::tool_aliases::canonicalize(tool_name).to_string();
+        let canonical = super::super::tool_aliases::canonicalize(tool_name).to_string();
         let pattern = Self::error_pattern(error);
         let key = (canonical, pattern);
         let count = self.failures.entry(key).or_insert(0);
@@ -75,7 +75,7 @@ impl ToolFailureTracker {
     /// Check if a specific tool+error combination has already tripped.
     /// Tool name is canonicalized for consistent lookup across aliases.
     pub(crate) fn is_tripped(&self, tool_name: &str, error: &str) -> bool {
-        let canonical = super::tool_aliases::canonicalize(tool_name).to_string();
+        let canonical = super::super::tool_aliases::canonicalize(tool_name).to_string();
         let pattern = Self::error_pattern(error);
         let key = (canonical, pattern);
         self.failures.get(&key).copied().unwrap_or(0) >= self.threshold
@@ -85,7 +85,7 @@ impl ToolFailureTracker {
     /// Used for testing to inspect internal state.
     #[cfg(test)]
     pub(crate) fn failure_count(&self, tool_name: &str, error: &str) -> u32 {
-        let canonical = super::tool_aliases::canonicalize(tool_name).to_string();
+        let canonical = super::super::tool_aliases::canonicalize(tool_name).to_string();
         let pattern = Self::error_pattern(error);
         let key = (canonical, pattern);
         self.failures.get(&key).copied().unwrap_or(0)
@@ -98,7 +98,7 @@ impl ToolFailureTracker {
     /// was restarted.  Without this, a once-tripped tool stays tripped for the entire
     /// session even if the environment recovers.
     pub(crate) fn reset_tool(&mut self, tool_name: &str) {
-        let canonical = super::tool_aliases::canonicalize(tool_name);
+        let canonical = super::super::tool_aliases::canonicalize(tool_name);
         self.failures.retain(|(tool, _), _| tool != canonical);
     }
 
