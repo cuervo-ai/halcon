@@ -37,6 +37,7 @@ const MIGRATIONS: &[(u32, &str, &str)] = &[
     (33, "media_index_description", MIGRATION_033),
     (34, "plugin_circuit_state", MIGRATION_034),
     (35, "execution_loop_events", MIGRATION_035),
+    (36, "daily_user_metrics", MIGRATION_036),
 ];
 
 const MIGRATION_001: &str = r#"
@@ -1154,6 +1155,30 @@ CREATE TABLE IF NOT EXISTS execution_loop_events (
 );
 CREATE INDEX IF NOT EXISTS idx_loop_events_session
     ON execution_loop_events (session_id, round);
+"#;
+
+const MIGRATION_036: &str = r#"
+-- M36: daily_user_metrics — per-user per-day usage aggregates for admin analytics API.
+-- DECISION: denormalised daily rollup table rather than querying sessions on every admin
+-- request. Keeps admin reads O(1) regardless of session table size.
+-- Populated by the CLI agent loop at session end (upsert on PRIMARY KEY).
+CREATE TABLE IF NOT EXISTS daily_user_metrics (
+    date          TEXT NOT NULL,
+    user_id       TEXT NOT NULL,
+    sessions      INTEGER DEFAULT 0,
+    lines_added   INTEGER DEFAULT 0,
+    lines_removed INTEGER DEFAULT 0,
+    commits       INTEGER DEFAULT 0,
+    prs           INTEGER DEFAULT 0,
+    tokens_in     INTEGER DEFAULT 0,
+    tokens_out    INTEGER DEFAULT 0,
+    cost_usd      REAL DEFAULT 0.0,
+    PRIMARY KEY (date, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_daily_user_metrics_date
+    ON daily_user_metrics (date);
+CREATE INDEX IF NOT EXISTS idx_daily_user_metrics_user
+    ON daily_user_metrics (user_id);
 "#;
 
 /// Run all pending migrations.

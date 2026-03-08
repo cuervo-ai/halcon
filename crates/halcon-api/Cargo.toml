@@ -15,6 +15,7 @@ server = [
     "dep:tower-http",
     "dep:tokio",
     "dep:futures-util",
+    "dep:halcon-auth",
     "dep:halcon-runtime",
     "dep:halcon-core",
     "dep:halcon-tools",
@@ -44,6 +45,7 @@ rand = { workspace = true, optional = true }
 dashmap = { workspace = true, optional = true }
 
 # Workspace crates (server only)
+halcon-auth = { workspace = true, optional = true }
 halcon-runtime = { workspace = true, optional = true }
 halcon-core = { workspace = true, optional = true }
 halcon-storage = { workspace = true, optional = true }

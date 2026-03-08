@@ -4,6 +4,7 @@
 //! via `impl Database` blocks.
 
 pub mod activity_search;
+pub mod admin_usage;
 mod agent_tasks;
 mod audit;
 mod cache_repo;
