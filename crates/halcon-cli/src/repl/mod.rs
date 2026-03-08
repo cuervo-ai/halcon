@@ -75,7 +75,7 @@ pub use domain::metacognitive_loop;
 pub(crate) use domain::loop_guard;
 
 // Context assembly and management — moved to context/ (C-4)
-pub mod artifact_store;
+pub use bridges::artifact_store;
 pub(crate) use context::governance as context_governance;
 pub(crate) use context::manager as context_manager;
 pub(crate) use context::metrics as context_metrics;
@@ -114,7 +114,7 @@ pub mod delegation;
 /// Tracks textual evidence from file-reading tools; blocks synthesis on binary/empty files.
 pub use domain::evidence_pipeline;
 pub(crate) use domain::evidence_graph;
-pub mod execution_tracker;
+pub use bridges::execution_tracker;
 pub mod failure_tracker;
 // health, metrics_store moved to metrics/ (C-6)
 pub use metrics::health;
@@ -173,7 +173,7 @@ pub use planning::playbook as playbook_planner;
 pub use planning::metrics as planning_metrics;
 // tool_manifest moved to plugins/tool_manifest (C-1)
 pub use planning::source as planning_source;
-pub mod provenance_tracker;
+pub use bridges::provenance_tracker;
 mod prompt;
 pub mod servers;
 // Backward-compat re-exports so existing use super::X_server paths still compile:
@@ -210,10 +210,10 @@ pub use metrics::reward as reward_pipeline;
 pub use metrics::scorer as round_scorer;
 pub mod supervisor;
 pub use metrics::strategy as strategy_metrics;
-pub mod task_backlog;
+pub use bridges::task_backlog;
 // task_bridge moved to bridges/ (C-7)
 pub(crate) use bridges::task as task_bridge;
-pub mod task_scheduler;
+pub use bridges::task_scheduler;
 // schema_validator moved to security/ (C-2)
 pub mod tool_selector;
 pub mod tool_speculation;
