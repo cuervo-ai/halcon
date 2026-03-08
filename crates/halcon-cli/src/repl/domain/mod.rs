@@ -63,7 +63,7 @@ pub mod convergence_utility;
 pub mod system_invariants;
 
 /// Decision traceability — per-round decision audit trail (P4.2).
-pub mod decision_trace;
+pub mod agent_decision_trace;
 
 /// Structured observability — per-round and session metrics (P4.3).
 pub mod system_metrics;

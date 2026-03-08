@@ -6,8 +6,25 @@
 /// limits, render_sink, etc.) remain in the outer `run_agent_loop()` scope.
 use std::time::{Duration, Instant};
 
-use halcon_core::traits::ExecutionPlan;
+use halcon_core::traits::{ExecutionPlan, TaskStatus};
 use halcon_core::types::{ChatMessage, ToolDefinition};
+
+// ── Phase 2 re-exports (synthesis governance gate) ───────────────────────────
+// Re-exported so all `agent/` phase files can import via `super::loop_state::{...}`.
+pub(super) use super::super::domain::synthesis_gate::{
+    SynthesisContext, SynthesisKind, SynthesisTrigger, SynthesisVerdict,
+};
+use super::super::domain::synthesis_gate as synthesis_gate_mod;
+
+// ── Phase 3 re-exports (goal progress) ───────────────────────────────────────
+pub(super) use super::super::domain::goal_progress::GoalProgressSnapshot;
+use super::super::domain::goal_progress::{
+    compute_progress_delta, evaluate_progress, ProgressVerdict,
+};
+
+// ── Phase 4 re-exports (progress policy) ─────────────────────────────────────
+pub(super) use super::super::domain::progress_policy::ProgressPolicyConfig;
+use super::super::domain::progress_policy::{evaluate_policy, ProgressAction};
 
 // ── ToolDecisionSignal ────────────────────────────────────────────────────────
 
@@ -80,6 +97,20 @@ pub(crate) enum ExecutionIntentPhase {
     Execution,
     /// All executable steps finished — synthesis now permitted.
     Complete,
+}
+
+// ── SynthesisPriority ─────────────────────────────────────────────────────────
+
+/// Priority level of a synthesis request.
+///
+/// Used by `LoopState::request_synthesis` to record urgency. Higher-priority
+/// requests take precedence when multiple are queued in the same round.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub(super) enum SynthesisPriority {
+    /// Standard synthesis request — used for most heuristic-driven escalations.
+    High,
+    /// Critical synthesis request — used for hard enforcement boundaries (e.g., EBS-B2).
+    Critical,
 }
 
 // ── SynthesisOrigin ───────────────────────────────────────────────────────────
@@ -280,13 +311,123 @@ pub(super) struct EvidenceState {
 
 /// Synthesis control — FSM phase, tool decision signal, forced synthesis flags.
 /// Consumers: all 5 phase files.
+///
+/// # Invariants (Phase 1 FSM Sellado)
+/// - `forced_synthesis_detected` is PRIVATE — write only via `LoopState::request_synthesis()`,
+///   `LoopState::mark_synthesis_forced()`, or `SynthesisControl::fire_synthesis()`.
+/// - `phase` is PRIVATE — advance only via `SynthesisControl::advance_phase(event)`.
+/// - `synthesis_requests` is PRIVATE — written only by `LoopState::request_synthesis()`.
 pub(super) struct SynthesisControl {
-    pub forced_synthesis_detected: bool,
+    /// Guarded: write only via request_synthesis / mark_synthesis_forced / fire_synthesis.
+    forced_synthesis_detected: bool,
     pub synthesis_origin: Option<SynthesisOrigin>,
     pub tool_decision: ToolDecisionSignal,
     pub execution_intent: ExecutionIntentPhase,
-    pub phase: AgentPhase,
+    /// Guarded: advance only via advance_phase(event).
+    phase: AgentPhase,
     pub convergence_directive_injected: bool,
+    /// Ordered queue of synthesis requests from the current round.
+    /// `request_synthesis()` pushes here; convergence_phase checks `request_count()`.
+    synthesis_requests: Vec<(SynthesisOrigin, SynthesisPriority)>,
+    /// Count of FSM transition errors in this session (for observability).
+    pub fsm_error_count: u32,
+    /// Synthesis kind from the last gate evaluation (Phase 2 observability).
+    pub last_synthesis_kind: Option<SynthesisKind>,
+    /// Synthesis trigger from the last gate evaluation (Phase 2 observability).
+    pub last_synthesis_trigger: Option<SynthesisTrigger>,
+}
+
+// ── SynthesisControl methods (Phase 1 FSM Sellado) ──────────────────────────
+
+impl SynthesisControl {
+    /// Canonical constructor — called from `agent/mod.rs` LoopState construction.
+    pub(super) fn new(
+        forced_synthesis_detected: bool,
+        tool_decision: ToolDecisionSignal,
+        execution_intent: ExecutionIntentPhase,
+        convergence_directive_injected: bool,
+    ) -> Self {
+        Self {
+            forced_synthesis_detected,
+            synthesis_origin: None,
+            tool_decision,
+            execution_intent,
+            phase: AgentPhase::Idle,
+            convergence_directive_injected,
+            synthesis_requests: Vec::new(),
+            fsm_error_count: 0,
+            last_synthesis_kind: None,
+            last_synthesis_trigger: None,
+        }
+    }
+
+    // ── Read-only accessors ──────────────────────────────────────────────────
+
+    /// Current FSM phase (read-only — advance via `advance_phase`).
+    pub(super) fn phase(&self) -> AgentPhase {
+        self.phase
+    }
+
+    /// String representation of current phase for logging / TUI.
+    pub(super) fn phase_str(&self) -> &'static str {
+        self.phase.as_str()
+    }
+
+    /// True if synthesis has been requested this session.
+    pub(super) fn is_synthesis_forced(&self) -> bool {
+        self.forced_synthesis_detected
+    }
+
+    /// Number of synthesis requests queued this round.
+    pub(super) fn request_count(&self) -> usize {
+        self.synthesis_requests.len()
+    }
+
+    // ── Controlled write paths ───────────────────────────────────────────────
+
+    /// Advance the domain FSM via a typed event.
+    /// Invalid transitions are silently ignored by `transition()` (emits `tracing::warn`).
+    pub(super) fn advance_phase(&mut self, event: AgentEvent) {
+        self.phase = transition(self.phase, event);
+    }
+
+    /// Fire `forced_synthesis_detected = true` without changing `synthesis_origin`.
+    /// Use ONLY after `synthesis_origin` has already been set for this round.
+    pub(super) fn fire_synthesis(&mut self) {
+        self.forced_synthesis_detected = true;
+    }
+
+    // ── Test-only constructor ────────────────────────────────────────────────
+
+    #[cfg(test)]
+    pub(super) fn test_default() -> Self {
+        Self {
+            forced_synthesis_detected: false,
+            synthesis_origin: None,
+            tool_decision: ToolDecisionSignal::Allow,
+            execution_intent: ExecutionIntentPhase::Investigation,
+            phase: AgentPhase::Idle,
+            convergence_directive_injected: false,
+            synthesis_requests: Vec::new(),
+            fsm_error_count: 0,
+            last_synthesis_kind: None,
+            last_synthesis_trigger: None,
+        }
+    }
+
+    /// Annotate the last synthesis event with gate classification.
+    ///
+    /// Called from `fire_synthesis()` callsites where the gate was already exercised
+    /// by a preceding `request_synthesis_with_gate` / `mark_synthesis_forced_with_gate`
+    /// in the same path — annotates the kind+trigger without re-evaluating the gate.
+    pub(super) fn annotate_synthesis_trigger(
+        &mut self,
+        kind: SynthesisKind,
+        trigger: SynthesisTrigger,
+    ) {
+        self.last_synthesis_kind = Some(kind);
+        self.last_synthesis_trigger = Some(trigger);
+    }
 }
 
 /// Convergence state — scoring, evaluation, replanning, drift detection.
@@ -310,7 +451,7 @@ pub(super) struct ConvergenceState {
     // Phase 4: System invariant checker (P4.1)
     pub invariant_checker: super::super::domain::system_invariants::SystemInvariantChecker,
     // Phase 4: Decision trace collector (P4.2)
-    pub decision_trace: super::super::domain::decision_trace::DecisionTraceCollector,
+    pub decision_trace: super::super::domain::agent_decision_trace::DecisionTraceCollector,
     // Phase 4: Metrics collector (P4.3)
     pub metrics_collector: super::super::domain::system_metrics::MetricsCollector,
     // Phase 4: Adaptation bounds checker (P4.5)
@@ -361,6 +502,8 @@ pub(super) struct LoopState {
     pub cached_tools: Vec<ToolDefinition>,
     pub cached_system: Option<String>,
     pub cached_instructions: Option<String>,
+    /// HALCON.md instruction store (Feature 1).  `Some` when `policy.use_halcon_md` is true.
+    pub instruction_store: Option<super::super::instruction_store::InstructionStore>,
     pub is_conversational_intent: bool,
 
     // ── Reflection & supervision ───────────────────────────────────────────
@@ -396,7 +539,18 @@ pub(super) struct LoopState {
     pub l4_archive_path: std::path::PathBuf,
     pub strategy_context: Option<super::super::agent_types::StrategyContext>,
     pub orchestration_decision: Option<super::super::decision_layer::OrchestrationDecision>,
+    /// Boundary decision from the new pipeline (Some when `use_boundary_decision_engine=true`).
+    /// Consulted by `post_batch.rs` for per-session convergence policy enforcement.
+    pub boundary_decision: Option<super::super::decision_engine::BoundaryDecision>,
     pub sla_budget: Option<super::super::sla_manager::SlaBudget>,
+
+    // ── Plan truncation tracking (Fix 2) ───────────────────────────────────
+    /// Set to `true` when the plan was silently truncated by clamp_plan_depth() or
+    /// the K5-1 SLA budget path. Guards the EvidenceThreshold from firing prematurely
+    /// on truncated plans (Fix 4).
+    pub plan_was_sla_truncated: bool,
+    /// Original step count before truncation. Zero if no truncation occurred.
+    pub original_plan_step_count: usize,
 
     // ── Tool execution tracking ─────────────────────────────────────────────
     pub tools_executed: Vec<String>,
@@ -407,11 +561,42 @@ pub(super) struct LoopState {
 
     // ── Phase 3: Environment snapshot (P3.2) ──────────────────────────
     pub env_snapshot: super::super::domain::capability_validator::EnvironmentSnapshot,
+
+    // ── Phase 3: Goal progress control (P3 Goal Progress) ─────────────────
+    /// Last goal progress snapshot — updated at each batch close via
+    /// `update_progress_snapshot()`. `None` until the first batch completes.
+    pub last_progress_snapshot: Option<GoalProgressSnapshot>,
+
+    // ── Phase 4: Adaptive Control Layer (P4 Progress Policy) ───────────────
+    /// Consecutive rounds classified as `Stalled` since last reset.
+    /// Reset to 0 on `Progressing` verdict or after triggering rescue synthesis.
+    pub consecutive_stalls: u32,
+    /// Consecutive rounds classified as `Regressing` since last reset.
+    /// Reset to 0 on `Progressing` verdict or after triggering rescue synthesis.
+    pub consecutive_regressions: u32,
+    /// Policy thresholds that control when adaptive rescue synthesis fires.
+    pub progress_policy_config: ProgressPolicyConfig,
 }
 
 // ── Cross-domain invariant methods ──────────────────────────────────────────
 
 impl LoopState {
+    /// Request synthesis from the given origin with the given priority.
+    ///
+    /// Sets `forced_synthesis_detected = true`, records the origin, and pushes
+    /// to the `synthesis_requests` queue so convergence_phase can detect the request.
+    /// Higher-priority requests override the recorded origin.
+    pub(super) fn request_synthesis(&mut self, origin: SynthesisOrigin, priority: SynthesisPriority) {
+        self.synthesis.forced_synthesis_detected = true;
+        // Keep the highest-priority origin recorded.
+        if self.synthesis.synthesis_origin.is_none()
+            || priority == SynthesisPriority::Critical
+        {
+            self.synthesis.synthesis_origin = Some(origin);
+        }
+        self.synthesis.synthesis_requests.push((origin, priority));
+    }
+
     /// Mark synthesis as forced from a specific origin.
     pub(super) fn mark_synthesis_forced(&mut self, origin: SynthesisOrigin) {
         self.synthesis.forced_synthesis_detected = true;
@@ -422,18 +607,255 @@ impl LoopState {
     pub(super) fn mark_ebs_b2_enforced(&mut self) {
         self.evidence.bundle.synthesis_blocked = true;
         self.evidence.deterministic_boundary_enforced = true;
-        self.mark_synthesis_forced(SynthesisOrigin::SupervisorFailure);
+        // Phase 2: route through governance gate (ToolExhaustion = EBS-B2 boundary).
+        self.mark_synthesis_forced_with_gate(
+            SynthesisTrigger::ToolExhaustion,
+            SynthesisOrigin::SupervisorFailure,
+        );
     }
 
     /// Check evidence gate; if it fires, mark synthesis forced and return the gate message.
     pub(super) fn check_evidence_gate(&mut self) -> Option<String> {
         if self.evidence.bundle.evidence_gate_fires() {
             self.evidence.bundle.synthesis_blocked = true;
-            self.mark_synthesis_forced(SynthesisOrigin::SupervisorFailure);
+            // Phase 2: route through governance gate (ToolExhaustion = evidence gate fire).
+            self.mark_synthesis_forced_with_gate(
+                SynthesisTrigger::ToolExhaustion,
+                SynthesisOrigin::SupervisorFailure,
+            );
             Some(self.evidence.bundle.gate_message())
         } else {
             None
         }
+    }
+
+    // ── Phase 2: Synthesis Governance gate methods ───────────────────────────
+
+    /// Build a pure synthesis context snapshot for gate evaluation.
+    ///
+    /// Collects decision-relevant fields from `LoopState` into a value-type
+    /// `SynthesisContext` that can be passed to the pure `evaluate()` function.
+    pub(super) fn build_synthesis_context(&self) -> SynthesisContext {
+        SynthesisContext {
+            rounds_executed:   self.rounds,
+            max_rounds:        0, // not carried on LoopState; 0 = unknown/uncapped
+            parallel_failures: self.convergence.replan_attempts as usize,
+            reflection_score:  self.convergence.last_convergence_ratio,
+            fsm_error_count:   self.synthesis.fsm_error_count,
+            has_pending_tools: !self.synthesis.tool_decision.is_active(),
+            stagnation_score:  1.0 - self.convergence.last_convergence_ratio.clamp(0.0, 1.0),
+            forced_flag:       self.synthesis.is_synthesis_forced(),
+        }
+    }
+
+    /// Route a synthesis request through the governance gate, then proceed.
+    ///
+    /// Replaces bare `request_synthesis()` calls at external callsites.
+    /// Gate classification is stored on `SynthesisControl` for `AgentLoopResult`.
+    pub(super) fn request_synthesis_with_gate(
+        &mut self,
+        trigger: SynthesisTrigger,
+        origin: SynthesisOrigin,
+        priority: SynthesisPriority,
+    ) {
+        let ctx = self.build_synthesis_context();
+        let verdict = synthesis_gate_mod::evaluate(trigger, &ctx);
+        tracing::info!(
+            ?trigger,
+            kind = ?verdict.kind,
+            session_id = %self.session_id,
+            round = self.rounds,
+            "synthesis-gate: request routed through governance gate"
+        );
+        self.synthesis.last_synthesis_kind = Some(verdict.kind);
+        self.synthesis.last_synthesis_trigger = Some(verdict.trigger);
+        if verdict.allow {
+            self.request_synthesis(origin, priority);
+        }
+    }
+
+    /// Route a forced synthesis through the governance gate, then proceed.
+    ///
+    /// Replaces bare `mark_synthesis_forced()` calls at external callsites.
+    /// Gate classification is stored on `SynthesisControl` for `AgentLoopResult`.
+    pub(super) fn mark_synthesis_forced_with_gate(
+        &mut self,
+        trigger: SynthesisTrigger,
+        origin: SynthesisOrigin,
+    ) {
+        let ctx = self.build_synthesis_context();
+        let verdict = synthesis_gate_mod::evaluate(trigger, &ctx);
+        tracing::info!(
+            ?trigger,
+            kind = ?verdict.kind,
+            session_id = %self.session_id,
+            round = self.rounds,
+            "synthesis-gate: forced synthesis routed through governance gate"
+        );
+        self.synthesis.last_synthesis_kind = Some(verdict.kind);
+        self.synthesis.last_synthesis_trigger = Some(verdict.trigger);
+        if verdict.allow {
+            self.mark_synthesis_forced(origin);
+        }
+    }
+
+    // ── Phase 3: Goal Progress Control ──────────────────────────────────────
+
+    /// Build the current `GoalProgressSnapshot` from non-invasive LoopState reads.
+    ///
+    /// Called at each batch close before `update_progress_snapshot()` stores it.
+    /// Pure construction — no side effects.
+    pub(super) fn build_progress_snapshot(&self) -> GoalProgressSnapshot {
+        // Distinct tools: deduplicate by name.
+        let distinct = {
+            let mut seen = std::collections::HashSet::new();
+            for t in &self.tools_executed {
+                seen.insert(t.as_str());
+            }
+            seen.len() as u64
+        };
+
+        // Oracle confidence: None until the convergence controller has run (ratio > 0).
+        let oracle_confidence = if self.convergence.last_convergence_ratio > 0.0 {
+            Some(self.convergence.last_convergence_ratio)
+        } else {
+            None
+        };
+
+        GoalProgressSnapshot {
+            iteration:                 self.rounds as u64,
+            tools_executed_total:      self.tools_executed.len() as u64,
+            distinct_tools_used:       distinct,
+            accumulated_evidence_score: self.evidence.graph.synthesis_coverage() as f32,
+            oracle_confidence,
+        }
+    }
+
+    /// Update the stored goal progress snapshot at the close of a tool batch.
+    ///
+    /// Phase 3 (observability): builds snapshot, computes delta, logs verdict.
+    /// Phase 4 (adaptive control): updates counters, evaluates policy, fires
+    /// rescue synthesis if thresholds are exceeded (subject to invariants).
+    ///
+    /// # Phase 4 invariants enforced here
+    /// - **No duplicate trigger**: synthesis is not triggered if already forced
+    ///   (`synthesis.is_synthesis_forced()`).
+    /// - **No synthesis-in-progress trigger**: skip if FSM is in `Synthesizing`.
+    /// - **Counter reset after trigger**: both counters zeroed after firing to
+    ///   prevent repeated triggers within the same synthesis arc.
+    pub(super) fn update_progress_snapshot(&mut self) {
+        let current = self.build_progress_snapshot();
+
+        // Use the stored previous snapshot, or a zero baseline for the first round.
+        let baseline = self.last_progress_snapshot.clone().unwrap_or(GoalProgressSnapshot {
+            iteration:                 0,
+            tools_executed_total:      0,
+            distinct_tools_used:       0,
+            accumulated_evidence_score: 0.0,
+            oracle_confidence:         None,
+        });
+
+        let delta   = compute_progress_delta(&baseline, &current);
+        let verdict = evaluate_progress(&delta);
+
+        tracing::trace!(
+            round = self.rounds,
+            session_id = %self.session_id,
+            evidence_delta       = delta.evidence_delta,
+            new_tools_delta      = delta.new_tools_delta,
+            confidence_delta     = ?delta.confidence_delta,
+            ?verdict,
+            consecutive_stalls   = self.consecutive_stalls,
+            consecutive_regressions = self.consecutive_regressions,
+            "goal-progress: batch close snapshot"
+        );
+
+        // ── Phase 4: Update consecutive counters ───────────────────────────
+        match verdict {
+            ProgressVerdict::Progressing => {
+                // Progress resets both counters — system is advancing.
+                self.consecutive_stalls      = 0;
+                self.consecutive_regressions = 0;
+            }
+            ProgressVerdict::Stalled => {
+                self.consecutive_stalls += 1;
+                // Clear regression counter: they track independent failure modes.
+                self.consecutive_regressions = 0;
+                tracing::debug!(
+                    round = self.rounds,
+                    session_id = %self.session_id,
+                    consecutive_stalls = self.consecutive_stalls,
+                    "goal-progress: STALLED — no new tools or evidence this round"
+                );
+            }
+            ProgressVerdict::Regressing => {
+                self.consecutive_regressions += 1;
+                // Clear stall counter: regression supersedes stall.
+                self.consecutive_stalls = 0;
+                tracing::debug!(
+                    round = self.rounds,
+                    session_id = %self.session_id,
+                    consecutive_regressions = self.consecutive_regressions,
+                    "goal-progress: REGRESSING — evidence quality decreased this round"
+                );
+            }
+        }
+
+        // ── Phase 4: Policy evaluation → adaptive rescue synthesis ─────────
+        let action = evaluate_policy(
+            self.consecutive_stalls,
+            self.consecutive_regressions,
+            &self.progress_policy_config,
+        );
+
+        if let ProgressAction::TriggerRescueSynthesis = action {
+            // Invariant 1: never trigger synthesis twice in the same iteration.
+            // Invariant 2: don't trigger if the FSM is already in Synthesizing.
+            // Invariant 4: don't trigger if the plan has unattempted (Pending) steps —
+            //   a stall/regression while steps remain unexecuted means the agent is still
+            //   working through the plan, not stuck. Let the plan guard in convergence_phase
+            //   handle incomplete plans; rescue synthesis here would be premature.
+            let already_forced = self.synthesis.is_synthesis_forced();
+            let synthesizing   = self.synthesis.phase() == AgentPhase::Synthesizing;
+            let pending_steps  = self.execution_tracker.as_ref().map(|t| {
+                t.tracked_steps()
+                    .iter()
+                    .filter(|s| s.status == TaskStatus::Pending)
+                    .count()
+            }).unwrap_or(0);
+
+            if !already_forced && !synthesizing && pending_steps == 0 {
+                tracing::info!(
+                    round = self.rounds,
+                    session_id = %self.session_id,
+                    consecutive_stalls      = self.consecutive_stalls,
+                    consecutive_regressions = self.consecutive_regressions,
+                    "goal-progress: policy trigger — adaptive rescue synthesis"
+                );
+
+                // Invariant 3: reset counters BEFORE triggering to prevent
+                // repeat fires if synthesis detection is delayed a round.
+                self.consecutive_stalls      = 0;
+                self.consecutive_regressions = 0;
+
+                // Always route through SynthesisGate — no bare request_synthesis calls.
+                self.request_synthesis_with_gate(
+                    SynthesisTrigger::GovernanceRescue,
+                    SynthesisOrigin::SupervisorFailure,
+                    SynthesisPriority::High,
+                );
+            } else {
+                tracing::debug!(
+                    round = self.rounds,
+                    already_forced,
+                    synthesizing,
+                    pending_steps,
+                    "goal-progress: policy trigger suppressed by invariant"
+                );
+            }
+        }
+
+        self.last_progress_snapshot = Some(current);
     }
 }
 

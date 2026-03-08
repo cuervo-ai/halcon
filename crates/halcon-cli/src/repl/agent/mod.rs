@@ -18,7 +18,7 @@ pub(crate) mod repair;
 mod result_assembly;
 mod round_setup;
 
-use loop_state::{AgentEvent, ExecutionIntentPhase, LoopState, SynthesisOrigin, ToolDecisionSignal};
+use loop_state::{AgentEvent, ExecutionIntentPhase, LoopState, SynthesisOrigin, SynthesisTrigger, ToolDecisionSignal};
 
 use plan_formatter::{
     format_plan_for_prompt, update_plan_in_system, validate_plan,
@@ -35,7 +35,7 @@ use futures::StreamExt;
 use sha2::Digest;
 use tracing::instrument;
 
-use halcon_core::traits::{ExecutionPlan, ModelProvider, Planner, StepOutcome};
+use halcon_core::traits::{ExecutionPlan, ModelProvider, Planner, StepOutcome, Tool};
 use halcon_core::types::{
     AgentLimits, ChatMessage, ContentBlock, DEFAULT_CONTEXT_WINDOW_TOKENS, DomainEvent,
     EventPayload, MessageContent, ModelChunk, ModelRequest, OrchestratorConfig, Phase14Context,
@@ -275,7 +275,7 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
     // BRECHA-R1 + FASE 5: structured failed step context (filled before LoopState is created).
     let mut pre_loop_failed_steps: Vec<crate::repl::agent_types::FailedStepContext> = Vec::new();
 
-    let tool_exec_config = executor::ToolExecutionConfig {
+    let mut tool_exec_config = executor::ToolExecutionConfig {
         dry_run_mode: phase14.dry_run_mode,
         idempotency: None,
         ..Default::default()
@@ -730,13 +730,48 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
         // Invalid schemas are logged and excluded — prevents confusing API-level errors.
         super::schema_validator::preflight_validate(env_filtered)
     };
+    // B1: InputNormalizer — normalize the raw user message before any scoring.
+    // Unicode control chars stripped, whitespace collapsed, language detected.
+    // The normalized query is passed to BoundaryDecisionEngine instead of raw user_msg.
+    let boundary_input = {
+        use super::input_boundary::{InputContext, InputNormalizer};
+        let ctx = InputContext {
+            available_tool_count: cached_tools.len(),
+            is_sub_agent,
+            ..InputContext::default()
+        };
+        InputNormalizer::normalize(user_msg.as_str(), ctx, None)
+    };
     // F2 DecisionLayer: classify task complexity for SLA/orchestration gating.
-    let orchestration_decision = if !is_sub_agent {
-        let d = super::decision_layer::estimate_complexity(&user_msg, &cached_tools);
-        tracing::info!(complexity = ?d.complexity, use_orch = d.use_orchestration, "DecisionLayer");
-        Some(d)
+    //
+    // When `policy.use_boundary_decision_engine` is true (default), the new
+    // BoundaryDecisionEngine pipeline runs instead of the legacy keyword-count
+    // estimator. Both paths produce an `OrchestrationDecision` for backward-compat.
+    // The BoundaryDecision is stored on LoopState for convergence policy enforcement.
+    let (orchestration_decision, boundary_decision) = if !is_sub_agent {
+        if policy.use_boundary_decision_engine {
+            let bd = super::decision_engine::BoundaryDecisionEngine::evaluate(
+                &boundary_input.query,
+                cached_tools.len(),
+            );
+            tracing::info!(
+                domain = %bd.trace.domain.label(),
+                complexity = %bd.trace.complexity.label(),
+                risk = %bd.trace.risk.label(),
+                sla_mode = %bd.routing.mode.label(),
+                max_rounds = bd.recommended_max_rounds,
+                use_orch = bd.use_orchestration,
+                "BoundaryDecisionEngine"
+            );
+            let od = bd.to_orchestration_decision();
+            (Some(od), Some(bd))
+        } else {
+            let d = super::decision_layer::estimate_complexity(&boundary_input.query, &cached_tools);
+            tracing::info!(complexity = ?d.complexity, use_orch = d.use_orchestration, "DecisionLayer(legacy)");
+            (Some(d), None)
+        }
     } else {
-        None
+        (None, None)
     };
 
     // F3 SlaManager: derive time/round budget from task complexity.
@@ -750,11 +785,223 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
         None
     };
 
+    // IntentPipeline: unified reconciliation of IntentScorer + BoundaryDecisionEngine.
+    // Computes `effective_max_rounds` BEFORE `ConvergenceController` is constructed,
+    // fixing BV-1 (ConvergenceController calibrated for N rounds but running for M<N).
+    // Gated by `policy.use_intent_pipeline` for zero-regression fallback.
+    let resolved_intent = if !is_sub_agent && policy.use_intent_pipeline {
+        if let Some(ref bd) = boundary_decision {
+            let store = super::decision_engine::PolicyStore::from_config(&policy);
+            let resolved = super::decision_engine::IntentPipeline::resolve(
+                &task_analysis,
+                bd,
+                ctx.limits.max_rounds,
+                &store,
+            );
+            tracing::info!(
+                effective_max_rounds = resolved.effective_max_rounds,
+                routing_mode = %resolved.routing_mode.label(),
+                confidence = resolved.reconciliation_confidence,
+                max_rounds_source = ?resolved.max_rounds_source,
+                "IntentPipeline: reconciled routing decision"
+            );
+            Some(resolved)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+
     // System prompt may update mid-session if instruction files (HALCON.md) change on disk.
     // Track instruction content separately for surgical replacement in the full system prompt.
     let mut cached_system = request.system.clone();
     let mut cached_instructions =
         halcon_context::load_instructions(std::path::Path::new(working_dir));
+
+    // Feature 1 (Frontier Roadmap 2026): HALCON.md 4-scope instruction hierarchy.
+    // When policy.use_halcon_md = true, load from all 4 scopes (Local→User→Project→Managed),
+    // apply path-glob rules, resolve @import directives, and start the hot-reload watcher.
+    // Injected text becomes the initial cached_instructions for surgical per-round replacement.
+    let mut instruction_store: Option<super::instruction_store::InstructionStore> = None;
+    if policy.use_halcon_md {
+        let mut store = super::instruction_store::InstructionStore::new(
+            std::path::Path::new(working_dir),
+        );
+        if let Some(instr_text) = store.load() {
+            // Inject as a dedicated "## Project Instructions" section.
+            match &mut cached_system {
+                Some(ref mut sys) => {
+                    sys.push_str("\n\n");
+                    sys.push_str(&instr_text);
+                }
+                None => {
+                    cached_system = Some(instr_text.clone());
+                }
+            }
+            // Track injected text for surgical per-round replacement.
+            cached_instructions = Some(instr_text);
+        }
+        instruction_store = Some(store);
+        tracing::info!(
+            working_dir,
+            "HALCON.md instruction store initialized (use_halcon_md=true)",
+        );
+    }
+
+    // Feature 3 (Frontier Roadmap 2026): Auto-memory injection (round 1 only).
+    // Injects first 200 lines of .halcon/memory/MEMORY.md as "## Agent Memory" section.
+    if policy.enable_auto_memory {
+        let repo_name = std::path::Path::new(working_dir)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown");
+        if let Some(memory_text) = super::auto_memory::injector::build_injection(
+            std::path::Path::new(working_dir),
+            repo_name,
+        ) {
+            match &mut cached_system {
+                Some(ref mut sys) => {
+                    sys.push_str("\n\n");
+                    sys.push_str(&memory_text);
+                }
+                None => {
+                    cached_system = Some(memory_text);
+                }
+            }
+            tracing::debug!("auto_memory: injected memory into system prompt");
+        }
+    }
+
+    // Feature 2 (Frontier Roadmap 2026): Lifecycle hooks — UserPromptSubmit / PreToolUse / etc.
+    // Load hook config from settings.toml (global + project scopes, snapshotted here — never
+    // hot-reloaded to prevent hook injection attacks via committed repo files).
+    {
+        if policy.enable_hooks {
+            let hooks_config = super::hooks::config::load_hooks_config(
+                policy.allow_managed_hooks_only,
+            );
+            if hooks_config.enabled && !hooks_config.definitions.is_empty() {
+                let runner = std::sync::Arc::new(
+                    super::hooks::HookRunner::new(hooks_config),
+                );
+                // Store session_id string for hook env vars.
+                tool_exec_config.session_id_str = session_id.to_string();
+                tool_exec_config.hook_runner = Some(runner.clone());
+                // Fire UserPromptSubmit hook before the first round.
+                if runner.has_hooks_for(super::hooks::HookEventName::UserPromptSubmit) {
+                    let hook_event = super::hooks::lifecycle_event(
+                        super::hooks::HookEventName::UserPromptSubmit,
+                        &session_id.to_string(),
+                    );
+                    match runner.fire(&hook_event).await {
+                        super::hooks::HookOutcome::Deny(reason) => {
+                            tracing::warn!(%reason, "UserPromptSubmit hook denied — aborting session");
+                            // Return an early error result — agent loop does not start.
+                            return Err(anyhow::anyhow!(
+                                "UserPromptSubmit hook denied the session: {reason}"
+                            ));
+                        }
+                        super::hooks::HookOutcome::Warn(msg) => {
+                            tracing::warn!(%msg, "UserPromptSubmit hook warning");
+                        }
+                        super::hooks::HookOutcome::Allow => {}
+                    }
+                }
+                tracing::info!("lifecycle hooks initialized (enable_hooks=true)");
+            }
+        }
+    }
+
+    // Feature 4 (Frontier Roadmap 2026): Declarative sub-agent registry.
+    // Load agent definitions from .halcon/agents/ + ~/.halcon/agents/ at session start.
+    // The routing manifest is injected into the system prompt so the model can delegate
+    // by name.  Disabled by default — zero behavioral change until enable_agent_registry=true.
+    if policy.enable_agent_registry {
+        let session_agent_paths: Vec<std::path::PathBuf> = vec![];
+        let registry = super::agent_registry::AgentRegistry::load(
+            &session_agent_paths,
+            std::path::Path::new(working_dir),
+        );
+        for warn in registry.warnings() {
+            tracing::warn!("agent_registry: {warn}");
+        }
+        if let Some(manifest) = registry.routing_manifest() {
+            if let Some(ref mut sys) = cached_system {
+                *sys = format!("{sys}\n\n{manifest}");
+            } else {
+                cached_system = Some(manifest);
+            }
+            tracing::info!(
+                "agent_registry: loaded {} agent(s); manifest injected",
+                registry.len()
+            );
+        }
+    }
+
+    // Feature 7 (Frontier Roadmap 2026): Semantic Memory Vector Store.
+    // Upgrades L3 from BM25 max-200 list to cosine-similarity + MMR retrieval over MEMORY.md.
+    // When enabled: injects `search_memory` tool + registers SharedVectorStore in tool_exec_config.
+    // Only active for the parent agent (not sub-agents) to avoid recursive index locking.
+    if policy.enable_semantic_memory && !is_sub_agent {
+        let repo_name = std::path::Path::new(working_dir)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown");
+
+        // Prefer index in the .halcon/memory/ dir found via ancestor walk, fallback to working_dir.
+        let index_path = {
+            let mut candidate = std::path::PathBuf::from(working_dir);
+            let mut found = None;
+            loop {
+                let p = candidate.join(".halcon").join("memory");
+                if p.exists() { found = Some(p); break; }
+                match candidate.parent() { Some(p) => candidate = p.to_path_buf(), None => break }
+            }
+            found.unwrap_or_else(|| {
+                let mut p = std::path::PathBuf::from(working_dir);
+                p.push(".halcon"); p.push("memory");
+                p
+            })
+        }.join("MEMORY.vindex.json");
+
+        let mut vector_store = halcon_context::VectorMemoryStore::load_from_disk(index_path);
+        if vector_store.is_empty() {
+            vector_store.load_from_standard_locations(std::path::Path::new(working_dir), repo_name);
+            if !vector_store.is_empty() {
+                vector_store.save();
+                tracing::info!(
+                    "semantic_memory: indexed {} entries; index saved",
+                    vector_store.len()
+                );
+            }
+        } else {
+            tracing::debug!(
+                "semantic_memory: loaded {} entries from disk index",
+                vector_store.len()
+            );
+        }
+
+        if !vector_store.is_empty() {
+            let shared_store: std::sync::Arc<std::sync::Mutex<halcon_context::VectorMemoryStore>> =
+                Arc::new(std::sync::Mutex::new(vector_store));
+
+            // Build the search_memory tool and inject its ToolDefinition into cached_tools.
+            let sm_tool = halcon_tools::search_memory::SearchMemoryTool::new(shared_store.clone())
+                .with_default_k(policy.semantic_memory_top_k);
+            cached_tools.push(halcon_core::types::ToolDefinition {
+                name: sm_tool.name().to_string(),
+                description: sm_tool.description().to_string(),
+                input_schema: sm_tool.input_schema(),
+            });
+            tool_exec_config.session_tools.push(Arc::new(sm_tool));
+
+            tracing::info!(
+                "semantic_memory: search_memory tool injected (top_k={})",
+                policy.semantic_memory_top_k
+            );
+        }
+    }
 
     // Inject context-aware system prompt from Context Servers (if assembled).
     // This adds context from all 8 SDLC-aware servers (requirements, architecture, etc.).
@@ -918,6 +1165,7 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
                         &r.agent_result.tools_used,
                         r.rounds,
                         &summary,
+                        r.error.as_deref().unwrap_or(""),
                     );
                 }
 
@@ -1158,10 +1406,23 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
                 // (file_read, directory_tree, grep, glob) are RETAINED so the coordinator
                 // can verify sub-agent results before synthesising.
                 //
-                // This preserves the anti-redo protection for mutating tools while giving
-                // the coordinator evidence-gathering capability during synthesis.
+                // CORE_RUNTIME_TOOLS: these tools are NEVER stripped, regardless of
+                // delegation. They are fundamental runtime capabilities that the
+                // coordinator must always be able to invoke (bash for inline execution,
+                // file_read/grep for verification). Stripping them causes the coordinator
+                // to hallucinate shell scripts instead of actually running commands.
+                const CORE_RUNTIME_TOOLS: &[&str] = &["bash", "file_read", "grep"];
+
                 if !delegated_ok_tools.is_empty() {
-                    let to_remove = crate::repl::tool_policy::tools_to_remove(&delegated_ok_tools);
+                    let candidate_remove =
+                        crate::repl::tool_policy::tools_to_remove(&delegated_ok_tools);
+
+                    // Never remove core runtime tools — they must always remain available.
+                    let to_remove: std::collections::HashSet<String> = candidate_remove
+                        .into_iter()
+                        .filter(|t| !CORE_RUNTIME_TOOLS.contains(&t.as_str()))
+                        .collect();
+
                     let before = cached_tools.len();
                     cached_tools.retain(|t| !to_remove.contains(&t.name));
                     let removed = before - cached_tools.len();
@@ -1175,12 +1436,13 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
                             removed_execution_tools = ?to_remove,
                             removed_count = removed,
                             retained_read_only = ?retained_read_only,
+                            core_runtime_protected = ?CORE_RUNTIME_TOOLS,
                             remaining_tools = cached_tools.len(),
-                            "Post-delegation: tool policy applied — execution tools removed, read-only retained"
+                            "Post-delegation: tool policy applied — execution tools removed, core runtime + read-only retained"
                         );
                         if !silent {
                             render_sink.info(&format!(
-                                "[tool-policy] removed {} execution tool(s), retained {} read-only for synthesis",
+                                "[tool-policy] removed {} execution tool(s), retained {} read-only + core runtime (bash/file_read/grep)",
                                 removed,
                                 retained_read_only.len()
                             ));
@@ -1483,32 +1745,36 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
     // Top-level agents use new() with the IntentProfile-derived budget.
     let mut conv_ctrl = if ctx.is_sub_agent {
         super::convergence_controller::ConvergenceController::new_for_sub_agent(&user_msg)
+    } else if let Some(ref ri) = resolved_intent {
+        // IntentPipeline path (BV-1 fix): construct ConvergenceController with the
+        // pre-reconciled budget so calibration and loop bound share a single source of truth.
+        super::convergence_controller::ConvergenceController::new_with_budget(
+            &task_analysis,
+            ri.effective_max_rounds,
+            &user_msg,
+        )
     } else {
+        // Legacy path: calibrate from IntentProfile, override below with SLA clamp.
         // Reuses the IntentProfile already computed above (task_analysis) — avoids double scoring.
-        // IntentProfile.suggested_max_rounds() provides the initial convergence window; then
-        // cap_max_rounds() aligns it with the reasoning engine's adjusted limit (D3 fix) so
-        // ConvergenceController and the outer loop share a single source of truth for max rounds.
         super::convergence_controller::ConvergenceController::new(&task_analysis, &user_msg)
     };
     // For sub-agents: cap to min(profile_limit=6, parent_limits.max_rounds).
-    // For top-level agents: honor user config as the authoritative max_rounds.
-    //   The IntentProfile's suggestion (e.g. 4 for Simple tasks) is an internal
-    //   convergence hint — the stagnation/coverage checks will still trigger early
-    //   synthesis when appropriate. But a "Simple"-classified task like
-    //   "inicia el proceso de implementacion" must NOT be hard-capped at 4 rounds
-    //   when the user explicitly configured max_rounds = 40.
+    // For top-level agents (legacy path only): honor user config as the authoritative max_rounds.
     if ctx.is_sub_agent {
         conv_ctrl.cap_max_rounds(ctx.limits.max_rounds);
-    } else {
+    } else if resolved_intent.is_none() {
+        // Legacy path only — IntentPipeline path already set the correct budget at construction.
         conv_ctrl.set_max_rounds(ctx.limits.max_rounds);
     }
 
     // Phase L fix B6+B3: Enforce budget invariant — max_rounds must cover all plan steps.
-    // Called AFTER plan creation (active_plan is set) and AFTER conv_ctrl is created.
-    // Uses a local mutable copy so we can expand the budget without mutating AgentContext.
-    // F3 SLA: clamp rounds BEFORE K5-1 expansion — the invariant will override if the plan
-    // genuinely requires more rounds than the SLA permits.
-    let mut effective_max_rounds = match &sla_budget {
+    // When IntentPipeline is active, effective_max_rounds comes directly from resolved_intent
+    // (already reconciles IntentScorer + BoundaryDecisionEngine). Legacy path preserves
+    // the previous SLA-clamp behavior.
+    let mut effective_max_rounds = if let Some(ref ri) = resolved_intent {
+        ri.effective_max_rounds as usize
+    } else {
+        match &sla_budget {
         Some(b) => {
             let clamped = b.clamp_rounds(ctx.limits.max_rounds as u32) as usize;
             if clamped < ctx.limits.max_rounds {
@@ -1523,13 +1789,20 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
             clamped
         }
         None => ctx.limits.max_rounds,
+    }
     };
+    // Fix 2/3: Track plan truncation so the EvidenceThreshold guard (Fix 4) and
+    // post-loop telemetry can detect SLA-driven silent truncation.
+    let mut plan_was_sla_truncated = false;
+    let mut original_plan_step_count = 0usize;
+
     // Phase 2 SLA: clamp plan depth independently of rounds.
     // max_plan_depth limits step count even if max_rounds would accommodate more.
     if let Some(ref budget) = &sla_budget {
         if let Some(ref mut plan) = active_plan {
             let max_depth = budget.clamp_plan_depth(plan.steps.len() as u32) as usize;
             if plan.steps.len() > max_depth {
+                original_plan_step_count = plan.steps.len();
                 tracing::info!(
                     original = plan.steps.len(),
                     clamped = max_depth,
@@ -1540,6 +1813,7 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
                 if let Some(ref mut tracker) = execution_tracker {
                     tracker.truncate_to(max_depth);
                 }
+                plan_was_sla_truncated = true;
             }
         }
     }
@@ -1556,6 +1830,9 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
                     let sla_max = budget.clamp_rounds(ctx.limits.max_rounds as u32) as usize;
                     let max_plan_steps = sla_max.saturating_sub(2); // room for critic + synthesis
                     if plan.steps.len() > max_plan_steps && max_plan_steps > 0 {
+                        if !plan_was_sla_truncated {
+                            original_plan_step_count = plan.steps.len();
+                        }
                         tracing::warn!(
                             plan_steps = plan.steps.len(),
                             sla_max,
@@ -1567,6 +1844,7 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
                         if let Some(ref mut tracker) = execution_tracker {
                             tracker.truncate_to(max_plan_steps);
                         }
+                        plan_was_sla_truncated = true;
                         // Don't expand rounds beyond SLA — plan was truncated to fit.
                     } else {
                         // Plan fits within SLA budget or budget too small — expand as before.
@@ -1645,6 +1923,7 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
         cached_tools,
         cached_system,
         cached_instructions,
+        instruction_store,
         is_conversational_intent,
         reflection_injector,
         last_reflection_id,
@@ -1671,14 +1950,12 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
             deterministic_boundary_enforced: false,
             blocked_tools: Vec::new(),
         },
-        synthesis: loop_state::SynthesisControl {
+        synthesis: loop_state::SynthesisControl::new(
             forced_synthesis_detected,
-            synthesis_origin: None,
-            tool_decision: ToolDecisionSignal::Allow,
+            ToolDecisionSignal::Allow,
             execution_intent,
-            phase: loop_state::AgentPhase::Idle,
             convergence_directive_injected,
-        },
+        ),
         convergence: loop_state::ConvergenceState {
             convergence_detector,
             conv_ctrl,
@@ -1704,7 +1981,7 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
                 policy.clone(),
             ),
             invariant_checker: super::domain::system_invariants::SystemInvariantChecker::new(),
-            decision_trace: super::domain::decision_trace::DecisionTraceCollector::new(),
+            decision_trace: super::domain::agent_decision_trace::DecisionTraceCollector::new(),
             metrics_collector: super::domain::system_metrics::MetricsCollector::new(),
             adaptation_bounds: super::domain::adaptation_bounds::AdaptationBoundsChecker::new(
                 policy.clone(),
@@ -1743,10 +2020,19 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
         strategy_context: strategy_context.clone(),
         orchestration_decision,
         sla_budget,
+        plan_was_sla_truncated,
+        original_plan_step_count,
+        boundary_decision,
         tools_executed: Vec::new(),
         failed_sub_agent_steps: pre_loop_failed_steps,
         policy: policy.clone(),
         env_snapshot: super::domain::capability_validator::EnvironmentSnapshot::default(),
+        // Phase 3: Goal Progress Control — None until first batch closes.
+        last_progress_snapshot: None,
+        // Phase 4: Adaptive Control Layer — conservative defaults.
+        consecutive_stalls:      0,
+        consecutive_regressions: 0,
+        progress_policy_config:  loop_state::ProgressPolicyConfig::default(),
     };
 
     // P5.5: Strategic initialization — data-driven round-0 configuration.
@@ -1790,10 +2076,10 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
     // The plan was generated before LoopState existed — replay the transitions so the
     // FSM properly enters Planning before settling in Executing.
     if state.active_plan.is_some() {
-        state.synthesis.phase = state.synthesis.phase.fire(AgentEvent::PlanGenerated); // Idle → Planning
-        state.synthesis.phase = state.synthesis.phase.fire(AgentEvent::PlanGenerated); // Planning → Executing
+        state.synthesis.advance_phase(AgentEvent::PlanGenerated); // Idle → Planning
+        state.synthesis.advance_phase(AgentEvent::PlanGenerated); // Planning → Executing
     } else {
-        state.synthesis.phase = state.synthesis.phase.fire(AgentEvent::PlanSkipped);   // Idle → Executing
+        state.synthesis.advance_phase(AgentEvent::PlanSkipped);   // Idle → Executing
     }
 
     'agent_loop: for round in 0..effective_max_rounds {
@@ -1825,8 +2111,11 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
             if budget.is_expired() {
                 tracing::warn!(mode = ?budget.mode, "SLA: time expired, forcing synthesis");
                 state.synthesis.tool_decision.set_force_next();
-                state.synthesis.forced_synthesis_detected = true;
-                state.synthesis.synthesis_origin = Some(SynthesisOrigin::ReplanTimeout);
+                // Phase 2: route through governance gate (SLA wall-clock expired).
+                state.mark_synthesis_forced_with_gate(
+                    SynthesisTrigger::ReplanTimeout,
+                    SynthesisOrigin::ReplanTimeout,
+                );
             }
         }
 
@@ -1897,6 +2186,9 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
                     tool_trust_failures: state.tool_trust.failure_records(),
                     sla_budget: state.sla_budget,
                     evidence_coverage: state.evidence.graph.synthesis_coverage(),
+                    // Phase 2: early-exit path — no synthesis triggered.
+                    synthesis_kind:    state.synthesis.last_synthesis_kind,
+                    synthesis_trigger: state.synthesis.last_synthesis_trigger,
                 });
             }
             round_setup::RoundSetupOutcome::Continue(out) => out,
@@ -1966,6 +2258,9 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
                     tool_trust_failures: state.tool_trust.failure_records(),
                     sla_budget: state.sla_budget,
                     evidence_coverage: state.evidence.graph.synthesis_coverage(),
+                    // Phase 2: early-return path — capture any gate classification so far.
+                    synthesis_kind:    state.synthesis.last_synthesis_kind,
+                    synthesis_trigger: state.synthesis.last_synthesis_trigger,
                 });
             }
             provider_round::ProviderRoundOutcome::ToolUse(out) => out,
@@ -2105,7 +2400,12 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
         );
     }
 
-    result_assembly::build(
+    // Capture state fields needed for auto-memory before consuming state.
+    let auto_memory_working_dir = working_dir.to_string();
+    let auto_memory_user_msg = state.user_msg.clone();
+    let auto_memory_policy = state.policy.clone();
+
+    let result = result_assembly::build(
         state,
         render_sink,
         event_tx,
@@ -2117,7 +2417,56 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
         ctrl_rx,
         plugin_registry,
         permissions,
-    ).await
+    ).await;
+
+    // Feature 3 (Frontier Roadmap 2026): Auto-memory background write.
+    // Fire-and-forget: never blocks the response, never surfaces errors to the user.
+    if auto_memory_policy.enable_auto_memory {
+        if let Ok(ref loop_result) = result {
+            let result_clone = crate::repl::auto_memory::MemoryResultSnapshot {
+                rounds: loop_result.rounds,
+                stop_condition: loop_result.stop_condition,
+                critic_verdict: loop_result.critic_verdict.clone(),
+                tool_trust_failures: loop_result.tool_trust_failures.clone(),
+                tools_executed: loop_result.tools_executed.clone(),
+            };
+            let repo_name = std::path::Path::new(&auto_memory_working_dir)
+                .file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("unknown")
+                .to_string();
+            tokio::spawn(async move {
+                crate::repl::auto_memory::record_session_snapshot(
+                    &result_clone,
+                    &auto_memory_user_msg,
+                    &auto_memory_working_dir,
+                    &repo_name,
+                    &auto_memory_policy,
+                );
+            });
+        }
+    }
+
+    // Feature 2 (Frontier Roadmap 2026): Stop lifecycle hook.
+    // Fires after the agent loop terminates (any stop reason: EndTurn, convergence, max-rounds).
+    // Best-effort: outcome is logged but does not change the result.
+    if let Some(ref hook_runner) = tool_exec_config.hook_runner {
+        if hook_runner.has_hooks_for(super::hooks::HookEventName::Stop) {
+            let session_id_s = tool_exec_config.session_id_str.clone();
+            let runner_clone = hook_runner.clone();
+            tokio::spawn(async move {
+                let event = super::hooks::lifecycle_event(
+                    super::hooks::HookEventName::Stop,
+                    &session_id_s,
+                );
+                if let super::hooks::HookOutcome::Deny(reason) = runner_clone.fire(&event).await {
+                    tracing::warn!(%reason, "Stop hook denied (ignored — loop already ended)");
+                }
+            });
+        }
+    }
+
+    result
 }
 #[cfg(test)]
 mod tests;

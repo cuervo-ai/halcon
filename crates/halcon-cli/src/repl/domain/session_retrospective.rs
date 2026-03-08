@@ -7,7 +7,7 @@
 //! Pure business logic — no I/O.
 
 use super::adaptation_bounds::{AdaptationBoundsChecker, AdaptationChannel};
-use super::decision_trace::{DecisionPoint, DecisionTraceCollector};
+use super::agent_decision_trace::{DecisionPoint, DecisionTraceCollector};
 use super::problem_classifier::{self, ProblemClass};
 use super::system_invariants::SystemInvariantChecker;
 use super::system_metrics::MetricsCollector;
@@ -488,7 +488,7 @@ mod tests {
         r1.evidence_coverage = 0.50;
         metrics.record_round(r0);
         metrics.record_round(r1);
-        use super::super::decision_trace::{DecisionRecord, DecisionPoint};
+        use super::super::agent_decision_trace::{DecisionRecord, DecisionPoint};
         trace.record(DecisionRecord::new(DecisionPoint::OracleAdjudication, 0, "Continue"));
         trace.record(DecisionRecord::new(DecisionPoint::UtilityEvaluation, 0, "productive"));
         trace.record(DecisionRecord::new(DecisionPoint::OracleAdjudication, 1, "Continue"));

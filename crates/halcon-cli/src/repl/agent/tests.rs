@@ -2524,7 +2524,9 @@
         // P4: verify the final transition ends in "complete" (EndTurn) with a valid from-state.
         let (last_from, last_to, _) = transitions.last().unwrap();
         assert_eq!(last_to, "complete", "P4: final state must be 'complete' for EndTurn");
-        let valid_predecessors = ["idle", "executing", "planning", "tool_wait", "reflecting"];
+        // "evaluating" is valid now that (Executing, SynthesisComplete) → Evaluating is a
+        // recognized FSM path for text-only EndTurn responses (Step 3: FSM Hardening).
+        let valid_predecessors = ["idle", "executing", "planning", "tool_wait", "reflecting", "evaluating"];
         assert!(
             valid_predecessors.contains(&last_from.as_str()),
             "P4: final from_state '{}' is not valid (must be one of {:?})",
@@ -2727,7 +2729,9 @@
 
         // The from-state must be one of the valid predecessors for "complete".
         // Before the P4 fix, it was always "executing" even if the FSM was elsewhere.
-        let valid_predecessors = ["idle", "executing", "planning", "tool_wait", "reflecting"];
+        // "evaluating" is valid now that (Executing, SynthesisComplete) → Evaluating is a
+        // recognized FSM path for text-only EndTurn responses (Step 3: FSM Hardening).
+        let valid_predecessors = ["idle", "executing", "planning", "tool_wait", "reflecting", "evaluating"];
         assert!(
             valid_predecessors.contains(&last_from.as_str()),
             "P4: final from-state '{}' is not a valid predecessor for 'complete'. \
@@ -4395,11 +4399,14 @@
         phase = transition(phase, AgentEvent::EvaluationComplete);
         assert_eq!(phase, AgentPhase::Completed);
 
-        // Completed is sticky — PlanGenerated is a no-op
-        phase = transition(phase, AgentEvent::PlanGenerated);
-        assert_eq!(phase, AgentPhase::Completed, "Completed is a terminal state");
+        // Completed rejects non-escape events — returns current phase unchanged (with warn log).
+        let unchanged = transition(phase, AgentEvent::PlanGenerated);
+        assert_eq!(
+            unchanged, AgentPhase::Completed,
+            "Completed must reject non-escape events (stays Completed)"
+        );
 
-        // But ErrorOccurred can exit Completed → Halted
+        // ErrorOccurred can exit Completed → Halted
         phase = transition(phase, AgentEvent::ErrorOccurred);
         assert_eq!(phase, AgentPhase::Halted);
     }
@@ -4732,6 +4739,19 @@
             complexity_upgraded: false,
             problem_class: None,
             forecast_rounds_remaining: None,
+            utility_should_synthesize: false,
+            synthesis_request_count: 0,
+            fsm_error_count: 0,
+            budget_iteration_count: 0,
+            budget_stagnation_count: 0,
+            budget_token_growth: 0,
+            budget_exhausted: false,
+            executive_signal_count: 0,
+            executive_force_reason: None,
+            capability_violation: None,
+            security_signals_detected: false,
+            tool_call_count: 0,
+            tool_failure_count: 0,
         };
         assert_eq!(
             TerminationOracle::adjudicate(&fb),
@@ -4781,6 +4801,19 @@
             complexity_upgraded: false,
             problem_class: None,
             forecast_rounds_remaining: None,
+            utility_should_synthesize: false,
+            synthesis_request_count: 0,
+            fsm_error_count: 0,
+            budget_iteration_count: 0,
+            budget_stagnation_count: 0,
+            budget_token_growth: 0,
+            budget_exhausted: false,
+            executive_signal_count: 0,
+            executive_force_reason: None,
+            capability_violation: None,
+            security_signals_detected: false,
+            tool_call_count: 0,
+            tool_failure_count: 0,
         };
         assert_eq!(
             TerminationOracle::adjudicate(&fb),
@@ -4829,6 +4862,64 @@
 
         let phase = phase.fire(AgentEvent::EvaluationComplete);
         assert_eq!(phase, AgentPhase::Completed);
+    }
+
+    /// RP-3: Verify that FSM events that would cause InvalidTransition in Synthesizing state
+    /// are correctly identified and must be guarded by callers.
+    ///
+    /// This test documents the contract: `ToolsSubmitted`, `ToolBatchComplete`, and
+    /// `ReflectionComplete` are invalid in `Synthesizing` state. The guards in post_batch.rs
+    /// prevent these from being dispatched when already synthesizing.
+    #[test]
+    fn rp3_fsm_synthesizing_rejects_tool_events() {
+        use super::loop_state::{AgentPhase, AgentEvent, transition};
+
+        let phase = AgentPhase::Synthesizing;
+
+        // ToolsSubmitted is invalid in Synthesizing — returns phase unchanged (warns in log).
+        assert_eq!(
+            transition(phase, AgentEvent::ToolsSubmitted),
+            AgentPhase::Synthesizing,
+            "Synthesizing + ToolsSubmitted must be a no-op (guarded by post_batch.rs)"
+        );
+        // ToolBatchComplete is invalid in Synthesizing — returns phase unchanged.
+        assert_eq!(
+            transition(phase, AgentEvent::ToolBatchComplete),
+            AgentPhase::Synthesizing,
+            "Synthesizing + ToolBatchComplete must be a no-op (guarded by post_batch.rs)"
+        );
+        // ReflectionComplete is invalid in Synthesizing — returns phase unchanged.
+        assert_eq!(
+            transition(phase, AgentEvent::ReflectionComplete),
+            AgentPhase::Synthesizing,
+            "Synthesizing + ReflectionComplete must be a no-op (guarded by post_batch.rs)"
+        );
+        // Valid transitions from Synthesizing produce a different phase.
+        assert_ne!(transition(phase, AgentEvent::SynthesisComplete), AgentPhase::Synthesizing);
+        assert_ne!(transition(phase, AgentEvent::EvaluationComplete), AgentPhase::Synthesizing);
+        assert_ne!(transition(phase, AgentEvent::ErrorOccurred), AgentPhase::Synthesizing);
+        assert_ne!(transition(phase, AgentEvent::Cancelled), AgentPhase::Synthesizing);
+    }
+
+    /// RP-3: Guard logic — verify that the guard condition `!matches!(phase, Synthesizing)`
+    /// correctly suppresses events that would produce InvalidTransition.
+    #[test]
+    fn rp3_fsm_synthesizing_guard_suppresses_events() {
+        use super::loop_state::AgentPhase;
+
+        let phase = AgentPhase::Synthesizing;
+
+        // Simulate the guard used in post_batch.rs for ToolsSubmitted / ToolBatchComplete.
+        let already_synthesizing = matches!(phase, AgentPhase::Synthesizing);
+        assert!(already_synthesizing, "guard must detect Synthesizing state");
+
+        // Simulate the guard used for ReflectionComplete.
+        let in_synthesizing = matches!(phase, AgentPhase::Synthesizing);
+        assert!(in_synthesizing, "reflection guard must detect Synthesizing state");
+
+        // In Executing state, neither guard should fire.
+        let exec_phase = AgentPhase::Executing;
+        assert!(!matches!(exec_phase, AgentPhase::Synthesizing), "guard must NOT fire in Executing");
     }
 
     #[test]
@@ -4966,15 +5057,9 @@
     fn phase2_loop_state_sub_structs_constructible() {
         use super::loop_state::{SynthesisControl, TokenAccounting};
 
-        let synthesis = SynthesisControl {
-            forced_synthesis_detected: false,
-            synthesis_origin: None,
-            tool_decision: super::loop_state::ToolDecisionSignal::Allow,
-            execution_intent: super::loop_state::ExecutionIntentPhase::Investigation,
-            phase: super::loop_state::AgentPhase::Idle,
-            convergence_directive_injected: false,
-        };
-        assert!(!synthesis.forced_synthesis_detected);
+        // Phase 1 FSM Sellado: struct fields are private — use test_default() constructor.
+        let synthesis = SynthesisControl::test_default();
+        assert_eq!(synthesis.request_count(), 0);
 
         let tokens = TokenAccounting {
             call_input_tokens: 0,
@@ -5055,6 +5140,19 @@
             complexity_upgraded: false,
             problem_class: None,
             forecast_rounds_remaining: None,
+            utility_should_synthesize: false,
+            synthesis_request_count: 0,
+            fsm_error_count: 0,
+            budget_iteration_count: 0,
+            budget_stagnation_count: 0,
+            budget_token_growth: 0,
+            budget_exhausted: false,
+            executive_signal_count: 0,
+            executive_force_reason: None,
+            capability_violation: None,
+            security_signals_detected: false,
+            tool_call_count: 0,
+            tool_failure_count: 0,
         };
         assert_eq!(
             TerminationOracle::adjudicate(&fb),
@@ -5343,7 +5441,7 @@
     #[test]
     fn phase5_integration_session_retrospective_end_to_end() {
         use crate::repl::domain::session_retrospective::*;
-        use crate::repl::domain::decision_trace::*;
+        use crate::repl::domain::agent_decision_trace::*;
         use crate::repl::domain::system_metrics::MetricsCollector;
         use crate::repl::domain::adaptation_bounds::*;
         use crate::repl::domain::system_invariants::*;

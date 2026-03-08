@@ -19,7 +19,7 @@ use halcon_storage::AsyncDatabase;
 use super::super::agent_types::ControlReceiver;
 use super::super::anomaly_detector::AgentAnomaly;
 use super::super::loop_guard::LoopAction;
-use super::loop_state::{ExecutionIntentPhase, LoopState, SynthesisOrigin, ToolDecisionSignal};
+use super::loop_state::{ExecutionIntentPhase, LoopState, SynthesisKind, SynthesisOrigin, SynthesisTrigger, ToolDecisionSignal};
 use super::plan_formatter::{format_plan_for_prompt, update_plan_in_system};
 use super::provider_client::check_control;
 use super::PhaseOutcome;
@@ -522,6 +522,19 @@ pub(super) async fn run(
                 complexity_upgraded,
                 problem_class,
                 forecast_rounds_remaining,
+                utility_should_synthesize: false,
+                synthesis_request_count: state.synthesis.request_count() as u32,
+                fsm_error_count: state.synthesis.fsm_error_count,
+                budget_iteration_count: 0,
+                budget_stagnation_count: 0,
+                budget_token_growth: 0,
+                budget_exhausted: false,
+                executive_signal_count: 0,
+                executive_force_reason: None,
+                capability_violation: None,
+                security_signals_detected: false,
+                tool_call_count: (tool_successes.len() + tool_failures.len()) as u32,
+                tool_failure_count: tool_failures.len() as u32,
             };
 
             // P0-2: TerminationOracle — AUTHORITATIVE (shadow mode removed).
@@ -537,9 +550,42 @@ pub(super) async fn run(
             );
             oracle_decision = Some(termination.clone());
 
+            // B2: RoutingAdaptor — mid-session escalation check.
+            // Fires after TerminationOracle so oracle retains final say on loop termination.
+            // Only runs when a BoundaryDecision is present (use_boundary_decision_engine=true).
+            // On escalation, updates boundary_decision.routing.mode so downstream convergence
+            // policy and future RoutingAdaptor calls see the escalated mode.
+            if let Some(ref mut bd) = state.boundary_decision {
+                use super::super::decision_engine::{PolicyStore, RoutingAdaptor};
+                let store = PolicyStore::from_config(&state.policy);
+                if let Some(escalation) = RoutingAdaptor::check(
+                    bd.routing.mode,
+                    round as u32,
+                    &round_feedback,
+                    &store,
+                ) {
+                    tracing::warn!(
+                        from = %escalation.from.label(),
+                        to = %escalation.to.label(),
+                        rationale = escalation.rationale,
+                        round_budget_increase = escalation.round_budget_increase,
+                        round,
+                        "RoutingAdaptor: mid-session escalation"
+                    );
+                    bd.routing.mode = escalation.to;
+                    // Extend the loop's max-rounds budget so the escalated mode gets
+                    // the rounds it needs (adds the delta from the PolicyStore).
+                    if escalation.round_budget_increase > 0 {
+                        let new_max = state.convergence.conv_ctrl.max_rounds() as usize
+                            + escalation.round_budget_increase as usize;
+                        state.convergence.conv_ctrl.set_max_rounds(new_max);
+                    }
+                }
+            }
+
             // P4.2: Record oracle decision in trace
             {
-                use super::super::domain::decision_trace::{DecisionRecord, DecisionPoint};
+                use super::super::domain::agent_decision_trace::{DecisionRecord, DecisionPoint};
                 let trace_record = DecisionRecord::new(
                     DecisionPoint::OracleAdjudication,
                     round,
@@ -628,9 +674,9 @@ pub(super) async fn run(
                     evidence_bytes: state.evidence.bundle.text_bytes_extracted,
                     min_evidence_bytes: state.policy.min_evidence_bytes,
                     content_read_attempts: state.evidence.bundle.content_read_attempts,
-                    is_synthesis_round: state.synthesis.forced_synthesis_detected
+                    is_synthesis_round: state.synthesis.is_synthesis_forced()
                         || state.cached_tools.is_empty(),
-                    forced_synthesis_detected: state.synthesis.forced_synthesis_detected,
+                    forced_synthesis_detected: state.synthesis.is_synthesis_forced(),
                     sla_mode_ordinal: sla_ordinal,
                     complexity_upgrade_count: if state.convergence.complexity_tracker.was_upgraded() {
                         1
@@ -642,7 +688,7 @@ pub(super) async fn run(
                     round,
                     utility_score: round_feedback.utility_score,
                     accumulated_cost: state.tokens.call_cost,
-                    fsm_phase: state.synthesis.phase.as_str(),
+                    fsm_phase: state.synthesis.phase_str(),
                     tool_suppression_active: state.synthesis.tool_decision.is_active(),
                     cumulative_drift: state.convergence.cumulative_drift_score,
                     max_drift_bound: state.policy.max_drift_bound,
@@ -772,6 +818,10 @@ pub(super) async fn run(
     match oracle_decision.expect("oracle_decision always set in RoundFeedback block above") {
         // ── Precedence 1: Halt ──────────────────────────────────────────────
         TerminationDecision::Halt => {
+            // Capture pre-mutation forced state before mark_synthesis_forced_with_gate()
+            // sets forced_synthesis_detected=true. The guard below must reflect whether
+            // synthesis was ALREADY forced before this oracle Halt arm ran, not after.
+            let synthesis_was_already_forced = state.synthesis.is_synthesis_forced();
             if is_loop_guard_break {
                 // LoopSignal::Break = oscillation / plan complete → ForcedSynthesis.
                 tracing::warn!(
@@ -787,15 +837,21 @@ pub(super) async fn run(
                         Some("Oscillation or plan completion detected — synthesizing response."),
                     );
                 }
-                        // Mark as ForcedSynthesis so post-loop correctly classifies this stop.
-                state.synthesis.synthesis_origin = Some(SynthesisOrigin::OracleConvergence);
-                state.synthesis.forced_synthesis_detected = true;
+                // Mark as ForcedSynthesis so post-loop correctly classifies this stop.
+                // Phase 2: route through governance gate (oracle halt decision).
+                state.mark_synthesis_forced_with_gate(
+                    SynthesisTrigger::OracleConvergence,
+                    SynthesisOrigin::OracleConvergence,
+                );
             }
-            // FIX: Instead of breaking the loop immediately (which produces no final
-            // response), inject a synthesis directive and allow one final tool-free
-            // round. Guard: if forced_synthesis_detected was already true (we already
-            // did a synthesis sub-round but oracle fired Halt again), break for real.
-            if !state.synthesis.forced_synthesis_detected {
+            // FIX (RC-1): Use pre-mutation snapshot. Previously this checked
+            // is_synthesis_forced() AFTER mark_synthesis_forced_with_gate() set it to
+            // true, making the condition always false when is_loop_guard_break=true —
+            // the synthesis injection branch was dead code and the agent always exited
+            // without producing a final response. Guard: if synthesis was ALREADY forced
+            // before this arm ran (we already did a synthesis sub-round but oracle fired
+            // Halt again), break for real.
+            if !synthesis_was_already_forced {
                 // V5 fix (2026-02-27): Investigative task synthesis guard.
                 // If the oracle is attempting to force synthesis on an Investigation task
                 // but ZERO real tool calls were executed, this is suspicious — it likely
@@ -884,7 +940,12 @@ pub(super) async fn run(
                         directive
                     }
                 };
-                state.synthesis.forced_synthesis_detected = true;
+                // Phase 2: annotate with gate classification (origin already set above).
+                state.synthesis.annotate_synthesis_trigger(
+                    SynthesisKind::Organic,
+                    SynthesisTrigger::OracleConvergence,
+                );
+                state.synthesis.fire_synthesis();
                 let synth_msg = ChatMessage {
                     role: Role::User,
                     content: MessageContent::Text(synth_text_halt.into()),
@@ -913,7 +974,40 @@ pub(super) async fn run(
                     // Hard stop: stagnation confirmed by ConvergenceController.
                     // FIX: Same pattern as Halt — inject synthesis directive and allow
                     // one final tool-free round so the model produces a real response.
-                    if !state.synthesis.forced_synthesis_detected {
+                    if !state.synthesis.is_synthesis_forced() {
+                        // Plan-completion guard: if plan steps are still Pending (never attempted),
+                        // the convergence controller may have fired early due to tool-output flooding
+                        // (e.g., a huge directory_tree result contains all goal keywords, giving false
+                        // high coverage). Defer synthesis and direct the model to execute them first.
+                        let unattempted = state.execution_tracker.as_ref()
+                            .map(|t| t.tracked_steps().iter()
+                                .filter(|s| s.status == halcon_core::traits::TaskStatus::Pending)
+                                .count())
+                            .unwrap_or(0);
+                        if unattempted > 0 {
+                            tracing::info!(
+                                round,
+                                unattempted,
+                                "Oracle: deferring ConvergenceCtrl synthesis — {unattempted} plan step(s) still Pending"
+                            );
+                            if !state.silent {
+                                render_sink.info(&format!(
+                                    "[plan-guard] deferring synthesis — {unattempted} step(s) not yet attempted"
+                                ));
+                            }
+                            let plan_hint = ChatMessage {
+                                role: Role::User,
+                                content: MessageContent::Text(format!(
+                                    "[System: Your plan has {unattempted} step(s) that have not been executed yet. \
+                                     Please execute the remaining plan steps before synthesizing a response. \
+                                     Continue using the required tools.]"
+                                ).into()),
+                            };
+                            state.messages.push(plan_hint.clone());
+                            state.context_pipeline.add_message(plan_hint.clone());
+                            session.add_message(plan_hint);
+                            return Ok(PhaseOutcome::NextRound);
+                        }
                         // EBS Evidence Gate (EBS-2): same gate check for ConvergenceController
                         // hard-stop path. Prevents fabrication when stagnation is caused by
                         // unreadable binary files (tools ran in circles, found nothing).
@@ -965,7 +1059,12 @@ pub(super) async fn run(
                                 directive
                             }
                         };
-                        state.synthesis.forced_synthesis_detected = true;
+                        // Phase 2: annotate with gate classification (oracle convergence path).
+                        state.synthesis.annotate_synthesis_trigger(
+                            SynthesisKind::Organic,
+                            SynthesisTrigger::OracleConvergence,
+                        );
+                        state.synthesis.fire_synthesis();
                         let synth_msg = ChatMessage {
                             role: Role::User,
                             content: MessageContent::Text(synth_text_conv.into()),
@@ -983,6 +1082,43 @@ pub(super) async fn run(
                     // Soft hint: inject synthesis directive, continue to next round.
                     // Suppress if convergence directive was already injected this round
                     // (ConvergenceController::Replan injects a conflicting directive).
+                    //
+                    // Plan-completion guard: same logic as ConvergenceControllerSynthesizeAction.
+                    // LoopGuard and RoundScorer can fire synthesis based on round count or score
+                    // patterns — they don't inspect the plan. If there are unattempted steps,
+                    // redirect the model to execute them instead of synthesizing.
+                    let unattempted_loopguard = state.execution_tracker.as_ref()
+                        .map(|t| t.tracked_steps().iter()
+                            .filter(|s| s.status == halcon_core::traits::TaskStatus::Pending)
+                            .count())
+                        .unwrap_or(0);
+                    if unattempted_loopguard > 0 {
+                        tracing::info!(
+                            round,
+                            unattempted = unattempted_loopguard,
+                            ?reason,
+                            "Oracle: deferring LoopGuard/RoundScorer synthesis — {unattempted_loopguard} plan step(s) still Pending"
+                        );
+                        if !state.silent {
+                            render_sink.info(&format!(
+                                "[plan-guard] deferring synthesis hint — {unattempted_loopguard} step(s) not yet attempted"
+                            ));
+                        }
+                        let plan_hint = ChatMessage {
+                            role: Role::User,
+                            content: MessageContent::Text(format!(
+                                "[System: Your plan has {unattempted_loopguard} step(s) that have not been executed yet. \
+                                 Please execute the remaining plan steps before synthesizing a response. \
+                                 Continue using the required tools.]"
+                            ).into()),
+                        };
+                        state.messages.push(plan_hint.clone());
+                        state.context_pipeline.add_message(plan_hint.clone());
+                        session.add_message(plan_hint);
+                        // Skip the synthesis hint injection — fall through to NextRound via
+                        // the normal end-of-dispatch path.
+                        return Ok(PhaseOutcome::NextRound);
+                    }
                     if state.synthesis.convergence_directive_injected {
                         tracing::debug!(
                             round,
@@ -1085,7 +1221,11 @@ pub(super) async fn run(
                 super::super::domain::mid_loop_strategy::StrategyMutation::ForceSynthesis => {
                     // Skip replan entirely — force synthesis
                     tracing::info!(round, "Phase3 Strategy: ForceSynthesis — bypassing replan");
-                    state.mark_synthesis_forced(SynthesisOrigin::OracleConvergence);
+                    // Phase 2: route through governance gate (ForceSynthesis strategy mutation).
+                    state.mark_synthesis_forced_with_gate(
+                        SynthesisTrigger::OracleConvergence,
+                        SynthesisOrigin::OracleConvergence,
+                    );
                     state.synthesis.tool_decision = ToolDecisionSignal::ForcedByOracle;
                     return Ok(PhaseOutcome::NextRound);
                 }
@@ -1664,12 +1804,8 @@ pub(super) async fn run(
     );
 
     // FSM: if synthesis was injected this phase, transition to Synthesizing.
-    if state.synthesis.forced_synthesis_detected {
-        state.synthesis.phase = super::loop_state::transition(
-            state.synthesis.phase,
-            super::loop_state::AgentEvent::SynthesisStarted,
-        );
-        // phase already updated by fire() — no string sync needed.
+    if state.synthesis.is_synthesis_forced() {
+        state.synthesis.advance_phase(super::loop_state::AgentEvent::SynthesisStarted);
     }
 
     Ok(PhaseOutcome::Continue)
