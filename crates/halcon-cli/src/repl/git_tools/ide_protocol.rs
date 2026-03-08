@@ -15,7 +15,7 @@
 
 use std::sync::Arc;
 
-use super::unsaved_buffer_tracker::UnsavedBufferTracker;
+use super::unsaved_buffer::UnsavedBufferTracker;
 
 // ── JSON-RPC primitives ───────────────────────────────────────────────────────
 

@@ -13,7 +13,7 @@
 //!
 //! The bridge is intentionally framework-agnostic. Framework-specific logic
 //! lives in the [`RunnerKind`] configuration and the parser layer
-//! ([`super::test_result_parsers`]).
+//! ([`super::test_results`]).
 //!
 //! # Stopping
 //!
@@ -30,7 +30,7 @@ use tokio::process::Command;
 use tokio::sync::{broadcast, watch, Mutex};
 use tokio::time::timeout;
 
-use super::test_result_parsers::{parse_cargo_test, TestSuiteResult};
+use super::test_results::{parse_cargo_test, TestSuiteResult};
 
 // ── RunnerKind ────────────────────────────────────────────────────────────────
 
@@ -301,7 +301,7 @@ impl TestRunnerBridge {
                 parse_cargo_test(raw, &self.config.suite_name)
             }
             RunnerKind::Jest => {
-                super::test_result_parsers::parse_jest_json(raw, &self.config.suite_name)
+                super::test_results::parse_jest_json(raw, &self.config.suite_name)
             }
             RunnerKind::Pytest | RunnerKind::Custom { .. } => {
                 // Fallback: treat as cargo-test-style line output (best effort).
@@ -395,7 +395,7 @@ mod tests {
         let result = bridge.parse_output(raw);
         assert!(result.all_passed);
         assert_eq!(result.suite_name, "dispatch_suite");
-        assert_eq!(result.format, super::super::test_result_parsers::TestResultFormat::CargoTest);
+        assert_eq!(result.format, super::super::test_results::TestResultFormat::CargoTest);
     }
 
     /// Spawn a real process (echo) to verify the streaming machinery works.

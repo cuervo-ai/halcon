@@ -25,7 +25,7 @@ use std::time::Duration;
 
 use tokio::sync::{broadcast, watch};
 
-use super::git_context::{collect as collect_git_context, GitContext};
+use super::context::{collect as collect_git_context, GitContext};
 
 // ── GitEvent ──────────────────────────────────────────────────────────────────
 
@@ -98,7 +98,7 @@ struct Snapshot {
 
 impl Snapshot {
     fn from_context(ctx: &GitContext) -> Self {
-        use super::git_context::WorktreeStatus;
+        use super::context::WorktreeStatus;
         Self {
             branch: ctx.branch.clone(),
             head_sha: ctx.head_sha.clone(),
@@ -249,7 +249,7 @@ impl GitEventListener {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use super::super::git_context::{GitContext, WorktreeStatus};
+    use super::super::context::{GitContext, WorktreeStatus};
 
     fn make_snap(branch: Option<&str>, sha: Option<&str>, conflicts: Vec<&str>, clean: bool) -> Snapshot {
         Snapshot {

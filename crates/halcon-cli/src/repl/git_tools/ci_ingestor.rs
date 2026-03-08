@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use tokio::sync::{broadcast, Mutex};
 
-use super::test_result_parsers::{parse_junit_xml, TestSuiteResult};
+use super::test_results::{parse_junit_xml, TestSuiteResult};
 
 // ── Constants ───────────────────────────────────────────────────────────────
 
@@ -554,7 +554,7 @@ mod tests {
 
     #[test]
     fn compute_reward_blends_test_pass_rate() {
-        use super::super::test_result_parsers::{TestCase, TestStatus, TestSuiteResult};
+        use super::super::test_results::{TestCase, TestStatus, TestSuiteResult};
 
         let results = TestSuiteResult {
             suite_name: "ci".to_string(),

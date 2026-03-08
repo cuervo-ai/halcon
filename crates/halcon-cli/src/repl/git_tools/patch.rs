@@ -17,8 +17,7 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
 use crate::render::diff::{compute_ai_diff, render_file_diff};
-use super::risk_tier_classifier::RiskTier;
-use super::risk_tier_classifier::RiskTierClassifier;
+use crate::repl::security::risk_tier::{RiskTier, RiskTierClassifier};
 
 // ── PatchPreview ─────────────────────────────────────────────────────────────
 

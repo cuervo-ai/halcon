@@ -52,8 +52,8 @@ use tracing::{debug, info, warn};
 use crate::render::sink::RenderSink;
 
 use super::edit_transaction::{EditTransaction, TransactionStatus};
-use super::patch_preview_engine::PatchPreview;
-use super::risk_tier_classifier::RiskTier;
+use super::patch::PatchPreview;
+use crate::repl::security::risk_tier::RiskTier;
 
 // ── EditBudget ────────────────────────────────────────────────────────────────
 

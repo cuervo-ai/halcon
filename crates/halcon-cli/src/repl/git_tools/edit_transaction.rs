@@ -22,8 +22,8 @@ use serde::{Deserialize, Serialize};
 use tracing::{debug, info, warn};
 use uuid::Uuid;
 
-use super::patch_preview_engine::{PatchPreview, PatchPreviewEngine};
-use super::risk_tier_classifier::RiskTier;
+use super::patch::{PatchPreview, PatchPreviewEngine};
+use crate::repl::security::risk_tier::RiskTier;
 
 // ── types ─────────────────────────────────────────────────────────────────────
 
