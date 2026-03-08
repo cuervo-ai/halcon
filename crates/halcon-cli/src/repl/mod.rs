@@ -198,7 +198,6 @@ pub mod tool_selector;
 pub mod tool_speculation;
 pub mod traceback_parser;
 pub mod code_instrumentation;
-pub mod rollback;
 pub mod risk_tier_classifier;
 pub mod patch_preview_engine;
 pub mod edit_transaction;
