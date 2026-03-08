@@ -3284,7 +3284,20 @@ impl Repl {
                             fallback_providers: &fallback_providers,
                             routing_config: &self.config.agent.routing,
                             compactor: Some(&compactor),
-                            planner: llm_planner.as_ref().map(|lp| lp as &dyn Planner),
+                            // DECISION: PlaybookPlanner is tried BEFORE LlmPlanner because:
+                            // 1. Playbooks are deterministic — no LLM call, no token cost
+                            // 2. For high-frequency repetitive tasks (code review, test run,
+                            //    PR creation) playbooks are 10-100× faster than LLM planning
+                            // 3. The fallback to LlmPlanner preserves full capability for
+                            //    novel tasks. If PlaybookPlanner returns None (no matching
+                            //    playbook), we fall through transparently — zero behavioral
+                            //    change for tasks without playbooks.
+                            // See US-playbook (PASO 4-D).
+                            planner: if self.playbook_planner.find_match(input).is_some() {
+                                Some(&self.playbook_planner as &dyn Planner)
+                            } else {
+                                llm_planner.as_ref().map(|lp| lp as &dyn Planner)
+                            },
                             guardrails,
                             reflector: self.reflector.as_ref(),
                             render_sink: sink,
