@@ -1235,7 +1235,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(version, 35);
+        assert_eq!(version, 36);
     }
 
     #[test]
@@ -1249,7 +1249,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(count, 35);
+        assert_eq!(count, 36);
     }
 
     #[test]

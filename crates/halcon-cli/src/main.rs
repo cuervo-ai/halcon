@@ -93,6 +93,16 @@ struct Cli {
     #[arg(long, value_name = "N", env = "HALCON_MAX_TURNS")]
     max_turns: Option<u32>,
 
+    /// Air-gap mode: only the Ollama (localhost) provider is allowed.
+    ///
+    /// Enforced at the provider factory layer so sub-agents and orchestrator
+    /// instances also respect the constraint. Sets HALCON_AIR_GAP=1 env var.
+    ///
+    /// Requires a running Ollama instance at http://localhost:11434 (or
+    /// OLLAMA_BASE_URL env var).
+    #[arg(long, env = "HALCON_AIR_GAP")]
+    air_gap: bool,
+
     #[command(subcommand)]
     command: Option<Commands>,
 }
@@ -745,6 +755,26 @@ async fn main() -> Result<()> {
                 .with_writer(std::io::stderr)
                 .init();
         }
+    }
+
+    // DECISION: In --air-gap mode we set HALCON_AIR_GAP=1 at the process level
+    // so that every code path that creates a ProviderRegistry (including sub-agents
+    // and the MCP server) automatically respects the constraint.
+    // The env var is the single chokepoint: provider_factory::build_registry() checks
+    // it and discards all non-Ollama providers at construction time.
+    if cli.air_gap {
+        // Ensure OLLAMA_BASE_URL defaults to localhost:11434 when not set.
+        if std::env::var("OLLAMA_BASE_URL").is_err() {
+            std::env::set_var("OLLAMA_BASE_URL", "http://localhost:11434");
+        }
+        // Propagate air-gap flag to child processes and sub-agents.
+        std::env::set_var("HALCON_AIR_GAP", "1");
+
+        // Display the air-gap banner before any further output.
+        eprintln!("┌─────────────────────────────────────────────────┐");
+        eprintln!("│  ⚠  MODO AIR-GAP ACTIVO — Sin conexiones externas │");
+        eprintln!("│     Proveedor: Ollama (localhost:11434)           │");
+        eprintln!("└─────────────────────────────────────────────────┘");
     }
 
     // Load configuration

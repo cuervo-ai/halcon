@@ -15,7 +15,33 @@ use crate::render::feedback;
 /// Build a ProviderRegistry from configuration.
 ///
 /// Registers providers whose API keys are available.
+///
+/// DECISION: In --air-gap mode (HALCON_AIR_GAP=1) only the Ollama provider
+/// is registered, regardless of what is configured. This is enforced at the
+/// factory level (not the CLI level) so that sub-agents spawned by
+/// orchestrator.rs also respect the constraint.
+/// The factory is the single chokepoint for all provider creation — matching
+/// how security boundaries work in privilege separation (enforce at the lowest
+/// common layer, not the entry point).
 pub fn build_registry(config: &AppConfig) -> ProviderRegistry {
+    let air_gap = std::env::var("HALCON_AIR_GAP").map(|v| v == "1").unwrap_or(false);
+
+    if air_gap {
+        // Air-gap mode: register only Ollama.
+        // OLLAMA_BASE_URL is guaranteed to be set (defaults to localhost:11434)
+        // by the air-gap enforcement code in main.rs.
+        let mut registry = ProviderRegistry::new();
+        let base_url = std::env::var("OLLAMA_BASE_URL").ok();
+        let provider = OllamaProvider::with_default_model(
+            base_url,
+            halcon_core::types::HttpConfig::default(),
+            None,
+        );
+        registry.register(Arc::new(provider));
+        tracing::info!("Air-gap mode: only Ollama provider registered");
+        return registry;
+    }
+
     let mut registry = ProviderRegistry::new();
 
     // Always register echo for testing.
@@ -619,7 +645,30 @@ mod tests {
     use super::*;
 
     #[test]
+    fn build_registry_air_gap_only_registers_ollama() {
+        // DECISION: air-gap mode is tested by directly setting the env var.
+        // We must clean it up to avoid leaking into other tests.
+        std::env::set_var("HALCON_AIR_GAP", "1");
+        std::env::set_var("OLLAMA_BASE_URL", "http://localhost:11434");
+
+        let config = AppConfig::default();
+        let registry = build_registry(&config);
+
+        // Only Ollama should be registered in air-gap mode.
+        assert!(registry.get("ollama").is_some(), "ollama must be registered in air-gap mode");
+        assert!(registry.get("echo").is_none(), "echo must NOT be registered in air-gap mode");
+        assert!(registry.get("anthropic").is_none(), "anthropic must NOT be registered in air-gap mode");
+
+        // Cleanup.
+        std::env::remove_var("HALCON_AIR_GAP");
+        std::env::remove_var("OLLAMA_BASE_URL");
+    }
+
+    #[test]
     fn build_registry_always_has_echo() {
+        // Ensure HALCON_AIR_GAP is not set for this test.
+        std::env::remove_var("HALCON_AIR_GAP");
+
         let config = AppConfig::default();
         let registry = build_registry(&config);
         assert!(registry.get("echo").is_some());
