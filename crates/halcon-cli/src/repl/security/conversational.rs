@@ -20,11 +20,13 @@
 
 use super::{
     adaptive_prompt::{AdaptivePromptBuilder, RiskLevel},
+    permissions::PermissionChecker,
+    validation::{PermissionValidator, ValidationError},
+};
+use super::super::{
     conversation_protocol::{DetailAspect, PermissionMessage},
     conversation_state::ConversationState,
     input_normalizer::InputNormalizer,
-    permissions::PermissionChecker,
-    validation::{PermissionValidator, ValidationError},
 };
 use halcon_core::types::{ChatMessage, MessageContent, PermissionDecision, Role, ToolInput};
 use serde_json::Value;
@@ -136,7 +138,7 @@ impl ConversationalPermissionHandler {
         // The user cannot override this by pressing 'y' — it is a non-interactive hard block.
         if tool == "bash" {
             if let Some(cmd) = input.arguments.get("command").and_then(|v| v.as_str()) {
-                let analysis = super::command_blacklist::analyze_command(cmd);
+                let analysis = super::blacklist::analyze_command(cmd);
                 if analysis.is_blacklisted {
                     let pattern_name = analysis
                         .matched_pattern
@@ -460,7 +462,7 @@ impl ConversationalPermissionHandler {
         // Blacklisted commands are ALWAYS Critical risk, regardless of tool type.
         if tool == "bash" {
             if let Some(cmd) = input.get("command").and_then(|v| v.as_str()) {
-                let analysis = super::command_blacklist::analyze_command(cmd);
+                let analysis = super::blacklist::analyze_command(cmd);
                 if analysis.is_blacklisted {
                     tracing::warn!(
                         tool = tool,

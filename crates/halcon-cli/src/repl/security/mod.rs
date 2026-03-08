@@ -47,5 +47,5 @@ pub use circuit_breaker::{BreakerState, ProviderBreaker};
 pub use conversational::ConversationalPermissionHandler;
 pub use permissions::PermissionChecker;
 pub use rule_matcher::RuleMatcher;
-pub use schema_validator::SchemaValidator;
+pub(crate) use schema_validator::preflight_validate;
 pub use validation::PermissionValidator;

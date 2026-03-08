@@ -7,7 +7,7 @@
 //! - Conversation state (initial, clarification, detail view)
 //! - Progressive disclosure (summary → parameters → risk → history)
 
-use super::conversation_protocol::DetailAspect;
+use super::super::conversation_protocol::DetailAspect;
 
 /// Build prompts that adapt to conversation state and tool risk.
 pub struct AdaptivePromptBuilder;

@@ -7,7 +7,7 @@
 //! - User feedback conversion to agent-readable messages
 //! - Safety checks for dangerous modifications
 
-use super::conversation_protocol::{DetailAspect, PermissionMessage};
+use super::super::conversation_protocol::{DetailAspect, PermissionMessage};
 use serde_json::Value;
 
 /// Validation errors for permission messages.
