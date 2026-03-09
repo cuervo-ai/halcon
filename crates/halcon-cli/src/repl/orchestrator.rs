@@ -981,7 +981,7 @@ pub async fn run_orchestrator(
             // Exception: synthesis-typed summaries are expected to have zero tools.
             let is_zero_tool_drift = result.success
                 && result.agent_result.tools_used.is_empty()
-                && !result.agent_result.summary.to_lowercase().contains("synthesis");
+                && !is_synthesis_summary(&result.agent_result.summary);
 
             if !result.success || is_zero_tool_drift {
                 let is_timeout = result.error.as_deref()
@@ -994,8 +994,11 @@ pub async fn run_orchestrator(
                          Consider increasing sub_agent_timeout_secs in config."
                     );
                 } else if is_zero_tool_drift {
+                    let preview: String = result.agent_result.summary
+                        .chars().take(120).collect();
                     tracing::warn!(
                         task_id = %result.task_id,
+                        summary_preview = %preview,
                         "Sub-agent succeeded but executed zero tools (synthesis-only drift). \
                          Dependents will be skipped to avoid cascade on missing evidence."
                     );
@@ -1073,6 +1076,24 @@ pub async fn run_orchestrator(
     }));
 
     Ok(orch_result)
+}
+
+/// Whitelist of lowercase substrings that identify a synthesis-type summary.
+/// A sub-agent whose summary matches any of these is expected to have zero
+/// tool calls (it aggregates prior evidence rather than producing new evidence).
+/// Used by the SC-2 zero-tool-drift guard to avoid false positives.
+const SYNTHESIS_SUMMARY_KEYWORDS: &[&str] = &[
+    "synthesis",
+    "summariz",   // matches "summarize", "summarized", "summarizing"
+    "conclus",    // matches "conclusion", "conclusions"
+    "final",
+    "review",
+    "analysis complete",
+];
+
+fn is_synthesis_summary(summary: &str) -> bool {
+    let lower = summary.to_lowercase();
+    SYNTHESIS_SUMMARY_KEYWORDS.iter().any(|kw| lower.contains(kw))
 }
 
 #[cfg(test)]
@@ -2001,16 +2022,10 @@ mod tests {
     /// should be classified as zero-tool drift and inserted into failed_task_ids.
     #[test]
     fn zero_tool_drift_detected_for_non_synthesis_result() {
-        // Simulate the condition from orchestrator.rs FIX-2
         let tools_used: Vec<String> = vec![];
-        let summary = "Analyzed the repository structure";  // not a synthesis summary
-
-        let is_zero_tool_drift = true  // success=true
-            && tools_used.is_empty()
-            && !summary.to_lowercase().contains("synthesis");
-
-        assert!(is_zero_tool_drift,
-            "Non-synthesis result with zero tools must be detected as drift");
+        let summary = "Analyzed the repository structure";
+        let is_zero_tool_drift = true && tools_used.is_empty() && !is_synthesis_summary(summary);
+        assert!(is_zero_tool_drift, "Non-synthesis result with zero tools must be detected as drift");
     }
 
     /// A synthesis summary should NOT be treated as zero-tool drift.
@@ -2018,13 +2033,8 @@ mod tests {
     fn zero_tool_drift_not_triggered_for_synthesis_task() {
         let tools_used: Vec<String> = vec![];
         let summary = "synthesis: consolidated findings from 3 sub-agents";
-
-        let is_zero_tool_drift = true  // success=true
-            && tools_used.is_empty()
-            && !summary.to_lowercase().contains("synthesis");
-
-        assert!(!is_zero_tool_drift,
-            "Explicit synthesis task with zero tools must NOT be flagged as drift");
+        let is_zero_tool_drift = true && tools_used.is_empty() && !is_synthesis_summary(summary);
+        assert!(!is_zero_tool_drift, "Explicit synthesis task with zero tools must NOT be flagged as drift");
     }
 
     /// A task that actually ran tools should never be flagged as drift.
@@ -2032,12 +2042,28 @@ mod tests {
     fn zero_tool_drift_not_triggered_when_tools_ran() {
         let tools_used = vec!["bash".to_string(), "file_write".to_string()];
         let summary = "Wrote the output file";
+        let is_zero_tool_drift = true && tools_used.is_empty() && !is_synthesis_summary(summary);
+        assert!(!is_zero_tool_drift, "Task that ran tools must NOT be flagged as drift");
+    }
 
-        let is_zero_tool_drift = true  // success=true
-            && tools_used.is_empty()
-            && !summary.to_lowercase().contains("synthesis");
-
-        assert!(!is_zero_tool_drift,
-            "Task that ran tools must NOT be flagged as drift");
+    /// Whitelist covers all synthesis-variant keywords (not just "synthesis").
+    #[test]
+    fn synthesis_whitelist_covers_all_variants() {
+        let cases = [
+            ("synthesis: merged agent outputs", true),
+            ("Summarized the findings", true),
+            ("Final conclusion: code is correct", true),
+            ("Analysis complete — 3 issues found", true),
+            ("review complete, no blockers", true),
+            ("bash ran git status", false),
+            ("wrote 3 files to disk", false),
+            ("grep matched 42 lines", false),
+        ];
+        for (summary, expected) in &cases {
+            assert_eq!(
+                is_synthesis_summary(summary), *expected,
+                "Unexpected classification for: {:?}", summary
+            );
+        }
     }
 }
