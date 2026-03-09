@@ -15,6 +15,11 @@ pub(crate) struct ToolFailureTracker {
 }
 
 impl ToolFailureTracker {
+    /// Create a new tracker with the given failure threshold.
+    ///
+    /// The circuit trips on the `threshold`-th occurrence of the same
+    /// (canonical tool name, error pattern) pair within a single session.
+    /// A threshold of `3` is recommended for most deployments.
     pub(crate) fn new(threshold: u32) -> Self {
         Self {
             failures: std::collections::HashMap::new(),

@@ -9,7 +9,9 @@ use super::orchestrator::OrchestratorConfig;
 /// Severity of a configuration issue.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IssueLevel {
+    /// A fatal misconfiguration that will prevent correct operation.
     Error,
+    /// A suboptimal setting that may cause unexpected behavior but is not fatal.
     Warning,
 }
 
@@ -25,9 +27,13 @@ impl fmt::Display for IssueLevel {
 /// A single configuration issue found during validation.
 #[derive(Debug, Clone)]
 pub struct ConfigIssue {
+    /// Severity of the issue.
     pub level: IssueLevel,
+    /// Dot-separated path to the offending config field (e.g. `"general.temperature"`).
     pub field: String,
+    /// Human-readable description of what is wrong.
     pub message: String,
+    /// Optional corrective action to display to the user.
     pub suggestion: Option<String>,
 }
 

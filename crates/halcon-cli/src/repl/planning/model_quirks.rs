@@ -54,10 +54,14 @@ pub struct QuirkRegistry {
 }
 
 impl QuirkRegistry {
+    /// Create an empty registry with no quirks registered.
     pub fn new() -> Self {
         Self { quirks: Vec::new() }
     }
 
+    /// Register a quirk. Quirks are evaluated in insertion order; all matching
+    /// quirks contribute their injection text, and their synthesis filters are
+    /// chained left-to-right so later registrations refine earlier ones.
     pub fn register(&mut self, quirk: Box<dyn ModelQuirk>) {
         self.quirks.push(quirk);
     }
