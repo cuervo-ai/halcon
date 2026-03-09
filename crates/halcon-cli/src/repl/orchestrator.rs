@@ -252,6 +252,7 @@ pub async fn run_orchestrator(
                     error: Some("cyclic dependency".to_string()),
                     evidence_verified: false,
                     content_read_attempts: 0,
+                    had_tools_available: false,
                 });
             }
         }
@@ -317,6 +318,7 @@ pub async fn run_orchestrator(
                         error: Some(detail),
                         evidence_verified: false,
                         content_read_attempts: 0,
+                        had_tools_available: false,
                     });
                     false
                 } else {
@@ -487,6 +489,8 @@ pub async fn run_orchestrator(
                     } else {
                         tool_registry.tool_definitions()
                     };
+                    // Capture before tool_defs is moved into ModelRequest below.
+                    let had_tools_available = !tool_defs.is_empty();
                     // FASE 3 SECURITY: Abort sub-agent when empty tool surface detected.
                     // A sub-agent with non-empty allowed_tools that resolves to 0 tool_defs
                     // means ALL requested tools are unregistered. Rather than silently falling
@@ -526,6 +530,7 @@ pub async fn run_orchestrator(
                             )),
                             evidence_verified: false,
                             content_read_attempts: 0,
+                            had_tools_available: false,
                         };
                     }
                     // Feature 4: prepend agent registry system_prompt_prefix if present.
@@ -854,6 +859,7 @@ pub async fn run_orchestrator(
                                                     error: None,
                                                     evidence_verified: retry_result.evidence_verified,
                                                     content_read_attempts: retry_result.content_read_attempts,
+                                                    had_tools_available,
                                                 };
                                             }
                                             // Retry also produced text-only → final failure
@@ -904,6 +910,7 @@ pub async fn run_orchestrator(
                             error: None,
                             evidence_verified: result.evidence_verified,
                             content_read_attempts: result.content_read_attempts,
+                            had_tools_available,
                         }},
                         Ok(Err(e)) => SubAgentResult {
                             task_id,
@@ -923,6 +930,7 @@ pub async fn run_orchestrator(
                             error: Some(format!("{e}")),
                             evidence_verified: false,
                             content_read_attempts: 0,
+                            had_tools_available,
                         },
                         Err(_) => {
                             let timeout_secs = timeout_dur.as_secs();
@@ -948,6 +956,7 @@ pub async fn run_orchestrator(
                                 )),
                                 evidence_verified: false,
                                 content_read_attempts: 0,
+                                had_tools_available,
                             }
                         },
                     }
@@ -981,7 +990,8 @@ pub async fn run_orchestrator(
             // Exception: synthesis-typed summaries are expected to have zero tools.
             let is_zero_tool_drift = result.success
                 && result.agent_result.tools_used.is_empty()
-                && !is_synthesis_summary(&result.agent_result.summary);
+                && !is_synthesis_summary(&result.agent_result.summary)
+                && result.had_tools_available;
 
             if !result.success || is_zero_tool_drift {
                 let is_timeout = result.error.as_deref()

@@ -134,7 +134,14 @@ pub struct SubAgentResult {
     /// Number of content-read tool attempts made by the sub-agent.
     #[serde(default)]
     pub content_read_attempts: usize,
+    /// Whether the sub-agent had at least one tool definition available.
+    /// False for synthetic/skipped results and empty-registry test scenarios.
+    /// Guards the zero-tool-drift detector so it does not fire on tool-less tasks.
+    #[serde(default = "default_had_tools_true")]
+    pub had_tools_available: bool,
 }
+
+fn default_had_tools_true() -> bool { true }
 
 /// Aggregated result from a complete orchestrator run.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -341,6 +348,7 @@ mod tests {
             error: None,
             evidence_verified: true,
             content_read_attempts: 1,
+            had_tools_available: true,
         };
         let json = serde_json::to_string(&result).unwrap();
         let parsed: SubAgentResult = serde_json::from_str(&json).unwrap();
@@ -392,6 +400,7 @@ mod tests {
                 error: None,
                 evidence_verified: true,
                 content_read_attempts: 2,
+                had_tools_available: true,
             },
             SubAgentResult {
                 task_id: Uuid::new_v4(),
@@ -411,6 +420,7 @@ mod tests {
                 error: Some("timeout".to_string()),
                 evidence_verified: false,
                 content_read_attempts: 0,
+                had_tools_available: true,
             },
         ];
 

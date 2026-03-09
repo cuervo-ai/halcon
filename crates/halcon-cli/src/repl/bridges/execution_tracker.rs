@@ -897,6 +897,7 @@ mod tests {
             error: None,
             evidence_verified: false,
             content_read_attempts: 0,
+            had_tools_available: true,
         };
 
         let matched = tracker.record_delegation_results(&[result], 1);
@@ -933,6 +934,7 @@ mod tests {
             error: Some("exit code 1".into()),
             evidence_verified: false,
             content_read_attempts: 0,
+            had_tools_available: true,
         };
 
         let matched = tracker.record_delegation_results(&[result], 1);
@@ -964,6 +966,7 @@ mod tests {
             error: None,
             evidence_verified: false,
             content_read_attempts: 0,
+            had_tools_available: false,
         };
 
         let matched = tracker.record_delegation_results(&[result], 1);
@@ -1009,6 +1012,7 @@ mod tests {
                 error: None,
                 evidence_verified: false,
                 content_read_attempts: 0,
+                had_tools_available: true,
             },
             halcon_core::types::SubAgentResult {
                 task_id: task_id_2,
@@ -1028,6 +1032,7 @@ mod tests {
                 error: None,
                 evidence_verified: false,
                 content_read_attempts: 0,
+                had_tools_available: true,
             },
         ];
 
@@ -1074,6 +1079,7 @@ mod tests {
             error: None,
             evidence_verified: false,
             content_read_attempts: 0,
+            had_tools_available: true,
         };
         tracker.record_delegation_results(&[result], 1);
 

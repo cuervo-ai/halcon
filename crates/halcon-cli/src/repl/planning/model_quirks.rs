@@ -262,53 +262,84 @@ pub fn try_recover_json_text_tool_call(text: &str) -> Option<RecoveredToolCall> 
         return None;
     }
 
-    // Scan for a JSON object boundary that looks like a tool call.
-    // We search for the *first* `{` and try to parse a valid JSON object from it.
-    let start = text.find('{')?;
-    let candidate = text[start..].trim();
+    // Scan every `{` position in the text until we find one that parses as a
+    // valid tool-call JSON object.  Scanning only the first `{` misses cases where
+    // reasoning text contains `{placeholder}` or `{variable}` before the actual
+    // JSON tool call (BUG-IMP2-A).
+    let mut search_offset = 0;
+    while let Some(rel) = text[search_offset..].find('{') {
+        let start = search_offset + rel;
+        let candidate = text[start..].trim();
 
-    // Find a balanced closing `}`.
-    let json_str = find_balanced_json_object(candidate)?;
+        // Find a balanced closing `}` from this position.
+        let json_str = match find_balanced_json_object(candidate) {
+            Some(s) => s,
+            None => {
+                // No balanced object from here; advance past this `{` and retry.
+                search_offset = start + 1;
+                continue;
+            }
+        };
 
-    // Parse the candidate JSON.
-    let v: serde_json::Value = serde_json::from_str(json_str).ok()?;
-    let obj = v.as_object()?;
+        // Parse the candidate JSON.
+        let v: serde_json::Value = match serde_json::from_str(json_str) {
+            Ok(v) => v,
+            Err(_) => {
+                search_offset = start + 1;
+                continue;
+            }
+        };
+        let obj = match v.as_object() {
+            Some(o) => o,
+            None => {
+                search_offset = start + 1;
+                continue;
+            }
+        };
 
-    // Extract tool name — try multiple key variants.
-    let tool_name = ["name", "tool", "function"]
-        .iter()
-        .find_map(|k| obj.get(*k).and_then(|v| v.as_str()))
-        .map(str::to_string)?;
+        // Extract tool name — try multiple key variants.
+        let tool_name = match ["name", "tool", "function"]
+            .iter()
+            .find_map(|k| obj.get(*k).and_then(|v| v.as_str()))
+            .map(str::to_string)
+        {
+            Some(n) => n,
+            None => {
+                search_offset = start + 1;
+                continue;
+            }
+        };
 
-    // Reject empty or obviously non-tool-call names.
-    if tool_name.is_empty() || tool_name.contains(' ') || tool_name.len() > 128 {
-        return None;
+        // Reject empty or obviously non-tool-call names.
+        if tool_name.is_empty() || tool_name.contains(' ') || tool_name.len() > 128 {
+            search_offset = start + 1;
+            continue;
+        }
+
+        // Extract arguments — try multiple key variants.
+        let input = ["arguments", "parameters", "args", "input", "kwargs"]
+            .iter()
+            .find_map(|k| obj.get(*k).cloned())
+            .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+
+        // `input` must be an object (not a string/number/array) to be a valid tool call.
+        if !input.is_object() && !input.is_null() {
+            search_offset = start + 1;
+            continue;
+        }
+
+        let input = if input.is_null() {
+            serde_json::Value::Object(serde_json::Map::new())
+        } else {
+            input
+        };
+
+        // Note: observability log is emitted by the caller (provider_round.rs) with
+        // richer context (strategy detection, tool_names list).  Do not double-log here.
+        return Some(RecoveredToolCall { name: tool_name, input });
     }
 
-    // Extract arguments — try multiple key variants.
-    let input = ["arguments", "parameters", "args", "input", "kwargs"]
-        .iter()
-        .find_map(|k| obj.get(*k).cloned())
-        .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
-
-    // `input` must be an object (not a string/number/array) to be a valid tool call.
-    if !input.is_object() && !input.is_null() {
-        return None;
-    }
-
-    let input = if input.is_null() {
-        serde_json::Value::Object(serde_json::Map::new())
-    } else {
-        input
-    };
-
-    tracing::info!(
-        tool_name = %tool_name,
-        recovery_format = "json_text",
-        "IMP-2: JSON text tool-call artifact recovered from reasoning model output"
-    );
-
-    Some(RecoveredToolCall { name: tool_name, input })
+    None
 }
 
 /// Find the first balanced JSON object starting at `text[0]`.

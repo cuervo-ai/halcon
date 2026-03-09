@@ -73,9 +73,18 @@ pub fn detect_repair_actions(
         // Try to extract the exact path from the error message.
         let cargo_lock_path = extract_path_from_error(error_message, ".cargo-lock")
             .unwrap_or_else(|| format!("{working_dir}/target/debug/.cargo-lock"));
-        actions.push(EnvRepairAction::RemoveCargoLock {
-            path: cargo_lock_path,
-        });
+        // SEC-IMP3-A: only act on paths within known-safe boundaries.
+        if is_path_safe(&cargo_lock_path, working_dir) {
+            actions.push(EnvRepairAction::RemoveCargoLock {
+                path: cargo_lock_path,
+            });
+        } else {
+            tracing::warn!(
+                env_repair.action = "remove_cargo_lock",
+                env_repair.path = %cargo_lock_path,
+                "env-repair: cargo lock path outside safe boundary — skipping repair"
+            );
+        }
     }
 
     // ── Missing directory ─────────────────────────────────────────────────────
@@ -86,7 +95,16 @@ pub fn detect_repair_actions(
     {
         // Extract path from "No such file or directory (os error 2) for path 'X'"
         if let Some(dir) = extract_missing_dir(error_message) {
-            actions.push(EnvRepairAction::CreateMissingDirectory { path: dir });
+            // SEC-IMP3-A: only create directories within known-safe boundaries.
+            if is_path_safe(&dir, working_dir) {
+                actions.push(EnvRepairAction::CreateMissingDirectory { path: dir });
+            } else {
+                tracing::warn!(
+                    env_repair.action = "create_directory",
+                    env_repair.path = %dir,
+                    "env-repair: missing dir path outside safe boundary — skipping repair"
+                );
+            }
         }
     }
 
@@ -100,7 +118,19 @@ pub fn detect_repair_actions(
             || (lower.contains("lock") && lower.contains("failed to open")))
     {
         if let Some(lock_path) = extract_path_from_error(error_message, ".lock") {
-            actions.push(EnvRepairAction::RemoveFileLock { path: lock_path });
+            // SEC-IMP3-A: only remove lock files within known-safe boundaries.
+            if is_path_safe(&lock_path, working_dir) {
+                actions.push(EnvRepairAction::RemoveFileLock { path: lock_path });
+            } else {
+                tracing::warn!(
+                    env_repair.action = "remove_file_lock",
+                    env_repair.path = %lock_path,
+                    "env-repair: lock path outside safe boundary — falling back to wait"
+                );
+                actions.push(EnvRepairAction::WaitForLockRelease {
+                    description: format!("{tool_name}: lock contention (path unsafe)"),
+                });
+            }
         } else {
             actions.push(EnvRepairAction::WaitForLockRelease {
                 description: format!("{tool_name}: lock contention"),
@@ -232,8 +262,8 @@ pub fn execute_repair(action: &EnvRepairAction) -> EnvRepairResult {
                 "env-repair: lock contention — relying on retry backoff"
             );
             EnvRepairResult {
-                repaired: true, // "repaired" in the sense that we acknowledged it
-                description: format!("waiting for lock to clear: {description}"),
+                repaired: false, // no filesystem action taken — relying on retry backoff
+                description: format!("acknowledged: relying on backoff for lock release — {description}"),
                 action: action.clone(),
             }
         }
@@ -254,6 +284,45 @@ pub fn run_repairs(
     }
     let results: Vec<EnvRepairResult> = actions.iter().map(execute_repair).collect();
     Some(results)
+}
+
+// ── Path safety helpers ───────────────────────────────────────────────────────
+
+/// Return true when `path` is safe to delete/create as a repair action.
+///
+/// A path is safe when it is contained within:
+/// - the working directory (project tree)
+/// - the user's Cargo home (`~/.cargo`)
+/// - the system temp directory
+///
+/// This prevents a crafted error message from causing deletions outside the
+/// expected working scope (SEC-IMP3-A path-traversal mitigation).
+fn is_path_safe(path: &str, working_dir: &str) -> bool {
+    let p = std::path::Path::new(path);
+    let wd = std::path::Path::new(working_dir);
+    // 1. Under project working dir.
+    if p.starts_with(wd) {
+        return true;
+    }
+    // 2. Under Cargo home (typically ~/.cargo).
+    if let Some(home) = dirs_home() {
+        let cargo_home = home.join(".cargo");
+        if p.starts_with(&cargo_home) {
+            return true;
+        }
+    }
+    // 3. Under /tmp or system temp dir.
+    let tmp = std::env::temp_dir();
+    if p.starts_with(&tmp) || p.starts_with("/tmp") {
+        return true;
+    }
+    false
+}
+
+/// Returns the user home directory, used for ~/.cargo path safety check.
+fn dirs_home() -> Option<std::path::PathBuf> {
+    // Use HOME env var — avoids pulling in `dirs` crate dependency.
+    std::env::var_os("HOME").map(std::path::PathBuf::from)
 }
 
 // ── Path extraction helpers ───────────────────────────────────────────────────
@@ -376,11 +445,15 @@ mod tests {
     }
 
     #[test]
-    fn wait_for_lock_release_always_reports_repaired() {
+    fn wait_for_lock_release_reports_not_repaired() {
+        // WaitForLockRelease takes no filesystem action — it relies on the
+        // retry backoff.  repaired must be false to avoid misleading callers
+        // into thinking the lock was actually cleared (BUG-IMP3-C fix).
         let action = EnvRepairAction::WaitForLockRelease {
             description: "test lock".into(),
         };
         let result = execute_repair(&action);
-        assert!(result.repaired);
+        assert!(!result.repaired);
+        assert!(result.description.contains("backoff"));
     }
 }

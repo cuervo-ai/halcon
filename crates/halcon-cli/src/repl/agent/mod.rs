@@ -1521,6 +1521,7 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
                         error: Some(format!("orchestrator failed: {err_str}")),
                         evidence_verified: false,
                         content_read_attempts: 0,
+                        had_tools_available: false,
                     })
                     .collect();
                 tracker.record_delegation_results(&failure_results, rounds);
@@ -1699,9 +1700,10 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
             // IMP-4: Dynamic tool capability detection — inject the list of
             // available tools so the planner generates steps that reference
             // real, registered tool names rather than hallucinated ones.
-            // Updated each session start (not per-round) since cached_tools is
-            // stable across rounds; the section is only added once.
-            if !sys.contains("<!-- HALCON_TOOLS_START -->") {
+            // Skipped for sub-agents: they inherit a narrowed tool surface that
+            // is already explicit in their system prompt; adding the full catalog
+            // would inflate their context window unnecessarily (BUG-IMP4-B).
+            if !is_sub_agent && !sys.contains("<!-- HALCON_TOOLS_START -->") {
                 use std::fmt::Write as FmtWrite;
                 let mut catalog = String::from("\n\n<!-- HALCON_TOOLS_START -->\n## Available Tools\n\n");
                 for tool in &cached_tools {

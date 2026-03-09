@@ -237,7 +237,7 @@ fn mutate_args_for_retry(tool_name: &str, input: &serde_json::Value) -> Option<s
             if let Some(cmd) = mutated.get_mut("command").and_then(|c| c.as_str()) {
                 let cmd_str = cmd.to_string();
                 if cmd_str.contains("cargo clippy") && !cmd_str.contains("--no-deps") {
-                    let new_cmd = cmd_str.replace("cargo clippy", "cargo clippy --no-deps");
+                    let new_cmd = cmd_str.replacen("cargo clippy", "cargo clippy --no-deps", 1);
                     mutated["command"] = serde_json::Value::String(new_cmd);
                     tracing::debug!(tool = "bash", "IMP-1: adaptive retry — added --no-deps to cargo clippy");
                     return Some(mutated);
