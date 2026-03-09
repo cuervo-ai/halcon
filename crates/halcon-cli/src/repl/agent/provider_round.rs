@@ -1190,10 +1190,18 @@ pub(super) async fn run(
     }
     if stop_reason != StopReason::ToolUse && !fsm_in_synthesizing {
         if let Some(recovered) = super::super::model_quirks::try_recover_any_tool_call(&round_text) {
+            // IMP-6 observability: distinguish recovery strategy for operator tracing.
+            let recovery_strategy = if round_text.contains("<\u{ff5c}DSML\u{ff5c}") || round_text.contains("<tool_call>") {
+                "dsml"
+            } else {
+                "json_text"
+            };
             tracing::info!(
                 round,
                 recovered_count = recovered.len(),
-                "FASE 2: recovered tool calls from alternative text format — redirecting to tool-use path"
+                tool_artifact_recovered.strategy = recovery_strategy,
+                tool_artifact_recovered.tool_names = ?recovered.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(),
+                "IMP-2/IMP-6: tool artifact recovered from text — redirecting to tool-use path"
             );
             if !state.silent {
                 render_sink.info(&format!(

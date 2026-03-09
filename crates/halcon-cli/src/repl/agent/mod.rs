@@ -1696,6 +1696,25 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
             if !sys.contains("## Tool Usage Policy") {
                 sys.push_str(TOOL_USAGE_POLICY);
             }
+            // IMP-4: Dynamic tool capability detection — inject the list of
+            // available tools so the planner generates steps that reference
+            // real, registered tool names rather than hallucinated ones.
+            // Updated each session start (not per-round) since cached_tools is
+            // stable across rounds; the section is only added once.
+            if !sys.contains("<!-- HALCON_TOOLS_START -->") {
+                use std::fmt::Write as FmtWrite;
+                let mut catalog = String::from("\n\n<!-- HALCON_TOOLS_START -->\n## Available Tools\n\n");
+                for tool in &cached_tools {
+                    let first_line = tool.description.lines().next().unwrap_or("").trim();
+                    let _ = writeln!(catalog, "- **{}**: {}", tool.name, first_line);
+                }
+                catalog.push_str("<!-- HALCON_TOOLS_END -->");
+                sys.push_str(&catalog);
+                tracing::debug!(
+                    tool_count = cached_tools.len(),
+                    "IMP-4: tool capability catalog injected into system prompt"
+                );
+            }
         }
     }
 
