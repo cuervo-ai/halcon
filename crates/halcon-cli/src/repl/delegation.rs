@@ -166,16 +166,23 @@ impl DelegationRouter {
                     // MCP search_files → remap instruction to use grep natively.
                     // search_files MCP times out on large directories; grep is reliable.
                     //
-                    // dep_check → remap to read_multiple_files.
+                    // dep_check → remap to file_read.
                     // dep_check fails 100% of the time (17s then fails, 3 consecutive sessions).
                     // Alternative: read Cargo.lock / package.json / requirements.txt directly.
-                    let effective_tool = if tool == "search_files" {
+                    //
+                    // Canonicalize the effective tool so the instruction matches the tool name
+                    // that the model sees in its available tool list (A3 in orchestrator also
+                    // canonicalizes allowed_tools). Without this, the instruction says
+                    // "Call `read_multiple_files`" but the model only sees `file_read` →
+                    // DeepSeek hallucinates directory_tree instead.
+                    let remapped_tool = if tool == "search_files" {
                         "grep"
                     } else if tool == "dep_check" {
-                        "read_multiple_files"
+                        "file_read"
                     } else {
                         tool.as_str()
                     };
+                    let effective_tool = super::plugins::tool_aliases::canonicalize(remapped_tool);
 
                     let path_hint = if effective_tool == "file_write" {
                         // Try to get path from expected_args first.
@@ -195,8 +202,8 @@ impl DelegationRouter {
                         // dep_check is unreliable — remap to reading dependency files directly.
                         // Evidence: 3/3 failures in production (sessions Mon-Key, demo-js).
                         "\nRead dependency files directly to analyze dependencies:\n\
-                         1. Use read_multiple_files to read: Cargo.lock, Cargo.toml, package.json, \
-                         package-lock.json, requirements.txt, go.mod (whichever exist).\n\
+                         1. Use file_read (or read_multiple_files) to read: Cargo.lock, Cargo.toml, \
+                         package.json, package-lock.json, requirements.txt, go.mod (whichever exist).\n\
                          2. Analyze the dependency versions and flag any outdated or suspicious packages.\n\
                          Do NOT attempt to run dep_check or any audit command.".to_string()
                     } else {
@@ -293,8 +300,10 @@ impl DelegationRouter {
         // read_multiple_files reads Cargo.lock/package.json directly with 94% success rate.
         let effective_primary = match primary_tool {
             "search_files" => "grep",
-            "dep_check" => "read_multiple_files",
-            other => other,
+            // dep_check → file_read: use canonical name so allowed_tools matches tool_defs
+            // after A3 resolution in orchestrator (canonicalize("read_multiple_files")="file_read")
+            "dep_check" => "file_read",
+            other => super::plugins::tool_aliases::canonicalize(other),
         };
 
         let mut tools = HashSet::new();
@@ -1043,6 +1052,80 @@ mod tests {
         // Only step 0 should be delegated — "null" string should be filtered out.
         assert_eq!(decisions.len(), 1, "tool_name=\"null\" must not be delegated");
         assert_eq!(decisions[0].0, 0, "only step 0 (read_multiple_files) should delegate");
+    }
+
+    /// Regression: read_multiple_files plan step must produce allowed_tools={"file_read"}
+    /// (canonical name), not {"read_multiple_files"} (alias). Without this fix, the model
+    /// instruction says "Call `read_multiple_files`" but only sees `file_read` in its tool
+    /// list → DeepSeek hallucinates directory_tree instead → P1-B retry → final failure.
+    #[test]
+    fn read_multiple_files_step_canonicalized_to_file_read() {
+        let router = DelegationRouter::new(true).with_min_confidence(0.5);
+        let plan = make_plan(vec![
+            make_step("Leer archivos clave del proyecto", Some("read_multiple_files"), 0.9),
+            make_step("Sintetizar", None, 1.0),
+        ]);
+        let decisions = router.analyze_plan(&plan);
+        let tasks = router.build_tasks(&plan, &decisions, "deepseek-chat");
+
+        assert_eq!(tasks.len(), 1);
+        let task = &tasks[0].1;
+
+        // allowed_tools must contain the canonical "file_read", NOT the alias
+        assert!(
+            task.allowed_tools.contains("file_read"),
+            "allowed_tools must contain canonical file_read, got: {:?}",
+            task.allowed_tools
+        );
+        assert!(
+            !task.allowed_tools.contains("read_multiple_files"),
+            "allowed_tools must NOT contain non-canonical alias. got: {:?}",
+            task.allowed_tools
+        );
+
+        // The instruction must reference `file_read` (the registered tool) so the model
+        // can actually find it in the available tool list
+        assert!(
+            task.instruction.contains("`file_read`"),
+            "instruction must reference `file_read` (registered canonical), got: {}",
+            task.instruction
+        );
+        assert!(
+            !task.instruction.contains("`read_multiple_files`"),
+            "instruction must NOT reference `read_multiple_files` (unregistered alias). got: {}",
+            task.instruction
+        );
+    }
+
+    /// dep_check plan step must also canonicalize to file_read (not read_multiple_files).
+    #[test]
+    fn dep_check_step_canonicalized_to_file_read() {
+        let router = DelegationRouter::new(true).with_min_confidence(0.5);
+        let plan = make_plan(vec![
+            make_step("Analizar dependencias", Some("dep_check"), 0.9),
+            make_step("Sintetizar", None, 1.0),
+        ]);
+        let decisions = router.analyze_plan(&plan);
+        let tasks = router.build_tasks(&plan, &decisions, "deepseek-chat");
+
+        assert_eq!(tasks.len(), 1);
+        let task = &tasks[0].1;
+
+        assert!(
+            task.allowed_tools.contains("file_read"),
+            "dep_check must remap to file_read in allowed_tools: {:?}",
+            task.allowed_tools
+        );
+        assert!(
+            !task.allowed_tools.contains("dep_check"),
+            "dep_check must NOT be in allowed_tools (unregistered tool): {:?}",
+            task.allowed_tools
+        );
+        assert!(
+            task.instruction.contains("`file_read`"),
+            "dep_check instruction must reference `file_read`: {}",
+            task.instruction
+        );
     }
 
     #[test]
