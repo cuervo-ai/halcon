@@ -185,6 +185,11 @@ img/*.mp4
 # Use .halcon/* (not .halcon/) so git recurses and the negation below works
 .halcon/*
 !.halcon/HALCON.md
+# Also exclude nested .halcon/ dirs generated inside crates during tests
+crates/**/.halcon/
+# Stale cuervo-* artifact directories (superseded by halcon-* crates)
+crates/cuervo-cli/
+crates/cuervo-storage/
 # HALCON.local.md — per-checkout local instructions, never committed (Feature 1)
 HALCON.local.md
 
