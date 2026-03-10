@@ -329,7 +329,7 @@ impl Default for ClassicSink {
 
 impl RenderSink for ClassicSink {
     fn stream_text(&self, text: &str) {
-        let mut r = self.renderer.lock().unwrap();
+        let mut r = self.renderer.lock().unwrap_or_else(|p| p.into_inner());
         let chunk = halcon_core::types::ModelChunk::TextDelta(text.to_string());
         let _ = r.push(&chunk);
     }
@@ -340,7 +340,7 @@ impl RenderSink for ClassicSink {
         let prev = self.thinking_chars.fetch_add(text.len(), Ordering::Relaxed);
         let total = prev + text.len();
         {
-            let mut p = self.thinking_preview.lock().unwrap();
+            let mut p = self.thinking_preview.lock().unwrap_or_else(|p| p.into_inner());
             if p.len() < 160 {
                 let room = 160 - p.len();
                 p.push_str(&text[..text.len().min(room)]);
@@ -364,7 +364,7 @@ impl RenderSink for ClassicSink {
     }
 
     fn stream_tool_marker(&self, name: &str) {
-        let mut r = self.renderer.lock().unwrap();
+        let mut r = self.renderer.lock().unwrap_or_else(|p| p.into_inner());
         let chunk = halcon_core::types::ModelChunk::ToolUseStart {
             index: 0,
             id: String::new(),
@@ -374,13 +374,13 @@ impl RenderSink for ClassicSink {
     }
 
     fn stream_done(&self) {
-        let mut r = self.renderer.lock().unwrap();
+        let mut r = self.renderer.lock().unwrap_or_else(|p| p.into_inner());
         let chunk = halcon_core::types::ModelChunk::Done(halcon_core::types::StopReason::EndTurn);
         let _ = r.push(&chunk);
     }
 
     fn stream_error(&self, msg: &str) {
-        let mut r = self.renderer.lock().unwrap();
+        let mut r = self.renderer.lock().unwrap_or_else(|p| p.into_inner());
         let chunk = halcon_core::types::ModelChunk::Error(msg.to_string());
         let _ = r.push(&chunk);
     }
@@ -399,12 +399,12 @@ impl RenderSink for ClassicSink {
 
     fn spinner_start(&self, label: &str) {
         let spinner = Spinner::start(label);
-        let mut guard = self.spinner.lock().unwrap();
+        let mut guard = self.spinner.lock().unwrap_or_else(|p| p.into_inner());
         *guard = Some(spinner);
     }
 
     fn spinner_stop(&self) {
-        let mut guard = self.spinner.lock().unwrap();
+        let mut guard = self.spinner.lock().unwrap_or_else(|p| p.into_inner());
         if let Some(ref s) = *guard {
             s.stop();
         }
@@ -414,7 +414,7 @@ impl RenderSink for ClassicSink {
         if self.had_thinking.swap(false, Ordering::Relaxed) {
             let char_count = self.thinking_chars.swap(0, Ordering::Relaxed);
             let preview = {
-                let mut p = self.thinking_preview.lock().unwrap();
+                let mut p = self.thinking_preview.lock().unwrap_or_else(|p| p.into_inner());
                 std::mem::take(&mut *p)
             };
             if self.expert {
@@ -452,12 +452,12 @@ impl RenderSink for ClassicSink {
     }
 
     fn stream_reset(&self) {
-        let mut r = self.renderer.lock().unwrap();
+        let mut r = self.renderer.lock().unwrap_or_else(|p| p.into_inner());
         *r = StreamRenderer::new();
     }
 
     fn stream_full_text(&self) -> String {
-        let r = self.renderer.lock().unwrap();
+        let r = self.renderer.lock().unwrap_or_else(|p| p.into_inner());
         r.full_text().to_string()
     }
 
@@ -813,7 +813,7 @@ impl SilentSink {
     /// Get the accumulated text.
     #[allow(dead_code)]
     pub fn text(&self) -> String {
-        self.text.lock().unwrap().clone()
+        self.text.lock().unwrap_or_else(|p| p.into_inner()).clone()
     }
 }
 
@@ -825,11 +825,11 @@ impl Default for SilentSink {
 
 impl RenderSink for SilentSink {
     fn stream_text(&self, text: &str) {
-        self.text.lock().unwrap().push_str(text);
+        self.text.lock().unwrap_or_else(|p| p.into_inner()).push_str(text);
     }
 
     fn stream_code_block(&self, _lang: &str, code: &str) {
-        self.text.lock().unwrap().push_str(code);
+        self.text.lock().unwrap_or_else(|p| p.into_inner()).push_str(code);
     }
 
     fn stream_tool_marker(&self, _name: &str) {}
@@ -849,11 +849,11 @@ impl RenderSink for SilentSink {
     }
 
     fn stream_reset(&self) {
-        self.text.lock().unwrap().clear();
+        self.text.lock().unwrap_or_else(|p| p.into_inner()).clear();
     }
 
     fn stream_full_text(&self) -> String {
-        self.text.lock().unwrap().clone()
+        self.text.lock().unwrap_or_else(|p| p.into_inner()).clone()
     }
 }
 
@@ -904,18 +904,18 @@ impl RenderSink for TuiSink {
         // Emit ThinkingComplete before first answer token (if thinking occurred).
         if self.had_thinking.swap(false, Ordering::Relaxed) {
             let char_count = {
-                let mut c = self.thinking_chars.lock().unwrap();
+                let mut c = self.thinking_chars.lock().unwrap_or_else(|p| p.into_inner());
                 let n = *c;
                 *c = 0;
                 n
             };
             let preview = {
-                let mut p = self.thinking_preview.lock().unwrap();
+                let mut p = self.thinking_preview.lock().unwrap_or_else(|p| p.into_inner());
                 std::mem::take(&mut *p)
             };
             self.send(crate::tui::events::UiEvent::ThinkingComplete { preview, char_count });
         }
-        self.text.lock().unwrap().push_str(text);
+        self.text.lock().unwrap_or_else(|p| p.into_inner()).push_str(text);
         self.send(crate::tui::events::UiEvent::StreamChunk(text.to_string()));
     }
 
@@ -924,12 +924,12 @@ impl RenderSink for TuiSink {
         self.send(crate::tui::events::UiEvent::StreamThinking(text.to_string()));
         // Also accumulate locally and emit ThinkingProgress with total char count.
         let new_count = {
-            let mut c = self.thinking_chars.lock().unwrap();
+            let mut c = self.thinking_chars.lock().unwrap_or_else(|p| p.into_inner());
             *c += text.len();
             *c
         };
         {
-            let mut p = self.thinking_preview.lock().unwrap();
+            let mut p = self.thinking_preview.lock().unwrap_or_else(|p| p.into_inner());
             if p.len() < 160 {
                 let room = 160 - p.len();
                 p.push_str(&text[..text.len().min(room)]);
@@ -940,7 +940,7 @@ impl RenderSink for TuiSink {
     }
 
     fn stream_code_block(&self, lang: &str, code: &str) {
-        self.text.lock().unwrap().push_str(code);
+        self.text.lock().unwrap_or_else(|p| p.into_inner()).push_str(code);
         self.send(crate::tui::events::UiEvent::StreamCodeBlock {
             lang: lang.to_string(),
             code: code.to_string(),
@@ -1016,11 +1016,11 @@ impl RenderSink for TuiSink {
     }
 
     fn stream_reset(&self) {
-        self.text.lock().unwrap().clear();
+        self.text.lock().unwrap_or_else(|p| p.into_inner()).clear();
     }
 
     fn stream_full_text(&self) -> String {
-        self.text.lock().unwrap().clone()
+        self.text.lock().unwrap_or_else(|p| p.into_inner()).clone()
     }
 
     fn session_started(&self, session_id: &str) {

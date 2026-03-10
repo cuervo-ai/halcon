@@ -98,10 +98,24 @@ pub enum EventPayload {
         tool: String,
         level: PermissionLevel,
     },
+    /// Generic circuit breaker transition (kept for backwards compat — prefer specific variants).
     CircuitBreakerTripped {
         provider: String,
         from_state: String,
         to_state: String,
+    },
+    /// Closed → Open: circuit breaker has tripped due to repeated failures.
+    CircuitBreakerOpened {
+        provider: String,
+        failure_count: u32,
+    },
+    /// HalfOpen → Closed: circuit breaker has fully recovered after successful probes.
+    CircuitBreakerRecovered {
+        provider: String,
+    },
+    /// Open → HalfOpen: circuit breaker is allowing a probe request.
+    CircuitBreakerHalfOpen {
+        provider: String,
     },
     HealthChanged {
         provider: String,

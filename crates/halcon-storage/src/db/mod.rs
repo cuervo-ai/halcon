@@ -71,7 +71,7 @@ impl Database {
     where
         F: FnOnce(&Connection) -> rusqlite::Result<T>,
     {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|p| { tracing::error!("db mutex poisoned — recovering"); p.into_inner() });
         f(&conn)
     }
 }

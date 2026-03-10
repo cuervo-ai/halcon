@@ -57,6 +57,9 @@ pub struct ReasoningEngine {
     config: ReasoningConfig,
     /// True after load_experience() has been called — prevents double-loading in long sessions.
     experience_loaded: bool,
+    /// P2-1 (SOTA-LEARN-001): guard against double UCB1 update within one session.
+    /// post_loop_with_reward() sets this to true; record_per_round_signals() checks it.
+    ucb1_updated_this_session: bool,
 }
 
 impl ReasoningEngine {
@@ -66,6 +69,7 @@ impl ReasoningEngine {
             selector: StrategySelector::new(config.exploration_factor),
             config,
             experience_loaded: false,
+            ucb1_updated_this_session: false,
         }
     }
 
@@ -169,6 +173,9 @@ impl ReasoningEngine {
     ) -> PostLoopEvaluation {
         let success = reward >= self.config.success_threshold;
         self.selector.update(pre_analysis.analysis.task_type, pre_analysis.strategy, reward);
+        // P2-1 (SOTA-LEARN-001): mark UCB1 as updated for this session so
+        // record_per_round_signals() does not cause a second update on the same arm.
+        self.ucb1_updated_this_session = true;
         tracing::info!(reward, success, "Reasoning post-loop (reward pipeline)");
         PostLoopEvaluation {
             success,
@@ -217,13 +224,22 @@ impl ReasoningEngine {
             score as f64 * w
         }).sum::<f64>() / total_weight.max(1e-9);
 
-        // Update UCB1 with the weighted average of per-round scores.
-        // This supplements the session-level update in post_loop_with_reward().
-        self.selector.update(
-            pre_analysis.analysis.task_type,
-            pre_analysis.strategy,
-            weighted_reward.clamp(0.0, 1.0),
-        );
+        // P2-1 (SOTA-LEARN-001): only update UCB1 if post_loop_with_reward() has NOT already
+        // updated this session. Prevents double-incrementing `uses` counter which causes
+        // premature convergence to suboptimal strategies.
+        if self.ucb1_updated_this_session {
+            tracing::debug!(
+                weighted_reward,
+                "UCB1 per-round signal skipped — session-level update already recorded"
+            );
+        } else {
+            self.selector.update(
+                pre_analysis.analysis.task_type,
+                pre_analysis.strategy,
+                weighted_reward.clamp(0.0, 1.0),
+            );
+            self.ucb1_updated_this_session = true;
+        }
         tracing::debug!(
             weighted_reward,
             "UCB1 per-round signal: weighted reward computed from {} rounds",

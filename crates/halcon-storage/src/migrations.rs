@@ -40,6 +40,7 @@ const MIGRATIONS: &[(u32, &str, &str)] = &[
     (36, "daily_user_metrics", MIGRATION_036),
     (37, "mailbox_messages", MIGRATION_037),
     (38, "scheduled_tasks", MIGRATION_038),
+    (39, "audit_integrity_indexes", MIGRATION_039),
 ];
 
 const MIGRATION_001: &str = r#"
@@ -1222,6 +1223,35 @@ CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_enabled
     ON scheduled_tasks(enabled);
 "#;
 
+const MIGRATION_039: &str = r#"
+-- M39: audit integrity indexes + reasoning_experience session tracking (P1-2, P2-2, P3-1).
+--
+-- Composite index on (session_id, id) makes audit export queries O(log n) instead of full scan.
+-- The idx_audit_log_emitted_at index supports TTL archiving queries.
+-- reasoning_experience gains session_id and is_test_data columns to allow production/test
+-- data isolation in UCB1 learning (prevents CI runs from contaminating production UCB1).
+CREATE INDEX IF NOT EXISTS idx_audit_log_session_id
+    ON audit_log(session_id, id);
+
+CREATE INDEX IF NOT EXISTS idx_audit_log_emitted_at
+    ON audit_log(timestamp);
+
+CREATE INDEX IF NOT EXISTS idx_tool_metrics_session_tool
+    ON tool_execution_metrics(session_id, tool_name);
+
+CREATE INDEX IF NOT EXISTS idx_invocation_session_model
+    ON invocation_metrics(session_id, model);
+
+-- Add session tracking to reasoning_experience for UCB1 data isolation.
+-- is_test_data=1 marks records written by test/CI runs so they can be excluded
+-- from production UCB1 queries without deleting them.
+ALTER TABLE reasoning_experience ADD COLUMN session_id TEXT;
+ALTER TABLE reasoning_experience ADD COLUMN is_test_data INTEGER NOT NULL DEFAULT 0;
+
+CREATE INDEX IF NOT EXISTS idx_reasoning_session
+    ON reasoning_experience(session_id);
+"#;
+
 /// Run all pending migrations.
 pub fn run_migrations(conn: &Connection) -> Result<(), halcon_core::error::HalconError> {
     // Ensure migrations table exists
@@ -1276,7 +1306,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(version, 38); // 36 original + 37 (mailbox_messages) + 38 (scheduled_tasks)
+        assert_eq!(version, 39); // 36 original + 37 (mailbox_messages) + 38 (scheduled_tasks) + 39 (audit_integrity_indexes)
     }
 
     #[test]
@@ -1290,7 +1320,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(count, 38); // 36 original + 37 (mailbox_messages) + 38 (scheduled_tasks)
+        assert_eq!(count, 39); // 36 original + 37 (mailbox_messages) + 38 (scheduled_tasks) + 39 (audit_integrity_indexes)
     }
 
     #[test]
@@ -1728,7 +1758,7 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(idx_count, 3, "should have 3 tool_metrics indexes");
+        assert_eq!(idx_count, 4, "should have 4 tool_metrics indexes (3 original + 1 from M39 session_tool composite)");
 
         // Verify audit_log session_id column exists.
         let has_session_col: bool = conn

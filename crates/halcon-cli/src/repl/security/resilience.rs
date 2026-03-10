@@ -190,13 +190,20 @@ impl ResilienceManager {
                     to = %transition.to,
                     "Circuit breaker state changed"
                 );
-                // Emit domain event for state recovery.
+                // Emit domain event for state recovery (P1-1: specific variant, not generic Triped).
                 if let Some(tx) = &self.event_tx {
-                    let _ = tx.send(DomainEvent::new(EventPayload::CircuitBreakerTripped {
-                        provider: provider.to_string(),
-                        from_state: transition.from.to_string(),
-                        to_state: transition.to.to_string(),
-                    }));
+                    let payload = match (&transition.from, &transition.to) {
+                        (BreakerState::HalfOpen, BreakerState::Closed) =>
+                            EventPayload::CircuitBreakerRecovered { provider: provider.to_string() },
+                        (BreakerState::Open, BreakerState::HalfOpen) =>
+                            EventPayload::CircuitBreakerHalfOpen { provider: provider.to_string() },
+                        _ => EventPayload::CircuitBreakerTripped {
+                            provider: provider.to_string(),
+                            from_state: transition.from.to_string(),
+                            to_state: transition.to.to_string(),
+                        },
+                    };
+                    let _ = tx.send(DomainEvent::new(payload));
                 }
                 self.persist_breaker_event(provider, &transition.from, &transition.to)
                     .await;
@@ -214,13 +221,22 @@ impl ResilienceManager {
                     to = %transition.to,
                     "Circuit breaker TRIPPED"
                 );
-                // Emit domain event for breaker trip.
+                // Emit domain event for breaker trip (P1-1: specific variant).
                 if let Some(tx) = &self.event_tx {
-                    let _ = tx.send(DomainEvent::new(EventPayload::CircuitBreakerTripped {
-                        provider: provider.to_string(),
-                        from_state: transition.from.to_string(),
-                        to_state: transition.to.to_string(),
-                    }));
+                    let failure_count = breaker.failure_count();
+                    let payload = match (&transition.from, &transition.to) {
+                        (BreakerState::Closed, BreakerState::Open) =>
+                            EventPayload::CircuitBreakerOpened {
+                                provider: provider.to_string(),
+                                failure_count: failure_count as u32,
+                            },
+                        _ => EventPayload::CircuitBreakerTripped {
+                            provider: provider.to_string(),
+                            from_state: transition.from.to_string(),
+                            to_state: transition.to.to_string(),
+                        },
+                    };
+                    let _ = tx.send(DomainEvent::new(payload));
                 }
                 self.persist_breaker_event(provider, &transition.from, &transition.to)
                     .await;
@@ -601,19 +617,14 @@ mod tests {
         mgr.record_failure("failing").await;
         mgr.record_failure("failing").await;
 
-        // Should have emitted a CircuitBreakerTripped event.
+        // Should have emitted a CircuitBreakerOpened event (P1-1: specific variant).
         let event = event_rx.try_recv().expect("should receive breaker event");
         match &event.payload {
-            EventPayload::CircuitBreakerTripped {
-                provider,
-                from_state,
-                to_state,
-            } => {
+            EventPayload::CircuitBreakerOpened { provider, failure_count } => {
                 assert_eq!(provider, "failing");
-                assert_eq!(from_state, "closed");
-                assert_eq!(to_state, "open");
+                assert!(*failure_count >= 3);
             }
-            other => panic!("expected CircuitBreakerTripped, got: {other:?}"),
+            other => panic!("expected CircuitBreakerOpened, got: {other:?}"),
         }
     }
 
@@ -650,18 +661,13 @@ mod tests {
         // Probe 2 success → HalfOpen → Closed.
         mgr.record_success("recovering2").await;
 
-        // Should have emitted a recovery event.
+        // Should have emitted a CircuitBreakerRecovered event (P1-1: specific variant).
         let event = event_rx.try_recv().expect("should receive recovery event");
         match &event.payload {
-            EventPayload::CircuitBreakerTripped {
-                provider,
-                to_state,
-                ..
-            } => {
+            EventPayload::CircuitBreakerRecovered { provider } => {
                 assert_eq!(provider, "recovering2");
-                assert_eq!(to_state, "closed");
             }
-            other => panic!("expected CircuitBreakerTripped recovery, got: {other:?}"),
+            other => panic!("expected CircuitBreakerRecovered, got: {other:?}"),
         }
     }
 

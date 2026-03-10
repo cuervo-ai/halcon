@@ -54,19 +54,19 @@ pub struct PluginMetricsRecord {
 impl Database {
     /// Insert or update an installed plugin record.
     pub fn save_installed_plugin(&self, plugin: &InstalledPlugin) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|p| { tracing::error!("db mutex poisoned — recovering"); p.into_inner() });
         save_installed_plugin_conn(&conn, plugin)
     }
 
     /// Load all installed plugin records.
     pub fn load_installed_plugins(&self) -> Result<Vec<InstalledPlugin>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|p| { tracing::error!("db mutex poisoned — recovering"); p.into_inner() });
         load_installed_plugins_conn(&conn)
     }
 
     /// Delete an installed plugin record by plugin_id.
     pub fn delete_installed_plugin(&self, plugin_id: &str) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|p| { tracing::error!("db mutex poisoned — recovering"); p.into_inner() });
         conn.execute(
             "DELETE FROM installed_plugins WHERE plugin_id = ?1",
             params![plugin_id],
@@ -76,13 +76,13 @@ impl Database {
 
     /// Upsert plugin metrics (UCB1 + call counts).
     pub fn save_plugin_metrics(&self, metrics: &[PluginMetricsRecord]) -> Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|p| { tracing::error!("db mutex poisoned — recovering"); p.into_inner() });
         save_plugin_metrics_conn(&conn, metrics)
     }
 
     /// Load all plugin metrics records.
     pub fn load_plugin_metrics(&self) -> Result<Vec<PluginMetricsRecord>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|p| { tracing::error!("db mutex poisoned — recovering"); p.into_inner() });
         load_plugin_metrics_conn(&conn)
     }
 
@@ -94,7 +94,7 @@ impl Database {
         &self,
         rows: &[CircuitBreakerStateRow],
     ) -> halcon_core::error::Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|p| { tracing::error!("db mutex poisoned — recovering"); p.into_inner() });
         let now = Utc::now().to_rfc3339();
         for row in rows {
             conn.execute(
@@ -126,7 +126,7 @@ impl Database {
     pub fn load_circuit_breaker_states(
         &self,
     ) -> halcon_core::error::Result<Vec<CircuitBreakerStateRow>> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn.lock().unwrap_or_else(|p| { tracing::error!("db mutex poisoned — recovering"); p.into_inner() });
         let mut stmt = conn
             .prepare(
                 "SELECT plugin_id, state, failure_count, last_failure_at

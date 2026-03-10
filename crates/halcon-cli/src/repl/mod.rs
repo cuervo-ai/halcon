@@ -2835,15 +2835,15 @@ impl Repl {
                     // Emit ReasoningStarted event.
                     let _ = self.event_tx.send(DomainEvent::new(EventPayload::ReasoningStarted {
                         query_hash: analysis.analysis.task_hash.clone(),
-                        task_type: format!("{:?}", analysis.analysis.task_type),
+                        task_type: analysis.analysis.task_type.as_str().to_string(),
                         complexity: format!("{:?}", analysis.analysis.complexity),
                     }));
 
                     // Emit StrategySelected event.
                     let _ = self.event_tx.send(DomainEvent::new(EventPayload::StrategySelected {
-                        strategy: format!("{:?}", analysis.strategy),
+                        strategy: analysis.strategy.as_str().to_string(),
                         confidence: 0.8, // Placeholder confidence
-                        task_type: format!("{:?}", analysis.analysis.task_type),
+                        task_type: analysis.analysis.task_type.as_str().to_string(),
                     }));
 
                     // Note: reasoning_status in pre-loop doesn't have score/success yet
@@ -3041,15 +3041,15 @@ impl Repl {
                             EventPayload::EvaluationCompleted {
                                 score: evaluation.score,
                                 success: evaluation.success,
-                                strategy: format!("{:?}", evaluation.strategy),
+                                strategy: evaluation.strategy.as_str().to_string(),
                             },
                         ));
 
                         // Call reasoning_status with full evaluation
                         sink.reasoning_status(
-                            &format!("{:?}", evaluation.task_type),
+                            &evaluation.task_type.as_str().to_string(),
                             &format!("{:?}", analysis.analysis.complexity),
-                            &format!("{:?}", evaluation.strategy),
+                            &evaluation.strategy.as_str().to_string(),
                             evaluation.score,
                             evaluation.success,
                         );
@@ -3057,8 +3057,8 @@ impl Repl {
                         // Emit ExperienceRecorded event.
                         let _ = self.event_tx.send(DomainEvent::new(
                             EventPayload::ExperienceRecorded {
-                                task_type: format!("{:?}", evaluation.task_type),
-                                strategy: format!("{:?}", evaluation.strategy),
+                                task_type: evaluation.task_type.as_str().to_string(),
+                                strategy: evaluation.strategy.as_str().to_string(),
                                 score: evaluation.score,
                             },
                         ));
@@ -3069,26 +3069,26 @@ impl Repl {
                         // learning data with noise, degrading future strategy selection.
                         if result.critic_unavailable {
                             tracing::debug!(
-                                task_type = %format!("{:?}", evaluation.task_type),
-                                strategy = %format!("{:?}", evaluation.strategy),
+                                task_type = %evaluation.task_type.as_str().to_string(),
+                                strategy = %evaluation.strategy.as_str().to_string(),
                                 "P1-D: Skipping UCB1 record — critic_unavailable=true, reward signal unreliable"
                             );
                         } else if let Some(ref adb) = self.async_db {
                             match adb.save_reasoning_experience(
-                                &format!("{:?}", evaluation.task_type),
-                                &format!("{:?}", evaluation.strategy),
+                                &evaluation.task_type.as_str().to_string(),
+                                &evaluation.strategy.as_str().to_string(),
                                 evaluation.score,
                             ).await {
                                 Ok(()) => tracing::debug!(
-                                    task_type = %format!("{:?}", evaluation.task_type),
-                                    strategy = %format!("{:?}", evaluation.strategy),
+                                    task_type = %evaluation.task_type.as_str().to_string(),
+                                    strategy = %evaluation.strategy.as_str().to_string(),
                                     score = evaluation.score,
                                     "P3: Reasoning experience persisted"
                                 ),
                                 Err(e) => tracing::warn!(
                                     error = %e,
-                                    task_type = %format!("{:?}", evaluation.task_type),
-                                    strategy = %format!("{:?}", evaluation.strategy),
+                                    task_type = %evaluation.task_type.as_str().to_string(),
+                                    strategy = %evaluation.strategy.as_str().to_string(),
                                     "UCB1: failed to persist reasoning experience — cross-session learning degraded"
                                 ),
                             }

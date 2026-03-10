@@ -45,6 +45,7 @@ use futures::StreamExt;
 use sha2::Digest;
 use tracing::instrument;
 
+use halcon_core::context::EXECUTION_CTX;
 use halcon_core::traits::{ExecutionPlan, ModelProvider, Planner, StepOutcome, Tool};
 use halcon_core::types::{
     AgentLimits, ChatMessage, ContentBlock, DEFAULT_CONTEXT_WINDOW_TOKENS, DomainEvent,
@@ -2489,18 +2490,27 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
         });
         let retro_dir = std::path::Path::new(working_dir).join(".halcon").join("retrospectives");
         let retro_row_str = format!("{}\n", retro_row);
+        // P0-3 (STAT-RACE-001): propagate EXECUTION_CTX into spawned task so
+        // any DomainEvent::new() calls inside carry the correct session_id.
+        let retro_exec_ctx = EXECUTION_CTX.try_with(|c| c.clone()).ok();
         tokio::spawn(async move {
-            if tokio::fs::create_dir_all(&retro_dir).await.is_ok() {
-                let retro_path = retro_dir.join("sessions.jsonl");
-                if let Ok(mut f) = tokio::fs::OpenOptions::new()
-                    .create(true)
-                    .append(true)
-                    .open(&retro_path)
-                    .await
-                {
-                    use tokio::io::AsyncWriteExt;
-                    let _ = f.write_all(retro_row_str.as_bytes()).await;
+            let do_write = async move {
+                if tokio::fs::create_dir_all(&retro_dir).await.is_ok() {
+                    let retro_path = retro_dir.join("sessions.jsonl");
+                    if let Ok(mut f) = tokio::fs::OpenOptions::new()
+                        .create(true)
+                        .append(true)
+                        .open(&retro_path)
+                        .await
+                    {
+                        use tokio::io::AsyncWriteExt;
+                        let _ = f.write_all(retro_row_str.as_bytes()).await;
+                    }
                 }
+            };
+            match retro_exec_ctx {
+                Some(ctx) => EXECUTION_CTX.scope(ctx, do_write).await,
+                None => do_write.await,
             }
         });
     }
@@ -2540,14 +2550,22 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
                 .and_then(|n| n.to_str())
                 .unwrap_or("unknown")
                 .to_string();
+            // P0-3 (STAT-RACE-001): propagate EXECUTION_CTX into spawned task.
+            let mem_exec_ctx = EXECUTION_CTX.try_with(|c| c.clone()).ok();
             tokio::spawn(async move {
-                crate::repl::auto_memory::record_session_snapshot(
-                    &result_clone,
-                    &auto_memory_user_msg,
-                    &auto_memory_working_dir,
-                    &repo_name,
-                    &auto_memory_policy,
-                );
+                let do_record = async move {
+                    crate::repl::auto_memory::record_session_snapshot(
+                        &result_clone,
+                        &auto_memory_user_msg,
+                        &auto_memory_working_dir,
+                        &repo_name,
+                        &auto_memory_policy,
+                    );
+                };
+                match mem_exec_ctx {
+                    Some(ctx) => EXECUTION_CTX.scope(ctx, do_record).await,
+                    None => do_record.await,
+                }
             });
         }
     }
@@ -2559,13 +2577,21 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
         if hook_runner.has_hooks_for(super::hooks::HookEventName::Stop) {
             let session_id_s = tool_exec_config.session_id_str.clone();
             let runner_clone = hook_runner.clone();
+            // P0-3 (STAT-RACE-001): propagate EXECUTION_CTX into spawned task.
+            let hook_exec_ctx = EXECUTION_CTX.try_with(|c| c.clone()).ok();
             tokio::spawn(async move {
-                let event = super::hooks::lifecycle_event(
-                    super::hooks::HookEventName::Stop,
-                    &session_id_s,
-                );
-                if let super::hooks::HookOutcome::Deny(reason) = runner_clone.fire(&event).await {
-                    tracing::warn!(%reason, "Stop hook denied (ignored — loop already ended)");
+                let do_hook = async move {
+                    let event = super::hooks::lifecycle_event(
+                        super::hooks::HookEventName::Stop,
+                        &session_id_s,
+                    );
+                    if let super::hooks::HookOutcome::Deny(reason) = runner_clone.fire(&event).await {
+                        tracing::warn!(%reason, "Stop hook denied (ignored — loop already ended)");
+                    }
+                };
+                match hook_exec_ctx {
+                    Some(ctx) => EXECUTION_CTX.scope(ctx, do_hook).await,
+                    None => do_hook.await,
                 }
             });
         }
