@@ -105,6 +105,8 @@ impl ReasoningEngine {
             complexity: profile.complexity,
             task_hash: profile.task_hash.clone(),
             word_count: profile.word_count,
+            confidence: 1.0,
+            signals: vec![],
         };
 
         let strategy = self.selector.select(&analysis);
