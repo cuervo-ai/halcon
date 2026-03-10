@@ -5,16 +5,31 @@ use uuid::Uuid;
 use super::agent::{AgentResult, AgentType};
 use super::model::TokenUsage;
 use super::tool::PermissionLevel;
+use crate::context::{current_session_id, current_span_id, current_trace_id, SpanId, TraceId};
 
 /// Domain events emitted throughout the system.
 ///
 /// Subscribers receive these via `tokio::sync::broadcast` channel.
 /// Used for: logging, audit trail, UI updates, metrics.
+///
+/// `session_id`, `trace_id`, and `span_id` are automatically injected
+/// from task-local `EXECUTION_CTX` when `DomainEvent::new()` is called
+/// inside a `EXECUTION_CTX.scope(...)` block. Outside a scope they are
+/// `None`/default (backward-compatible — no callsite changes required).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DomainEvent {
     pub id: Uuid,
     pub timestamp: DateTime<Utc>,
     pub payload: EventPayload,
+    /// Session that produced this event — auto-injected from task-local EXECUTION_CTX.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<Uuid>,
+    /// W3C Trace-Context trace identifier (128-bit hex).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_id: Option<TraceId>,
+    /// W3C Trace-Context span identifier (64-bit hex).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_id: Option<SpanId>,
 }
 
 impl DomainEvent {
@@ -23,6 +38,10 @@ impl DomainEvent {
             id: Uuid::new_v4(),
             timestamp: Utc::now(),
             payload,
+            // Auto-inject from task-local context (None when called outside a scope).
+            session_id: current_session_id(),
+            trace_id: current_trace_id(),
+            span_id: current_span_id(),
         }
     }
 }

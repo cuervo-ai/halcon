@@ -1231,6 +1231,20 @@ pub async fn execute_sequential_tool(
             tool: tool_call.name.clone(),
             level: perm_level,
         }));
+        // P0-B: Persist policy decision to policy_decisions table (was never called before).
+        if let Some(db) = trace_db {
+            let context_id = uuid::Uuid::new_v4();
+            let _ = db
+                .save_policy_decision(
+                    &session_id,
+                    &context_id,
+                    &tool_call.name,
+                    "denied",
+                    None,
+                    None,
+                )
+                .await;
+        }
         render_sink.tool_denied(&tool_call.name);
         return ToolExecResult {
             tool_use_id: tool_call.id.clone(),
@@ -1258,6 +1272,20 @@ pub async fn execute_sequential_tool(
             tool: tool_call.name.clone(),
             level: perm_level,
         }));
+        // P0-B: Persist granted permission to policy_decisions table.
+        if let Some(db) = trace_db {
+            let context_id = uuid::Uuid::new_v4();
+            let _ = db
+                .save_policy_decision(
+                    &session_id,
+                    &context_id,
+                    &tool_call.name,
+                    "granted",
+                    None,
+                    None,
+                )
+                .await;
+        }
     }
 
     // --- Sudo Password Injection (TUI mode only) ---

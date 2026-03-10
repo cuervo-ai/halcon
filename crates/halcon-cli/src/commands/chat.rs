@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::Result;
+use halcon_core::context::{ExecutionContext, EXECUTION_CTX};
 use halcon_storage::Database;
 use uuid::Uuid;
 
@@ -153,8 +154,11 @@ pub async fn run(
     let provider = provider.as_str();
     let model = model.as_str();
 
-    // Instantiate the domain event bus for observability.
-    let (event_tx, event_rx) = halcon_core::event_bus(256);
+    // P0-A: Generate session_id early so it propagates via EXECUTION_CTX into every DomainEvent.
+    let session_id = Uuid::new_v4();
+
+    // P0-C: 4096-slot channel (was 256) — prevents silent overflow at ~9k events/session.
+    let (event_tx, event_rx) = halcon_core::event_bus(4096);
 
     // Open database (non-fatal if it fails).
     let db_path = config
@@ -173,15 +177,21 @@ pub async fn run(
         }
     };
 
-    // P2 FIX: Spawn audit subscriber task to persist domain events to audit_log.
-    // The task lives as long as event_tx (dropped when REPL exits), then exits cleanly.
+    // P0-A + P2 FIX: Spawn audit subscriber — reads session_id from each event
+    // (auto-injected via EXECUTION_CTX) and calls append_audit_event_with_session.
+    // This closes the session_id=NULL bug in audit_log (9,897 orphaned rows).
     let _audit_task = if config.security.audit_enabled {
         if let Some(ref db_arc) = db {
             let db_clone = Arc::clone(db_arc);
             let mut audit_rx = event_rx;
             Some(tokio::spawn(async move {
                 while let Ok(event) = audit_rx.recv().await {
-                    let _ = db_clone.append_audit_event(&event);
+                    // Use session_id embedded in the event (set by EXECUTION_CTX.scope).
+                    let sid_str = event.session_id.map(|u| u.to_string());
+                    let _ = db_clone.append_audit_event_with_session(
+                        &event,
+                        sid_str.as_deref(),
+                    );
                 }
             }))
         } else {
@@ -262,6 +272,10 @@ pub async fn run(
         None
     };
 
+    // P0-A: Establish execution context so all DomainEvent::new() calls inside this scope
+    // automatically carry session_id, trace_id, and span_id — no callsite changes needed.
+    let exec_ctx = ExecutionContext::new(session_id);
+
     let mut repl = Repl::new(
         &config,
         provider.to_string(),
@@ -309,36 +323,43 @@ pub async fn run(
         }
     }
 
-    match prompt {
-        Some(p) => {
-            // Single prompt with full agent loop (tools, context, resilience).
-            repl.run_single_prompt(&p).await?;
-        }
-        None => {
-            #[cfg(feature = "tui")]
-            if tui {
-                repl.run_tui().await?;
-                // --metrics/--timeline handled below.
-                print_exit_hooks(&repl, &flags);
-                return Ok(());
+    // P0-A: Execute the REPL inside the EXECUTION_CTX scope so that every
+    // DomainEvent::new() call (in executor, orchestrator, etc.) auto-injects
+    // session_id, trace_id, and span_id — fixing session_id=NULL in audit_log.
+    EXECUTION_CTX
+        .scope(exec_ctx, async move {
+            match prompt {
+                Some(p) => {
+                    // Single prompt with full agent loop (tools, context, resilience).
+                    repl.run_single_prompt(&p).await?;
+                }
+                None => {
+                    #[cfg(feature = "tui")]
+                    if tui {
+                        repl.run_tui().await?;
+                        // --metrics/--timeline handled below.
+                        print_exit_hooks(&repl, &flags);
+                        return Ok(());
+                    }
+
+                    #[cfg(not(feature = "tui"))]
+                    if tui {
+                        feedback::user_warning(
+                            "TUI mode requires --features tui at compile time",
+                            Some("Falling back to classic REPL"),
+                        );
+                    }
+
+                    repl.run().await?;
+                }
             }
 
-            #[cfg(not(feature = "tui"))]
-            if tui {
-                feedback::user_warning(
-                    "TUI mode requires --features tui at compile time",
-                    Some("Falling back to classic REPL"),
-                );
-            }
+            // Post-run exit hooks.
+            print_exit_hooks(&repl, &flags);
 
-            repl.run().await?;
-        }
-    }
-
-    // Post-run exit hooks.
-    print_exit_hooks(&repl, &flags);
-
-    Ok(())
+            Ok(())
+        })
+        .await
 }
 
 /// Print --metrics summary and --timeline JSON on exit.
