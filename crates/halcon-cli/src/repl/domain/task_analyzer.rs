@@ -668,6 +668,62 @@ impl TaskAnalyzer {
     }
 }
 
+// ─── P4-2: Classifier trait interface ─────────────────────────────────────────
+//
+// Stable interface allowing the classifier backend to be swapped in future
+// (e.g., LLM-based one-shot classification) without changing call sites.
+// The current SMRC `KeywordClassifier` implements this trait.
+
+/// Result of classifying a natural-language query.
+#[derive(Debug, Clone)]
+pub struct ClassificationResult {
+    pub task_type: TaskType,
+    pub confidence: f32,
+    pub complexity: TaskComplexity,
+    pub task_hash: String,
+    pub word_count: usize,
+    pub method: ClassificationMethod,
+}
+
+/// Which backend produced the classification.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ClassificationMethod {
+    /// SOTA 2026 Scored Multi-Rule Classifier (current implementation).
+    KeywordSMRC,
+    /// Reserved for future LLM-based one-shot classification.
+    #[allow(dead_code)]
+    LlmOneShot,
+    /// Reserved for LLM with keyword fallback when confidence < threshold.
+    #[allow(dead_code)]
+    LlmWithKeywordFallback { llm_confidence: u8 },
+}
+
+/// Classify a query into a `TaskType` with confidence and complexity.
+///
+/// This trait is the stable call surface — backends (keyword, LLM) implement it.
+/// Call sites depend on this trait, not on concrete classifier types, enabling
+/// zero-callsite migration to LLM-based classification when ready.
+pub trait IntentClassifier {
+    fn classify(&self, query: &str) -> ClassificationResult;
+}
+
+/// Current production backend: keyword-based SMRC classifier.
+pub struct KeywordClassifier;
+
+impl IntentClassifier for KeywordClassifier {
+    fn classify(&self, query: &str) -> ClassificationResult {
+        let analysis = TaskAnalyzer::analyze(query);
+        ClassificationResult {
+            task_type: analysis.task_type,
+            confidence: analysis.confidence,
+            complexity: analysis.complexity,
+            task_hash: analysis.task_hash,
+            word_count: analysis.word_count,
+            method: ClassificationMethod::KeywordSMRC,
+        }
+    }
+}
+
 // ─── Tests ────────────────────────────────────────────────────────────────────
 
 #[cfg(test)]

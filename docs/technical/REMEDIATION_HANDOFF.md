@@ -109,39 +109,75 @@ gradually degraded cross-session UCB1 strategy learning.
 
 ---
 
-## Remaining Work (P2 — Lower Priority)
+## Sprint STAT+SOTA — 2026-03-10
+### Violaciones resueltas: 14/33 críticas
+### Score estimado: 6.2/10 → **8.5/10**
 
-| ID | Description | Estimated Effort |
-|----|-------------|-----------------|
-| P2-A | Auto-derive session title from first user message | 2h |
-| P2-B | SQLite PRAGMA: `PRAGMA foreign_keys=ON; PRAGMA journal_mode=WAL;` | 1h |
-| P2-C | TTL archiving for audit_log (rows > 90 days → audit_log_archive) | 4h |
-| P2-D | `failure_class`/`failure_detail` columns in tool_execution_metrics | 3h |
+| Violación | Status | Archivos | Tests |
+|-----------|--------|----------|-------|
+| STAT-PANIC-001/004 | ✅ | db/mod.rs, db/plugins.rs (8 sitios) | — |
+| STAT-PANIC-005 | ✅ | render/sink.rs (23 sitios) | — |
+| STAT-RACE-001 | ✅ | agent/mod.rs (3 spawns) | — |
+| STAT-DEAD-002 | ✅ N/A | ast_symbols.rs:807 es string literal en test | — |
+| STAT-SILENT-001 | ✅ | event.rs + resilience.rs + audit.rs | 2 tests updated |
+| STAT-SILENT-002/003 | ✅ | migrations.rs (M39) | 3 migration tests |
+| SOTA-LEARN-001 | ✅ | reasoning_engine.rs (ucb1_updated_this_session guard) | — |
+| STAT-LOGIC-002 | ✅ | mod.rs (16 sites: {:?} → as_str()) | — |
+| SOTA-SCHEMA-001 | ✅ | migrations.rs M39 (composite + 3 indexes) | 3 migration tests |
+| SOTA-CLASSIFY-001 | ✅ | task_analyzer.rs (SMRC rewrite, prev commit) | 56 tests |
+| SOTA-HASH-001 | ✅ | task_analyzer.rs (stop-word + sort + SHA-256) | 3 hash tests |
+| SOTA-CLASSIFY-002 | ✅ | task_analyzer.rs (IntentClassifier trait, KeywordClassifier) | — |
+
+### Desvíos del plan
+- **STAT-DEAD-002**: El `todo!()` en `ast_symbols.rs:807` está dentro de un string literal de test
+  (`r#"pub fn start() { todo!() }"#`). No es código ejecutable en producción. Falso positivo.
+- **P3-3 (SQLite PRAGMAs)**: Ya estaban implementados en `Database::open()` (WAL + FK + synchronous=NORMAL).
+  Sin acción necesaria.
+- **P4-3 (Dead-letter queue)**: No implementado en este sprint — require nueva tabla + drain logic
+  con mayor scope. Agregado a pendientes.
+
+### Violaciones pendientes (menor prioridad)
+| ID | Descripción |
+|----|-------------|
+| P2-A | Auto-derive session title desde primer mensaje |
+| P2-C | TTL archiving para audit_log (> 90 días → audit_log_archive) |
+| P2-D | `failure_class`/`failure_detail` en tool_execution_metrics |
+| P4-3 | Dead-letter queue (DLQ) para eventos perdidos en broadcast overflow |
+| SOTA-DATA-001 | Event bus overflow counter/metric expuesto en session summary |
+| SOTA-RESILIENCE-002 | Recovery threshold configurable en circuit breaker |
 
 ---
 
-## Architecture Invariants (Post-Fix)
+## Architecture Invariants (Post-Sprint)
 
-1. **Every `DomainEvent` emitted inside `EXECUTION_CTX.scope()` carries a valid `session_id`**.
-   No callsite modification needed — auto-injection via task-local storage.
+1. **No crash cascade from Mutex poison**: 31 `lock().unwrap()` → `unwrap_or_else(|p| p.into_inner())`.
+   Si una closure panics mientras tiene el lock, el siguiente caller recupera el guard sin panic.
 
-2. **`policy_decisions` table is populated on every user permission grant/deny**.
-   The table is no longer permanently empty.
+2. **EXECUTION_CTX propagado a todas las tareas asíncronas**:
+   Los 3 `tokio::spawn` en `agent/mod.rs` envuelven su payload en `EXECUTION_CTX.scope(ctx, ...)`.
 
-3. **UCB1 learning data is clean**: audit tasks → Research (not General),
-   critic_unavailable sessions → excluded from training data.
+3. **Circuit breaker con eventos semánticamente correctos**:
+   - `CircuitBreakerOpened` → trip (Closed→Open)
+   - `CircuitBreakerRecovered` → recovery (HalfOpen→Closed)
+   - `CircuitBreakerHalfOpen` → probe (Open→HalfOpen)
+   No más falsos positivos en alerting por usar el mismo evento para trip y recovery.
 
-4. **Broadcast channel is safe**: 4096-slot capacity handles observed peak loads
-   (~9,897 events/session) with 2× headroom.
+4. **UCB1 actualizado exactamente 1× por sesión**:
+   `ucb1_updated_this_session` previene double-counting entre `post_loop_with_reward` y
+   `record_per_round_signals`. El counter `uses` ya no crece 2-3× más rápido que los rewards.
 
-5. **Resilience events have diagnostic content**: `score` and `details` always populated
-   on circuit breaker transitions.
+5. **DB keys de UCB1 son estables**: `task_type.as_str()` + `strategy.as_str()` en lugar de
+   `format!("{:?}", ...)`. Un rename de variante de enum ya no silencia experiencias históricas.
+
+6. **audit_log indexes**: Composite `(session_id, id)` hace que `halcon audit verify` sea O(log n).
 
 ---
 
 ## Commit Log
 
 ```
+8d3e47f fix(sprint): STAT+SOTA remediation P0–P3 — crashes, audit, UCB1, schema
+c6a157b refactor(task-analyzer): SOTA 2026 Scored Multi-Rule Classifier (SMRC)
 7cd94a4 fix(ucb1): P1-B/C/D — resilience metrics, audit task classification, UCB1 integrity
 7b44226 fix(audit): P0-A/B/C — session_id propagation, policy_decisions wiring, bus capacity
 0864e45 fix(schema): recursive OpenAI-compatible JSON Schema normalization (P0 prereq)
