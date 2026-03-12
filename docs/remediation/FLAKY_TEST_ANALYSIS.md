@@ -11,10 +11,14 @@
 | Confirmed flaky (OnceLock race) | 1 | 0 ✅ |
 | Confirmed wrong (WS URL) | 2 | 0 ✅ |
 | Confirmed broken (doctests) | 8 | 0 ✅ |
-| Legitimately ignored | 31 | 31 (unchanged) |
-| Timing-dependent (monitored) | 1 | 1 (see below) |
+| Legitimately ignored | 31 | 34 (3 added: mock-claude binary tests) |
+| Timing-dependent (monitored) | 1 | 4 (3 animation + 1 hook timeout) |
 
 **Total tests fixed in Phase 1**: 11 (ratatui + ws_url + 8 doctests)
+
+> **Post-commit scan update** (2026-03-12): Background deep-scan found 3 additional ignored
+> tests in `halcon-providers/tests/claude_code_integration.rs` (require `mock-claude` binary)
+> and 3 more timing-sensitive animation tests in `tui/app/tests.rs`. All documented below.
 
 ---
 
@@ -81,21 +85,43 @@ Several doc comments had:
 
 ---
 
-## Monitored: Timing-Sensitive Test
+## Monitored: Timing-Sensitive Tests
+
+Post-commit deep scan (background agent, 2026-03-12) identified the following
+timing-sensitive tests. All currently pass but warrant monitoring under CI load.
+
+### MONITOR-1: Cron scheduling sub-millisecond race
 
 **File**: `crates/halcon-cli/src/repl/agent/agent_scheduler.rs:340`
 **Test**: `test_is_not_due_just_ran`
+**Risk**: Sub-millisecond race — `Utc::now()` captured before `is_due()` call.
+**Mitigation**: Pure in-memory logic; add 1-second `last_run` offset if it fails >1/100 runs.
 
-**Status**: Currently stable (passes in all 3 isolated runs), was reported flaky in
-prior session when run under high load with all tests in parallel.
+### MONITOR-2: TUI animation timing (3 tests)
 
-**Analysis**: Test asserts that a cron job is "not due" immediately after running
-by checking `is_due("* * * * *", Some(last_run), now)`. The `now` is `Utc::now()`
-captured BEFORE calling `is_due`. Risk: sub-millisecond race if `is_due` is very slow.
+**File**: `crates/halcon-cli/src/tui/app/tests.rs:1450,1458,1466,1479`
+**Tests**: `expansion_animation_reaches_target`, `collapse_animation_reaches_zero`,
+`expansion_animation_progresses_midway`, `cancel_mid_animation_reverses_direction`
+**Risk**: Use `thread::sleep(50ms–210ms)` with hardcoded completion assertions.
+Will fail on slow CI runners or under high system load.
+**Mitigation**: Currently stable on local macOS. Monitor CI wall-time; if flaky,
+replace `thread::sleep` with time injection via a `MockClock` trait.
 
-**Mitigation**: Test uses in-memory logic only (no I/O). No action required for now.
-**Action**: Monitor in CI — if it fails more than 1/100 runs, add a 1-second artificial
-`last_run` offset to eliminate the race window entirely.
+### MONITOR-3: Instruction store hot-reload (filesystem + timing)
+
+**File**: `crates/halcon-cli/src/repl/instruction_store/tests.rs:322`
+**Test**: `hot_reload_detects_change_within_600ms`
+**Risk**: Polls filesystem with 1200ms timeout, 150ms sleep intervals.
+Depends on OS filesystem notification latency; may be slow on network filesystems.
+**Mitigation**: Uses `TempDir` (local disk). No action unless CI runs on NFS mounts.
+
+### MONITOR-4: Hook timeout assertion (50ms margin)
+
+**File**: `crates/halcon-cli/src/repl/hooks/tests.rs:158`
+**Test**: `command_hook_timeout_warns_not_denies`
+**Risk**: 50ms `tokio::time::timeout` with `sleep 10` shell command.
+50ms is a tight margin on heavily loaded CI runners.
+**Mitigation**: If flaky, increase timeout to 500ms; behavior is not time-sensitive.
 
 ---
 
@@ -154,6 +180,19 @@ halcon-runtime (8 tests)
 ```
 **Reason**: Require specific runtime environment configuration.
 **Recommendation**: Document required setup and run in dedicated test environment.
+
+### Claude Code Integration Tests (3) — Require mock-claude binary
+
+> Added by post-commit deep scan, 2026-03-12
+
+```
+halcon-providers::tests::claude_code_integration::integration_invoke_returns_text
+halcon-providers::tests::claude_code_integration::integration_invoke_emits_done_last
+halcon-providers::tests::claude_code_integration::integration_invoke_emits_usage
+```
+**Reason**: Require a `mock-claude` test binary that must be built separately:
+`cargo build --bin mock-claude -p halcon-providers`
+**Recommendation**: Add to CI as a two-step job: build mock binary → run integration tests.
 
 ---
 
