@@ -383,26 +383,26 @@ fn print_exit_hooks(repl: &Repl, flags: &FeatureFlags) {
         let latency = s.total_latency_ms as f64 / 1000.0;
         let session_id = s.id;
 
-        // Auto-save trace to ~/.halcon/sessions/<session_id>.jsonl for resume
-        let trace_path = dirs::home_dir()
-            .map(|h| h.join(".halcon").join("sessions").join(format!("{session_id}.jsonl")));
+        // Auto-save trace to ~/.halcon/sessions/<session_id>.jsonl (only when a plan ran)
+        let trace_path = if repl.last_timeline_json().is_some() {
+            let tp = dirs::home_dir()
+                .map(|h| h.join(".halcon").join("sessions").join(format!("{session_id}.jsonl")));
+            if let Some(ref tp) = tp {
+                let _ = std::fs::create_dir_all(tp.parent().unwrap());
+                write_trace_jsonl(repl, tp);
+            }
+            tp
+        } else {
+            None
+        };
 
-        if let Some(ref tp) = trace_path {
-            let _ = std::fs::create_dir_all(tp.parent().unwrap());
-            write_trace_jsonl(repl, tp);
-        }
-
-        // Resolve resume command from the session's provider/model
+        // Resolve resume command — uses --resume <session_id> which loads full
+        // conversation history from the DB (not --trace-in which only shows the plan).
         let provider = &repl.provider;
         let model = &repl.model;
-        let resume_cmd = if let Some(ref tp) = trace_path {
-            format!(
-                "halcon -p {provider} -m {model} chat --tui --full --expert --trace-in {}",
-                tp.display()
-            )
-        } else {
-            format!("halcon -p {provider} -m {model} chat --tui --full --expert")
-        };
+        let resume_cmd = format!(
+            "halcon -p {provider} -m {model} chat --tui --full --expert --resume {session_id}"
+        );
 
         // ── Exit card ────────────────────────────────────────────────────────
         eprintln!();
@@ -610,11 +610,16 @@ fn write_trace_jsonl(repl: &Repl, path: &std::path::Path) {
 
     let mut lines: Vec<String> = Vec::new();
 
-    // Header line — strip "steps" array, keep metadata.
+    // Header line — strip "steps" array, keep metadata + inject session_id.
     let mut header = timeline.clone();
     if let Some(obj) = header.as_object_mut() {
         obj.remove("steps");
         obj.insert("type".into(), serde_json::json!("header"));
+        // Inject session_id so --resume can load the full conversation from DB.
+        obj.insert(
+            "session_id".into(),
+            serde_json::json!(repl.session.id.to_string()),
+        );
     }
     match serde_json::to_string(&header) {
         Ok(s) => lines.push(s),
