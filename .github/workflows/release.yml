@@ -100,33 +100,12 @@ jobs:
             archive: tar.gz
             features: headless,vendored-openssl
 
-          # Linux ARM64
+          # Linux ARM64 glibc
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             use-cross: true
             archive: tar.gz
             features: headless,vendored-openssl
-
-          # macOS Intel (cross-compiled from ARM64 runner — macos-13 deprecated)
-          - os: macos-latest
-            target: x86_64-apple-darwin
-            use-cross: false
-            archive: tar.gz
-            features: tui,vendored-openssl
-
-          # macOS Apple Silicon
-          - os: macos-latest
-            target: aarch64-apple-darwin
-            use-cross: false
-            archive: tar.gz
-            features: tui,vendored-openssl
-
-          # Windows x86_64
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            use-cross: false
-            archive: zip
-            features: ""
 
           # Linux ARM64 musl (for Alpine/Docker)
           - os: ubuntu-latest
@@ -134,6 +113,24 @@ jobs:
             use-cross: true
             archive: tar.gz
             features: vendored-openssl
+
+          # macOS — single runner builds BOTH targets (ARM64 native + Intel cross)
+          # macos-latest is ARM64 (M-series); x86_64 cross-compile is fully supported
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            use-cross: false
+            archive: tar.gz
+            features: tui,vendored-openssl
+            extra-target: x86_64-apple-darwin
+
+          # Windows x86_64 — cross-compiled via cargo-zigbuild on ubuntu
+          # Produces x86_64-pc-windows-gnu binary (no MSVC runtime dep, works on Win10+)
+          - os: ubuntu-latest
+            target: x86_64-pc-windows-gnu
+            use-cross: false
+            use-zigbuild: true
+            archive: zip
+            features: headless,vendored-openssl
 
     steps:
       - uses: actions/checkout@v4
@@ -168,11 +165,21 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: >-
+            ${{ matrix.target }}
+            ${{ matrix.extra-target || '' }}
 
       - name: Install cross
         if: matrix.use-cross == true
         run: cargo install cross --git https://github.com/cross-rs/cross --locked
+
+      - name: Install cargo-zigbuild + zig (Windows cross from Linux)
+        if: matrix.use-zigbuild == true
+        run: |
+          pip install ziglang --quiet
+          cargo install cargo-zigbuild --locked
+          # mingw-w64 for gnu target linking
+          sudo apt-get install -y gcc-mingw-w64-x86-64 --no-install-recommends -q
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -185,18 +192,13 @@ jobs:
           echo "HALCON_BUILD_DATE=$(date -u +%Y-%m-%d)" >> $GITHUB_ENV
           echo "HALCON_TARGET=${{ matrix.target }}" >> $GITHUB_ENV
 
-      - name: Build (cross)
+      - name: Build (cross — Linux targets)
         if: matrix.use-cross == true
         shell: bash
         env:
-          # ORT: musl has no prebuilt ONNX Runtime → compile from source inside cross container
-          # GNU: use prebuilt binaries (faster)
           ORT_STRATEGY: ${{ contains(matrix.target, 'musl') && 'compile' || 'download' }}
           LIBGIT2_SYS_USE_PKG_CONFIG: "0"
           LIBGIT2_STATIC: "1"
-          # zstd: do NOT set ZSTD_SYS_USE_PKG_CONFIG — zstd-sys treats any value (incl. "0")
-          # as "use pkg-config" (is_ok() check). Leaving it unset → compile from source,
-          # which works in all cross containers since cmake is installed via pre-build.
         run: |
           FEATURES="${{ matrix.features }}"
           if [ -n "$FEATURES" ]; then
@@ -207,8 +209,8 @@ jobs:
               --no-default-features -p halcon-cli
           fi
 
-      - name: Build (cargo)
-        if: matrix.use-cross == false
+      - name: Build (zigbuild — Windows cross from Linux)
+        if: matrix.use-zigbuild == true
         shell: bash
         env:
           ORT_STRATEGY: download
@@ -217,68 +219,122 @@ jobs:
         run: |
           FEATURES="${{ matrix.features }}"
           if [ -n "$FEATURES" ]; then
+            cargo zigbuild --release --target ${{ matrix.target }} \
+              --no-default-features --features "$FEATURES" -p halcon-cli
+          else
+            cargo zigbuild --release --target ${{ matrix.target }} \
+              --no-default-features -p halcon-cli
+          fi
+
+      - name: Build (cargo — macOS, builds both targets)
+        if: matrix.use-cross == false && matrix.use-zigbuild != true
+        shell: bash
+        env:
+          ORT_STRATEGY: download
+          LIBGIT2_SYS_USE_PKG_CONFIG: "0"
+          LIBGIT2_STATIC: "1"
+        run: |
+          FEATURES="${{ matrix.features }}"
+          # Primary target
+          if [ -n "$FEATURES" ]; then
             cargo build --release --target ${{ matrix.target }} \
               --no-default-features --features "$FEATURES" -p halcon-cli
           else
             cargo build --release --target ${{ matrix.target }} \
               --no-default-features -p halcon-cli
           fi
+          # Extra target (macOS: build x86_64 on the same ARM64 runner)
+          EXTRA="${{ matrix.extra-target }}"
+          if [ -n "$EXTRA" ]; then
+            if [ -n "$FEATURES" ]; then
+              cargo build --release --target "$EXTRA" \
+                --no-default-features --features "$FEATURES" -p halcon-cli
+            else
+              cargo build --release --target "$EXTRA" \
+                --no-default-features -p halcon-cli
+            fi
+          fi
 
-      - name: Package (Unix)
+      - name: Package (Unix — tar.gz, includes extra-target if present)
         if: matrix.archive == 'tar.gz'
+        shell: bash
+        run: |
+          VERSION="${{ needs.preflight.outputs.version_bare }}"
+          package_target() {
+            local T="$1"
+            local ARTIFACT="halcon-${VERSION}-${T}"
+            local BIN="target/${T}/release/halcon"
+            mkdir -p "artifacts/${ARTIFACT}"
+            cp "$BIN" "artifacts/${ARTIFACT}/halcon"
+            cp README.md "artifacts/${ARTIFACT}/" 2>/dev/null || true
+            cp LICENSE   "artifacts/${ARTIFACT}/" 2>/dev/null || true
+            tar czf "${ARTIFACT}.tar.gz" -C artifacts "${ARTIFACT}"
+            if command -v sha256sum &>/dev/null; then
+              sha256sum "${ARTIFACT}.tar.gz" | awk '{print $1}' > "${ARTIFACT}.tar.gz.sha256"
+            else
+              shasum -a 256 "${ARTIFACT}.tar.gz" | awk '{print $1}' > "${ARTIFACT}.tar.gz.sha256"
+            fi
+            echo "Packaged: ${ARTIFACT}.tar.gz"
+          }
+
+          package_target "${{ matrix.target }}"
+          EXTRA="${{ matrix.extra-target }}"
+          if [ -n "$EXTRA" ]; then
+            package_target "$EXTRA"
+          fi
+
+          # Set primary artifact env vars for the upload step
+          TARGET="${{ matrix.target }}"
+          ARTIFACT="halcon-${VERSION}-${TARGET}"
+          echo "ARTIFACT_ARCHIVE=${ARTIFACT}.tar.gz" >> $GITHUB_ENV
+          echo "ARTIFACT_SHA256=${ARTIFACT}.tar.gz.sha256" >> $GITHUB_ENV
+          # Signal extra artifact to upload step
+          if [ -n "$EXTRA" ]; then
+            echo "EXTRA_ARTIFACT=halcon-${VERSION}-${EXTRA}.tar.gz" >> $GITHUB_ENV
+            echo "EXTRA_SHA256=halcon-${VERSION}-${EXTRA}.tar.gz.sha256" >> $GITHUB_ENV
+          fi
+
+      - name: Package (Windows zip — cross-compiled gnu on Linux)
+        if: matrix.archive == 'zip'
         shell: bash
         run: |
           VERSION="${{ needs.preflight.outputs.version_bare }}"
           TARGET="${{ matrix.target }}"
           ARTIFACT="halcon-${VERSION}-${TARGET}"
-          BIN="target/${TARGET}/release/halcon"
+          # zigbuild on Linux produces .exe even for gnu target
+          BIN="target/${TARGET}/release/halcon.exe"
+          [ -f "$BIN" ] || BIN="target/${TARGET}/release/halcon"
 
           mkdir -p "artifacts/${ARTIFACT}"
-          cp "$BIN" "artifacts/${ARTIFACT}/halcon"
+          cp "$BIN" "artifacts/${ARTIFACT}/halcon.exe"
           cp README.md "artifacts/${ARTIFACT}/" 2>/dev/null || true
-          cp LICENSE "artifacts/${ARTIFACT}/" 2>/dev/null || true
+          cp LICENSE   "artifacts/${ARTIFACT}/" 2>/dev/null || true
 
-          tar czf "${ARTIFACT}.tar.gz" -C artifacts "${ARTIFACT}"
+          cd artifacts && zip -r "../${ARTIFACT}.zip" "${ARTIFACT}"
+          cd ..
 
-          # SHA-256
-          if command -v sha256sum &>/dev/null; then
-            sha256sum "${ARTIFACT}.tar.gz" | awk '{print $1}' > "${ARTIFACT}.tar.gz.sha256"
-          else
-            shasum -a 256 "${ARTIFACT}.tar.gz" | awk '{print $1}' > "${ARTIFACT}.tar.gz.sha256"
-          fi
+          sha256sum "${ARTIFACT}.zip" | awk '{print $1}' > "${ARTIFACT}.zip.sha256"
 
-          echo "ARTIFACT_ARCHIVE=${ARTIFACT}.tar.gz" >> $GITHUB_ENV
-          echo "ARTIFACT_SHA256=${ARTIFACT}.tar.gz.sha256" >> $GITHUB_ENV
+          echo "ARTIFACT_ARCHIVE=${ARTIFACT}.zip" >> $GITHUB_ENV
+          echo "ARTIFACT_SHA256=${ARTIFACT}.zip.sha256" >> $GITHUB_ENV
 
-      - name: Package (Windows)
-        if: matrix.archive == 'zip'
-        shell: pwsh
-        run: |
-          $Version = "${{ needs.preflight.outputs.version_bare }}"
-          $Target = "${{ matrix.target }}"
-          $Artifact = "halcon-${Version}-${Target}"
-          $Bin = "target/${Target}/release/halcon.exe"
-
-          New-Item -ItemType Directory -Path "artifacts/${Artifact}" -Force | Out-Null
-          Copy-Item $Bin "artifacts/${Artifact}/halcon.exe"
-          if (Test-Path "README.md") { Copy-Item "README.md" "artifacts/${Artifact}/" }
-          if (Test-Path "LICENSE")   { Copy-Item "LICENSE"   "artifacts/${Artifact}/" }
-
-          Compress-Archive -Path "artifacts/${Artifact}" -DestinationPath "${Artifact}.zip" -Force
-
-          $Hash = (Get-FileHash -Path "${Artifact}.zip" -Algorithm SHA256).Hash.ToLower()
-          $Hash | Out-File -FilePath "${Artifact}.zip.sha256" -Encoding ASCII -NoNewline
-
-          echo "ARTIFACT_ARCHIVE=${Artifact}.zip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          echo "ARTIFACT_SHA256=${Artifact}.zip.sha256" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-
-      - name: Upload artifact
+      - name: Upload artifact (primary)
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ARTIFACT_ARCHIVE }}
           path: |
             ${{ env.ARTIFACT_ARCHIVE }}
             ${{ env.ARTIFACT_SHA256 }}
+          retention-days: 7
+
+      - name: Upload artifact (extra macOS target)
+        if: env.EXTRA_ARTIFACT != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.EXTRA_ARTIFACT }}
+          path: |
+            ${{ env.EXTRA_ARTIFACT }}
+            ${{ env.EXTRA_SHA256 }}
           retention-days: 7
 
   # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -369,6 +425,7 @@ jobs:
               "aarch64-unknown-linux-gnu":  ("linux",   "aarch64", "tar.gz"),
               "aarch64-unknown-linux-musl": ("linux",   "aarch64", "tar.gz"),
               "x86_64-pc-windows-msvc":     ("windows", "x86_64",  "zip"),
+              "x86_64-pc-windows-gnu":      ("windows", "x86_64",  "zip"),
           }
 
           artifacts = []

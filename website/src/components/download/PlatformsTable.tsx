@@ -28,7 +28,7 @@ const KNOWN_PLATFORMS = [
   { name: 'macOS Intel',         nameEs: 'macOS Intel',         target: 'x86_64-apple-darwin',       ext: 'tar.gz', notes: 'Intel Macs (pre-2021)',           notesEs: 'Intel Macs (antes de 2021)' },
   { name: 'Linux x86_64',        nameEs: 'Linux x86_64',        target: 'x86_64-unknown-linux-musl', ext: 'tar.gz', notes: 'Static binary, no libc dep',      notesEs: 'Binario estático, sin libc' },
   { name: 'Linux ARM64',         nameEs: 'Linux ARM64',         target: 'aarch64-unknown-linux-gnu', ext: 'tar.gz', notes: 'Graviton, Raspberry Pi 4/5',       notesEs: 'Graviton, Raspberry Pi 4/5' },
-  { name: 'Windows x86_64',      nameEs: 'Windows x86_64',      target: 'x86_64-pc-windows-msvc',    ext: 'zip',    notes: 'Windows 10/11',                   notesEs: 'Windows 10/11' },
+  { name: 'Windows x86_64',      nameEs: 'Windows x86_64',      target: 'x86_64-pc-windows-gnu',     ext: 'zip',    notes: 'Windows 10/11',                   notesEs: 'Windows 10/11' },
 ];
 
 function formatBytes(bytes: number): string {

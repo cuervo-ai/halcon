@@ -55,7 +55,7 @@ function detectPlatform(): { os: OS; arch: Arch; target: string } {
   const targetMap: Record<string, Record<string, string>> = {
     linux:   { x86_64: 'x86_64-unknown-linux-musl', aarch64: 'aarch64-unknown-linux-gnu', unknown: 'x86_64-unknown-linux-musl' },
     macos:   { x86_64: 'x86_64-apple-darwin',        aarch64: 'aarch64-apple-darwin',      unknown: 'aarch64-apple-darwin' },
-    windows: { x86_64: 'x86_64-pc-windows-msvc',     aarch64: 'x86_64-pc-windows-msvc',    unknown: 'x86_64-pc-windows-msvc' },
+    windows: { x86_64: 'x86_64-pc-windows-gnu',      aarch64: 'x86_64-pc-windows-gnu',     unknown: 'x86_64-pc-windows-gnu' },
     unknown: { x86_64: 'x86_64-unknown-linux-musl',  aarch64: 'x86_64-unknown-linux-musl', unknown: 'x86_64-unknown-linux-musl' },
   };
 
