@@ -1,20 +1,12 @@
 ---
 import Layout from '../layouts/Layout.astro';
 import SmartDownload from '../components/download/SmartDownload';
+import PlatformsTable from '../components/download/PlatformsTable';
 import { t } from '../i18n/translations';
 
 const lang = 'en';
 
 const RELEASES_URL = "https://releases.cli.cuervo.cloud";
-const VERSION = "0.3.0";
-
-const platforms = [
-  { name: "macOS Apple Silicon", target: "aarch64-apple-darwin",         ext: "tar.gz", notes: "M1 / M2 / M3 / M4 — Recommended for modern Macs" },
-  { name: "macOS Intel",         target: "x86_64-apple-darwin",          ext: "tar.gz", notes: "Intel Macs (pre-2021)" },
-  { name: "Linux x86_64",        target: "x86_64-unknown-linux-musl",    ext: "tar.gz", notes: "Static binary, no libc dependency" },
-  { name: "Linux ARM64",         target: "aarch64-unknown-linux-gnu",    ext: "tar.gz", notes: "Raspberry Pi 4/5, AWS Graviton, Ampere" },
-  { name: "Windows x86_64",      target: "x86_64-pc-windows-msvc",       ext: "zip",    notes: "Windows 10/11 (PowerShell installer)" },
-];
 
 const installMethods = [
   {
@@ -53,7 +45,7 @@ const installMethods = [
       <div class="inline-flex items-center gap-2 px-3 py-1 mb-6 rounded-full border text-sm font-medium"
            style="border-color: rgba(232,82,0,0.35); background: rgba(232,82,0,0.08); color: var(--c-gold);">
         <span class="w-1.5 h-1.5 rounded-full animate-pulse" style="background: var(--c-p);"></span>
-        Latest release · v{VERSION}
+        Latest release
       </div>
       <h1 class="text-5xl font-black mb-4 tracking-tight font-display">Download <span class="gradient-text-brand">Halcón CLI</span></h1>
       <p class="text-xl" style="color: var(--c-t3);">
@@ -114,60 +106,10 @@ const installMethods = [
       </div>
     </section>
 
-    <!-- All platforms -->
+    <!-- All platforms (data-driven from manifest) -->
     <section>
       <h2 class="text-2xl font-bold mb-8">All platforms</h2>
-      <div class="rounded-xl overflow-hidden" style="background: var(--c-code); border: 1px solid var(--c-b);">
-        <table class="w-full text-sm">
-          <thead>
-            <tr class="border-b" style="border-color: var(--c-b); background: var(--c-surface);">
-              <th class="text-left text-xs font-medium uppercase tracking-wider px-5 py-3" style="color: var(--c-t4);">Platform</th>
-              <th class="text-left text-xs font-medium uppercase tracking-wider px-5 py-3 hidden md:table-cell" style="color: var(--c-t4);">Target triple</th>
-              <th class="text-left text-xs font-medium uppercase tracking-wider px-5 py-3 hidden lg:table-cell" style="color: var(--c-t4);">Notes</th>
-              <th class="text-right text-xs font-medium uppercase tracking-wider px-5 py-3" style="color: var(--c-t4);">Download</th>
-            </tr>
-          </thead>
-          <tbody>
-            {platforms.map(p => (
-              <tr class="transition-colors border-t" style="border-color: rgba(200,80,0,0.08);"
-                  onmouseover="this.style.background='rgba(232,82,0,0.04)'"
-                  onmouseout="this.style.background='transparent'">
-                <td class="px-5 py-4 font-medium" style="color: var(--c-t1);">{p.name}</td>
-                <td class="px-5 py-4 font-mono text-xs hidden md:table-cell" style="color: var(--c-t3);">{p.target}</td>
-                <td class="px-5 py-4 text-xs hidden lg:table-cell" style="color: var(--c-t4);">{p.notes}</td>
-                <td class="px-5 py-4 text-right">
-                  <a
-                    href={`${RELEASES_URL}/latest/halcon-${VERSION}-${p.target}.${p.ext}`}
-                    class="inline-flex items-center gap-1.5 text-xs font-medium transition-colors"
-                    style="color: var(--c-p);"
-                    onmouseover="this.style.color='var(--c-gold)'"
-                    onmouseout="this.style.color='var(--c-p)'"
-                  >
-                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-                    </svg>
-                    .{p.ext}
-                  </a>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        <div class="px-5 py-3.5 border-t" style="border-color: var(--c-b); background: var(--c-surface);">
-          <a
-            href={`${RELEASES_URL}/latest/checksums.txt`}
-            class="text-xs transition-colors flex items-center gap-1.5"
-            style="color: var(--c-t4);"
-            onmouseover="this.style.color='var(--c-t2)'"
-            onmouseout="this.style.color='var(--c-t4)'"
-          >
-            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
-            </svg>
-            Download checksums.txt (SHA-256)
-          </a>
-        </div>
-      </div>
+      <PlatformsTable client:load releasesUrl={RELEASES_URL} lang="en" />
     </section>
 
     <!-- Verify section -->
@@ -184,9 +126,9 @@ const installMethods = [
           <div class="px-4 py-2.5 border-b text-xs" style="border-color: rgba(232,82,0,0.12); background: var(--c-surface); color: var(--c-t3);">SHA-256 checksum</div>
           <div class="p-4 font-mono text-xs space-y-1.5 leading-relaxed" style="color: var(--c-t2);">
             <div><span style="color: var(--c-t4);"># macOS</span></div>
-            <div style="color: var(--c-emerald);">shasum -a 256 halcon-{VERSION}-aarch64-apple-darwin.tar.gz</div>
+            <div style="color: var(--c-emerald);">shasum -a 256 halcon-&lt;version&gt;-aarch64-apple-darwin.tar.gz</div>
             <div class="mt-2"><span style="color: var(--c-t4);"># Linux</span></div>
-            <div style="color: var(--c-emerald);">sha256sum halcon-{VERSION}-x86_64-unknown-linux-musl.tar.gz</div>
+            <div style="color: var(--c-emerald);">sha256sum halcon-&lt;version&gt;-x86_64-unknown-linux-musl.tar.gz</div>
             <div class="mt-2"><span style="color: var(--c-t4);"># Compare with published hash</span></div>
             <div style="color: var(--c-emerald);">curl -sSf {RELEASES_URL}/latest/checksums.txt</div>
           </div>
@@ -197,11 +139,11 @@ const installMethods = [
           <div class="px-4 py-2.5 border-b text-xs" style="border-color: rgba(232,82,0,0.12); background: var(--c-surface); color: var(--c-t3);">Cosign keyless verification (SLSA)</div>
           <div class="p-4 font-mono text-xs space-y-1 leading-relaxed" style="color: var(--c-t2);">
             <div style="color: var(--c-emerald);">cosign verify-blob \</div>
-            <div class="pl-4" style="color: var(--c-emerald);">--signature halcon-{VERSION}-TARGET.tar.gz.sig \</div>
-            <div class="pl-4" style="color: var(--c-emerald);">--certificate halcon-{VERSION}-TARGET.tar.gz.pem \</div>
+            <div class="pl-4" style="color: var(--c-emerald);">--signature halcon-&lt;version&gt;-TARGET.tar.gz.sig \</div>
+            <div class="pl-4" style="color: var(--c-emerald);">--certificate halcon-&lt;version&gt;-TARGET.tar.gz.pem \</div>
             <div class="pl-4" style="color: var(--c-emerald);">--certificate-identity-regexp 'https://github.com/cuervo-ai/halcon-cli' \</div>
             <div class="pl-4" style="color: var(--c-emerald);">--certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \</div>
-            <div class="pl-4" style="color: var(--c-emerald);">halcon-{VERSION}-TARGET.tar.gz</div>
+            <div class="pl-4" style="color: var(--c-emerald);">halcon-&lt;version&gt;-TARGET.tar.gz</div>
           </div>
         </div>
       </div>

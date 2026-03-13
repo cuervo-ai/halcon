@@ -13,6 +13,7 @@ interface Manifest {
   artifacts: Artifact[];
   checksums_url: string;
   sbom_url?: string;
+  github_url?: string;
 }
 
 interface SmartDownloadProps {
@@ -202,44 +203,66 @@ export default function SmartDownload({ releasesUrl }: SmartDownloadProps) {
 
       {/* ── Download button ─────────────────────────────────────────────────── */}
       <div className="px-6 py-6">
-        <a href={downloadUrl}
-           download
-           className="group relative flex items-center justify-center gap-3 rounded-xl px-6 py-4 font-bold text-lg transition-all duration-200 w-full overflow-hidden"
-           style={{
-             background: 'linear-gradient(135deg, #e85200 0%, #c44100 100%)',
-             boxShadow: '0 4px 24px rgba(232,82,0,0.35), inset 0 1px 0 rgba(255,255,255,0.12)',
-             color: '#fff',
-           }}
-           onMouseOver={e => { (e.currentTarget as HTMLElement).style.boxShadow = '0 6px 32px rgba(232,82,0,0.55), inset 0 1px 0 rgba(255,255,255,0.15)'; }}
-           onMouseOut={e  => { (e.currentTarget as HTMLElement).style.boxShadow = '0 4px 24px rgba(232,82,0,0.35), inset 0 1px 0 rgba(255,255,255,0.12)'; }}
-        >
-          <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-          </svg>
-          <span>
-            Download for {OS_ICONS[os]}
-          </span>
-          {hasSize && (
-            <span className="text-sm font-normal opacity-80">
-              {formatBytes(artifact!.size)}
-            </span>
-          )}
-        </a>
+        {artifact ? (
+          /* ── Available: direct download ── */
+          <a href={downloadUrl}
+             download
+             className="group relative flex items-center justify-center gap-3 rounded-xl px-6 py-4 font-bold text-lg transition-all duration-200 w-full overflow-hidden"
+             style={{
+               background: 'linear-gradient(135deg, #e85200 0%, #c44100 100%)',
+               boxShadow: '0 4px 24px rgba(232,82,0,0.35), inset 0 1px 0 rgba(255,255,255,0.12)',
+               color: '#fff',
+             }}
+             onMouseOver={e => { (e.currentTarget as HTMLElement).style.boxShadow = '0 6px 32px rgba(232,82,0,0.55), inset 0 1px 0 rgba(255,255,255,0.15)'; }}
+             onMouseOut={e  => { (e.currentTarget as HTMLElement).style.boxShadow = '0 4px 24px rgba(232,82,0,0.35), inset 0 1px 0 rgba(255,255,255,0.12)'; }}
+          >
+            <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                    d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+            </svg>
+            <span>Download for {OS_ICONS[os]}</span>
+            {hasSize && (
+              <span className="text-sm font-normal opacity-80">{formatBytes(artifact.size)}</span>
+            )}
+          </a>
+        ) : (
+          /* ── Not available: link to GitHub Releases ── */
+          <div>
+            <a href={manifest.github_url}
+               target="_blank" rel="noopener noreferrer"
+               className="flex items-center justify-center gap-3 rounded-xl px-6 py-4 font-bold text-base transition-all duration-200 w-full"
+               style={{
+                 background: 'rgba(232,82,0,0.06)',
+                 border: '1px solid rgba(232,82,0,0.25)',
+                 color: 'var(--c-t3)',
+               }}
+               onMouseOver={e => { (e.currentTarget as HTMLElement).style.borderColor = 'rgba(232,82,0,0.45)'; (e.currentTarget as HTMLElement).style.color = 'var(--c-t1)'; }}
+               onMouseOut={e  => { (e.currentTarget as HTMLElement).style.borderColor = 'rgba(232,82,0,0.25)'; (e.currentTarget as HTMLElement).style.color = 'var(--c-t3)'; }}
+            >
+              <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+              </svg>
+              View all releases on GitHub ↗
+            </a>
+            <div className="mt-3 flex items-start gap-2 px-3 py-2.5 rounded-lg text-xs"
+                 style={{ background: 'rgba(245,160,0,0.06)', border: '1px solid rgba(245,160,0,0.15)', color: 'var(--c-gold)' }}>
+              <svg className="w-4 h-4 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                      d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span>
+                No pre-built binary for <strong>{OS_ICONS[os]} ({arch})</strong> in v{manifest.version} yet.
+                Use the <strong>install script</strong> (tab below) or check GitHub Releases for updates.
+              </span>
+            </div>
+          </div>
+        )}
 
         {/* Artifact filename */}
         <div className="mt-2.5 text-center font-mono text-xs" style={{ color: 'var(--c-t4)' }}>
           {artifactName}
         </div>
-
-        {/* No artifact warning */}
-        {!artifact && (
-          <div className="mt-3 text-center text-xs px-4 py-2 rounded-lg"
-               style={{ background: 'rgba(245,160,0,0.06)', border: '1px solid rgba(245,160,0,0.15)', color: 'var(--c-gold)' }}>
-            ⚠ Pre-built binary for this platform coming soon.
-            Contact <a href="mailto:support@cuervo.cloud" className="underline">support@cuervo.cloud</a> to request a build.
-          </div>
-        )}
       </div>
 
       {/* ── Verification tabs ───────────────────────────────────────────────── */}

@@ -266,21 +266,39 @@ main() {
     resolve_install_dir
     info "Install directory: ${INSTALL_DIR}"
 
-    # ─── Build artifact URL ─────────────────────────────────────────────────
+    # ─── Build artifact name & URLs ──────────────────────────────────────────
     ARTIFACT_NAME="halcon-${VERSION}-${TARGET}.${EXT}"
     if [ "$REQUESTED_VERSION" = "latest" ]; then
         DOWNLOAD_URL="${RELEASES_URL}/latest/${ARTIFACT_NAME}"
+        CS_URL="${RELEASES_URL}/latest/checksums.txt"
+        GITHUB_URL="https://github.com/cuervo-ai/halcon-cli/releases/latest"
     else
         DOWNLOAD_URL="${RELEASES_URL}/v${VERSION}/${ARTIFACT_NAME}"
+        CS_URL="${RELEASES_URL}/v${VERSION}/checksums.txt"
+        GITHUB_URL="https://github.com/cuervo-ai/halcon-cli/releases/tag/v${VERSION}"
+    fi
+
+    # ─── Check artifact is listed in manifest (fast-fail before download) ───
+    # We already have the manifest if REQUESTED_VERSION=latest; fetch it for
+    # specific versions too so we can give a helpful error.
+    if [ -z "${MANIFEST_FILE:-}" ]; then
+        MANIFEST_FILE="$TMPDIR_WORK/manifest.json"
+        _MURL="${RELEASES_URL}/v${VERSION}/manifest.json"
+        download "$_MURL" "$MANIFEST_FILE" 2>/dev/null || true
+    fi
+    if [ -f "$MANIFEST_FILE" ] && ! grep -q "\"${ARTIFACT_NAME}\"" "$MANIFEST_FILE" 2>/dev/null; then
+        printf "\n${RED}  ✗${RESET} No pre-built binary for ${BOLD}${OS} ${ARCH}${RESET} (${TARGET}) in v${VERSION}.\n" >&2
+        printf "\n  Available artifacts in this release:\n" >&2
+        grep -o '"name": *"[^"]*"' "$MANIFEST_FILE" | sed 's/.*"\([^"]*\)".*/    • \1/' >&2 || true
+        printf "\n  ${YELLOW}Install via script (recommended):${RESET}\n" >&2
+        printf "    — Wait for the next release which may include your platform, or\n" >&2
+        printf "    — Build from source: https://github.com/cuervo-ai/halcon-cli\n" >&2
+        printf "    — Check available releases: ${GITHUB_URL}\n\n" >&2
+        exit 1
     fi
 
     # ─── Fetch SHA-256 ──────────────────────────────────────────────────────
     EXPECTED_SHA=""
-    if [ "$REQUESTED_VERSION" = "latest" ]; then
-        CS_URL="${RELEASES_URL}/latest/checksums.txt"
-    else
-        CS_URL="${RELEASES_URL}/v${VERSION}/checksums.txt"
-    fi
     CS_FILE="$TMPDIR_WORK/checksums.txt"
     if download "$CS_URL" "$CS_FILE" 2>/dev/null; then
         EXPECTED_SHA="$(grep "${ARTIFACT_NAME}" "$CS_FILE" | awk '{print $1}' | head -1)"
@@ -290,7 +308,7 @@ main() {
     info "Downloading ${ARTIFACT_NAME}..."
     ARCHIVE_FILE="$TMPDIR_WORK/${ARTIFACT_NAME}"
     download "$DOWNLOAD_URL" "$ARCHIVE_FILE" || \
-        error "Download failed. Check: ${RELEASES_URL}/latest/manifest.json"
+        error "Download failed. Check available artifacts: ${GITHUB_URL}"
     ok "Downloaded ($(du -sh "$ARCHIVE_FILE" | cut -f1))"
 
     # ─── Verify SHA-256 ─────────────────────────────────────────────────────
