@@ -123,12 +123,10 @@ jobs:
             features: tui,vendored-openssl
             extra-target: x86_64-apple-darwin
 
-          # Windows x86_64 — cross-compiled via cargo-zigbuild on ubuntu
-          # Produces x86_64-pc-windows-gnu binary (no MSVC runtime dep, works on Win10+)
-          - os: ubuntu-latest
-            target: x86_64-pc-windows-gnu
+          # Windows x86_64 — native runner, MSVC target (prebuilt ORT binaries available)
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
             use-cross: false
-            use-zigbuild: true
             archive: zip
             features: headless,vendored-openssl
 
@@ -174,7 +172,7 @@ jobs:
         run: cargo install cross --git https://github.com/cross-rs/cross --locked
 
       - name: Install cargo-zigbuild + zig (Windows cross from Linux)
-        if: matrix.use-zigbuild == true
+        if: matrix.use-zigbuild == true && runner.os == 'Linux'
         run: |
           pip install ziglang --quiet
           cargo install cargo-zigbuild --locked
@@ -199,6 +197,8 @@ jobs:
           ORT_STRATEGY: ${{ contains(matrix.target, 'musl') && 'compile' || 'download' }}
           LIBGIT2_SYS_USE_PKG_CONFIG: "0"
           LIBGIT2_STATIC: "1"
+          # Allow pkg-config for cross builds (required for libdbus-sys on musl containers)
+          PKG_CONFIG_ALLOW_CROSS: "1"
         run: |
           FEATURES="${{ matrix.features }}"
           if [ -n "$FEATURES" ]; then
@@ -210,10 +210,9 @@ jobs:
           fi
 
       - name: Build (zigbuild — Windows cross from Linux)
-        if: matrix.use-zigbuild == true
+        if: matrix.use-zigbuild == true && runner.os == 'Linux'
         shell: bash
         env:
-          # ORT has no prebuilt binaries for windows-gnu; compile from source
           ORT_STRATEGY: compile
           LIBGIT2_SYS_USE_PKG_CONFIG: "0"
           LIBGIT2_STATIC: "1"
@@ -224,6 +223,23 @@ jobs:
               --no-default-features --features "$FEATURES" -p halcon-cli
           else
             cargo zigbuild --release --target ${{ matrix.target }} \
+              --no-default-features -p halcon-cli
+          fi
+
+      - name: Build (cargo — Windows native MSVC)
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          ORT_STRATEGY: download
+          LIBGIT2_SYS_USE_PKG_CONFIG: "0"
+          LIBGIT2_STATIC: "1"
+        run: |
+          FEATURES="${{ matrix.features }}"
+          if [ -n "$FEATURES" ]; then
+            cargo build --release --target ${{ matrix.target }} \
+              --no-default-features --features "$FEATURES" -p halcon-cli
+          else
+            cargo build --release --target ${{ matrix.target }} \
               --no-default-features -p halcon-cli
           fi
 
@@ -295,26 +311,28 @@ jobs:
             echo "EXTRA_SHA256=halcon-${VERSION}-${EXTRA}.tar.gz.sha256" >> $GITHUB_ENV
           fi
 
-      - name: Package (Windows zip — cross-compiled gnu on Linux)
+      - name: Package (Windows zip — native MSVC)
         if: matrix.archive == 'zip'
         shell: bash
         run: |
           VERSION="${{ needs.preflight.outputs.version_bare }}"
           TARGET="${{ matrix.target }}"
           ARTIFACT="halcon-${VERSION}-${TARGET}"
-          # zigbuild on Linux produces .exe even for gnu target
           BIN="target/${TARGET}/release/halcon.exe"
-          [ -f "$BIN" ] || BIN="target/${TARGET}/release/halcon"
 
           mkdir -p "artifacts/${ARTIFACT}"
           cp "$BIN" "artifacts/${ARTIFACT}/halcon.exe"
           cp README.md "artifacts/${ARTIFACT}/" 2>/dev/null || true
           cp LICENSE   "artifacts/${ARTIFACT}/" 2>/dev/null || true
 
-          cd artifacts && zip -r "../${ARTIFACT}.zip" "${ARTIFACT}"
+          cd artifacts && 7z a "../${ARTIFACT}.zip" "${ARTIFACT}"
           cd ..
 
-          sha256sum "${ARTIFACT}.zip" | awk '{print $1}' > "${ARTIFACT}.zip.sha256"
+          if command -v sha256sum &>/dev/null; then
+            sha256sum "${ARTIFACT}.zip" | awk '{print $1}' > "${ARTIFACT}.zip.sha256"
+          else
+            certutil -hashfile "${ARTIFACT}.zip" SHA256 | grep -v "^CertUtil\|^SHA256" | tr -d ' \r\n' > "${ARTIFACT}.zip.sha256"
+          fi
 
           echo "ARTIFACT_ARCHIVE=${ARTIFACT}.zip" >> $GITHUB_ENV
           echo "ARTIFACT_SHA256=${ARTIFACT}.zip.sha256" >> $GITHUB_ENV
@@ -426,7 +444,6 @@ jobs:
               "aarch64-unknown-linux-gnu":  ("linux",   "aarch64", "tar.gz"),
               "aarch64-unknown-linux-musl": ("linux",   "aarch64", "tar.gz"),
               "x86_64-pc-windows-msvc":     ("windows", "x86_64",  "zip"),
-              "x86_64-pc-windows-gnu":      ("windows", "x86_64",  "zip"),
           }
 
           artifacts = []
@@ -455,6 +472,7 @@ jobs:
               "artifacts": artifacts,
               "checksums_url": "https://releases.cli.cuervo.cloud/latest/checksums.txt",
               "sbom_url": f"https://releases.cli.cuervo.cloud/latest/halcon-{version}.sbom.spdx.json",
+              "github_url": f"https://github.com/cuervo-ai/halcon-cli/releases/tag/v{version}",
           }
 
           out = dist / "manifest.json"

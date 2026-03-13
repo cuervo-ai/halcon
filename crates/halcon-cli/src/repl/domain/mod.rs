@@ -19,6 +19,9 @@ pub mod strategy_selector;
 /// Task complexity and type classification.
 pub mod task_analyzer;
 
+/// Hybrid intent classifier — 3-layer cascade (heuristic + embedding + LLM fallback).
+pub mod hybrid_classifier;
+
 /// Shared text analysis utilities (keyword extraction, stopwords).
 pub(crate) mod text_utils;
 
@@ -67,7 +70,6 @@ pub mod agent_decision_trace;
 
 /// Structured observability — per-round and session metrics (P4.3).
 pub mod system_metrics;
-
 
 /// Bounded adaptation guarantees — formal limits on runtime self-modification (P4.5).
 pub mod adaptation_bounds;
@@ -131,3 +133,9 @@ pub mod reflexion;
 
 /// Agent self-correction strategies — adaptive correction on anomalies.
 pub mod self_corrector;
+
+// ── Phase 5: Adaptive Learning ────────────────────────────────────────────────
+
+/// Adaptive learning subsystem — EMA centroid updates, UCB1 bandit, versioned
+/// persistence. Self-improves the EmbeddingLayer with feedback from real usage.
+pub mod adaptive_learning;
