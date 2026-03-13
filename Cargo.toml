@@ -66,7 +66,9 @@ git2 = "0.19"
 openssl = "0.10"
 
 # Auth
-keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
+# sync-secret-service (D-Bus) excluded: libdbus-sys has no musl-compatible package.
+# Linux falls back to kernel keyring (linux-keyutils) or file store — acceptable for headless.
+keyring = { version = "3", features = ["apple-native", "windows-native"] }
 base64 = "0.22"
 rand = "0.9"
 dashmap = "5"

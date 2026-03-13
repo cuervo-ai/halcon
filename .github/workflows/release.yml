@@ -124,11 +124,12 @@ jobs:
             extra-target: x86_64-apple-darwin
 
           # Windows x86_64 — native runner, MSVC target (prebuilt ORT binaries available)
+          # vendored-openssl NOT used on Windows: system OpenSSL set via OPENSSL_DIR
           - os: windows-latest
             target: x86_64-pc-windows-msvc
             use-cross: false
             archive: zip
-            features: headless,vendored-openssl
+            features: headless
 
     steps:
       - uses: actions/checkout@v4
@@ -225,6 +226,31 @@ jobs:
             cargo zigbuild --release --target ${{ matrix.target }} \
               --no-default-features -p halcon-cli
           fi
+
+      - name: Setup OpenSSL (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # Use pre-installed OpenSSL on the runner (avoids compiling from source)
+          $candidates = @(
+            "C:\Program Files\OpenSSL-Win64",
+            "C:\Program Files\OpenSSL",
+            "$env:VCPKG_ROOT\installed\x64-windows-static"
+          )
+          $found = $null
+          foreach ($dir in $candidates) {
+            if (Test-Path "$dir\include\openssl\ssl.h") {
+              $found = $dir; break
+            }
+          }
+          if (-not $found) {
+            Write-Host "OpenSSL not found in standard locations, installing via choco..."
+            choco install openssl -y --no-progress
+            $found = "C:\Program Files\OpenSSL-Win64"
+          }
+          Write-Host "Using OpenSSL at: $found"
+          "OPENSSL_DIR=$found" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "OPENSSL_STATIC=1" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
       - name: Build (cargo — Windows native MSVC)
         if: runner.os == 'Windows'
