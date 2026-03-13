@@ -221,13 +221,33 @@ main() {
         warn "Binary installed but could not verify execution"
     fi
 
-    # ─── PATH hint ───────────────────────────────────────────────────────────
+    # ─── PATH — write to shell config automatically ──────────────────────────
     case ":${PATH}:" in
-        *":${INSTALL_DIR}:"*) ;;
+        *":${INSTALL_DIR}:"*)
+            # Already in PATH — nothing to do
+            ;;
         *)
-            printf "\n${YELLOW}  Add to PATH:${RESET}\n"
-            printf "    export PATH=\"\$PATH:${INSTALL_DIR}\"\n"
-            printf "\n  Or add to your shell config (~/.bashrc, ~/.zshrc, etc.)\n"
+            EXPORT_LINE="export PATH=\"\$PATH:${INSTALL_DIR}\""
+
+            # Detect the user's shell and pick the right rc file
+            SHELL_NAME="$(basename "${SHELL:-sh}")"
+            case "$SHELL_NAME" in
+                zsh)  RC_FILE="$HOME/.zshrc" ;;
+                bash) RC_FILE="$HOME/.bashrc" ;;
+                fish) RC_FILE="$HOME/.config/fish/config.fish"
+                      EXPORT_LINE="fish_add_path ${INSTALL_DIR}" ;;
+                *)    RC_FILE="$HOME/.profile" ;;
+            esac
+
+            # Append only if not already present in the file
+            if [ -f "$RC_FILE" ] && grep -qF "$INSTALL_DIR" "$RC_FILE" 2>/dev/null; then
+                ok "PATH already configured in ${RC_FILE}"
+            else
+                printf '\n# Halcon CLI\n%s\n' "$EXPORT_LINE" >> "$RC_FILE"
+                ok "PATH added to ${RC_FILE}"
+                printf "\n${YELLOW}  Run this to use halcon in the current session:${RESET}\n"
+                printf "    ${BOLD}export PATH=\"\$PATH:${INSTALL_DIR}\"${RESET}\n"
+            fi
             ;;
     esac
 
