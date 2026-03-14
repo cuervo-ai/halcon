@@ -517,6 +517,7 @@ jobs:
         continue-on-error: true  # Fallback: upload via aws cli below
 
       - name: Upload to R2 (aws s3 compat)
+        continue-on-error: true  # Don't fail release if R2 credentials not configured
         run: |
           pip install awscli --quiet
           VERSION="${{ needs.preflight.outputs.version }}"
