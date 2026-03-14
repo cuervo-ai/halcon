@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1000"
+     viewBox="0 0 900 1000" role="img"
+     aria-label="Halcon CLI — Halcon CLI — Tool Registry (63 tools)">
+  <defs>
+    <linearGradient id="headerGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#c41400" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#e85200"  stop-opacity="0.7"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+  </defs>
+
+  <!-- Window frame -->
+  <rect width="900" height="1000" rx="10" ry="10"
+        fill="#070401" stroke="#e85200" stroke-width="1.5" stroke-opacity="0.6"/>
+
+  <!-- Title bar -->
+  <rect width="900" height="40" rx="10" ry="10" fill="url(#headerGrad)" fill-opacity="0.25"/>
+  <rect y="10" width="900" height="30" fill="url(#headerGrad)" fill-opacity="0.25"/>
+
+  <!-- Window controls -->
+  <circle cx="20"  cy="22" r="6" fill="#ee343b"    filter="url(#glow)"/>
+  <circle cx="38"  cy="22" r="6" fill="#fdd506" filter="url(#glow)"/>
+  <circle cx="56"  cy="22" r="6" fill="#57cb60"  filter="url(#glow)"/>
+
+  <!-- Title -->
+  <text x="450" y="26" text-anchor="middle"
+        font-family="'Rajdhani','Montserrat',sans-serif" font-size="13px"
+        font-weight="600" fill="#f0e8d8" opacity="0.85">Halcon CLI — Tool Registry (63 tools)</text>
+
+  <!-- Separator line -->
+  <line x1="0" y1="40" x2="900" y2="40"
+        stroke="#e85200" stroke-width="0.8" stroke-opacity="0.4"/>
+
+  <!-- Prompt line -->
+  <text x="20" y="56"
+        font-family="'JetBrains Mono','Fira Code',monospace" font-size="13px">
+    <tspan fill="#c4b49a">~ </tspan><tspan fill="#e85200" font-weight="bold">❯ </tspan><tspan fill="#f0e8d8">halcon tools list</tspan>
+  </text>
+
+  <!-- Output -->
+  <text x="20" y="73" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"></text>
+    <text x="20" y="93" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  Available Tools (63):</tspan></text>
+    <text x="20" y="113" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"></text>
+    <text x="20" y="133" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  archive                [RW]  Create, extract, or list archive files (zip, ta...</tspan></text>
+    <text x="20" y="153" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  background_kill        [D!]  Terminate a background job by its job ID.</tspan></text>
+    <text x="20" y="173" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  background_output      [RO]  Check the output and status of a background job...</tspan></text>
+    <text x="20" y="193" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  background_start       [D!] *  Start a long-running command in the background....</tspan></text>
+    <text x="20" y="213" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  bash                   [D!] *  Execute a bash command and return its output. C...</tspan></text>
+    <text x="20" y="233" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  changelog_gen          [RO]  Generate a structured Markdown changelog from g...</tspan></text>
+    <text x="20" y="253" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  checksum               [RO]  Compute and verify SHA-256 checksums. Operation...</tspan></text>
+    <text x="20" y="273" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  ci_logs                [RO]  Fetch and display CI/CD pipeline logs from GitH...</tspan></text>
+    <text x="20" y="293" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  code_coverage          [RO]  Read and summarize code coverage reports. Suppo...</tspan></text>
+    <text x="20" y="313" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  code_metrics           [RO]  Compute static code metrics for files or direct...</tspan></text>
+    <text x="20" y="333" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  config_validate        [RO]  Validate configuration files (TOML, JSON, YAML,...</tspan></text>
+    <text x="20" y="353" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  dep_check              [RO]  Audit project dependencies: list packages and c...</tspan></text>
+    <text x="20" y="373" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  dependency_graph       [RO]  Visualize package dependency graphs as ASCII tr...</tspan></text>
+    <text x="20" y="393" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  diff_apply             [RW]  Apply a unified diff patch to a file. Supports ...</tspan></text>
+    <text x="20" y="413" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  directory_tree         [RO]  List the contents of a directory as a tree stru...</tspan></text>
+    <text x="20" y="433" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  docker                 [RW]  Inspect and manage Docker containers, images, n...</tspan></text>
+    <text x="20" y="453" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  env_inspect            [RO]  Inspect environment variables. List all env var...</tspan></text>
+    <text x="20" y="473" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  execute_test           [RO]  Execute test commands and parse failures into s...</tspan></text>
+    <text x="20" y="493" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  file_delete            [D!] *  Delete a single file. Reports file size before ...</tspan></text>
+    <text x="20" y="513" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  file_diff              [RO]  Compare two files or directory listings for dif...</tspan></text>
+    <text x="20" y="533" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  file_edit              [D!] *  Edit a file by replacing an exact string match ...</tspan></text>
+    <text x="20" y="553" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  file_inspect           [RO]  Inspect any file: detect format, extract text c...</tspan></text>
+    <text x="20" y="573" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  file_read              [RO]  Read the contents of a file. Supports optional ...</tspan></text>
+    <text x="20" y="593" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  file_write             [D!] *  Write content to a file. Creates the file if it...</tspan></text>
+    <text x="20" y="613" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  fuzzy_find             [RO]  Fuzzy search for files by partial path or filen...</tspan></text>
+    <text x="20" y="633" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  git_add                [RW]  Stage files for commit. Requires explicit file ...</tspan></text>
+    <text x="20" y="653" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  git_blame              [RO]  Show per-line authorship and commit history for...</tspan></text>
+    <text x="20" y="673" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  git_branch             [RW]  Manage git branches: list, create, delete, swit...</tspan></text>
+    <text x="20" y="693" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  git_commit             [D!] *  Create a git commit with a message. Always requ...</tspan></text>
+    <text x="20" y="713" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  git_diff               [RO]  Show file changes. Supports staged vs unstaged ...</tspan></text>
+    <text x="20" y="733" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  git_log                [RO]  Show commit history with hashes, authors, and m...</tspan></text>
+    <text x="20" y="753" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  git_stash              [RW]  Manage git stashes: save uncommitted changes, l...</tspan></text>
+    <text x="20" y="773" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  git_status             [RO]  Show working tree status: branch, staged, modif...</tspan></text>
+    <text x="20" y="793" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  glob                   [RO]  Find files matching a glob pattern. Returns mat...</tspan></text>
+    <text x="20" y="813" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  grep                   [RO]  Search file contents for lines matching a regex...</tspan></text>
+    <text x="20" y="833" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  http_probe             [RO]  Probe HTTP/HTTPS endpoints for health, latency,...</tspan></text>
+    <text x="20" y="853" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  http_request           [D!] *  Make HTTP requests (POST, PUT, DELETE, PATCH). ...</tspan></text>
+    <text x="20" y="873" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  json_schema_validate   [RO]  Validate JSON data against a JSON Schema. Suppo...</tspan></text>
+    <text x="20" y="893" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  json_transform         [RO]  Query and transform JSON data. Supports path ex...</tspan></text>
+    <text x="20" y="913" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  lint_check             [RO]  Run language-specific linters and return struct...</tspan></text>
+    <text x="20" y="933" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  make                   [RW]  Run build system targets (make, cmake, gradle, ...</tspan></text>
+    <text x="20" y="953" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  native_crawl           [RW]  Crawl a website and index its pages. Fetches HT...</tspan></text>
+
+  <!-- Bottom glow accent -->
+  <rect y="997" width="900" height="3" rx="0"
+        fill="url(#headerGrad)" opacity="0.5"/>
+</svg>

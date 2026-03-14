@@ -44,6 +44,21 @@ const sections = [
       { title: "Tool permissions",   anchor: "permissions" },
     ]
   },
+  {
+    title: "v0.3.0 — New",
+    items: [
+      { title: "Cenzontle SSO",      anchor: "cenzontle-sso" },
+      { title: "Sub-agent registry", anchor: "agent-registry" },
+      { title: "MCP ecosystem",      anchor: "mcp-ecosystem" },
+      { title: "Audit export",       anchor: "audit-export" },
+      { title: "Semantic memory",    anchor: "semantic-memory" },
+      { title: "halcon schedule",    anchor: "schedule" },
+      { title: "halcon login",       anchor: "login" },
+      { title: "halcon agents",      anchor: "agents" },
+      { title: "halcon audit",       anchor: "audit" },
+      { title: "halcon mcp serve",   anchor: "mcp-serve" },
+    ]
+  },
 ];
 ---
 
@@ -750,6 +765,113 @@ const sections = [
                 <div class="text-xs font-mono leading-relaxed" style="color: var(--c-t3);">{p.tools}</div>
               </div>
             ))}
+          </div>
+        </section>
+
+        <!-- ══════════════════════════════════════════
+             CENZONTLE SSO (v0.3.0)
+        ═══════════════════════════════════════════ -->
+        <section id="cenzontle-sso" class="mb-14 scroll-mt-24">
+          <h2 class="text-2xl font-bold mb-4 pb-3 border-b" style="border-color: var(--c-b);">
+            Cenzontle SSO
+            <span class="ml-2 text-xs font-semibold px-2 py-0.5 rounded" style="background: rgba(232,82,0,0.15); color: var(--c-p);">v0.3.0</span>
+          </h2>
+          <p class="mb-4" style="color: var(--c-t3);">
+            Enterprise Single Sign-On via Zuclubit — OAuth 2.1 PKCE with automatic token refresh.
+          </p>
+          <div class="rounded-xl p-4 mb-4" style="background: var(--c-code); border: 1px solid var(--c-b);">
+            <div class="text-xs mb-2" style="color: var(--c-t4);">Login via SSO</div>
+            <pre class="font-mono text-sm leading-relaxed" style="color: var(--c-emerald);">halcon login
+# Opens browser for Zuclubit OAuth 2.1 PKCE flow
+# Token stored in system keychain, auto-refreshed</pre>
+          </div>
+          <div class="rounded-xl p-4 mb-4" style="background: var(--c-code); border: 1px solid var(--c-b);">
+            <div class="text-xs mb-2" style="color: var(--c-t4);">Verify status</div>
+            <pre class="font-mono text-sm leading-relaxed" style="color: var(--c-t2);">halcon auth status
+# cenzontle: logged in as alice@company.com (expires in 58m)</pre>
+          </div>
+          <div class="rounded-xl p-4" style="background: var(--c-code); border: 1px solid var(--c-b);">
+            <div class="text-xs mb-2" style="color: var(--c-t4);">CI / non-interactive</div>
+            <pre class="font-mono text-sm leading-relaxed" style="color: var(--c-t2);">export CENZONTLE_ACCESS_TOKEN="eyJ..."
+halcon chat --provider cenzontle</pre>
+          </div>
+        </section>
+
+        <!-- ══════════════════════════════════════════
+             AGENT REGISTRY (v0.3.0)
+        ═══════════════════════════════════════════ -->
+        <section id="agent-registry" class="mb-14 scroll-mt-24">
+          <h2 class="text-2xl font-bold mb-4 pb-3 border-b" style="border-color: var(--c-b);">
+            Sub-Agent Registry
+            <span class="ml-2 text-xs font-semibold px-2 py-0.5 rounded" style="background: rgba(232,82,0,0.15); color: var(--c-p);">v0.3.0</span>
+          </h2>
+          <p class="mb-4" style="color: var(--c-t3);">
+            Define reusable AI sub-agents as Markdown files with YAML frontmatter. Agents are discovered from session, project, and user scopes.
+          </p>
+          <div class="rounded-xl p-4 mb-4" style="background: var(--c-code); border: 1px solid var(--c-b);">
+            <div class="text-xs mb-2" style="color: var(--c-t4);">.halcon/agents/code-reviewer.md</div>
+            <pre class="font-mono text-sm leading-relaxed" style="color: var(--c-t2);">---
+name: code-reviewer
+description: Expert code reviewer. Call after any code change.
+tools: [file_read, grep, glob, git_diff]
+model: haiku
+max_turns: 15
+---
+
+Review for security, performance, and maintainability.
+Cite file:line references for every finding.</pre>
+          </div>
+          <div class="rounded-xl p-4" style="background: var(--c-code); border: 1px solid var(--c-b);">
+            <div class="text-xs mb-2" style="color: var(--c-t4);">Manage agents</div>
+            <pre class="font-mono text-sm leading-relaxed" style="color: var(--c-emerald);">halcon agents list
+halcon agents validate
+halcon agents list --verbose</pre>
+          </div>
+        </section>
+
+        <!-- ══════════════════════════════════════════
+             MCP ECOSYSTEM (v0.3.0)
+        ═══════════════════════════════════════════ -->
+        <section id="mcp-ecosystem" class="mb-14 scroll-mt-24">
+          <h2 class="text-2xl font-bold mb-4 pb-3 border-b" style="border-color: var(--c-b);">
+            MCP Ecosystem
+            <span class="ml-2 text-xs font-semibold px-2 py-0.5 rounded" style="background: rgba(232,82,0,0.15); color: var(--c-p);">v0.3.0</span>
+          </h2>
+          <p class="mb-4" style="color: var(--c-t3);">
+            Halcon is both an MCP client and an MCP server. Connect external tool providers, or expose all 63 Halcon tools over HTTP+SSE.
+          </p>
+          <div class="grid grid-cols-1 gap-4 mb-4">
+            <div class="rounded-xl p-4" style="background: var(--c-code); border: 1px solid var(--c-b);">
+              <div class="text-xs mb-2" style="color: var(--c-t4);">MCP client — connect to external servers</div>
+              <pre class="font-mono text-sm leading-relaxed" style="color: var(--c-t2);">halcon mcp add filesystem --url https://mcp.example.com
+halcon mcp add local --command "npx @modelcontextprotocol/server-filesystem"
+halcon mcp list</pre>
+            </div>
+            <div class="rounded-xl p-4" style="background: var(--c-code); border: 1px solid var(--c-b);">
+              <div class="text-xs mb-2" style="color: var(--c-t4);">MCP server — expose Halcon as MCP</div>
+              <pre class="font-mono text-sm leading-relaxed" style="color: var(--c-emerald);">halcon mcp serve                        # stdio (Claude desktop)
+halcon mcp serve --transport http --port 7777  # HTTP+SSE
+claude mcp add halcon -- halcon mcp serve      # Claude Code</pre>
+            </div>
+          </div>
+        </section>
+
+        <!-- ══════════════════════════════════════════
+             AUDIT EXPORT (v0.3.0)
+        ═══════════════════════════════════════════ -->
+        <section id="audit-export" class="mb-14 scroll-mt-24">
+          <h2 class="text-2xl font-bold mb-4 pb-3 border-b" style="border-color: var(--c-b);">
+            Compliance Audit Export
+            <span class="ml-2 text-xs font-semibold px-2 py-0.5 rounded" style="background: rgba(232,82,0,0.15); color: var(--c-p);">v0.3.0 · SOC 2</span>
+          </h2>
+          <p class="mb-4" style="color: var(--c-t3);">
+            Every tool call is recorded with an HMAC-SHA256 chain. Export audit trails as JSONL, CSV, or PDF. Verify chain integrity at any time.
+          </p>
+          <div class="rounded-xl p-4" style="background: var(--c-code); border: 1px solid var(--c-b);">
+            <pre class="font-mono text-sm leading-relaxed" style="color: var(--c-t2);">halcon audit list
+halcon audit export --format jsonl
+halcon audit export --format pdf --output report.pdf
+halcon audit verify &lt;session-id&gt;   # exits 1 if tampered</pre>
           </div>
         </section>
 
