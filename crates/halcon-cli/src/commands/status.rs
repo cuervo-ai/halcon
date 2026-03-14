@@ -28,6 +28,41 @@ pub async fn run(config: &AppConfig, provider: &str, model: &str) -> Result<()> 
         println!("  {name}: {status}, {key_status}");
     }
 
+    // Show Cenzontle SSO session status (token-based, not in config.toml).
+    // In air-gap mode Cenzontle is excluded regardless of token availability.
+    // Show Cenzontle SSO session status (token-based, not in config.toml).
+    // In air-gap mode Cenzontle is excluded regardless of token availability.
+    let air_gap = std::env::var("HALCON_AIR_GAP")
+        .map(|v| v == "1" || v == "true")
+        .unwrap_or(false);
+    let cenzontle_token = if air_gap {
+        None
+    } else {
+        std::env::var("CENZONTLE_ACCESS_TOKEN")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .or_else(|| {
+                halcon_auth::KeyStore::new("halcon-cli")
+                    .get_secret("cenzontle:access_token")
+                    .ok()
+                    .flatten()
+            })
+    };
+    if cenzontle_token.is_some() {
+        let via = if std::env::var("CENZONTLE_ACCESS_TOKEN")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .is_some()
+        {
+            "env var"
+        } else {
+            "SSO keychain"
+        };
+        println!("  cenzontle: enabled, token set ({via})");
+    } else {
+        println!("  cenzontle: not logged in  (run `halcon login cenzontle` to authenticate)");
+    }
+
     println!();
     println!("Security:");
     println!(

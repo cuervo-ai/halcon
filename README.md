@@ -242,7 +242,8 @@ halcon doctor                                      system diagnostics
 halcon update [--check] [--force]                 self-update
 halcon theme                                       theme generation
 
-halcon auth     login|logout|status PROVIDER      API key management (OS keychain)
+halcon auth     login|logout|status PROVIDER      API key + SSO session management (OS keychain)
+halcon login    [cenzontle]                        shortcut — Cenzontle SSO browser login
 halcon config   show|get|set|path                 configuration CRUD
 
 halcon agents   list|validate                      sub-agent registry
@@ -764,6 +765,56 @@ The `/download` page auto-detects platform (macOS arm64/x64, Linux x64, Windows 
 | **Google Gemini** | `--provider gemini` | Gemini Pro, Flash, Ultra | `GEMINI_API_KEY` |
 | **Claude Code** | `--provider claude-code` | claude CLI subprocess | stdio |
 | **OpenAI-compat** | `--provider compat` | Any OpenAI-compatible API | `OPENAI_COMPAT_API_KEY` |
+| **Cenzontle** | `halcon login cenzontle` | Cenzontle LLM models (dynamic) | Zuclubit SSO — OAuth 2.1 + PKCE |
+
+### Cenzontle SSO Authentication
+
+Cenzontle is an enterprise AI platform accessed via [Zuclubit](https://sso.zuclubit.com) SSO. Unlike static API-key providers, Cenzontle uses short-lived JWT tokens obtained through an OAuth 2.1 Authorization Code + PKCE browser flow.
+
+```sh
+# Authenticate (opens browser → Zuclubit SSO → redirects back)
+halcon login cenzontle
+# → stores access_token + refresh_token in OS keychain
+# → Cenzontle models appear automatically in halcon chat
+
+# Check session status
+halcon auth status
+# →   cenzontle: logged in  (token expires in 847s)
+
+# Revoke session
+halcon auth logout cenzontle
+# →   Cenzontle session removed from OS keychain.
+
+# In air-gap mode, Cenzontle is automatically excluded
+halcon --air-gap chat
+```
+
+**Token lifecycle:**
+
+| Token | TTL | Storage |
+|-------|-----|---------|
+| Access token | 15 min | OS keychain: `cenzontle:access_token` |
+| Refresh token | 7 days | OS keychain: `cenzontle:refresh_token` |
+| Expiry marker | — | OS keychain: `cenzontle:expires_at` |
+
+Tokens are refreshed automatically on startup (< 5 minutes remaining). No manual renewal needed.
+
+**CI/CD bypass** — set `HALCON_SSO_CLIENT_SECRET` to use `client_credentials` grant instead of the browser flow:
+
+```sh
+export CENZONTLE_ACCESS_TOKEN=eyJhbGci...   # direct token injection
+# or
+export HALCON_SSO_CLIENT_SECRET=my-secret    # client_credentials grant
+```
+
+**Environment variables:**
+
+| Variable | Purpose | Default |
+|----------|---------|---------|
+| `CENZONTLE_ACCESS_TOKEN` | Inject token directly (CI/CD) | — |
+| `CENZONTLE_BASE_URL` | Override Cenzontle API base URL | `https://api.cenzontle.app` |
+| `ZUCLUBIT_SSO_URL` | Override SSO base URL | `https://sso.zuclubit.com` |
+| `HALCON_SSO_CLIENT_SECRET` | CI/CD `client_credentials` bypass | — |
 
 <details>
 <summary><b>Cloud provider details</b></summary>
@@ -910,6 +961,12 @@ HALCON_MODEL=claude-sonnet-4-6
 HALCON_PROVIDER=anthropic
 HALCON_LOG=debug
 HALCON_AIR_GAP=1                   # set by --air-gap (also blockable in env)
+
+# Cenzontle SSO
+CENZONTLE_ACCESS_TOKEN=...         # direct token injection (CI/CD, skips SSO flow)
+CENZONTLE_BASE_URL=...             # override API base (default: https://api.cenzontle.app)
+ZUCLUBIT_SSO_URL=...               # override SSO base (default: https://sso.zuclubit.com)
+HALCON_SSO_CLIENT_SECRET=...       # CI/CD client_credentials grant bypass
 
 # Server / Enterprise
 HALCON_MCP_SERVER_API_KEY=...

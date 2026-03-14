@@ -59,27 +59,18 @@ pub fn run(config: &AppConfig, db_path: Option<&Path>) -> Result<()> {
     print_console_section(config, &db, &mut out);
     print_recommendations(config, &db, &mut out);
 
-    let _ = writeln!(
-        out,
-        "  {muted}{bl}{}{br}{r}\n",
-        h.repeat(54),
-    );
+    let _ = writeln!(out, "  {muted}{bl}{}{br}{r}\n", h.repeat(54),);
 
     let _ = out.flush();
     println!();
     Ok(())
 }
 
-fn open_db(
-    config: &AppConfig,
-    db_path: Option<&Path>,
-) -> Result<Option<Arc<Database>>> {
+fn open_db(config: &AppConfig, db_path: Option<&Path>) -> Result<Option<Arc<Database>>> {
     let path = db_path
         .map(|p| p.to_path_buf())
         .or_else(|| config.storage.database_path.clone())
-        .or_else(|| {
-            dirs::home_dir().map(|h| h.join(".halcon").join("halcon.db"))
-        });
+        .or_else(|| dirs::home_dir().map(|h| h.join(".halcon").join("halcon.db")));
 
     match path {
         Some(p) if p.exists() => {
@@ -181,9 +172,17 @@ fn print_cache_section(db: &Option<Arc<Database>>, out: &mut impl Write) {
                     "no entries".to_string()
                 };
                 let dim = t.palette.text_dim.fg();
-                let _ = writeln!(out, "    Entries: {}  {dim}|{r}  {hit_rate_str}", stats.total_entries);
+                let _ = writeln!(
+                    out,
+                    "    Entries: {}  {dim}|{r}  {hit_rate_str}",
+                    stats.total_entries
+                );
                 if let Some(oldest) = stats.oldest_entry {
-                    let _ = writeln!(out, "    {dim}Oldest: {}{r}", oldest.format("%Y-%m-%d %H:%M"));
+                    let _ = writeln!(
+                        out,
+                        "    {dim}Oldest: {}{r}",
+                        oldest.format("%Y-%m-%d %H:%M")
+                    );
                 }
             }
             Err(_) => {
@@ -237,10 +236,7 @@ fn print_tool_metrics_section(db: &Option<Arc<Database>>, out: &mut impl Write) 
                     let _ = writeln!(
                         out,
                         "    {accent}{}{r}: {} calls, {dim}{:.0}ms avg, {}% success{r}",
-                        stat.tool_name,
-                        stat.total_executions,
-                        stat.avg_duration_ms,
-                        success_pct,
+                        stat.tool_name, stat.total_executions, stat.avg_duration_ms, success_pct,
                     );
                 }
             }
@@ -259,7 +255,11 @@ fn print_tool_metrics_section(db: &Option<Arc<Database>>, out: &mut impl Write) 
     }
 }
 
-fn print_orchestrator_section(config: &AppConfig, db: &Option<Arc<Database>>, out: &mut impl Write) {
+fn print_orchestrator_section(
+    config: &AppConfig,
+    db: &Option<Arc<Database>>,
+    out: &mut impl Write,
+) {
     let t = theme::active();
     let r = theme::reset();
 
@@ -273,13 +273,25 @@ fn print_orchestrator_section(config: &AppConfig, db: &Option<Arc<Database>>, ou
     let _ = writeln!(out, "    Status: {badge}");
 
     let dim = t.palette.text_dim.fg();
-    let _ = writeln!(out, "    {dim}Max concurrent agents: {}{r}", config.orchestrator.max_concurrent_agents);
+    let _ = writeln!(
+        out,
+        "    {dim}Max concurrent agents: {}{r}",
+        config.orchestrator.max_concurrent_agents
+    );
     if config.orchestrator.sub_agent_timeout_secs > 0 {
-        let _ = writeln!(out, "    {dim}Sub-agent timeout: {}s{r}", config.orchestrator.sub_agent_timeout_secs);
+        let _ = writeln!(
+            out,
+            "    {dim}Sub-agent timeout: {}s{r}",
+            config.orchestrator.sub_agent_timeout_secs
+        );
     } else {
         let _ = writeln!(out, "    {dim}Sub-agent timeout: (inherit from parent){r}");
     }
-    let _ = writeln!(out, "    {dim}Shared budget: {}{r}", config.orchestrator.shared_budget);
+    let _ = writeln!(
+        out,
+        "    {dim}Shared budget: {}{r}",
+        config.orchestrator.shared_budget
+    );
     if let Some(db) = db {
         match db.count_recent_orchestrator_runs(7) {
             Ok(count) if count > 0 => {
@@ -303,8 +315,14 @@ fn print_replay_section(db: &Option<Arc<Database>>, out: &mut impl Write) {
     components::section_header("Replay & Checkpoints", out);
     if let Some(db) = db {
         let sessions = db.list_sessions(100).unwrap_or_default();
-        let fingerprinted = sessions.iter().filter(|s| s.execution_fingerprint.is_some()).count();
-        let replays = sessions.iter().filter(|s| s.replay_source_session.is_some()).count();
+        let fingerprinted = sessions
+            .iter()
+            .filter(|s| s.execution_fingerprint.is_some())
+            .count();
+        let replays = sessions
+            .iter()
+            .filter(|s| s.replay_source_session.is_some())
+            .count();
 
         let dim = t.palette.text_dim.fg();
         let _ = writeln!(out, "    Sessions with fingerprints: {fingerprinted}");
@@ -386,9 +404,15 @@ fn print_health_section(config: &AppConfig, db: &Option<Arc<Database>>, out: &mu
             for provider in &providers {
                 let report = assess_sync(db, provider, health_config);
                 let (badge_text, level) = match report.level {
-                    crate::repl::health::HealthLevel::Healthy => ("OK", components::BadgeLevel::Success),
-                    crate::repl::health::HealthLevel::Degraded => ("DEGRADED", components::BadgeLevel::Warning),
-                    crate::repl::health::HealthLevel::Unhealthy => ("UNHEALTHY", components::BadgeLevel::Error),
+                    crate::repl::health::HealthLevel::Healthy => {
+                        ("OK", components::BadgeLevel::Success)
+                    }
+                    crate::repl::health::HealthLevel::Degraded => {
+                        ("DEGRADED", components::BadgeLevel::Warning)
+                    }
+                    crate::repl::health::HealthLevel::Unhealthy => {
+                        ("UNHEALTHY", components::BadgeLevel::Error)
+                    }
                 };
                 let badge = components::badge(badge_text, level);
                 let dim = t.palette.text_dim.fg();
@@ -472,7 +496,10 @@ fn print_optimizer_section(db: &Option<Arc<Database>>, out: &mut impl Write) {
 
         if ranked.is_empty() {
             let muted = t.palette.muted.fg();
-            let _ = writeln!(out, "    {muted}(insufficient data -- need >= 3 invocations/model){r}");
+            let _ = writeln!(
+                out,
+                "    {muted}(insufficient data -- need >= 3 invocations/model){r}"
+            );
         } else {
             let dim = t.palette.text_dim.fg();
             let accent = t.palette.accent.fg();
@@ -561,21 +588,52 @@ fn print_model_selection_section(config: &AppConfig, out: &mut impl Write) {
     let badge = components::badge(status_text, level);
     let _ = writeln!(out, "    Status: {badge}");
 
-    // Count registered providers
-    let provider_count = config.models.providers.values().filter(|p| p.enabled).count();
-    let _ = writeln!(out, "    {dim}Registered providers:{r} {provider_count} enabled");
+    // Count registered providers — includes dynamic token-based providers (e.g. Cenzontle).
+    // In air-gap mode Cenzontle is excluded regardless of token availability.
+    let air_gap = std::env::var("HALCON_AIR_GAP")
+        .map(|v| v == "1" || v == "true")
+        .unwrap_or(false);
+    let cenzontle_active = !air_gap
+        && (std::env::var("CENZONTLE_ACCESS_TOKEN")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .is_some()
+            || halcon_auth::KeyStore::new("halcon-cli")
+                .get_secret("cenzontle:access_token")
+                .ok()
+                .flatten()
+                .is_some());
 
-    // Count available models (from enabled providers)
-    let enabled_providers: Vec<&str> = config
+    let provider_count = config
+        .models
+        .providers
+        .values()
+        .filter(|p| p.enabled)
+        .count()
+        + if cenzontle_active { 1 } else { 0 };
+    let _ = writeln!(
+        out,
+        "    {dim}Registered providers:{r} {provider_count} enabled"
+    );
+
+    // Count available models (from enabled providers + SSO-based providers)
+    let mut enabled_providers: Vec<&str> = config
         .models
         .providers
         .iter()
         .filter(|(_, p)| p.enabled)
         .map(|(name, _)| name.as_str())
         .collect();
+    if cenzontle_active {
+        enabled_providers.push("cenzontle");
+    }
     let _ = writeln!(out, "    {dim}Enabled:{r} {}", enabled_providers.join(", "));
 
-    let _ = writeln!(out, "    {dim}Strategy:{r} {}", config.agent.routing.strategy);
+    let _ = writeln!(
+        out,
+        "    {dim}Strategy:{r} {}",
+        config.agent.routing.strategy
+    );
 
     if sel.budget_cap_usd > 0.0 {
         let _ = writeln!(out, "    {dim}Budget cap:{r} ${:.2}", sel.budget_cap_usd);
@@ -647,7 +705,8 @@ fn print_accessibility_section(config: &AppConfig, out: &mut impl Write) {
                 "primary" | "accent" => UsageContext::Interactive,
                 _ => UsageContext::BodyText,
             };
-            let ctx = RecommendationContext::new(usage, momoto_intelligence::ComplianceTarget::WCAG_AA);
+            let ctx =
+                RecommendationContext::new(usage, momoto_intelligence::ComplianceTarget::WCAG_AA);
             let rec = engine.improve_foreground(*fg.color(), *bg_theme.color(), ctx);
             let suggested_hex = rec.color.to_hex();
             let score_pct = (rec.score.overall * 100.0).round() as u32;
@@ -689,9 +748,23 @@ fn print_console_section(config: &AppConfig, db: &Option<Arc<Database>>, out: &m
 
     // Available commands count.
     let console_commands = [
-        "/research", "/inspect", "/plan", "/run", "/resume", "/cancel",
-        "/status", "/metrics", "/logs", "/trace", "/replay", "/step",
-        "/snapshot", "/diff", "/benchmark", "/optimize", "/analyze",
+        "/research",
+        "/inspect",
+        "/plan",
+        "/run",
+        "/resume",
+        "/cancel",
+        "/status",
+        "/metrics",
+        "/logs",
+        "/trace",
+        "/replay",
+        "/step",
+        "/snapshot",
+        "/diff",
+        "/benchmark",
+        "/optimize",
+        "/analyze",
     ];
     let _ = writeln!(out, "    Available commands: {}", console_commands.len());
 
@@ -725,14 +798,12 @@ fn print_recommendations(config: &AppConfig, db: &Option<Arc<Database>>, out: &m
     let mut recommendations: Vec<String> = Vec::new();
 
     if !config.resilience.enabled {
-        recommendations.push(
-            "Enable resilience layer: set [resilience] enabled = true in config".to_string(),
-        );
+        recommendations
+            .push("Enable resilience layer: set [resilience] enabled = true in config".to_string());
     }
 
     if !config.cache.enabled {
-        recommendations
-            .push("Enable response cache for faster repeated queries".to_string());
+        recommendations.push("Enable response cache for faster repeated queries".to_string());
     }
 
     if let Some(db) = db {
@@ -1015,7 +1086,11 @@ mod tests {
 
         let config = halcon_core::types::HealthConfig::default();
         let report = assess_sync(&db, "test_provider", &config);
-        assert!(report.score >= 80, "healthy provider should score >= 80, got {}", report.score);
+        assert!(
+            report.score >= 80,
+            "healthy provider should score >= 80, got {}",
+            report.score
+        );
         assert_eq!(report.invocation_count, 5);
     }
 
@@ -1052,9 +1127,21 @@ mod tests {
         let db = Arc::new(Database::open_in_memory().unwrap());
 
         db.save_agent_task(
-            "t1", "o1", "s1", "Chat", "test",
-            "completed", 100, 50, 0.01, 500, 2, None, Some("output"),
-        ).unwrap();
+            "t1",
+            "o1",
+            "s1",
+            "Chat",
+            "test",
+            "completed",
+            100,
+            50,
+            0.01,
+            500,
+            2,
+            None,
+            Some("output"),
+        )
+        .unwrap();
 
         let db = Some(db);
         let mut out = Vec::new();
@@ -1146,7 +1233,9 @@ mod tests {
         print_accessibility_section(&config, &mut out);
         let output = String::from_utf8(out).unwrap();
         // All 8 semantic tokens should appear.
-        for name in &["primary", "accent", "warning", "error", "success", "muted", "text", "text_dim"] {
+        for name in &[
+            "primary", "accent", "warning", "error", "success", "muted", "text", "text_dim",
+        ] {
             assert!(output.contains(name), "missing token: {name}");
         }
     }
@@ -1255,10 +1344,7 @@ mod tests {
         let output = String::from_utf8(out).unwrap();
         if output.contains("suggest") {
             // Suggestion should contain a hex color (# followed by digits).
-            assert!(
-                output.contains("#"),
-                "suggestion should contain hex color"
-            );
+            assert!(output.contains("#"), "suggestion should contain hex color");
         }
     }
 

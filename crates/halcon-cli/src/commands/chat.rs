@@ -31,17 +31,15 @@ pub struct FeatureFlags {
 
 impl FeatureFlags {
     /// Apply CLI flag overrides to a mutable config.
+    ///
+    /// Only flags that are explicitly passed on the CLI override config.toml values.
+    /// If no flag is set, the value from config.toml (or AppConfig::default()) is used.
+    /// This restores --orchestrate, --tasks, and --full as meaningful toggles.
     pub fn apply(&self, config: &mut halcon_core::types::AppConfig) {
-        // Orchestration, adaptive planning, and task framework are always-on baseline behaviors.
-        config.orchestrator.enabled = true;
-        config.planning.adaptive = true;
-        config.task_framework.enabled = true;
-
         if self.full || self.orchestrate {
             config.orchestrator.enabled = true;
-            // CRITICAL FIX: Orchestrator requires planning to generate execution plans.
-            // Without adaptive planning, no ExecutionTracker is created, and orchestrator
-            // delegation logic never executes (agent.rs:780-862).
+            // Orchestrator requires adaptive planning to generate ExecutionPlan objects.
+            // Without this, delegation logic in agent.rs never executes.
             config.planning.adaptive = true;
         }
         if self.full || self.tasks {
@@ -129,10 +127,17 @@ pub async fn run(
     let mut config = config.clone();
     flags.apply(&mut config);
 
+    // Proactively refresh Cenzontle SSO token if near-expiry (< 5 min remaining).
+    // Must run before build_registry() so the refreshed token is read from keychain.
+    let _ = super::sso::refresh_if_needed().await;
+
     let mut registry = provider_factory::build_registry(&config);
 
     // Ensure Ollama is available as a last-resort local fallback.
     provider_factory::ensure_local_fallback(&mut registry).await;
+
+    // Populate Cenzontle model list from the API (no-op if Cenzontle not registered).
+    provider_factory::ensure_cenzontle_models(&mut registry).await;
 
     // Precheck that the selected provider is available, falling back if needed.
     // In TUI mode, allow starting even without providers (show error on first prompt).
@@ -375,10 +380,14 @@ pub async fn run(
 /// Replaces the raw JSON dump with a structured, human-readable card.
 fn print_exit_hooks(repl: &Repl, flags: &FeatureFlags) {
     let s = &repl.session;
+    // A session is only persisted to DB when it has at least one message.
+    // session_manager::save() is a no-op for empty sessions — so a resume
+    // command is only meaningful when the session was actually saved.
+    let was_saved = !s.messages.is_empty();
     let has_activity = s.agent_rounds > 0 || s.tool_invocations > 0;
 
-    // ── Always show the exit card if there was any activity ──────────────────
-    if has_activity || flags.metrics || flags.full {
+    // ── Show exit card only when there was real activity (saved to DB) ────────
+    if (has_activity && was_saved) || (flags.metrics && was_saved) || (flags.full && was_saved) {
         let total_tokens = s.total_usage.input_tokens + s.total_usage.output_tokens;
         let latency = s.total_latency_ms as f64 / 1000.0;
         let session_id = s.id;

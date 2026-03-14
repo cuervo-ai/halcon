@@ -4,8 +4,8 @@ use anyhow::Result;
 use halcon_core::traits::ModelProvider;
 use halcon_core::types::{AppConfig, HttpConfig, McpConfig, ModelInfo};
 use halcon_providers::{
-    AnthropicProvider, ClaudeCodeProvider, DeepSeekProvider, EchoProvider, GeminiProvider,
-    OllamaProvider, OpenAICompatibleProvider, OpenAIProvider, ProviderRegistry,
+    AnthropicProvider, CenzonzleProvider, ClaudeCodeProvider, DeepSeekProvider, EchoProvider,
+    GeminiProvider, OllamaProvider, OpenAICompatibleProvider, OpenAIProvider, ProviderRegistry,
 };
 use halcon_tools::ToolRegistry;
 use serde::Deserialize;
@@ -24,7 +24,9 @@ use crate::render::feedback;
 /// how security boundaries work in privilege separation (enforce at the lowest
 /// common layer, not the entry point).
 pub fn build_registry(config: &AppConfig) -> ProviderRegistry {
-    let air_gap = std::env::var("HALCON_AIR_GAP").map(|v| v == "1").unwrap_or(false);
+    let air_gap = std::env::var("HALCON_AIR_GAP")
+        .map(|v| v == "1")
+        .unwrap_or(false);
 
     if air_gap {
         // Air-gap mode: register only Ollama.
@@ -192,7 +194,9 @@ pub fn build_registry(config: &AppConfig) -> ProviderRegistry {
             registry.register(Arc::new(provider));
             tracing::info!("Registered Vertex AI provider (CLAUDE_CODE_USE_VERTEX is set)");
         } else {
-            tracing::warn!("CLAUDE_CODE_USE_VERTEX is set but ANTHROPIC_VERTEX_PROJECT_ID is missing");
+            tracing::warn!(
+                "CLAUDE_CODE_USE_VERTEX is set but ANTHROPIC_VERTEX_PROJECT_ID is missing"
+            );
         }
     }
 
@@ -207,14 +211,66 @@ pub fn build_registry(config: &AppConfig) -> ProviderRegistry {
         }
     }
 
+    // Register Cenzontle if an SSO access token is available.
+    //
+    // Priority:
+    // 1. CENZONTLE_ACCESS_TOKEN env var (CI/CD)
+    // 2. OS keychain (stored by `halcon login cenzontle`)
+    //
+    // Model discovery is deferred to an async initializer; the provider is only
+    // registered when the token resolves, so `is_available()` gates usage.
+    let cenzontle_token: Option<String> = std::env::var("CENZONTLE_ACCESS_TOKEN")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .or_else(|| {
+            let keystore = halcon_auth::KeyStore::new("halcon-cli");
+            keystore.get_secret("cenzontle:access_token").ok().flatten()
+        });
+
+    if let Some(token) = cenzontle_token {
+        let base_url = std::env::var("CENZONTLE_BASE_URL").ok();
+        // Build with empty model list — `is_available()` will verify connectivity.
+        // `ensure_cenzontle_models()` should be called after registry construction
+        // to populate models if needed, but the provider is usable immediately.
+        let provider = CenzonzleProvider::new(token, base_url, Vec::new());
+        registry.register(Arc::new(provider));
+        tracing::debug!("Registered Cenzontle provider (token found)");
+    }
+
     // P0.3: Load dynamic providers from ~/.halcon/providers.d/*.toml
-    if let Some(providers_dir) = dirs::home_dir()
-        .map(|h| h.join(".halcon").join("providers.d"))
-    {
+    if let Some(providers_dir) = dirs::home_dir().map(|h| h.join(".halcon").join("providers.d")) {
         load_dynamic_providers(&providers_dir, &mut registry);
     }
 
     registry
+}
+
+/// Populate Cenzontle models by calling the API.
+///
+/// Call this after `build_registry()` when an async context is available.
+/// If the Cenzontle provider is not registered (no token) this is a no-op.
+pub async fn ensure_cenzontle_models(registry: &mut ProviderRegistry) {
+    // If cenzontle isn't registered, skip.
+    if registry.get("cenzontle").is_none() {
+        return;
+    }
+
+    let token = std::env::var("CENZONTLE_ACCESS_TOKEN")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .or_else(|| {
+            let keystore = halcon_auth::KeyStore::new("halcon-cli");
+            keystore.get_secret("cenzontle:access_token").ok().flatten()
+        });
+
+    let Some(token) = token else { return };
+    let base_url = std::env::var("CENZONTLE_BASE_URL").ok();
+
+    if let Some(provider) = CenzonzleProvider::from_token(token, base_url).await {
+        // Re-register with populated model list.
+        registry.register(Arc::new(provider));
+        tracing::debug!("Cenzontle provider models populated");
+    }
 }
 
 /// Ensure Ollama is in the registry as a last-resort local fallback.
@@ -293,8 +349,7 @@ async fn precheck_providers_with_explicit(
                     .unwrap_or(0);
                 let best = supported
                     .iter()
-                    .filter(|m| m.supports_tools && m.context_window >= max_ctx)
-                    .next() // first model wins on ties (order = priority in supported_models())
+                    .find(|m| m.supports_tools && m.context_window >= max_ctx) // first model wins on ties (order = priority in supported_models())
                     .map(|m| m.id.clone())
                     .unwrap_or_else(|| {
                         supported
@@ -530,9 +585,15 @@ struct DynamicProviderSection {
     api_key_env: Option<String>,
 }
 
-fn default_context_window() -> u32 { 128_000 }
-fn default_max_output() -> u32 { 4_096 }
-fn default_true() -> bool { true }
+fn default_context_window() -> u32 {
+    128_000
+}
+fn default_max_output() -> u32 {
+    4_096
+}
+fn default_true() -> bool {
+    true
+}
 
 /// Load dynamic provider manifests from `dir/*.toml` and register each as an
 /// `OpenAICompatibleProvider` in `registry`.
@@ -655,9 +716,18 @@ mod tests {
         let registry = build_registry(&config);
 
         // Only Ollama should be registered in air-gap mode.
-        assert!(registry.get("ollama").is_some(), "ollama must be registered in air-gap mode");
-        assert!(registry.get("echo").is_none(), "echo must NOT be registered in air-gap mode");
-        assert!(registry.get("anthropic").is_none(), "anthropic must NOT be registered in air-gap mode");
+        assert!(
+            registry.get("ollama").is_some(),
+            "ollama must be registered in air-gap mode"
+        );
+        assert!(
+            registry.get("echo").is_none(),
+            "echo must NOT be registered in air-gap mode"
+        );
+        assert!(
+            registry.get("anthropic").is_none(),
+            "anthropic must NOT be registered in air-gap mode"
+        );
 
         // Cleanup.
         std::env::remove_var("HALCON_AIR_GAP");
