@@ -1113,12 +1113,25 @@ _write_mcp_config() {
         [ -x "$_c" ] && { _MCP_BIN="$_c"; break; }
     done
 
-    # Build the args array using OS-aware dirs detected earlier
-    # Convert _SYS_MCP_DIRS (comma-sep quoted strings) into JSON array entries
-    _MCP_ARGS=""
-    # Normalize: one entry per line
-    _dirs_list="$(printf '%s' "$_SYS_MCP_DIRS" | tr ',' '\n' | sed 's/^[[:space:]]*/        /')"
-    _MCP_ARGS="$(printf '%s' "$_dirs_list" | paste -sd ',' -)"
+    # Build JSON args array — one entry per line, OS-aware
+    _mcp_args_json="        \"/tmp\""
+    if [ "$_SYS_OS" = "Darwin" ]; then
+        _mcp_args_json="        \"$HOME/Documents\",
+        \"$HOME/Downloads\",
+        \"$HOME/Desktop\",
+        \"/tmp\""
+    else
+        _mcp_args_json="        \"$HOME\",
+        \"/tmp\""
+        for _d in "$HOME/Documents" "$HOME/Downloads" "$HOME/projects" "$HOME/dev" "$HOME/src"; do
+            [ -d "$_d" ] && _mcp_args_json="$_mcp_args_json,
+        \"$_d\""
+        done
+        if [ "$_SYS_IS_WSL" = "1" ] && [ -n "${_WIN_HOME:-}" ] && [ -d "$_WIN_HOME" ]; then
+            _mcp_args_json="$_mcp_args_json,
+        \"$_WIN_HOME\""
+        fi
+    fi
 
     if [ -n "$_MCP_BIN" ]; then
         cat > "$dest" << MCPEOF
@@ -1127,7 +1140,7 @@ _write_mcp_config() {
     "filesystem": {
       "command": "$_MCP_BIN",
       "args": [
-        ${_MCP_ARGS}
+${_mcp_args_json}
       ]
     }
   }
@@ -1142,7 +1155,6 @@ MCPEOF
 MCPEOF
         warn "mcp-server-filesystem not found — MCP left empty"
         warn "Install: npm install -g @modelcontextprotocol/server-filesystem"
-        warn "Then re-run: halcon config reload"
     fi
     ok "MCP config written: ${dest}"
 }
