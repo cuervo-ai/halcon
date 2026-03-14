@@ -55,9 +55,23 @@ detect_platform() {
 
     case "$OS" in
         Linux)
+            # Detect musl vs glibc — musl has no /lib/ld-linux* but has /lib/ld-musl*
+            # or ldd reports "musl" in version output
+            _IS_MUSL=0
+            if ldd --version 2>&1 | grep -qi musl; then
+                _IS_MUSL=1
+            elif ls /lib/ld-musl* >/dev/null 2>&1; then
+                _IS_MUSL=1
+            fi
             case "$ARCH" in
-                x86_64)  TARGET="x86_64-unknown-linux-musl" ;;
-                aarch64|arm64) TARGET="aarch64-unknown-linux-gnu" ;;
+                x86_64)  TARGET="x86_64-unknown-linux-musl" ;;  # always musl for x86_64 (static binary)
+                aarch64|arm64)
+                    if [ "$_IS_MUSL" = "1" ]; then
+                        TARGET="aarch64-unknown-linux-musl"
+                    else
+                        TARGET="aarch64-unknown-linux-gnu"
+                    fi
+                    ;;
                 armv7l)  TARGET="armv7-unknown-linux-musleabihf" ;;
                 *) error "Unsupported Linux architecture: $ARCH" ;;
             esac
