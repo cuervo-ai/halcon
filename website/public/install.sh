@@ -411,6 +411,228 @@ main() {
     printf "    ${BOLD}halcon chat --tui --full --expert${RESET}\n\n"
 }
 
+# ─── System detection ────────────────────────────────────────────────────────
+# Probes hardware, OS, environment, and installed tools.
+# Sets _SYS_* variables consumed by _write_config / _write_mcp_config.
+detect_system() {
+    _SYS_OS="$(uname -s)"        # Darwin | Linux
+    _SYS_ARCH="$(uname -m)"      # x86_64 | aarch64 | arm64
+
+    # ── CPU cores ────────────────────────────────────────────────────────────
+    if command -v nproc >/dev/null 2>&1; then
+        _SYS_CORES="$(nproc)"
+    elif command -v sysctl >/dev/null 2>&1; then
+        _SYS_CORES="$(sysctl -n hw.logicalcpu 2>/dev/null || echo 4)"
+    else
+        _SYS_CORES=4
+    fi
+
+    # ── RAM (MB) ─────────────────────────────────────────────────────────────
+    if [ "$_SYS_OS" = "Darwin" ]; then
+        _SYS_RAM_MB="$(( $(sysctl -n hw.memsize 2>/dev/null || echo 4294967296) / 1048576 ))"
+    elif [ -f /proc/meminfo ]; then
+        _SYS_RAM_MB="$(awk '/MemTotal/{print int($2/1024)}' /proc/meminfo)"
+    else
+        _SYS_RAM_MB=4096
+    fi
+    _SYS_RAM_GB="$(( _SYS_RAM_MB / 1024 ))"
+
+    # ── Free disk (GB, measured at $HOME) ────────────────────────────────────
+    _SYS_DISK_GB="$(df -k "$HOME" 2>/dev/null | awk 'NR==2{print int($4/1048576)}' || echo 10)"
+    [ -z "$_SYS_DISK_GB" ] || [ "$_SYS_DISK_GB" = "0" ] && _SYS_DISK_GB=10
+
+    # ── Environment ──────────────────────────────────────────────────────────
+    _SYS_IS_CI=0
+    [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ] || [ -n "${GITLAB_CI:-}" ] \
+        || [ -n "${CIRCLECI:-}" ] || [ -n "${BUILDKITE:-}" ] \
+        || [ -n "${TF_BUILD:-}" ] && _SYS_IS_CI=1 || true
+
+    _SYS_IS_CONTAINER=0
+    { [ -f /.dockerenv ] \
+        || grep -qE "docker|lxc|containerd" /proc/1/cgroup 2>/dev/null; } \
+        && _SYS_IS_CONTAINER=1 || true
+
+    _SYS_IS_WSL=0
+    grep -qi microsoft /proc/version 2>/dev/null && _SYS_IS_WSL=1 || true
+
+    # ── GPU ──────────────────────────────────────────────────────────────────
+    _SYS_HAS_GPU=0
+    if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
+        _SYS_HAS_GPU=1
+    elif [ "$_SYS_OS" = "Darwin" ]; then
+        # Apple Silicon always has Metal GPU; Intel Macs usually have discrete GPU
+        _SYS_HAS_GPU=1
+    fi
+
+    # ── Ollama ───────────────────────────────────────────────────────────────
+    _SYS_OLLAMA_ENABLED="false"
+    _SYS_OLLAMA_MODEL="llama3.2"
+    if command -v ollama >/dev/null 2>&1; then
+        _SYS_OLLAMA_ENABLED="true"
+        # Try to get installed model list (non-blocking)
+        _first="$(curl -sf --max-time 2 http://localhost:11434/api/tags 2>/dev/null \
+            | grep -o '"name":"[^"]*"' | head -1 | sed 's/"name":"//;s/"//')"
+        [ -n "$_first" ] && _SYS_OLLAMA_MODEL="$_first"
+    fi
+
+    # ── Claude CLI ───────────────────────────────────────────────────────────
+    _SYS_CLAUDE_CMD=""
+    for _c in \
+        "$HOME/.local/bin/claude" \
+        "/usr/local/bin/claude" \
+        "/opt/homebrew/bin/claude" \
+        "$(command -v claude 2>/dev/null)"
+    do
+        [ -x "$_c" ] && { _SYS_CLAUDE_CMD="$_c"; break; }
+    done
+
+    # ── Derive tuned values ───────────────────────────────────────────────────
+
+    # max_parallel_tools: 2× cores, clamped [4, 20]
+    _SYS_MAX_PARALLEL=$(( _SYS_CORES * 2 ))
+    [ "$_SYS_MAX_PARALLEL" -lt 4 ]  && _SYS_MAX_PARALLEL=4
+    [ "$_SYS_MAX_PARALLEL" -gt 20 ] && _SYS_MAX_PARALLEL=20
+
+    # max_concurrent_agents: cores/4, clamped [1, 5]
+    _SYS_MAX_AGENTS=$(( _SYS_CORES / 4 ))
+    [ "$_SYS_MAX_AGENTS" -lt 1 ] && _SYS_MAX_AGENTS=1
+    [ "$_SYS_MAX_AGENTS" -gt 5 ] && _SYS_MAX_AGENTS=5
+
+    # sandbox max_memory_mb: RAM/2, clamped [512, 16384]
+    _SYS_SANDBOX_MEM=$(( _SYS_RAM_MB / 2 ))
+    [ "$_SYS_SANDBOX_MEM" -lt 512 ]   && _SYS_SANDBOX_MEM=512
+    [ "$_SYS_SANDBOX_MEM" -gt 16384 ] && _SYS_SANDBOX_MEM=16384
+
+    # max_context_tokens: tiered by RAM
+    if   [ "$_SYS_RAM_GB" -ge 32 ]; then _SYS_MAX_CTX=180000
+    elif [ "$_SYS_RAM_GB" -ge 16 ]; then _SYS_MAX_CTX=120000
+    elif [ "$_SYS_RAM_GB" -ge 8  ]; then _SYS_MAX_CTX=80000
+    else                                  _SYS_MAX_CTX=40000
+    fi
+
+    # search max_documents: tiered by disk
+    if   [ "$_SYS_DISK_GB" -ge 50 ]; then _SYS_MAX_DOCS=100000
+    elif [ "$_SYS_DISK_GB" -ge 20 ]; then _SYS_MAX_DOCS=50000
+    else                                   _SYS_MAX_DOCS=20000
+    fi
+
+    # tool / provider timeouts: CI gets tighter, slow networks get looser
+    if [ "$_SYS_IS_CI" = "1" ]; then
+        _SYS_TOOL_TIMEOUT=60
+        _SYS_PROVIDER_TIMEOUT=120
+        _SYS_MAX_DURATION=900
+        _SYS_CONFIRM_DESTRUCTIVE="false"
+        _SYS_AUTO_APPROVE_CI="true"
+    else
+        _SYS_TOOL_TIMEOUT=120
+        _SYS_PROVIDER_TIMEOUT=300
+        _SYS_MAX_DURATION=1800
+        _SYS_CONFIRM_DESTRUCTIVE="true"
+        _SYS_AUTO_APPROVE_CI="false"
+    fi
+
+    # theme: fire on macOS/rich terminals; auto elsewhere
+    if [ "$_SYS_OS" = "Darwin" ]; then
+        _SYS_THEME="fire"
+    else
+        _SYS_THEME="auto"
+    fi
+
+    # animations: off in CI or containers (no TTY)
+    if [ "$_SYS_IS_CI" = "1" ] || [ "$_SYS_IS_CONTAINER" = "1" ]; then
+        _SYS_ANIMATIONS="false"
+    else
+        _SYS_ANIMATIONS="true"
+    fi
+
+    # logging: debug in CI, info otherwise
+    if [ "$_SYS_IS_CI" = "1" ]; then
+        _SYS_LOG_LEVEL="debug"
+    else
+        _SYS_LOG_LEVEL="info"
+    fi
+
+    # multimodal mode: local if GPU + ARM (Apple Silicon), api otherwise
+    if [ "$_SYS_HAS_GPU" = "1" ] && [ "$_SYS_ARCH" = "arm64" ]; then
+        _SYS_MULTIMODAL_MODE="hybrid"
+    else
+        _SYS_MULTIMODAL_MODE="api"
+    fi
+
+    # max_file_size for multimodal: 50MB on GPU, 20MB otherwise
+    if [ "$_SYS_HAS_GPU" = "1" ]; then
+        _SYS_MULTIMODAL_MAX_FILE=52428800
+    else
+        _SYS_MULTIMODAL_MAX_FILE=20971520
+    fi
+
+    # allowed_directories — OS-aware
+    # Build as newline-separated quoted entries for the TOML array
+    _SYS_ALLOWED_DIRS="    \".\",
+    \"/tmp\""
+
+    if [ "$_SYS_OS" = "Darwin" ]; then
+        _SYS_ALLOWED_DIRS="${_SYS_ALLOWED_DIRS},
+    \"/private/tmp\",
+    \"$HOME\",
+    \"$HOME/Documents\",
+    \"$HOME/Downloads\",
+    \"$HOME/Desktop\""
+    else
+        # Linux: only add directories that actually exist
+        _SYS_ALLOWED_DIRS="${_SYS_ALLOWED_DIRS},
+    \"$HOME\""
+        for _d in "$HOME/Documents" "$HOME/Downloads" "$HOME/projects" "$HOME/dev" "$HOME/src"; do
+            [ -d "$_d" ] && _SYS_ALLOWED_DIRS="${_SYS_ALLOWED_DIRS},
+    \"$_d\""
+        done
+        # WSL: also expose Windows user directory if accessible
+        if [ "$_SYS_IS_WSL" = "1" ]; then
+            _WIN_HOME="$(cmd.exe /c "echo %USERPROFILE%" 2>/dev/null | tr -d '\r' | sed 's|\\\\|/|g; s|C:|/mnt/c|')" || true
+            [ -d "$_WIN_HOME" ] && _SYS_ALLOWED_DIRS="${_SYS_ALLOWED_DIRS},
+    \"$_WIN_HOME\""
+        fi
+    fi
+
+    # MCP filesystem dirs — reuse for .mcp.json
+    _SYS_MCP_DIRS="\"$HOME\",
+        \"/tmp\""
+    if [ "$_SYS_OS" = "Darwin" ]; then
+        _SYS_MCP_DIRS="\"$HOME/Documents\",
+        \"$HOME/Downloads\",
+        \"$HOME/Desktop\",
+        \"/tmp\""
+    else
+        for _d in "$HOME/Documents" "$HOME/Downloads" "$HOME/projects" "$HOME/dev"; do
+            [ -d "$_d" ] && _SYS_MCP_DIRS="${_SYS_MCP_DIRS},
+        \"$_d\""
+        done
+    fi
+
+    # claude_code section string (included only when claude CLI is found)
+    if [ -n "$_SYS_CLAUDE_CMD" ]; then
+        _SYS_CLAUDE_SECTION="[models.providers.claude_code]
+enabled              = true
+command              = \"$_SYS_CLAUDE_CMD\"
+default_model        = \"claude-sonnet-4-6\"
+mode                 = \"chat\"
+drain_timeout_secs   = 30
+auto_restart         = true
+request_timeout_secs = 120
+
+[models.providers.claude_code.http]
+connect_timeout_secs = 10
+request_timeout_secs = 300
+max_retries          = 3
+retry_base_delay_ms  = 1000"
+    else
+        _SYS_CLAUDE_SECTION="# claude_code provider: claude CLI not found at install time.
+# Install from https://claude.ai/download, then re-run: halcon config set models.providers.claude_code.enabled true
+# [models.providers.claude_code]
+# enabled = false"
+    fi
+}
+
 # ─── Full-capacity configuration ─────────────────────────────────────────────
 # Writes ~/.halcon/config.toml and ~/.halcon/.mcp.json if they don't exist.
 # Skips gracefully if the user already has a config.
@@ -419,15 +641,29 @@ configure_halcon() {
     CONFIG_FILE="$HALCON_DIR/config.toml"
     MCP_FILE="$HALCON_DIR/.mcp.json"
 
-    printf "\n  ${BOLD}Configuring Halcón...${RESET}\n"
+    printf "\n  ${BOLD}Detecting system...${RESET}\n"
+    detect_system
 
+    # Print summary of what was detected
+    printf "    OS: %s %s" "$_SYS_OS" "$_SYS_ARCH"
+    [ "$_SYS_IS_WSL"       = "1" ] && printf " (WSL)"
+    [ "$_SYS_IS_CONTAINER" = "1" ] && printf " (container)"
+    [ "$_SYS_IS_CI"        = "1" ] && printf " (CI)"
+    printf "\n"
+    printf "    CPU: %s cores  RAM: %s GB  Disk: %s GB free\n" \
+        "$_SYS_CORES" "$_SYS_RAM_GB" "$_SYS_DISK_GB"
+    [ "$_SYS_HAS_GPU"        = "1" ] && printf "    GPU: detected (%s)\n" "$_SYS_MULTIMODAL_MODE"
+    [ "$_SYS_OLLAMA_ENABLED" = "true" ] && printf "    Ollama: found (%s)\n" "$_SYS_OLLAMA_MODEL"
+    [ -n "$_SYS_CLAUDE_CMD" ] && printf "    Claude CLI: %s\n" "$_SYS_CLAUDE_CMD"
+
+    printf "\n  ${BOLD}Configuring Halcón...${RESET}\n"
     mkdir -p "$HALCON_DIR" 2>/dev/null || true
 
     # ── config.toml ──────────────────────────────────────────────────────────
     if [ -f "$CONFIG_FILE" ]; then
         ok "Config already exists — skipping (${CONFIG_FILE})"
     else
-        info "Writing full-capacity config..."
+        info "Writing system-adapted config..."
         _write_config "$CONFIG_FILE"
         ok "Config written: ${CONFIG_FILE}"
     fi
@@ -437,19 +673,27 @@ configure_halcon() {
         ok "MCP config already exists — skipping"
     else
         _write_mcp_config "$MCP_FILE"
-        ok "MCP config written: ${MCP_FILE}"
     fi
 }
 
 _write_config() {
     local dest="$1"
-    cat > "$dest" << 'HALCON_CONFIG'
+    # NOTE: unquoted heredoc — shell variables expand intentionally.
+    # Dollar signs that should be literal in TOML (none here) would need \$.
+    cat > "$dest" << HALCON_CONFIG
 # ═══════════════════════════════════════════════════════════════════════════════
-#  HALCÓN CLI — Full-Capacity Configuration
-#  Generated by install.sh
+#  HALCÓN CLI — System-Adapted Configuration
+#  Generated by install.sh on $(date '+%Y-%m-%d %H:%M %Z')
+#
+#  System profile:
+#    OS   : ${_SYS_OS} ${_SYS_ARCH}
+#    CPU  : ${_SYS_CORES} cores
+#    RAM  : ${_SYS_RAM_GB} GB
+#    Disk : ${_SYS_DISK_GB} GB free
+#    GPU  : ${_SYS_HAS_GPU}  |  Ollama: ${_SYS_OLLAMA_ENABLED}
 #
 #  Usage:
-#    halcon chat --tui --full --expert            # default provider
+#    halcon chat --tui --full --expert
 #    halcon -p openai    chat --tui --full --expert
 #    halcon -p deepseek  chat --tui --full --expert   # cheapest
 #    halcon -p ollama    chat --tui --full --expert   # local / no API key
@@ -470,23 +714,24 @@ temperature      = 0.0
 # ── Display ───────────────────────────────────────────────────────────────────
 [display]
 show_banner         = true
-animations          = true
-theme               = "fire"
+animations          = ${_SYS_ANIMATIONS}
+theme               = "${_SYS_THEME}"
 ui_mode             = "expert"
 brand_color         = "#e85200"
 terminal_background = "#1a1a1a"
 compact_width       = 0
 
-# ── Agent Limits ──────────────────────────────────────────────────────────────
+# ── Agent Limits ─────────────────────────────────────────────────────────────
+# Tuned for: ${_SYS_CORES} cores / ${_SYS_RAM_GB} GB RAM
 [agent.limits]
 max_rounds              = 40
 max_total_tokens        = 0
-max_duration_secs       = 1800
-tool_timeout_secs       = 120
-provider_timeout_secs   = 300
-max_parallel_tools      = 10
+max_duration_secs       = ${_SYS_MAX_DURATION}
+tool_timeout_secs       = ${_SYS_TOOL_TIMEOUT}
+provider_timeout_secs   = ${_SYS_PROVIDER_TIMEOUT}
+max_parallel_tools      = ${_SYS_MAX_PARALLEL}
 max_tool_output_chars   = 100000
-max_concurrent_agents   = 3
+max_concurrent_agents   = ${_SYS_MAX_AGENTS}
 max_cost_usd            = 0.0
 clarification_threshold = 0.6
 
@@ -503,11 +748,12 @@ fallback_models = [
 speculation_providers = []
 
 # ── Compaction ────────────────────────────────────────────────────────────────
+# max_context_tokens tuned for ${_SYS_RAM_GB} GB RAM
 [agent.compaction]
 enabled            = true
 threshold_fraction = 0.55
 keep_recent        = 8
-max_context_tokens = 180000
+max_context_tokens = ${_SYS_MAX_CTX}
 
 # ── Model Selection ───────────────────────────────────────────────────────────
 [agent.model_selection]
@@ -556,7 +802,7 @@ rrf_k                  = 60.0
 # ── Orchestrator ──────────────────────────────────────────────────────────────
 [orchestrator]
 enabled                   = true
-max_concurrent_agents     = 3
+max_concurrent_agents     = ${_SYS_MAX_AGENTS}
 sub_agent_timeout_secs    = 270
 shared_budget             = true
 enable_communication      = false
@@ -649,18 +895,17 @@ analysis_tool_whitelist  = [
 
 # ── Tools ─────────────────────────────────────────────────────────────────────
 [tools]
-confirm_destructive       = true
-timeout_secs              = 120
+confirm_destructive       = ${_SYS_CONFIRM_DESTRUCTIVE}
+timeout_secs              = ${_SYS_TOOL_TIMEOUT}
 prompt_timeout_secs       = 45
-auto_approve_in_ci        = false
+auto_approve_in_ci        = ${_SYS_AUTO_APPROVE_CI}
 allow_write_in_ci         = false
 allow_destructive_in_ci   = false
 dry_run                   = false
 command_blacklist         = []
 disable_builtin_blacklist = false
 allowed_directories = [
-    ".",
-    "/tmp",
+${_SYS_ALLOWED_DIRS}
 ]
 blocked_patterns = [
     "**/.env",
@@ -674,7 +919,7 @@ blocked_patterns = [
 [tools.sandbox]
 enabled             = true
 max_output_bytes    = 10485760
-max_memory_mb       = 4096
+max_memory_mb       = ${_SYS_SANDBOX_MEM}
 max_cpu_secs        = 60
 max_file_size_bytes = 104857600
 
@@ -691,9 +936,10 @@ max_entries      = 1000
 prompt_cache     = true
 
 # ── Search ────────────────────────────────────────────────────────────────────
+# max_documents tuned for ${_SYS_DISK_GB} GB free disk
 [search]
 enabled         = true
-max_documents   = 50000
+max_documents   = ${_SYS_MAX_DOCS}
 enable_semantic = true
 enable_cache    = true
 
@@ -709,10 +955,11 @@ default_results      = 10
 enable_feedback_loop = true
 
 # ── Multimodal ────────────────────────────────────────────────────────────────
+# mode = "${_SYS_MULTIMODAL_MODE}" (GPU detected: ${_SYS_HAS_GPU})
 [multimodal]
 enabled                 = true
-mode                    = "api"
-max_file_size_bytes     = 20971520
+mode                    = "${_SYS_MULTIMODAL_MODE}"
+max_file_size_bytes     = ${_SYS_MULTIMODAL_MAX_FILE}
 local_threshold_bytes   = 2097152
 strip_exif              = true
 privacy_strict          = false
@@ -720,7 +967,7 @@ max_audio_duration_secs = 300
 max_video_duration_secs = 120
 video_sample_fps        = 2
 max_video_frames        = 25
-max_concurrent_analyses = 4
+max_concurrent_analyses = ${_SYS_MAX_AGENTS}
 cache_enabled           = true
 cache_ttl_secs          = 3600
 api_timeout_ms          = 30000
@@ -751,11 +998,12 @@ max_session_age_days = 90
 
 # ── Plugins ───────────────────────────────────────────────────────────────────
 [plugins]
-enabled = true
+enabled    = true
+plugin_dir = "$HOME/.halcon/plugins"
 
 # ── Logging ───────────────────────────────────────────────────────────────────
 [logging]
-level  = "info"
+level  = "${_SYS_LOG_LEVEL}"
 format = "pretty"
 
 # ── MCP ───────────────────────────────────────────────────────────────────────
@@ -780,7 +1028,7 @@ default_model = "claude-sonnet-4-6"
 
 [models.providers.anthropic.http]
 connect_timeout_secs = 10
-request_timeout_secs = 300
+request_timeout_secs = ${_SYS_PROVIDER_TIMEOUT}
 max_retries          = 3
 retry_base_delay_ms  = 1000
 
@@ -792,7 +1040,7 @@ default_model = "gpt-4o"
 
 [models.providers.openai.http]
 connect_timeout_secs = 10
-request_timeout_secs = 300
+request_timeout_secs = ${_SYS_PROVIDER_TIMEOUT}
 max_retries          = 3
 retry_base_delay_ms  = 1000
 
@@ -804,7 +1052,7 @@ default_model = "deepseek-chat"
 
 [models.providers.deepseek.http]
 connect_timeout_secs = 15
-request_timeout_secs = 300
+request_timeout_secs = ${_SYS_PROVIDER_TIMEOUT}
 max_retries          = 3
 retry_base_delay_ms  = 1000
 
@@ -816,20 +1064,23 @@ default_model = "gemini-2.5-flash"
 
 [models.providers.gemini.http]
 connect_timeout_secs = 10
-request_timeout_secs = 300
+request_timeout_secs = ${_SYS_PROVIDER_TIMEOUT}
 max_retries          = 3
 retry_base_delay_ms  = 1000
 
 [models.providers.ollama]
-enabled       = true
+enabled       = ${_SYS_OLLAMA_ENABLED}
 api_base      = "http://localhost:11434"
-default_model = "llama3.2"
+default_model = "${_SYS_OLLAMA_MODEL}"
 
 [models.providers.ollama.http]
 connect_timeout_secs = 10
 request_timeout_secs = 300
 max_retries          = 3
 retry_base_delay_ms  = 1000
+
+# ── Claude Code CLI ───────────────────────────────────────────────────────────
+${_SYS_CLAUDE_SECTION}
 
 # ── Policy ────────────────────────────────────────────────────────────────────
 [policy]
@@ -850,36 +1101,39 @@ HALCON_CONFIG
 
 _write_mcp_config() {
     local dest="$1"
-    # Detect filesystem MCP server location
-    _MCP_SERVER=""
-    for candidate in \
+
+    # Detect mcp-server-filesystem binary
+    _MCP_BIN=""
+    for _c in \
         "/opt/homebrew/bin/mcp-server-filesystem" \
         "/usr/local/bin/mcp-server-filesystem" \
+        "$HOME/.local/bin/mcp-server-filesystem" \
         "$(command -v mcp-server-filesystem 2>/dev/null)"
     do
-        if [ -x "$candidate" ]; then
-            _MCP_SERVER="$candidate"
-            break
-        fi
+        [ -x "$_c" ] && { _MCP_BIN="$_c"; break; }
     done
 
-    if [ -n "$_MCP_SERVER" ]; then
+    # Build the args array using OS-aware dirs detected earlier
+    # Convert _SYS_MCP_DIRS (comma-sep quoted strings) into JSON array entries
+    _MCP_ARGS=""
+    # Normalize: one entry per line
+    _dirs_list="$(printf '%s' "$_SYS_MCP_DIRS" | tr ',' '\n' | sed 's/^[[:space:]]*/        /')"
+    _MCP_ARGS="$(printf '%s' "$_dirs_list" | paste -sd ',' -)"
+
+    if [ -n "$_MCP_BIN" ]; then
         cat > "$dest" << MCPEOF
 {
   "mcpServers": {
     "filesystem": {
-      "command": "$_MCP_SERVER",
+      "command": "$_MCP_BIN",
       "args": [
-        "$HOME/Documents",
-        "$HOME/Downloads",
-        "$HOME/Desktop",
-        "/tmp"
+        ${_MCP_ARGS}
       ]
     }
   }
 }
 MCPEOF
-        ok "MCP filesystem server configured: ${_MCP_SERVER}"
+        ok "MCP filesystem server configured: ${_MCP_BIN}"
     else
         cat > "$dest" << 'MCPEOF'
 {
@@ -887,8 +1141,10 @@ MCPEOF
 }
 MCPEOF
         warn "mcp-server-filesystem not found — MCP left empty"
-        warn "Install it: npm install -g @modelcontextprotocol/server-filesystem"
+        warn "Install: npm install -g @modelcontextprotocol/server-filesystem"
+        warn "Then re-run: halcon config reload"
     fi
+    ok "MCP config written: ${dest}"
 }
 
 main "$@"
