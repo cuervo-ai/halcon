@@ -1,0 +1,411 @@
+# Halcon Classifier Rules — Dynamic Configuration
+#
+# Este archivo reemplaza las reglas hardcoded del binario.
+# Se puede editar sin recompilar. Halcon lo carga en el primer uso.
+#
+# Rutas de búsqueda (primera que exista gana):
+#   1. ${HALCON_CLASSIFIER_RULES}       (variable de entorno)
+#   2. .halcon/classifier_rules.toml    (proyecto)
+#   3. ~/.halcon/classifier_rules.toml  (usuario)
+#   4. config/classifier_rules.toml     (dev/instalación)
+#   5. Reglas compiladas por defecto    (fallback siempre disponible)
+#
+# Estructura:
+#   [[rule]]
+#   task_type  = "debugging"   # valor de TaskType::as_str()
+#   base_score = 2.0           # peso por keyword (ver escala abajo)
+#   keywords   = ["fix", ...]  # lista de términos o frases
+#
+# Escala de base_score:
+#   5.0  = comandos multi-palabra exactos (casi nunca ambiguos)
+#   3.0  = sustantivos de dominio específico (audit, cve, stacktrace)
+#   2.0  = verbos de intención fuertes (fix, implement, explain)
+#   1.0  = señales débiles / polisémicas (find, create, error)
+#
+# Para agregar un TaskType nuevo:
+#   1. Añadir la variante al enum TaskType en task_analyzer.rs
+#   2. Agregar el as_str() correspondiente
+#   3. Añadir [[rule]] aquí → cero cambios en lógica de clasificación
+
+# ─── Tier 5: comandos git multi-palabra ───────────────────────────────────────
+
+[[rule]]
+task_type  = "git_operation"
+base_score = 5.0
+keywords   = [
+  "git commit", "git status", "git diff", "git log",
+  "git add", "git push", "git pull", "git fetch",
+  "git branch", "git merge", "git rebase", "git stash",
+  "git checkout", "git cherry-pick", "git bisect",
+  "commit changes", "stage files", "push changes",
+  "pull request", "merge request",
+]
+
+# ─── Tier 5: operaciones de archivo multi-palabra ─────────────────────────────
+
+[[rule]]
+task_type  = "file_management"
+base_score = 5.0
+keywords   = [
+  "delete file", "remove file", "rename file",
+  "move file", "copy file", "create directory",
+  "create folder", "list files", "show files",
+  "find files", "search files", "delete directory",
+  "remove directory", "file permissions",
+]
+
+# ─── Tier 3: seguridad / compliance / auditoría ───────────────────────────────
+
+[[rule]]
+task_type  = "research"
+base_score = 3.0
+keywords   = [
+  # Auditoría
+  "audit", "auditar", "auditoria", "auditoría",
+  # Compliance y estándares
+  "compliance", "cumplimiento",
+  "soc2", "soc 2", "sox", "gdpr", "hipaa",
+  "iso27001", "iso 27001", "pci-dss", "pci dss",
+  "nist", "fips",
+  # Vulnerabilidad y seguridad ofensiva
+  "vulnerability", "vulnerabilidad", "vulnerabilities",
+  "cve", "cvss", "exploit", "zero-day", "0day",
+  "pentest", "pen test", "penetration test", "penetration testing",
+  "red team", "blue team",
+  # SAST / DAST
+  "sast", "dast", "sonarqube", "sonar", "checkmarx",
+  "snyk", "trivy", "grype", "semgrep",
+  "attack surface", "threat model", "threat modeling",
+  "security assessment", "risk assessment",
+]
+
+# ─── Tier 3: señales de debugging precisas ───────────────────────────────────
+
+[[rule]]
+task_type  = "debugging"
+base_score = 3.0
+keywords   = [
+  "stacktrace", "stack trace", "traceback",
+  "segfault", "segmentation fault",
+  "null pointer", "null reference", "nullpointerexception", "npe",
+  "deadlock", "race condition", "livelock",
+  "memory leak", "memory corruption", "use after free",
+  "buffer overflow", "heap corruption",
+  "undefined behavior", "ub", "asan",
+  "panic at", "thread panicked",
+  "core dump", "crash dump",
+]
+
+# ─── Tier 2: verbos de investigación / análisis (EN + ES) ────────────────────
+
+[[rule]]
+task_type  = "research"
+base_score = 2.0
+keywords   = [
+  "analyze", "analyse", "investigate", "compare",
+  "examine", "review", "inspect", "survey", "assess",
+  "benchmark", "profile", "measure",
+  "analiza", "analizar",
+  "investiga", "investigar",
+  "revisa", "revisar",
+  "examina", "examinar",
+  "diagnostica", "diagnosticar",
+  "evalua", "evaluar",
+  "inspecciona", "inspeccionar",
+  "compara", "comparar",
+]
+
+# ─── Tier 2: verbos de explicación (EN + ES) ──────────────────────────────────
+
+[[rule]]
+task_type  = "explanation"
+base_score = 2.0
+keywords   = [
+  "explain", "describe", "walk me through", "tell me about",
+  "how does", "what is", "what are", "why does", "why is",
+  "when should", "can you clarify", "clarify",
+  "explica", "explicar",
+  "como funciona", "cómo funciona",
+  "que es", "qué es", "que son", "qué son",
+  "por que", "por qué",
+  "cuando usar", "cuándo usar",
+]
+
+# ─── Tier 2: generación de código ────────────────────────────────────────────
+
+[[rule]]
+task_type  = "code_generation"
+base_score = 2.0
+keywords   = [
+  "implement", "scaffold", "generate code", "bootstrap",
+  "add function", "add method", "add class", "add struct",
+  "add feature", "add endpoint", "add route",
+  "write a function", "write a class", "write a test",
+  "write a script", "write a module",
+  "create a function", "create a class", "create a struct",
+  "create a module", "create a service", "create an endpoint",
+  "build a", "develop a",
+]
+
+# ─── Tier 2: debugging — verbos de intención (EN + ES) ───────────────────────
+
+[[rule]]
+task_type  = "debugging"
+base_score = 2.0
+keywords   = [
+  "fix", "debug", "diagnose", "troubleshoot", "resolve",
+  "not working", "broken", "crash", "why doesn't", "why doesn't",
+  "not compiling", "fails to", "throwing",
+  "arregla", "arreglar",
+  "corrige", "corregir",
+  "depura", "depurar",
+  "soluciona", "solucionar",
+  "no funciona", "no compila",
+]
+
+# ─── Tier 2: modificación de código (EN + ES) ────────────────────────────────
+
+[[rule]]
+task_type  = "code_modification"
+base_score = 2.0
+keywords   = [
+  "modify", "change", "update", "edit", "refactor",
+  "rename", "replace", "rewrite", "restructure",
+  "extract", "inline", "migrate", "port",
+  "optimize", "simplify", "clean up",
+  "modifica", "modificar",
+  "cambia", "cambiar",
+  "actualiza", "actualizar",
+  "refactoriza", "refactorizar",
+  "simplifica", "simplificar",
+]
+
+# ─── Tier 2: configuración (EN + ES) ─────────────────────────────────────────
+
+[[rule]]
+task_type  = "configuration"
+base_score = 2.0
+keywords   = [
+  "configure", "setup", "set up", "install",
+  "initialize", "initialise", "settings", "configuration",
+  "enable", "disable", "activate", "deactivate",
+  "configura", "configurar",
+  "instala", "instalar",
+  "inicializa", "inicializar",
+  "habilita", "deshabilita",
+  "ajustes",
+]
+
+# ─── Tier 1: señales débiles / polisémicas ───────────────────────────────────
+#
+# Phase 3 reduction: 1.0 → 0.4
+# Rationale: these keywords are highly polysemous. "create" alone can mean
+# code_generation, file_management, or configuration. The EmbeddingLayer
+# resolves ambiguity when these fire — a lower score lets embedding win the
+# blend (W_EMBEDDING_PRIMARY = 0.70 >> 0.40 × 0.30 = 0.12).
+#
+# Palabras mantenidas: solo las que tienen valor como señal mínima de intención.
+# "revisar" eliminado (duplicado: ya está en Tier 2 research con base_score=2.0).
+
+[[rule]]
+task_type  = "code_generation"
+base_score = 0.4
+keywords   = [
+  "write", "create", "build", "make", "develop",
+  "escribe", "escribir", "crea", "crear", "construye",
+]
+
+[[rule]]
+task_type  = "debugging"
+base_score = 0.4
+keywords   = [
+  "bug", "error", "issue", "problem", "fails",
+  "failure", "wrong", "incorrect", "unexpected",
+  "fallo", "falla", "problema", "erróneo",
+]
+
+[[rule]]
+task_type  = "research"
+base_score = 0.4
+keywords   = [
+  "find", "search", "look up", "lookup", "research",
+  "scan", "verify", "validate", "check",
+  "busca", "buscar", "encuentra", "verificar", "validar",
+  "comprobar",
+]
+
+[[rule]]
+task_type  = "file_management"
+base_score = 0.4
+keywords   = ["delete", "remove", "move", "copy", "list", "show"]
+
+# ─── Ejemplos few-shot (Layer 3) ─────────────────────────────────────────────
+#
+# Estos ejemplos alimentan el VectorStore para clasificación por similitud.
+# Cuando la confianza de Layer 1 < CONFIDENCE_FLOOR (0.30), se busca el
+# ejemplo más cercano por coseno y se hereda su task_type.
+#
+# Agregar ejemplos aquí NO requiere recompilar — se indexan en runtime.
+# Formato: [[example]] + query + task_type
+
+[[example]]
+query     = "why is the server crashing on startup"
+task_type = "debugging"
+
+[[example]]
+query     = "fix the null pointer exception in UserService"
+task_type = "debugging"
+
+[[example]]
+query     = "the test is flaky and sometimes fails"
+task_type = "debugging"
+
+[[example]]
+query     = "add a REST endpoint for user registration"
+task_type = "code_generation"
+
+[[example]]
+query     = "write a function that validates email addresses"
+task_type = "code_generation"
+
+[[example]]
+query     = "create a new module for payment processing"
+task_type = "code_generation"
+
+[[example]]
+query     = "refactor the database layer to use a repository pattern"
+task_type = "code_modification"
+
+[[example]]
+query     = "update the auth middleware to support OAuth2"
+task_type = "code_modification"
+
+[[example]]
+query     = "rename all usages of UserDTO to UserResponse"
+task_type = "code_modification"
+
+[[example]]
+query     = "audit the IAM permissions for the production account"
+task_type = "research"
+
+[[example]]
+query     = "scan dependencies for known CVEs"
+task_type = "research"
+
+[[example]]
+query     = "compare the performance of Redis vs Memcached"
+task_type = "research"
+
+[[example]]
+query     = "how does the borrow checker work in Rust"
+task_type = "explanation"
+
+[[example]]
+query     = "explain async/await and why it matters"
+task_type = "explanation"
+
+[[example]]
+query     = "what is the difference between Arc and Rc"
+task_type = "explanation"
+
+[[example]]
+query     = "set up the database connection pool"
+task_type = "configuration"
+
+[[example]]
+query     = "configure TLS for the gRPC server"
+task_type = "configuration"
+
+[[example]]
+query     = "install the required Python dependencies"
+task_type = "configuration"
+
+[[example]]
+query     = "git commit the changes with a descriptive message"
+task_type = "git_operation"
+
+[[example]]
+query     = "create a branch for the feature and push it"
+task_type = "git_operation"
+
+[[example]]
+query     = "move the config file to the project root"
+task_type = "file_management"
+
+[[example]]
+query     = "delete all temporary files in the build directory"
+task_type = "file_management"
+
+# ─── Ejemplos adicionales — Phase 3 PrototypeStore enrichment ────────────────
+# Estos ejemplos cubren consultas ambiguas y multilingüe que el Tier 1 degrada.
+# Ahora que las señales débiles tienen peso 0.4, el embedding es decisivo en
+# esas consultas — más ejemplos → mejores centroides → menor tasa de NoSignal.
+
+[[example]]
+query     = "write a parser for the JSON config format"
+task_type = "code_generation"
+
+[[example]]
+query     = "build a CLI flag parser from scratch"
+task_type = "code_generation"
+
+[[example]]
+query     = "crea un servicio de autenticación con JWT"
+task_type = "code_generation"
+
+[[example]]
+query     = "there is an error when parsing the YAML file"
+task_type = "debugging"
+
+[[example]]
+query     = "the build is failing with a linker error"
+task_type = "debugging"
+
+[[example]]
+query     = "el test falla al ejecutarse en CI"
+task_type = "debugging"
+
+[[example]]
+query     = "find all usages of deprecated API in the codebase"
+task_type = "research"
+
+[[example]]
+query     = "check if there are any known CVEs in our dependencies"
+task_type = "research"
+
+[[example]]
+query     = "busca todos los archivos que importan el módulo legacy"
+task_type = "research"
+
+[[example]]
+query     = "show me the list of files in the src directory"
+task_type = "file_management"
+
+[[example]]
+query     = "copy the production config to the staging environment"
+task_type = "file_management"
+
+[[example]]
+query     = "update the environment variables in the .env file"
+task_type = "configuration"
+
+[[example]]
+query     = "enable debug logging for the HTTP client"
+task_type = "configuration"
+
+[[example]]
+query     = "merge the feature branch into main and resolve conflicts"
+task_type = "git_operation"
+
+[[example]]
+query     = "create a pull request with a summary of all changes"
+task_type = "git_operation"
+
+# ─── Guía de extensión ────────────────────────────────────────────────────────
+#
+# Para añadir un dominio nuevo (ej. "testing"):
+#
+#   1. En task_analyzer.rs → agregar TaskType::Testing + as_str() + from_str()
+#   2. Aquí → agregar [[rule]] con task_type = "testing"
+#   3. Aquí → agregar [[example]] con queries representativas
+#   4. Sin tocar ninguna lógica de scoring — el engine lo recoge automáticamente
