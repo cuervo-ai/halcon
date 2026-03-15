@@ -985,7 +985,11 @@ async fn main() -> Result<()> {
             commands::theme::run(args)
         }
         Some(Commands::Update { check, force, version }) => {
-            commands::update::run(commands::update::UpdateArgs { check, force, version })
+            tokio::task::spawn_blocking(move || {
+                commands::update::run(commands::update::UpdateArgs { check, force, version })
+            })
+            .await
+            .context("update task panicked")?
         }
         Some(Commands::Plugin { action }) => match action {
             PluginAction::List => commands::plugin::list(&config),

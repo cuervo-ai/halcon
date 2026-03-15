@@ -18,6 +18,7 @@ members = [
     "crates/halcon-multimodal",
     "crates/halcon-agent-core",
     "crates/halcon-sandbox",
+    "crates/halcon-runtime-events",
 ]
 resolver = "2"
 
@@ -74,6 +75,8 @@ rand = "0.9"
 dashmap = "5"
 url = "2"
 
+# Browser launcher (used by SSO flows)
+open = "5"
 
 # File matching
 glob = "0.3"
@@ -106,6 +109,8 @@ zstd = "0.13"
 sha2 = "0.10"
 hmac = "0.12"
 hex = "0.4"
+# Constant-time comparisons (timing-attack prevention)
+subtle = "2"
 
 # Cloud provider auth (Bedrock + Vertex) — optional in consuming crates
 aws-sigv4 = { version = "1" }
@@ -123,10 +128,10 @@ predicates = "3"
 tempfile = "3"
 wiremock = "0.6"
 
-# Color science
-momoto-core = { path = "../Zuclubit/momoto-ui/momoto/crates/momoto-core" }
-momoto-metrics = { path = "../Zuclubit/momoto-ui/momoto/crates/momoto-metrics" }
-momoto-intelligence = { path = "../Zuclubit/momoto-ui/momoto/crates/momoto-intelligence" }
+# Color science (vendored — see vendor/)
+momoto-core = { path = "vendor/momoto-core" }
+momoto-metrics = { path = "vendor/momoto-metrics" }
+momoto-intelligence = { path = "vendor/momoto-intelligence" }
 
 # TUI
 ratatui = "0.29"
@@ -159,6 +164,7 @@ halcon-client = { path = "crates/halcon-client" }
 halcon-multimodal = { path = "crates/halcon-multimodal" }
 halcon-agent-core = { path = "crates/halcon-agent-core" }
 halcon-sandbox = { path = "crates/halcon-sandbox" }
+halcon-runtime-events = { path = "crates/halcon-runtime-events" }
 
 [profile.release]
 opt-level = 3           # Rendimiento máximo (no tamaño)

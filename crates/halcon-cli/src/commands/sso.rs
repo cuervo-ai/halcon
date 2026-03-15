@@ -30,7 +30,7 @@ use tokio::net::TcpListener;
 const SERVICE_NAME: &str = "halcon-cli";
 const DEFAULT_SSO_URL: &str = "https://sso.zuclubit.com";
 const DEFAULT_CENZONTLE_URL: &str = "https://api.cenzontle.app";
-const CLIENT_ID: &str = "cuervo-cli";
+const CLIENT_ID: &str = "halcon-cli";
 const REDIRECT_PORT: u16 = 9_876;
 const SCOPES: &str = "openid profile email offline_access";
 

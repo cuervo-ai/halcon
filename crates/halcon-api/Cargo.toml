@@ -23,6 +23,7 @@ server = [
     "dep:tracing",
     "dep:rand",
     "dep:dashmap",
+    "dep:subtle",
 ]
 
 [dependencies]
@@ -43,6 +44,7 @@ tracing = { workspace = true, optional = true }
 futures-util = { workspace = true, optional = true }
 rand = { workspace = true, optional = true }
 dashmap = { workspace = true, optional = true }
+subtle = { workspace = true, optional = true }
 
 # Workspace crates (server only)
 halcon-auth = { workspace = true, optional = true }

@@ -2924,6 +2924,7 @@ dependencies = [
  "rand 0.9.2",
  "serde",
  "serde_json",
+ "subtle",
  "thiserror 2.0.18",
  "tokio",
  "tower",
@@ -2994,6 +2995,7 @@ dependencies = [
  "momoto-intelligence",
  "momoto-metrics",
  "notify",
+ "open",
  "openssl",
  "png 0.17.16",
  "predicates",
@@ -3067,7 +3069,6 @@ dependencies = [
 name = "halcon-core"
 version = "0.3.0"
 dependencies = [
- "anyhow",
  "async-trait",
  "chrono",
  "futures",
@@ -3239,15 +3240,26 @@ dependencies = [
  "async-trait",
  "chrono",
  "halcon-core",
- "hex",
  "reqwest",
  "serde",
  "serde_json",
- "sha2",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "toml",
+ "tracing",
+ "uuid",
+]
+
+[[package]]
+name = "halcon-runtime-events"
+version = "0.3.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
+ "tokio",
  "tracing",
  "uuid",
 ]
@@ -3348,7 +3360,6 @@ dependencies = [
  "halcon-context",
  "halcon-core",
  "halcon-files",
- "halcon-sandbox",
  "halcon-search",
  "halcon-storage",
  "libc",
@@ -4570,6 +4581,7 @@ name = "momoto-core"
 version = "7.1.0"
 dependencies = [
  "arrayvec",
+ "serde",
 ]
 
 [[package]]
