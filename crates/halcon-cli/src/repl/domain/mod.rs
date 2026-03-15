@@ -4,6 +4,12 @@
 //! They do not depend on I/O, storage, HTTP, or any external services.
 //! They can be safely extracted into a separate crate in the future.
 
+/// Agent execution intent phase — pure domain enum used by both agent and domain layers.
+/// Extracted from `agent/loop_state.rs` in P2-C4 to eliminate the circular dependency
+/// that prevented `halcon-domain` crate extraction.
+pub mod execution_intent;
+pub use execution_intent::ExecutionIntentPhase;
+
 /// Multi-signal intent profiling — SOTA 2026 replacement for keyword-based task analysis.
 pub mod intent_scorer;
 

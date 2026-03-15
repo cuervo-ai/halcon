@@ -9,6 +9,11 @@ use std::time::{Duration, Instant};
 use halcon_core::traits::{ExecutionPlan, TaskStatus};
 use halcon_core::types::{ChatMessage, ToolDefinition};
 
+// ── ExecutionIntentPhase re-export (P2-C4: moved to domain layer) ────────────
+// Defined in `domain/execution_intent.rs`; re-exported here so all `agent/` phase
+// files continue to import via `super::loop_state::ExecutionIntentPhase`.
+pub(crate) use super::super::domain::ExecutionIntentPhase;
+
 // ── Phase 2 re-exports (synthesis governance gate) ───────────────────────────
 // Re-exported so all `agent/` phase files can import via `super::loop_state::{...}`.
 pub(super) use super::super::domain::synthesis_gate::{
@@ -77,26 +82,6 @@ impl ToolDecisionSignal {
             *self = Self::ForceNoNext;
         }
     }
-}
-
-// ── ExecutionIntentPhase ──────────────────────────────────────────────────────
-
-/// Phase of the agent's execution intent, derived from the plan at loop start.
-///
-/// Controls whether synthesis guards are allowed to suppress tools mid-task.
-/// `Execution` tasks (bash/file_write/etc.) keep tools active until all steps
-/// are finished; only then does the intent transition to `Complete`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub(crate) enum ExecutionIntentPhase {
-    /// No plan, or plan not yet analyzed.
-    #[default]
-    Uncategorized,
-    /// analyze/explore/understand — synthesis allowed when goal is covered.
-    Investigation,
-    /// build/run/install/deploy — synthesis LOCKED until all steps complete.
-    Execution,
-    /// All executable steps finished — synthesis now permitted.
-    Complete,
 }
 
 // ── SynthesisPriority ─────────────────────────────────────────────────────────

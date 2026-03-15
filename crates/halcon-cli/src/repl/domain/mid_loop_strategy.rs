@@ -6,7 +6,7 @@
 //!
 //! Pure business logic — no I/O.
 
-use crate::repl::agent::loop_state::ExecutionIntentPhase;
+use crate::repl::domain::ExecutionIntentPhase;
 
 /// What kind of structural mutation to apply to the replan.
 #[derive(Debug, Clone, PartialEq, Eq)]
