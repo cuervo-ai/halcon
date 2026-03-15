@@ -19,7 +19,7 @@ use async_trait::async_trait;
 use futures::stream::BoxStream;
 use futures::StreamExt;
 use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
-use tracing::{debug, info, warn};
+use tracing::{debug, info, instrument, warn};
 
 use halcon_core::error::{HalconError, Result};
 use halcon_core::traits::ModelProvider;
@@ -168,6 +168,7 @@ impl ModelProvider for BedrockProvider {
         &self.models
     }
 
+    #[instrument(skip_all, fields(provider = "bedrock", model = %request.model, msgs = request.messages.len()))]
     async fn invoke(
         &self,
         request: &ModelRequest,

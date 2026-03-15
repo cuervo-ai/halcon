@@ -70,9 +70,12 @@ impl ReplayProvider {
             };
 
             let usage = if let Some(u) = data.get("usage") {
+                // Saturating cast: token counts > u32::MAX are impossible in practice
+                // but silently truncating would produce incorrect accounting.
+                let saturate = |v: u64| v.min(u32::MAX as u64) as u32;
                 TokenUsage {
-                    input_tokens: u.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-                    output_tokens: u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                    input_tokens: saturate(u.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0)),
+                    output_tokens: saturate(u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0)),
                     ..Default::default()
                 }
             } else {

@@ -11,7 +11,7 @@ use async_trait::async_trait;
 use eventsource_stream::Eventsource as _;
 use futures::stream::{self, BoxStream};
 use futures::StreamExt;
-use tracing::{debug, warn};
+use tracing::{debug, instrument, warn};
 
 use halcon_core::error::{HalconError, Result};
 use halcon_core::traits::ModelProvider;
@@ -567,6 +567,7 @@ impl ModelProvider for OpenAICompatibleProvider {
         &self.models
     }
 
+    #[instrument(skip_all, fields(provider = %self.provider_name, model = %request.model, msgs = request.messages.len()))]
     async fn invoke(
         &self,
         request: &ModelRequest,

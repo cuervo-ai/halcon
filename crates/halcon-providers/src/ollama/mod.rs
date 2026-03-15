@@ -21,7 +21,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use futures::stream::{self, BoxStream};
 use futures::StreamExt;
-use tracing::{debug, warn};
+use tracing::{debug, instrument, warn};
 
 use halcon_core::error::{HalconError, Result};
 use halcon_core::traits::ModelProvider;
@@ -601,6 +601,7 @@ impl ModelProvider for OllamaProvider {
         &self.models
     }
 
+    #[instrument(skip_all, fields(provider = "ollama", model = %request.model, msgs = request.messages.len()))]
     async fn invoke(
         &self,
         request: &ModelRequest,

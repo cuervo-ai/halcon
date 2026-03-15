@@ -14,7 +14,7 @@ use async_trait::async_trait;
 use eventsource_stream::Eventsource as _;
 use futures::stream::{self, BoxStream};
 use futures::StreamExt;
-use tracing::{debug, warn};
+use tracing::{debug, instrument, warn};
 use uuid::Uuid;
 
 use halcon_core::error::{HalconError, Result};
@@ -309,6 +309,7 @@ impl ModelProvider for GeminiProvider {
         &self.models
     }
 
+    #[instrument(skip_all, fields(provider = "gemini", model = %request.model, msgs = request.messages.len()))]
     async fn invoke(
         &self,
         request: &ModelRequest,

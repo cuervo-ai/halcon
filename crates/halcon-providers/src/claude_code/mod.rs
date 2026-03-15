@@ -45,7 +45,7 @@ use std::time::{Duration, Instant};
 use async_trait::async_trait;
 use futures::stream::BoxStream;
 use tokio::sync::Mutex;
-use tracing::{debug, info, warn};
+use tracing::{debug, info, instrument};
 use uuid::Uuid;
 
 use halcon_core::error::{HalconError, Result};
@@ -354,6 +354,7 @@ impl ModelProvider for ClaudeCodeProvider {
         &self.models
     }
 
+    #[instrument(skip_all, fields(provider = "claude_code", model = %request.model, msgs = request.messages.len()))]
     async fn invoke(
         &self,
         request: &ModelRequest,

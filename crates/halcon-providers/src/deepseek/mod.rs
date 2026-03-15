@@ -6,6 +6,7 @@
 
 use async_trait::async_trait;
 use futures::stream::BoxStream;
+use tracing::instrument;
 
 use halcon_core::error::Result;
 use halcon_core::traits::ModelProvider;
@@ -100,6 +101,7 @@ impl ModelProvider for DeepSeekProvider {
         self.inner.supported_models()
     }
 
+    #[instrument(skip_all, fields(provider = "deepseek", model = %request.model, msgs = request.messages.len()))]
     async fn invoke(
         &self,
         request: &ModelRequest,
