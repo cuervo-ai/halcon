@@ -1,0 +1,24 @@
+[package]
+name = "momoto-core"
+version = "7.1.0"
+authors = ["Zuclubit"]
+edition = "2021"
+rust-version = "1.70"
+license = "MIT"
+repository = "https://github.com/zuclubit/momoto-ui"
+description = "Canonical perceptual color foundation - color spaces, luminance, and perception primitives"
+keywords = ["color", "perception", "colorspace", "luminance"]
+categories = ["graphics", "multimedia", "accessibility", "science"]
+
+[lib]
+crate-type = ["rlib"]
+
+[features]
+serde = ["dep:serde"]
+webgpu = []
+internals = []
+experimental = []
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"], optional = true }
+arrayvec = { version = "0.7", default-features = false }

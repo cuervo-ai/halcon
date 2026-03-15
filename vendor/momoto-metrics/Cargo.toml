@@ -1,0 +1,19 @@
+[package]
+name = "momoto-metrics"
+version = "7.1.0"
+authors = ["Zuclubit"]
+edition = "2021"
+rust-version = "1.70"
+license = "MIT"
+repository = "https://github.com/zuclubit/momoto-ui"
+description = "Contrast metric plugins - APCA, WCAG 2.x, SAPC implementations"
+keywords = ["contrast", "apca", "wcag", "accessibility"]
+
+[lib]
+crate-type = ["rlib"]
+
+[features]
+internals = []
+
+[dependencies]
+momoto-core = { path = "../momoto-core" }
