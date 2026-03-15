@@ -1,0 +1,30 @@
+[package]
+name = "halcon-runtime-events"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Typed runtime event bus for HALCON — Phase 0 of the Frontier Redesign"
+
+[features]
+# Enable the broadcast event bus (requires tokio). Disable for pure library users
+# that only need the type definitions (e.g. WASM targets).
+default = ["bus"]
+bus = ["dep:tokio"]
+
+[dependencies]
+# Core event types
+serde       = { workspace = true }
+serde_json  = { workspace = true }
+chrono      = { workspace = true }
+uuid        = { workspace = true }
+thiserror   = { workspace = true }
+
+# Broadcast channel (feature-gated so the crate compiles without tokio)
+tokio = { workspace = true, optional = true }
+
+# Structured logging
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio  = { workspace = true, features = ["rt", "macros"] }

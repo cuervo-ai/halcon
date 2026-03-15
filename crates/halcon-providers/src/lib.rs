@@ -30,6 +30,8 @@ pub mod bedrock;
 pub mod vertex;
 // US-foundry (PASO 2-D): Azure AI Foundry provider (always available — uses openai_compat)
 pub mod azure_foundry;
+// US-sso: Cenzontle AI platform provider (OAuth 2.1 PKCE via Zuclubit SSO)
+pub mod cenzontle;
 
 pub use anthropic::AnthropicProvider;
 pub use azure_foundry::AzureFoundryProvider;
@@ -40,6 +42,7 @@ pub use gemini::GeminiProvider;
 pub use ollama::OllamaProvider;
 pub use openai::OpenAIProvider;
 pub use openai_compat::OpenAICompatibleProvider;
+pub use cenzontle::CenzonzleProvider;
 pub use registry::ProviderRegistry;
 pub use replay::ReplayProvider;
 
