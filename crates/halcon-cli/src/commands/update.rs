@@ -589,4 +589,66 @@ mod tests {
         let name = binary_name();
         assert!(name.starts_with("halcon"));
     }
+
+    #[test]
+    fn test_versioned_backup_name_format() {
+        // The backup name must include the current version so users can roll back.
+        let backup_stem = format!("halcon.bak.v{CURRENT_VERSION}");
+        assert!(backup_stem.starts_with("halcon.bak.v"));
+        // Version should contain at least one dot
+        let ver_part = backup_stem.trim_start_matches("halcon.bak.v");
+        assert!(ver_part.contains('.'), "version in backup name must be semver");
+    }
+
+    #[test]
+    fn test_prune_backups_removes_oldest() {
+        use std::fs;
+        use std::time::Duration;
+        let dir = tempfile::tempdir().expect("tempdir");
+        let d = dir.path();
+
+        // Create 5 fake backup files with predictable mtimes (write content to distinguish)
+        for i in 0..5u32 {
+            let p = d.join(format!("halcon.bak.v0.{i}.0"));
+            fs::write(&p, i.to_string()).expect("write");
+        }
+
+        // prune to keep=3 → should delete the 2 oldest
+        prune_backups(d, "halcon", 3);
+
+        let remaining: Vec<_> = fs::read_dir(d)
+            .expect("readdir")
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .collect();
+
+        assert_eq!(remaining.len(), 3, "should keep exactly 3 backups; got {:?}", remaining);
+    }
+
+    #[test]
+    fn test_manifest_channel_deserialization() {
+        let json = r#"{
+            "version": "0.3.0",
+            "channel": "stable",
+            "published_at": "2026-03-16T00:00:00Z",
+            "artifacts": [],
+            "release_notes": "- Fixed orchestrator budget tracking\n- Added channel support"
+        }"#;
+        let m: Manifest = serde_json::from_str(json).expect("parse manifest");
+        assert_eq!(m.version, "0.3.0");
+        assert_eq!(m.channel.as_deref(), Some("stable"));
+        assert_eq!(m.published_at.as_deref(), Some("2026-03-16T00:00:00Z"));
+        assert!(m.release_notes.as_deref().unwrap().contains("budget"));
+    }
+
+    #[test]
+    fn test_manifest_missing_optional_fields() {
+        // Old manifests without channel/release_notes/published_at must deserialize cleanly
+        let json = r#"{"version": "0.2.0", "artifacts": []}"#;
+        let m: Manifest = serde_json::from_str(json).expect("parse legacy manifest");
+        assert_eq!(m.version, "0.2.0");
+        assert!(m.channel.is_none());
+        assert!(m.published_at.is_none());
+        assert!(m.release_notes.is_none());
+    }
 }

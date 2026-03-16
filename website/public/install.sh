@@ -39,6 +39,7 @@ parse_args() {
             --channel)        CHANNEL="$2";        shift 2 ;;
             --force|-f)       FORCE=1;             shift ;;
             --no-modify-path) NO_MODIFY_PATH=1;    shift ;;
+            --uninstall)      _do_uninstall;       exit 0 ;;
             --help|-h)
                 printf "Halcon CLI Installer\n\n"
                 printf "Options:\n"
@@ -114,6 +115,42 @@ detect_platform() {
     esac
 
     info "Platform: ${OS} ${ARCH} → ${TARGET}"
+}
+
+# ─── Uninstall ────────────────────────────────────────────────────────────────
+_do_uninstall() {
+    printf "\n${BOLD}  Halcon CLI — Uninstall${RESET}\n\n"
+    _removed=0
+    for _loc in \
+        "$HOME/.local/bin/${BINARY_NAME}" \
+        "$HOME/bin/${BINARY_NAME}" \
+        "/usr/local/bin/${BINARY_NAME}" \
+        "$(command -v ${BINARY_NAME} 2>/dev/null)"
+    do
+        [ -f "$_loc" ] || continue
+        # Avoid double-removing the same path via multiple matches
+        case " $REMOVED_PATHS " in *" $_loc "*) continue ;; esac
+        REMOVED_PATHS="${REMOVED_PATHS:-} $_loc"
+        if rm -f "$_loc" 2>/dev/null || { command -v sudo >/dev/null 2>&1 && sudo rm -f "$_loc" 2>/dev/null; }; then
+            ok "Removed: $_loc"
+            _removed=$(( _removed + 1 ))
+        else
+            warn "Could not remove: $_loc (check permissions)"
+        fi
+    done
+    # Remove versioned backups
+    for _loc in "$HOME/.local/bin" "$HOME/bin" "/usr/local/bin"; do
+        for _bak in "$_loc/${BINARY_NAME}.bak"*; do
+            [ -f "$_bak" ] && rm -f "$_bak" 2>/dev/null && ok "Removed backup: $_bak"
+        done
+    done
+    if [ "$_removed" -gt 0 ]; then
+        ok "Halcon CLI uninstalled."
+        warn "Config and data in ~/.halcon/ were NOT removed. To clean up:"
+        warn "  rm -rf ~/.halcon"
+    else
+        warn "No Halcon binary found. Already uninstalled?"
+    fi
 }
 
 # ─── Semver comparison helper ────────────────────────────────────────────────
@@ -243,13 +280,49 @@ _ensure_writable_dir() {
 }
 
 # ─── Download helpers ───────────────────────────────────────────────────────
+# Enforces HTTPS (rejects non-HTTPS redirects), TLS ≥ 1.2, and explicit cipher
+# suites (TLS 1.3 preferred, ECDHE-based TLS 1.2 fallback) — rustup pattern.
+_CURL_CIPHERS="TLS_AES_128_GCM_SHA256:TLS_AES_256_GCM_SHA384:TLS_CHACHA20_POLY1305_SHA256:\
+ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256"
+
+_prefer_curl() {
+    # Prefer system curl over snap-installed curl (snap curl lacks file-write perms)
+    for _c in /usr/bin/curl /usr/local/bin/curl "$(command -v curl 2>/dev/null)"; do
+        [ -x "$_c" ] || continue
+        case "$_c" in
+            */snap/*) continue ;;  # skip snap curl
+        esac
+        echo "$_c"
+        return
+    done
+    # Fall back to snap curl if nothing else available
+    command -v curl 2>/dev/null && return
+    return 1
+}
+
 download() {
     local url="$1"
     local dest="$2"
-    if command -v curl >/dev/null 2>&1; then
-        curl -sSfL --retry 3 --retry-delay 2 -o "$dest" "$url"
+    local _curl
+    _curl="$(_prefer_curl 2>/dev/null)" || _curl=""
+    if [ -n "$_curl" ]; then
+        # --proto '=https' rejects any non-HTTPS redirects
+        # --tlsv1.2 enforces minimum TLS version
+        # Attempt with cipher enforcement first; fall back without (older curl/macOS)
+        "$_curl" -sSfL \
+            --proto '=https' \
+            --tlsv1.2 \
+            --ciphers "$_CURL_CIPHERS" \
+            --retry 3 --retry-delay 2 \
+            -o "$dest" "$url" 2>/dev/null \
+        || "$_curl" -sSfL \
+            --proto '=https' \
+            --tlsv1.2 \
+            --retry 3 --retry-delay 2 \
+            -o "$dest" "$url"
     elif command -v wget >/dev/null 2>&1; then
-        wget -q --tries=3 -O "$dest" "$url"
+        wget -q --tries=3 --https-only -O "$dest" "$url" 2>/dev/null \
+            || wget -q --tries=3 -O "$dest" "$url"
     else
         error "Neither curl nor wget found. Install one and retry."
     fi
