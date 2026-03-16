@@ -211,6 +211,18 @@ fn replay_visualize(id: Uuid, session_id: &str, db: &Database) -> Result<()> {
                     step.step_index
                 );
             }
+            TraceStepType::LoopEvent => {
+                let data: serde_json::Value =
+                    serde_json::from_str(&step.data_json).unwrap_or_default();
+                let event_type = data
+                    .get("event_type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                eprintln!(
+                    "[step {}] LoopEvent     event_type={event_type}",
+                    step.step_index
+                );
+            }
         }
     }
 

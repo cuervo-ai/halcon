@@ -22,6 +22,8 @@ pub enum TraceStepType {
     ToolResult,
     /// Error during model invocation or tool execution.
     Error,
+    /// Agent loop lifecycle event (oracle decisions, tool suppression, etc.).
+    LoopEvent,
 }
 
 impl TraceStepType {
@@ -32,6 +34,7 @@ impl TraceStepType {
             Self::ToolCall => "tool_call",
             Self::ToolResult => "tool_result",
             Self::Error => "error",
+            Self::LoopEvent => "loop_event",
         }
     }
 
@@ -42,6 +45,7 @@ impl TraceStepType {
             "tool_call" => Some(Self::ToolCall),
             "tool_result" => Some(Self::ToolResult),
             "error" => Some(Self::Error),
+            "loop_event" => Some(Self::LoopEvent),
             _ => None,
         }
     }
@@ -88,6 +92,7 @@ mod tests {
             TraceStepType::ToolCall,
             TraceStepType::ToolResult,
             TraceStepType::Error,
+            TraceStepType::LoopEvent,
         ];
         for t in &types {
             let s = t.as_str();

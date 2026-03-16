@@ -669,6 +669,7 @@ fn step_type_badge(step_type: TraceStepType) -> String {
         TraceStepType::ToolCall => components::badge("CALL", components::BadgeLevel::Warning),
         TraceStepType::ToolResult => components::badge("RES", components::BadgeLevel::Muted),
         TraceStepType::Error => components::badge("ERR", components::BadgeLevel::Error),
+        TraceStepType::LoopEvent => components::badge("EVT", components::BadgeLevel::Muted),
     }
 }
 
@@ -1078,6 +1079,7 @@ mod tests {
             TraceStepType::ToolCall,
             TraceStepType::ToolResult,
             TraceStepType::Error,
+            TraceStepType::LoopEvent,
         ] {
             let badge = step_type_badge(st);
             assert!(!badge.is_empty());

@@ -2124,6 +2124,9 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
         boundary_decision,
         tools_executed: Vec::new(),
         failed_sub_agent_steps: pre_loop_failed_steps,
+        // Phase A: Trust provenance — updated during the loop.
+        tools_suppressed_last_round: false,
+        last_tool_execution_round: None,
         policy: policy.clone(),
         env_snapshot: super::domain::capability_validator::EnvironmentSnapshot::default(),
         // Phase 3: Goal Progress Control — None until first batch closes.
@@ -2263,6 +2266,13 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
             round_setup::RoundSetupOutcome::BreakLoop => break 'agent_loop,
             round_setup::RoundSetupOutcome::EarlyReturn(data) => {
                 // Assemble AgentLoopResult here so ctrl_rx and plugin_registry stay in scope.
+                let _trust = halcon_core::types::ResponseTrust::compute(
+                    state.tools_executed.len(),
+                    state.tools_suppressed_last_round,
+                    state.last_tool_execution_round,
+                    state.rounds,
+                    None,
+                );
                 return Ok(AgentLoopResult {
                     full_text: data.full_text,
                     rounds: data.rounds,
@@ -2298,6 +2308,7 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
                     synthesis_kind: state.synthesis.last_synthesis_kind,
                     synthesis_trigger: state.synthesis.last_synthesis_trigger,
                     routing_escalation_count: state.convergence.routing_escalation_count,
+                    response_trust: _trust,
                 });
             }
             round_setup::RoundSetupOutcome::Continue(out) => out,
@@ -2307,6 +2318,24 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
             effective_provider,
             selected_model,
         } = round_setup_out;
+
+        // Phase A: track tool suppression for ResponseTrust classification.
+        // round_request.tools is empty when tools were suppressed by capability orchestration.
+        state.tools_suppressed_last_round = round_request.tools.is_empty()
+            && !state.cached_tools.is_empty();
+        if state.tools_suppressed_last_round && !state.silent {
+            let suppressed_count = state.cached_tools.len();
+            loop_events::emit(
+                &state.session_id.to_string(),
+                round as u32,
+                loop_events::LoopEvent::ToolsSuppressed {
+                    round,
+                    suppressed_count,
+                    reason: "context_pressure_or_oracle".to_string(),
+                },
+                trace_db,
+            );
+        }
 
         // ── Provider round phase ───────────────────────────────────────────────────────────────
         // Control check, output headroom guard, spinner, speculative pre-exec,
@@ -2342,6 +2371,13 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
         {
             provider_round::ProviderRoundOutcome::BreakLoop => break 'agent_loop,
             provider_round::ProviderRoundOutcome::EarlyReturn(data) => {
+                let _trust2 = halcon_core::types::ResponseTrust::compute(
+                    state.tools_executed.len(),
+                    state.tools_suppressed_last_round,
+                    state.last_tool_execution_round,
+                    state.rounds,
+                    None,
+                );
                 return Ok(AgentLoopResult {
                     full_text: data.full_text,
                     rounds: data.rounds,
@@ -2377,6 +2413,7 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
                     synthesis_kind: state.synthesis.last_synthesis_kind,
                     synthesis_trigger: state.synthesis.last_synthesis_trigger,
                     routing_escalation_count: state.convergence.routing_escalation_count,
+                    response_trust: _trust2,
                 });
             }
             provider_round::ProviderRoundOutcome::ToolUse(out) => out,
@@ -2428,6 +2465,10 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
             } => {
                 // Accumulate tool names across rounds for AgentLoopResult.
                 state.tools_executed.extend(tool_successes.iter().cloned());
+                // Phase A: track last round with successful tool execution.
+                if !tool_successes.is_empty() {
+                    state.last_tool_execution_round = Some(round);
+                }
                 (round_tool_log, tool_failures, tool_successes)
             }
         };
@@ -2479,6 +2520,23 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
                 round as u32,
                 loop_events::LoopEvent::CheckpointSaved { round },
                 trace_db,
+            );
+        }
+
+        // Phase D: Emit runtime metrics for the completed round.
+        {
+            let metrics = super::metrics_sink::AgentMetricsSink::new(
+                state.session_id.to_string(),
+                trace_db,
+            );
+            metrics.gauge(
+                "agent_round_completed",
+                1.0,
+                serde_json::json!({
+                    "round": round,
+                    "had_tool_execution": state.last_tool_execution_round == Some(round),
+                    "tools_suppressed": state.tools_suppressed_last_round,
+                }),
             );
         }
     }

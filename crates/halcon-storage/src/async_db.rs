@@ -764,6 +764,28 @@ impl AsyncDatabase {
             .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
     }
 
+    // --- Runtime Metrics ---
+
+    /// Insert a runtime metric into the `runtime_metrics` table (fire-and-forget async).
+    pub async fn insert_runtime_metric(
+        &self,
+        metric_name: &str,
+        metric_type: &str,
+        metric_value: f64,
+        labels_json: Option<String>,
+        service_name: Option<&str>,
+    ) -> halcon_core::error::Result<()> {
+        let db = self.inner.clone();
+        let metric_name = metric_name.to_string();
+        let metric_type = metric_type.to_string();
+        let service_name = service_name.unwrap_or("agent_loop").to_string();
+        tokio::task::spawn_blocking(move || {
+            db.insert_runtime_metric_sync(&metric_name, &metric_type, metric_value, labels_json, &service_name)
+        })
+        .await
+        .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
+    }
+
     // --- Activity Search History (Phase 3 SRCH-004) ---
 
     pub async fn save_search_history(

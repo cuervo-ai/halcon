@@ -245,6 +245,7 @@ pub mod context;
 pub mod domain;
 pub mod git_tools;
 pub mod metrics;
+pub mod metrics_sink;
 pub mod planning;
 // Backward-compatible re-exports so all existing `super::X` import paths remain valid:
 pub use domain::adaptive_policy;

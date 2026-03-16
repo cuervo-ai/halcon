@@ -21,6 +21,7 @@ mod policies;
 pub mod model_quality;
 pub mod reasoning;
 mod resilience_repo;
+mod runtime_metrics;
 mod search;
 mod sessions;
 pub mod structured_tasks;

@@ -61,6 +61,35 @@ pub enum LoopEvent {
     CriticFailed {
         reason: String,
     },
+    /// Emitted after `TerminationOracle::adjudicate()` produces its binding decision.
+    ///
+    /// Persisted so offline analysis can correlate oracle decisions with round outcomes
+    /// and detect patterns (e.g., high Halt rate on a specific task type).
+    OracleDecided {
+        round: usize,
+        /// Debug representation of `TerminationDecision` (Continue/Halt/Replan/InjectSynthesis/ForceNoTools).
+        decision: String,
+        /// Combined convergence score at decision time (0.0–1.0).
+        combined_score: f32,
+        /// Evidence coverage ratio contributed by tool results (0.0–1.0).
+        evidence_coverage: f32,
+    },
+    /// Emitted when tools are stripped from a round request before invocation.
+    ///
+    /// Sources: compaction timeout, oracle ForceNoTools, model capability limit.
+    /// Allows offline analysis to correlate tool suppression with synthesis quality.
+    ToolsSuppressed {
+        round: usize,
+        suppressed_count: usize,
+        reason: String,
+    },
+    /// Emitted when a plan step is skipped because tools are unavailable.
+    PlanStepSkipped {
+        round: usize,
+        step_description: String,
+        tool_name: String,
+        reason: String,
+    },
 }
 
 impl LoopEvent {
@@ -74,6 +103,9 @@ impl LoopEvent {
             Self::IntentRescored { .. }   => "intent_rescored",
             Self::CriticEvaluated { .. }  => "critic_evaluated",
             Self::CriticFailed { .. }     => "critic_failed",
+            Self::OracleDecided { .. }    => "oracle_decided",
+            Self::ToolsSuppressed { .. }  => "tools_suppressed",
+            Self::PlanStepSkipped { .. }  => "plan_step_skipped",
         }
     }
 }
@@ -125,6 +157,9 @@ mod tests {
         }.type_name(), "intent_rescored");
         assert_eq!(LoopEvent::CriticEvaluated { achieved: true, confidence: 0.9 }.type_name(), "critic_evaluated");
         assert_eq!(LoopEvent::CriticFailed { reason: "timeout".into() }.type_name(), "critic_failed");
+        assert_eq!(LoopEvent::OracleDecided {
+            round: 1, decision: "Halt".into(), combined_score: 0.9, evidence_coverage: 0.8,
+        }.type_name(), "oracle_decided");
     }
 
     #[test]
@@ -160,5 +195,20 @@ mod tests {
         let json = serde_json::to_string(&event).unwrap();
         assert!(json.contains("\"type\":\"intent_rescored\""), "json={json}");
         assert!(json.contains("\"tools_executed_count\":6"), "json={json}");
+    }
+
+    #[test]
+    fn oracle_decided_serializes_correctly() {
+        let event = LoopEvent::OracleDecided {
+            round: 5,
+            decision: "Halt".into(),
+            combined_score: 0.92,
+            evidence_coverage: 0.75,
+        };
+        let json = serde_json::to_string(&event).unwrap();
+        assert!(json.contains("\"type\":\"oracle_decided\""), "json={json}");
+        assert!(json.contains("\"round\":5"), "json={json}");
+        assert!(json.contains("\"decision\":\"Halt\""), "json={json}");
+        assert!(json.contains("\"combined_score\":0.92"), "json={json}");
     }
 }

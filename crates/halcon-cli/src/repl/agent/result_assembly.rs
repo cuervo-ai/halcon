@@ -506,6 +506,12 @@ pub(super) async fn build(
         }
     }
 
+    // Phase A: capture trust signals before state fields are moved.
+    let tools_executed_count = state.tools_executed.len();
+    let tools_suppressed_last_round = state.tools_suppressed_last_round;
+    let last_tool_execution_round = state.last_tool_execution_round;
+    let current_rounds = state.rounds;
+
     let mut result = AgentLoopResult {
         full_text: state.full_text,
         rounds: state.rounds,
@@ -545,6 +551,14 @@ pub(super) async fn build(
         synthesis_trigger: state.synthesis.last_synthesis_trigger,
         // GAP-4: propagate routing escalation count for post-session surfacing.
         routing_escalation_count: state.convergence.routing_escalation_count,
+        // Phase A: compute response trust from provenance signals.
+        response_trust: halcon_core::types::ResponseTrust::compute(
+            tools_executed_count,
+            tools_suppressed_last_round,
+            last_tool_execution_round,
+            current_rounds,
+            None,
+        ),
     };
 
     // BRECHA-A: DirectExecution hallucination guard.

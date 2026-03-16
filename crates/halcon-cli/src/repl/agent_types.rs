@@ -191,6 +191,10 @@ pub struct AgentLoopResult {
     /// Counts T1–T4 trigger events (SecuritySignals, ToolFailureCluster, LowEvidence, Complexity).
     /// Used by mod.rs post-loop to surface escalation count in the session summary.
     pub routing_escalation_count: u32,
+
+    /// Trust level of the response — indicates whether evidence came from
+    /// tool calls this round, prior rounds, or context synthesis.
+    pub response_trust: halcon_core::types::ResponseTrust,
 }
 
 /// Categorization of why a sub-agent step failed (FASE 5).

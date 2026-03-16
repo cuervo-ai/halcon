@@ -546,6 +546,12 @@ pub(super) struct LoopState {
     pub tools_executed: Vec<String>,
     pub failed_sub_agent_steps: Vec<crate::repl::agent_types::FailedStepContext>,
 
+    // ── Phase A: Trust provenance tracking ─────────────────────────────────
+    /// Whether tools were suppressed in the most recent round (for ResponseTrust).
+    pub tools_suppressed_last_round: bool,
+    /// Round index of the last successful tool execution (for ResponseTrust).
+    pub last_tool_execution_round: Option<usize>,
+
     // ── Centralized policy ──────────────────────────────────────────────
     pub policy: std::sync::Arc<halcon_core::types::PolicyConfig>,
 
