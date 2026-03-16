@@ -1311,6 +1311,51 @@ pub(super) async fn run(
                 });
             }
 
+            // P1-A permission recovery: if ALL failures are EACCES / permission-denied,
+            // this is an environmental access condition — not a logic failure.
+            // Inject a recovery hint and continue so the agent can try an alternative
+            // path or tool (e.g. glob, restricted subtree) rather than being forced
+            // into zero-evidence synthesis.
+            let all_permission_denied = !tool_failures.is_empty()
+                && tool_failures.iter().all(|(_, err)| {
+                    let lower = err.to_lowercase();
+                    lower.contains("eacces")
+                        || lower.contains("permission denied")
+                        || lower.contains("access denied")
+                        || lower.contains("operation not permitted")
+                });
+            if all_permission_denied {
+                tracing::warn!(
+                    round,
+                    failed = tool_failures.len(),
+                    "P1-A collapse: all failures are permission-denied (EACCES) — injecting recovery hint instead of forcing synthesis"
+                );
+                if !state.silent {
+                    render_sink.loop_guard_action(
+                        "parallel_batch_collapse_permission_recovery",
+                        &format!(
+                            "all {} tool(s) hit permission denied — try a subdirectory that is accessible or use glob/grep instead",
+                            tool_failures.len()
+                        ),
+                    );
+                }
+                // Inject a supervisor correction so the model knows to try a different path.
+                state.messages.push(ChatMessage {
+                    role: Role::User,
+                    content: MessageContent::Text(
+                        "Some directories are not accessible (permission denied). \
+                         Use glob, grep, or restrict the path to accessible subdirectories \
+                         (e.g. Documents/Github, Downloads, Desktop) and avoid .claude or root-owned directories."
+                        .to_string(),
+                    ),
+                });
+                return Ok(PostBatchOutcome::Continue {
+                    round_tool_log,
+                    tool_failures,
+                    tool_successes,
+                });
+            }
+
             tracing::error!(
                 failed = tool_failures.len(),
                 "P1-A: parallel batch collapse — 0% success rate, forcing synthesis"

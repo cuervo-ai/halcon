@@ -278,6 +278,19 @@ impl McpResourceManager {
                         _ => None,
                     });
 
+                // Native built-in tools take precedence over MCP tools with the same name.
+                // This prevents MCP servers (e.g. @modelcontextprotocol/server-filesystem)
+                // from silently overwriting native implementations that handle edge cases
+                // (like EACCES on subdirectories) more gracefully.
+                if tool_registry.get(&tool_name).is_some() {
+                    tracing::debug!(
+                        name = %tool_name,
+                        server = %server_name,
+                        "MCP tool shadowed by native built-in — skipping MCP registration"
+                    );
+                    continue;
+                }
+
                 // Create pool-backed bridge and register.
                 let bridge = PoolBackedBridge {
                     pool: Arc::clone(&self.pool),
