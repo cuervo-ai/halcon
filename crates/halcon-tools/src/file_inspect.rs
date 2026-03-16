@@ -59,9 +59,27 @@ impl Tool for FileInspectTool {
 
         // Detect file type first.
         let info = inspector.detect(&resolved).await.map_err(|e| {
+            // Detect ENOENT separately so the agent loop's P1-C recovery path can
+            // recognise this as a "wrong path" condition rather than a hard failure,
+            // and inject a glob-search directive instead of forcing zero-evidence synthesis.
+            let msg_lower = e.to_string().to_lowercase();
+            let is_not_found = msg_lower.contains("no such file or directory")
+                || msg_lower.contains("os error 2")
+                || msg_lower.contains("not found")
+                || msg_lower.contains("entity not found");
+            let message = if is_not_found {
+                format!(
+                    "detection failed: No such file or directory — '{}' does not exist. \
+                     Use glob to find the file first (e.g. glob pattern=\"**/*.pdf\"), \
+                     then call file_inspect with the discovered path.",
+                    resolved.display()
+                )
+            } else {
+                format!("detection failed: {e}")
+            };
             HalconError::ToolExecutionFailed {
                 tool: "file_inspect".into(),
-                message: format!("detection failed: {e}"),
+                message,
             }
         })?;
 

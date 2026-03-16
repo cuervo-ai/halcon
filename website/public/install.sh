@@ -361,14 +361,29 @@ verify_sha256() {
 # ─── glibc version check ─────────────────────────────────────────────────────
 # Returns 0 if system glibc satisfies the minimum major.minor requirement.
 # Falls back gracefully on non-glibc systems (musl, macOS, etc.).
+# Handles distroless/WolfiOS where ldd may be absent — uses ld.so --version.
 _check_glibc() {
     local _min_major="${1:-2}"
     local _min_minor="${2:-17}"
     # Only applicable on Linux with GNU libc
     [ "$(uname -s)" = "Linux" ] || return 0
-    ldd --version 2>&1 | grep -qi musl && return 0  # musl — always OK
-    _glibc_ver="$(ldd --version 2>/dev/null | awk 'NR==1{print $NF}')"
-    [ -z "$_glibc_ver" ] && return 0  # can't detect; assume OK
+
+    # Fast musl detection via ldd (when present)
+    if command -v ldd >/dev/null 2>&1; then
+        ldd --version 2>&1 | grep -qi musl && return 0  # musl — always OK
+        _glibc_ver="$(ldd --version 2>/dev/null | awk 'NR==1{print $NF}')"
+    fi
+
+    # Fallback: probe ld.so directly (WolfiOS, distroless, minimal containers without ldd)
+    if [ -z "${_glibc_ver:-}" ]; then
+        _ld_so="$(ls /lib/ld-linux*.so.* /lib64/ld-linux*.so.* /lib/ld-linux-*.so.* 2>/dev/null | head -1)"
+        if [ -n "$_ld_so" ] && [ -x "$_ld_so" ]; then
+            _glibc_ver="$("$_ld_so" --version 2>&1 | awk 'NR==1{print $NF}')"
+        fi
+    fi
+
+    [ -z "${_glibc_ver:-}" ] && return 0  # can't detect; assume OK
+
     _sys_major="$(printf '%s' "$_glibc_ver" | cut -d. -f1)"
     _sys_minor="$(printf '%s' "$_glibc_ver" | cut -d. -f2)"
     # Compare: major first, then minor
@@ -630,16 +645,25 @@ main() {
         error "Binary '${BINARY_NAME}' not found in archive. Contents: $(ls -la "$EXTRACT_DIR" 2>/dev/null)"
     fi
 
-    # ─── Install ─────────────────────────────────────────────────────────────
+    # ─── Install (atomic) ────────────────────────────────────────────────────
     DEST="${INSTALL_DIR}/${BINARY_NAME}"
     chmod +x "$BINARY_SRC"
 
-    # Remove existing binary first — if it's root-owned the cp would fail,
-    # but rm succeeds as long as the parent directory is user-writable.
-    rm -f "$DEST" 2>/dev/null || true
+    # Atomic install: write to a temp file in the SAME directory as the
+    # destination, then rename(2) — a single syscall that is either complete
+    # or a no-op.  This prevents a partially-written binary from ever being
+    # visible to concurrent processes (cargo-dist / uv pattern).
+    _atomic_install() {
+        local _src="$1" _dst="$2" _dir
+        _dir="$(dirname "$_dst")"
+        _tmp="$(mktemp "${_dir}/.${BINARY_NAME}.tmp.XXXXXX" 2>/dev/null)" || return 1
+        cp "$_src" "$_tmp" 2>/dev/null || { rm -f "$_tmp"; return 1; }
+        chmod 755 "$_tmp"
+        mv -f "$_tmp" "$_dst" 2>/dev/null || { rm -f "$_tmp"; return 1; }
+        return 0
+    }
 
-    # Use cp instead of mv — avoids cross-device and permission edge cases
-    if cp "$BINARY_SRC" "$DEST" 2>/dev/null; then
+    if _atomic_install "$BINARY_SRC" "$DEST"; then
         ok "Installed to ${DEST}"
     else
         # Last resort: try with sudo (only for system dirs like /usr/local/bin)
@@ -647,8 +671,17 @@ main() {
             /usr/local/bin|/usr/bin|/opt/*)
                 if command -v sudo >/dev/null 2>&1; then
                     warn "Using sudo to install to ${INSTALL_DIR}"
-                    sudo cp "$BINARY_SRC" "$DEST" && sudo chmod +x "$DEST" || \
-                        error "Installation failed — try: --dir \$HOME/bin"
+                    _sudo_tmp="$(sudo mktemp "${INSTALL_DIR}/.${BINARY_NAME}.tmp.XXXXXX" 2>/dev/null)" || \
+                        _sudo_tmp=""
+                    if [ -n "$_sudo_tmp" ]; then
+                        sudo cp "$BINARY_SRC" "$_sudo_tmp" && \
+                        sudo chmod 755 "$_sudo_tmp" && \
+                        sudo mv -f "$_sudo_tmp" "$DEST" || \
+                            { sudo rm -f "$_sudo_tmp" 2>/dev/null; error "Installation failed — try: --dir \$HOME/bin"; }
+                    else
+                        sudo cp "$BINARY_SRC" "$DEST" && sudo chmod +x "$DEST" || \
+                            error "Installation failed — try: --dir \$HOME/bin"
+                    fi
                     ok "Installed to ${DEST} (via sudo)"
                 else
                     error "Cannot write to ${INSTALL_DIR} and sudo not available. Try: --dir \$HOME/bin"

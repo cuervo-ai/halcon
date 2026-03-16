@@ -1356,6 +1356,57 @@ pub(super) async fn run(
                 });
             }
 
+            // P1-C file-not-found recovery: if ALL failures are ENOENT / path-not-found,
+            // the model guessed a hardcoded path that doesn't exist at that location.
+            // Inject a search directive (glob/find first) and continue so the agent
+            // can discover the actual file path instead of being forced into zero-evidence
+            // synthesis.  Distinct from EACCES (which is a permission issue, not a path issue).
+            let all_file_not_found = !tool_failures.is_empty()
+                && tool_failures.iter().all(|(_, err)| {
+                    let lower = err.to_lowercase();
+                    lower.contains("no such file or directory")
+                        || lower.contains("os error 2")
+                        || lower.contains("path not found")
+                        || lower.contains("file not found")
+                        // file_inspect-specific prefix — always wraps the OS ENOENT
+                        || lower.contains("detection failed")
+                });
+            if all_file_not_found {
+                tracing::warn!(
+                    round,
+                    failed = tool_failures.len(),
+                    "P1-C collapse: all failures are file-not-found (ENOENT) — injecting glob-search directive instead of forcing synthesis"
+                );
+                if !state.silent {
+                    render_sink.loop_guard_action(
+                        "parallel_batch_collapse_file_not_found",
+                        &format!(
+                            "all {} tool(s) hit file-not-found — use glob to locate the file before reading",
+                            tool_failures.len()
+                        ),
+                    );
+                }
+                // Inject a supervisor correction: guide the model to search first.
+                state.messages.push(ChatMessage {
+                    role: Role::User,
+                    content: MessageContent::Text(
+                        "The file was not found at the specified path. \
+                         Use `glob` to search for it first — for example: \
+                         glob(pattern=\"**/*.pdf\") to find PDF files, \
+                         glob(pattern=\"**/*.py\") for Python scripts. \
+                         The file may be in Documents, Downloads, Desktop, or a subdirectory. \
+                         Once you find the real path, use file_inspect or file_read on the \
+                         discovered path."
+                        .to_string(),
+                    ),
+                });
+                return Ok(PostBatchOutcome::Continue {
+                    round_tool_log,
+                    tool_failures,
+                    tool_successes,
+                });
+            }
+
             tracing::error!(
                 failed = tool_failures.len(),
                 "P1-A: parallel batch collapse — 0% success rate, forcing synthesis"
