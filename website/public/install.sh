@@ -686,7 +686,7 @@ main() {
     printf "    ${BOLD}halcon auth login deepseek${RESET}      ${CYAN}# cheapest option${RESET}\n"
     printf "    ${BOLD}halcon auth login gemini${RESET}        ${CYAN}# Google Gemini${RESET}\n"
     printf "\n  ${CYAN}Enterprise / Cloud Infrastructure:${RESET}\n"
-    printf "    ${BOLD}halcon login cenzontle${RESET}          ${CYAN}# Cenzontle SSO (Zuclubit)${RESET}\n"
+    printf "    ${BOLD}halcon auth login cenzontle${RESET}     ${CYAN}# Cenzontle SSO (Zuclubit)${RESET}\n"
     printf "    ${BOLD}export CLAUDE_CODE_USE_BEDROCK=1${RESET} ${CYAN}# AWS Bedrock (+ AWS_REGION + AWS credentials)${RESET}\n"
     printf "    ${BOLD}export CLAUDE_CODE_USE_AZURE=1${RESET}   ${CYAN}# Azure AI Foundry (+ AZURE_AI_ENDPOINT + AZURE_API_KEY)${RESET}\n"
     printf "    ${BOLD}export CLAUDE_CODE_USE_VERTEX=1${RESET}  ${CYAN}# Google Vertex AI (+ ANTHROPIC_VERTEX_PROJECT_ID)${RESET}\n"
@@ -1374,7 +1374,7 @@ retry_base_delay_ms  = 1000
 ${_SYS_CLAUDE_SECTION}
 
 # ── Cenzontle — plataforma AI propia de Zuclubit (SSO OAuth 2.1 PKCE) ────────
-# Activa: halcon login cenzontle  o  export CENZONTLE_ACCESS_TOKEN
+# Activa: halcon auth login cenzontle  o  export CENZONTLE_ACCESS_TOKEN
 [models.providers.cenzontle]
 enabled       = false
 api_base      = "https://ca-cenzontle-backend.graypond-e35bfdd8.eastus2.azurecontainerapps.io"
