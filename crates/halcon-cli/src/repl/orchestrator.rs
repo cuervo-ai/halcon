@@ -139,11 +139,51 @@ pub fn topological_waves(tasks: &[SubAgentTask]) -> Vec<Vec<&SubAgentTask>> {
     waves
 }
 
-/// Derive sub-agent execution limits from parent limits and orchestrator config.
-pub fn derive_sub_limits(parent: &AgentLimits, config: &OrchestratorConfig) -> AgentLimits {
+/// Estimate the token budget a sub-agent task will likely consume.
+///
+/// This is a lightweight heuristic — not an LLM call — designed to give the orchestrator
+/// enough signal to differentiate small tasks (write one file ≈ 3 000 t) from large ones
+/// (analyze + refactor codebase ≈ 60 000 t).  The planner calls this at task-creation time
+/// and stores the result in `SubAgentTask::estimated_tokens`.
+///
+/// Formula:
+///   base          = 2 000 tokens (minimum viable context for any task)
+///   per_word      = 4 tokens / word  (instruction length signal)
+///   per_tool      = 1 500 tokens / tool  (each tool result adds ~1 500 output tokens)
+///   cap           = 80 000 tokens   (single-task hard ceiling; well under 200k context)
+pub fn estimate_task_tokens(instruction: &str, tool_count: usize) -> u32 {
+    const BASE: u32     = 2_000;
+    const PER_WORD: u32 = 4;
+    const PER_TOOL: u32 = 1_500;
+    const CAP: u32      = 80_000;
+
+    let word_count = instruction.split_whitespace().count() as u32;
+    let estimate = BASE
+        .saturating_add(word_count.saturating_mul(PER_WORD))
+        .saturating_add(tool_count as u32 * PER_TOOL);
+    estimate.min(CAP)
+}
+
+/// Derive sub-agent execution limits from parent limits, orchestrator config, and wave size.
+///
+/// When `shared_budget` is true, the parent token budget is divided by the actual number of
+/// tasks in the current wave (`wave_size`), not by `max_concurrent_agents`.  Using the
+/// concurrent-agent cap as the divisor caused severe token starvation: a wave with 11 tasks
+/// but concurrency=3 would give each sub-agent budget/3 tokens — 3.7× too many — leading to
+/// the model truncating mid-output when the shared pool was exhausted.
+///
+/// The wave size is the correct divisor because every task in the wave needs a share of the
+/// total budget, regardless of how many run concurrently at any given moment.
+pub fn derive_sub_limits(
+    parent: &AgentLimits,
+    config: &OrchestratorConfig,
+    wave_size: usize,
+) -> AgentLimits {
     let max_rounds = parent.max_rounds.min(10);
-    let max_total_tokens = if config.shared_budget && config.max_concurrent_agents > 0 {
-        parent.max_total_tokens / config.max_concurrent_agents as u32
+    let max_total_tokens = if config.shared_budget && wave_size > 0 && parent.max_total_tokens > 0 {
+        // Divide by wave_size (all tasks that need a budget share), not by max_concurrent_agents.
+        // Floor at 1 to avoid zero-budget sub-agents.
+        (parent.max_total_tokens / wave_size as u32).max(1)
     } else {
         parent.max_total_tokens
     };
@@ -202,7 +242,10 @@ pub async fn run_orchestrator(
     let orch_start = Instant::now();
     let budget = SharedBudget::new(parent_limits);
     let waves = topological_waves(&tasks);
-    let sub_limits = derive_sub_limits(parent_limits, config);
+    // sub_limits is computed per-wave (not once globally) because each wave may have a
+    // different task count.  The placeholder below is used only for tasks with an explicit
+    // limits_override; all others receive wave-specific limits computed inside the loop.
+    let total_tasks = tasks.len();
 
     // Shared context store for inter-agent communication between waves.
     let shared_context = if config.enable_communication {
@@ -258,7 +301,15 @@ pub async fn run_orchestrator(
         }
     }
 
+    // Suppress unused-variable warning — total_tasks is used in tracing below.
+    let _ = total_tasks;
+
     for wave in &waves {
+        // Compute per-wave sub-limits using the actual wave size so the budget is split
+        // correctly.  A wave with 11 tasks divides by 11; a wave with 2 tasks divides by 2.
+        let wave_size = wave.len();
+        let sub_limits = derive_sub_limits(parent_limits, config, wave_size);
+
         // Check budget before each wave.
         if budget.is_over_budget() {
             tracing::warn!("Orchestrator budget exceeded, stopping before next wave");
@@ -354,7 +405,25 @@ pub async fn run_orchestrator(
                 let agent_type = task.agent_type;
                 let instruction = task.instruction.clone();
                 let allowed_tools = task.allowed_tools.clone();
-                let mut limits = task.limits_override.clone().unwrap_or_else(|| sub_limits.clone());
+                // Resolve per-task limits.  Priority order:
+                //   1. Explicit limits_override from the task (highest priority).
+                //   2. estimated_tokens hint: construct a limits_override capping
+                //      max_total_tokens to the planner's estimate (avoids starving
+                //      large tasks while preventing small tasks from over-spending).
+                //   3. Wave-derived sub_limits (default).
+                let mut limits = if let Some(ov) = task.limits_override.clone() {
+                    ov
+                } else if task.estimated_tokens > 0 {
+                    let mut l = sub_limits.clone();
+                    // Clamp to [1, parent_limits] so we never grant more than the parent.
+                    let cap = task.estimated_tokens
+                        .min(parent_limits.max_total_tokens.max(1))
+                        .max(1);
+                    l.max_total_tokens = cap;
+                    l
+                } else {
+                    sub_limits.clone()
+                };
                 // Apply role-based timeout multiplier (PASO 4-B — US-agent-roles).
                 // DECISION: roles affect BEHAVIOR (limits), not CAPABILITY (tools).
                 // The multiplier is applied after any explicit limits_override so that
@@ -1192,6 +1261,7 @@ mod tests {
             role: halcon_core::types::AgentRole::default(),
             team_id: None,
             mailbox_id: None,
+            estimated_tokens: 0,
             },
             SubAgentTask {
                 task_id: Uuid::new_v4(),
@@ -1207,6 +1277,7 @@ mod tests {
             role: halcon_core::types::AgentRole::default(),
             team_id: None,
             mailbox_id: None,
+            estimated_tokens: 0,
             },
         ];
         let waves = topological_waves(&tasks);
@@ -1234,6 +1305,7 @@ mod tests {
             role: halcon_core::types::AgentRole::default(),
             team_id: None,
             mailbox_id: None,
+            estimated_tokens: 0,
             },
             SubAgentTask {
                 task_id: b,
@@ -1249,6 +1321,7 @@ mod tests {
             role: halcon_core::types::AgentRole::default(),
             team_id: None,
             mailbox_id: None,
+            estimated_tokens: 0,
             },
             SubAgentTask {
                 task_id: c,
@@ -1264,6 +1337,7 @@ mod tests {
             role: halcon_core::types::AgentRole::default(),
             team_id: None,
             mailbox_id: None,
+            estimated_tokens: 0,
             },
         ];
         let waves = topological_waves(&tasks);
@@ -1294,6 +1368,7 @@ mod tests {
             role: halcon_core::types::AgentRole::default(),
             team_id: None,
             mailbox_id: None,
+            estimated_tokens: 0,
             },
             SubAgentTask {
                 task_id: b,
@@ -1309,6 +1384,7 @@ mod tests {
             role: halcon_core::types::AgentRole::default(),
             team_id: None,
             mailbox_id: None,
+            estimated_tokens: 0,
             },
             SubAgentTask {
                 task_id: c,
@@ -1324,6 +1400,7 @@ mod tests {
             role: halcon_core::types::AgentRole::default(),
             team_id: None,
             mailbox_id: None,
+            estimated_tokens: 0,
             },
             SubAgentTask {
                 task_id: d,
@@ -1339,6 +1416,7 @@ mod tests {
             role: halcon_core::types::AgentRole::default(),
             team_id: None,
             mailbox_id: None,
+            estimated_tokens: 0,
             },
         ];
         let waves = topological_waves(&tasks);
@@ -1370,6 +1448,7 @@ mod tests {
             role: halcon_core::types::AgentRole::default(),
             team_id: None,
             mailbox_id: None,
+            estimated_tokens: 0,
             },
             SubAgentTask {
                 task_id: b,
@@ -1385,6 +1464,7 @@ mod tests {
             role: halcon_core::types::AgentRole::default(),
             team_id: None,
             mailbox_id: None,
+            estimated_tokens: 0,
             },
         ];
         let waves = topological_waves(&tasks);
@@ -1422,6 +1502,7 @@ mod tests {
             role: halcon_core::types::AgentRole::default(),
             team_id: None,
             mailbox_id: None,
+            estimated_tokens: 0,
             },
             SubAgentTask {
                 task_id: b,
@@ -1434,6 +1515,7 @@ mod tests {
             role: halcon_core::types::AgentRole::default(),
             team_id: None,
             mailbox_id: None,
+            estimated_tokens: 0,
             },
             SubAgentTask {
                 task_id: c,
@@ -1446,6 +1528,7 @@ mod tests {
             role: halcon_core::types::AgentRole::default(),
             team_id: None,
             mailbox_id: None,
+            estimated_tokens: 0,
             },
         ];
         let waves = topological_waves(&tasks);
@@ -1481,12 +1564,32 @@ mod tests {
             shared_budget: true,
             ..Default::default()
         };
-        let limits = derive_sub_limits(&parent, &config);
+        // wave_size=5: budget is split by the actual wave size, not max_concurrent_agents.
+        let limits = derive_sub_limits(&parent, &config, 5);
         assert_eq!(limits.max_rounds, 10); // capped at 10
-        assert_eq!(limits.max_total_tokens, 20_000); // 100k / 5
+        assert_eq!(limits.max_total_tokens, 20_000); // 100k / 5 (wave_size)
         assert_eq!(limits.max_duration_secs, 300); // 600 / 2
         assert_eq!(limits.tool_timeout_secs, 120); // inherited
         assert_eq!(limits.provider_timeout_secs, 300); // inherited
+    }
+
+    #[test]
+    fn derive_sub_limits_wave_larger_than_concurrency() {
+        // Regression test for the starvation bug: 11-task wave with concurrency=3 must
+        // divide by 11, not by 3.
+        let parent = AgentLimits {
+            max_rounds: 25,
+            max_total_tokens: 110_000,
+            max_duration_secs: 600,
+            ..Default::default()
+        };
+        let config = OrchestratorConfig {
+            max_concurrent_agents: 3,
+            shared_budget: true,
+            ..Default::default()
+        };
+        let limits = derive_sub_limits(&parent, &config, 11);
+        assert_eq!(limits.max_total_tokens, 10_000); // 110k / 11 — not 110k / 3 = 36_666
     }
 
     #[test]
@@ -1503,7 +1606,8 @@ mod tests {
             sub_agent_timeout_secs: 120,
             ..Default::default()
         };
-        let limits = derive_sub_limits(&parent, &config);
+        // shared_budget=false → wave_size has no effect.
+        let limits = derive_sub_limits(&parent, &config, 3);
         assert_eq!(limits.max_total_tokens, 100_000); // full budget when not shared
         assert_eq!(limits.max_duration_secs, 120); // explicit timeout
     }
@@ -1577,6 +1681,7 @@ mod tests {
             role: halcon_core::types::AgentRole::default(),
             team_id: None,
             mailbox_id: None,
+            estimated_tokens: 0,
         }];
 
         let result = run_orchestrator(
@@ -1617,6 +1722,7 @@ mod tests {
             role: halcon_core::types::AgentRole::default(),
             team_id: None,
             mailbox_id: None,
+            estimated_tokens: 0,
             },
             SubAgentTask {
                 task_id: Uuid::new_v4(),
@@ -1632,6 +1738,7 @@ mod tests {
             role: halcon_core::types::AgentRole::default(),
             team_id: None,
             mailbox_id: None,
+            estimated_tokens: 0,
             },
         ];
 
@@ -1673,6 +1780,7 @@ mod tests {
             role: halcon_core::types::AgentRole::default(),
             team_id: None,
             mailbox_id: None,
+            estimated_tokens: 0,
             },
             SubAgentTask {
                 task_id: Uuid::new_v4(),
@@ -1688,6 +1796,7 @@ mod tests {
             role: halcon_core::types::AgentRole::default(),
             team_id: None,
             mailbox_id: None,
+            estimated_tokens: 0,
             },
         ];
 
@@ -1727,6 +1836,7 @@ mod tests {
             role: halcon_core::types::AgentRole::default(),
             team_id: None,
             mailbox_id: None,
+            estimated_tokens: 0,
         }];
 
         run_orchestrator(
@@ -1780,6 +1890,7 @@ mod tests {
             role: halcon_core::types::AgentRole::default(),
             team_id: None,
             mailbox_id: None,
+            estimated_tokens: 0,
             },
             SubAgentTask {
                 task_id: Uuid::new_v4(), instruction: "Wave 2".into(), agent_type: AgentType::Chat,
@@ -1789,6 +1900,7 @@ mod tests {
             role: halcon_core::types::AgentRole::default(),
             team_id: None,
             mailbox_id: None,
+            estimated_tokens: 0,
             },
         ];
 
@@ -1827,6 +1939,7 @@ mod tests {
             role: halcon_core::types::AgentRole::default(),
             team_id: None,
             mailbox_id: None,
+            estimated_tokens: 0,
             },
             SubAgentTask {
                 task_id: Uuid::new_v4(), instruction: "Wave 2 task".into(), agent_type: AgentType::Chat,
@@ -1836,6 +1949,7 @@ mod tests {
             role: halcon_core::types::AgentRole::default(),
             team_id: None,
             mailbox_id: None,
+            estimated_tokens: 0,
             },
         ];
 
@@ -1933,6 +2047,7 @@ mod tests {
             role: halcon_core::types::AgentRole::default(),
             team_id: None,
             mailbox_id: None,
+            estimated_tokens: 0,
             },
             SubAgentTask {
                 task_id: b, instruction: "B depends on A".into(), agent_type: AgentType::Chat,
@@ -1942,6 +2057,7 @@ mod tests {
             role: halcon_core::types::AgentRole::default(),
             team_id: None,
             mailbox_id: None,
+            estimated_tokens: 0,
             },
             SubAgentTask {
                 task_id: c, instruction: "C depends on B".into(), agent_type: AgentType::Chat,
@@ -1951,6 +2067,7 @@ mod tests {
             role: halcon_core::types::AgentRole::default(),
             team_id: None,
             mailbox_id: None,
+            estimated_tokens: 0,
             },
         ];
         let waves = topological_waves(&tasks);
@@ -1992,6 +2109,7 @@ mod tests {
             role: halcon_core::types::AgentRole::default(),
             team_id: None,
             mailbox_id: None,
+            estimated_tokens: 0,
             },
             SubAgentTask {
                 task_id: b, instruction: "B fails".into(), agent_type: AgentType::Chat,
@@ -2001,6 +2119,7 @@ mod tests {
             role: halcon_core::types::AgentRole::default(),
             team_id: None,
             mailbox_id: None,
+            estimated_tokens: 0,
             },
             SubAgentTask {
                 task_id: c, instruction: "C succeeds".into(), agent_type: AgentType::Chat,
@@ -2010,6 +2129,7 @@ mod tests {
             role: halcon_core::types::AgentRole::default(),
             team_id: None,
             mailbox_id: None,
+            estimated_tokens: 0,
             },
             SubAgentTask {
                 task_id: d, instruction: "D depends on B+C".into(), agent_type: AgentType::Chat,
@@ -2019,6 +2139,7 @@ mod tests {
             role: halcon_core::types::AgentRole::default(),
             team_id: None,
             mailbox_id: None,
+            estimated_tokens: 0,
             },
         ];
         let waves = topological_waves(&tasks);
@@ -2059,6 +2180,7 @@ mod tests {
             role: halcon_core::types::AgentRole::default(),
             team_id: None,
             mailbox_id: None,
+            estimated_tokens: 0,
             },
             SubAgentTask {
                 task_id: b, instruction: "B".into(), agent_type: AgentType::Chat,
@@ -2068,6 +2190,7 @@ mod tests {
             role: halcon_core::types::AgentRole::default(),
             team_id: None,
             mailbox_id: None,
+            estimated_tokens: 0,
             },
         ];
         let waves = topological_waves(&tasks);

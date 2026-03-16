@@ -221,7 +221,7 @@ impl DelegationRouter {
 
                 let task = SubAgentTask {
                     task_id: task_ids[di].1,
-                    instruction,
+                    instruction: instruction.clone(),
                     agent_type: Self::agent_type_for_capability(&decision.capability),
                     model: Some(parent_model.to_string()),
                     provider: None,
@@ -229,10 +229,17 @@ impl DelegationRouter {
                     limits_override: None,
                     depends_on,
                     priority: 0,
-                system_prompt_prefix: None,
-            role: halcon_core::types::AgentRole::default(),
-            team_id: None,
-            mailbox_id: None,
+                    system_prompt_prefix: None,
+                    role: halcon_core::types::AgentRole::default(),
+                    team_id: None,
+                    mailbox_id: None,
+                    // Estimate token budget from instruction length and tool set.
+                    // The orchestrator uses this to construct per-task limits_override when
+                    // no explicit override is provided, preventing uniform budget starvation.
+                    estimated_tokens: crate::repl::orchestrator::estimate_task_tokens(
+                        &instruction,
+                        decision.suggested_tools.len(),
+                    ),
                 };
 
                 Some((*step_idx, task))

@@ -12,6 +12,47 @@ use serde::Deserialize;
 
 use crate::render::feedback;
 
+// ── Typo detection ────────────────────────────────────────────────────────────
+
+/// Compute the Levenshtein edit distance between two strings.
+/// Pure function — no allocations beyond the DP matrix.
+fn levenshtein(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let (la, lb) = (a.len(), b.len());
+    if la == 0 { return lb; }
+    if lb == 0 { return la; }
+    let mut prev: Vec<usize> = (0..=lb).collect();
+    let mut curr = vec![0usize; lb + 1];
+    for i in 1..=la {
+        curr[0] = i;
+        for j in 1..=lb {
+            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
+            curr[j] = (curr[j - 1] + 1)
+                .min(prev[j] + 1)
+                .min(prev[j - 1] + cost);
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+    prev[lb]
+}
+
+/// Return the closest registered provider name to `typo` if within edit distance ≤ 2.
+fn suggest_provider(typo: &str, registered: &[String]) -> Option<String> {
+    let typo_lc = typo.to_lowercase();
+    registered
+        .iter()
+        .filter(|name| name.as_str() != "echo") // echo is internal
+        .min_by_key(|name| levenshtein(&typo_lc, &name.to_lowercase()))
+        .and_then(|best| {
+            if levenshtein(&typo_lc, &best.to_lowercase()) <= 2 {
+                Some(best.clone())
+            } else {
+                None
+            }
+        })
+}
+
 /// Build a ProviderRegistry from configuration.
 ///
 /// Registers providers whose API keys are available.
@@ -386,9 +427,16 @@ async fn precheck_providers_with_explicit(
             Some("Checking fallback providers..."),
         );
     } else {
+        // Check for typos before falling back silently.
+        let registered = registry.list().into_iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let suggestion = suggest_provider(primary, &registered);
+        let hint = match &suggestion {
+            Some(s) => format!("Did you mean: \"{s}\"? (use -p {s})"),
+            None    => "Checking fallback providers...".to_string(),
+        };
         feedback::user_warning(
             &format!("provider '{primary}' is not registered (missing API key?)"),
-            Some("Checking fallback providers..."),
+            Some(hint.as_str()),
         );
     }
 
@@ -890,5 +938,69 @@ id = "minimal-model"
         assert_eq!(models[0].max_output_tokens, 4_096);
         assert!(models[0].supports_streaming);
         assert!(models[0].supports_tools);
+    }
+
+    // ── Typo detection tests ──────────────────────────────────────────────────
+
+    #[test]
+    fn levenshtein_exact_match() {
+        assert_eq!(levenshtein("anthropic", "anthropic"), 0);
+    }
+
+    #[test]
+    fn levenshtein_single_transposition() {
+        // "antropic" → "anthropic": insert 'h' = distance 1
+        assert_eq!(levenshtein("antropic", "anthropic"), 1);
+    }
+
+    #[test]
+    fn levenshtein_two_edits() {
+        // "anthrpc" → "anthropic": insert 'o' + insert 'i' = distance 2
+        assert_eq!(levenshtein("anthrpc", "anthropic"), 2);
+    }
+
+    #[test]
+    fn suggest_provider_catches_antropic_typo() {
+        let registered = vec![
+            "anthropic".to_string(),
+            "openai".to_string(),
+            "ollama".to_string(),
+            "deepseek".to_string(),
+            "echo".to_string(),
+        ];
+        let suggestion = suggest_provider("antropic", &registered);
+        assert_eq!(suggestion.as_deref(), Some("anthropic"));
+    }
+
+    #[test]
+    fn suggest_provider_catches_opnai_typo() {
+        let registered = vec![
+            "anthropic".to_string(),
+            "openai".to_string(),
+            "ollama".to_string(),
+            "echo".to_string(),
+        ];
+        let suggestion = suggest_provider("opnai", &registered);
+        assert_eq!(suggestion.as_deref(), Some("openai"));
+    }
+
+    #[test]
+    fn suggest_provider_no_suggestion_for_nonsense() {
+        let registered = vec![
+            "anthropic".to_string(),
+            "openai".to_string(),
+            "echo".to_string(),
+        ];
+        // "xyz" is edit distance >2 from everything → no suggestion
+        let suggestion = suggest_provider("xyz", &registered);
+        assert!(suggestion.is_none());
+    }
+
+    #[test]
+    fn suggest_provider_excludes_echo() {
+        let registered = vec!["echo".to_string()];
+        // Only "echo" registered; typo "ech" is distance 1 but echo is excluded
+        let suggestion = suggest_provider("ech", &registered);
+        assert!(suggestion.is_none());
     }
 }

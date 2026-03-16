@@ -35,15 +35,30 @@ struct RoundSnapshot {
 }
 
 /// Checkpoint result from periodic evaluation.
+///
+/// Designed for constructive, actionable output:
+/// - `completed_fraction` and `evidence_rate` surface what has been achieved.
+/// - `rationale` names the specific problem detected.
+/// - `suggestion` provides a concrete next step so the developer sees *what to fix*, not
+///   just a CRITICAL label.
+/// - `rounds_remaining` allows callers to calibrate urgency.
 #[derive(Debug, Clone)]
 pub struct CriticCheckpoint {
     pub round: usize,
+    pub rounds_remaining: usize,
+    /// Progress fraction actually achieved (0.0–1.0).
+    pub completed_fraction: f64,
+    /// Progress fraction expected at this point in the budget (0.0–1.0).
+    pub expected_fraction: f64,
     pub progress_deficit: f64,
     pub evidence_rate: f64,
     pub evidence_declining: bool,
     pub objective_drift: f64,
     pub action: CriticAction,
+    /// Short description of what went wrong.
     pub rationale: &'static str,
+    /// Constructive suggestion for the next step (shown in UI alongside completed work).
+    pub suggestion: &'static str,
 }
 
 /// Mid-loop critic — evaluates progress at regular checkpoint intervals.
@@ -123,27 +138,54 @@ impl MidLoopCritic {
         // Evidence rate: compare last 2 snapshots
         let evidence_declining = self.detect_evidence_decline();
 
-        // Decision cascade (priority order)
-        let (action, rationale) = if budget_fraction >= 0.90 && plan_progress < 0.60 {
-            (CriticAction::ForceSynthesis, "budget >90% with <60% progress")
+        // Decision cascade (priority order).
+        // Each arm returns (action, problem_rationale, constructive_suggestion).
+        let (action, rationale, suggestion) = if budget_fraction >= 0.90 && plan_progress < 0.60 {
+            (
+                CriticAction::ForceSynthesis,
+                "budget >90% consumed with <60% progress",
+                "Summarize completed work and mark remaining steps as deferred",
+            )
         } else if progress_deficit > self.policy.progress_deficit_threshold {
-            (CriticAction::Replan, "progress deficit exceeds threshold")
+            (
+                CriticAction::Replan,
+                "progress deficit exceeds threshold",
+                "Re-plan with reduced scope: drop optional steps and focus on core deliverables",
+            )
         } else if drift_score > self.policy.objective_drift_threshold {
-            (CriticAction::ChangeStrategy, "objective drift exceeds threshold")
+            (
+                CriticAction::ChangeStrategy,
+                "objective drift detected — execution diverging from original goal",
+                "Switch strategy: re-read the original goal and adjust the current approach",
+            )
         } else if evidence_declining && progress_deficit > self.policy.progress_deficit_threshold * 0.5 {
-            (CriticAction::ReduceScope, "evidence declining with moderate deficit")
+            (
+                CriticAction::ReduceScope,
+                "evidence collection declining with moderate progress deficit",
+                "Drop low-priority steps and consolidate evidence from completed rounds",
+            )
         } else {
-            (CriticAction::Continue, "progress within expected range")
+            (
+                CriticAction::Continue,
+                "progress within expected range",
+                "Continue current approach",
+            )
         };
+
+        let rounds_remaining = if max_rounds > round { max_rounds - round } else { 0 };
 
         CriticCheckpoint {
             round,
+            rounds_remaining,
+            completed_fraction: plan_progress,
+            expected_fraction: budget_fraction,
             progress_deficit,
             evidence_rate: self.evidence_rate_ema,
             evidence_declining,
             objective_drift: drift_score,
             action,
             rationale,
+            suggestion,
         }
     }
 
@@ -169,6 +211,44 @@ impl MidLoopCritic {
     /// Get the last recorded evidence rate EMA.
     pub fn evidence_rate(&self) -> f64 {
         self.evidence_rate_ema
+    }
+}
+
+impl CriticCheckpoint {
+    /// Format a user-facing summary of the checkpoint.
+    ///
+    /// Designed to be constructive: leads with what was achieved, then the issue, then
+    /// the suggestion.  Avoids flooding the output with CRITICAL labels — one concise line
+    /// per concern.
+    ///
+    /// Example output:
+    ///   [critic] Round 6/20 — 40% complete (expected 60%)  ⚠ progress deficit
+    ///   Suggestion: Re-plan with reduced scope: drop optional steps…
+    pub fn format_summary(&self) -> String {
+        let max_round = self.round + self.rounds_remaining;
+        let pct_done = (self.completed_fraction * 100.0) as u32;
+        let pct_exp  = (self.expected_fraction  * 100.0) as u32;
+
+        let status = match self.action {
+            CriticAction::Continue       => "✓ on track",
+            CriticAction::ChangeStrategy => "⚠ strategy shift needed",
+            CriticAction::ReduceScope    => "⚠ scope reduction advised",
+            CriticAction::Replan         => "⚠ replan triggered",
+            CriticAction::ForceSynthesis => "⚠ synthesizing early",
+        };
+
+        let mut out = format!(
+            "[critic] Round {}/{} — {}% complete (expected {}%)  {status}\n  Issue: {}\n  Next:  {}",
+            self.round, max_round,
+            pct_done, pct_exp,
+            self.rationale,
+            self.suggestion,
+        );
+
+        if self.evidence_declining {
+            out.push_str("\n  Note:  evidence collection rate is declining");
+        }
+        out
     }
 }
 
@@ -205,7 +285,7 @@ mod tests {
         let critic = MidLoopCritic::new(test_policy(), 10);
         let cp = critic.evaluate(9, 10, 0.40, 0.30, 0.10);
         assert_eq!(cp.action, CriticAction::ForceSynthesis);
-        assert_eq!(cp.rationale, "budget >90% with <60% progress");
+        assert_eq!(cp.rationale, "budget >90% consumed with <60% progress");
     }
 
     #[test]
@@ -290,5 +370,56 @@ mod tests {
         let cp = critic.evaluate(3, 0, 0.30, 0.40, 0.10);
         // budget_fraction = 0 when max_rounds=0 → deficit = -0.30
         assert_eq!(cp.action, CriticAction::Continue);
+    }
+
+    // ── New fields & format_summary tests ────────────────────────────────────
+
+    #[test]
+    fn checkpoint_populates_completed_and_expected_fraction() {
+        let critic = MidLoopCritic::new(test_policy(), 20);
+        // Round 10/20 = 50% budget, 35% done
+        let cp = critic.evaluate(10, 20, 0.35, 0.40, 0.05);
+        assert!((cp.completed_fraction - 0.35).abs() < 1e-6, "completed_fraction should be plan_progress");
+        assert!((cp.expected_fraction  - 0.50).abs() < 1e-6, "expected_fraction should be budget_fraction");
+        assert_eq!(cp.rounds_remaining, 10);
+    }
+
+    #[test]
+    fn checkpoint_provides_constructive_suggestion_on_replan() {
+        let critic = MidLoopCritic::new(test_policy(), 10);
+        let cp = critic.evaluate(5, 10, 0.10, 0.40, 0.10);
+        assert_eq!(cp.action, CriticAction::Replan);
+        // Suggestion must be non-empty and not a CRITICAL label
+        assert!(!cp.suggestion.is_empty());
+        assert!(!cp.suggestion.contains("CRITICAL"));
+    }
+
+    #[test]
+    fn format_summary_continue_is_terse() {
+        let critic = MidLoopCritic::new(test_policy(), 20);
+        let cp = critic.evaluate(4, 20, 0.20, 0.40, 0.05);
+        let summary = cp.format_summary();
+        assert!(summary.contains("on track"), "continue path should say on track");
+        assert!(summary.contains("20%"), "should show completed %");
+    }
+
+    #[test]
+    fn format_summary_replan_shows_issue_and_next() {
+        let critic = MidLoopCritic::new(test_policy(), 10);
+        let cp = critic.evaluate(5, 10, 0.10, 0.40, 0.05);
+        let summary = cp.format_summary();
+        assert!(summary.contains("Issue:"), "must label the problem");
+        assert!(summary.contains("Next:"),  "must provide next step");
+        assert!(!summary.contains("CRITICAL"), "must not use CRITICAL label");
+    }
+
+    #[test]
+    fn format_summary_mentions_declining_evidence_when_present() {
+        let mut critic = MidLoopCritic::new(test_policy(), 10);
+        critic.record_snapshot(1, 0.10, 0.50, 0.5, true);
+        critic.record_snapshot(2, 0.15, 0.20, 0.4, true);
+        let cp = critic.evaluate(3, 10, 0.15, 0.20, 0.10);
+        let summary = cp.format_summary();
+        assert!(summary.contains("declining"), "should mention evidence decline");
     }
 }

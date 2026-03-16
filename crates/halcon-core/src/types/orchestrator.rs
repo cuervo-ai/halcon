@@ -102,6 +102,37 @@ pub struct SubAgentTask {
     /// Mailbox instance ID for this agent's message queue.
     #[serde(default)]
     pub mailbox_id: Option<Uuid>,
+    /// Planner-estimated token cost for this task (0 = unknown).
+    ///
+    /// When > 0 and `limits_override` is None, the orchestrator will construct a
+    /// `limits_override` that caps `max_total_tokens` to this estimate.  This prevents
+    /// small write-file tasks from consuming the same budget as large analysis tasks.
+    ///
+    /// The planner is responsible for setting this field based on instruction length,
+    /// task type, and complexity score.  See `estimate_task_tokens()` in planning logic.
+    #[serde(default)]
+    pub estimated_tokens: u32,
+}
+
+impl Default for SubAgentTask {
+    fn default() -> Self {
+        Self {
+            task_id: Uuid::new_v4(),
+            instruction: String::new(),
+            agent_type: AgentType::Chat,
+            model: None,
+            provider: None,
+            allowed_tools: std::collections::HashSet::new(),
+            limits_override: None,
+            depends_on: Vec::new(),
+            priority: 0,
+            system_prompt_prefix: None,
+            role: AgentRole::default(),
+            team_id: None,
+            mailbox_id: None,
+            estimated_tokens: 0,
+        }
+    }
 }
 
 /// Result of a single sub-agent execution.
@@ -297,6 +328,7 @@ mod tests {
             role: AgentRole::default(),
             team_id: None,
             mailbox_id: None,
+            estimated_tokens: 0,
         };
         assert_eq!(task.instruction, "List files");
         assert_eq!(task.agent_type, AgentType::Coder);
@@ -320,6 +352,7 @@ mod tests {
             role: AgentRole::Teammate,
             team_id: Some(Uuid::new_v4()),
             mailbox_id: None,
+            estimated_tokens: 0,
         };
         let json = serde_json::to_string(&task).unwrap();
         let parsed: SubAgentTask = serde_json::from_str(&json).unwrap();

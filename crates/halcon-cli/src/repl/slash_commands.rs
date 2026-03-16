@@ -249,10 +249,11 @@ impl Repl {
             limits_override: None,
             depends_on: vec![],
             priority: 0,
-        system_prompt_prefix: None,
+            system_prompt_prefix: None,
             role: halcon_core::types::AgentRole::default(),
             team_id: None,
             mailbox_id: None,
+            estimated_tokens: crate::repl::orchestrator::estimate_task_tokens(instruction, 0),
         }];
 
         let orchestrator_id = uuid::Uuid::new_v4();
@@ -757,9 +758,12 @@ impl Repl {
                 depends_on: vec![],
                 priority: step.step_index,
                 system_prompt_prefix: None,
-            role: halcon_core::types::AgentRole::default(),
-            team_id: None,
-            mailbox_id: None,
+                role: halcon_core::types::AgentRole::default(),
+                team_id: None,
+                mailbox_id: None,
+                estimated_tokens: crate::repl::orchestrator::estimate_task_tokens(
+                    &step.description, 0,
+                ),
             })
             .collect();
 
@@ -1119,10 +1123,13 @@ impl Repl {
                 limits_override: None,
                 depends_on: vec![],
                 priority: 0,
-            system_prompt_prefix: None,
-            role: halcon_core::types::AgentRole::default(),
-            team_id: None,
-            mailbox_id: None,
+                system_prompt_prefix: None,
+                role: halcon_core::types::AgentRole::default(),
+                team_id: None,
+                mailbox_id: None,
+                estimated_tokens: crate::repl::orchestrator::estimate_task_tokens(
+                    instruction, 0,
+                ),
             })
             .collect();
 
