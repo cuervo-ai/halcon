@@ -180,6 +180,19 @@ pub fn build_command(config: &SpawnConfig) -> Command {
     cmd.env_remove("SUDO_UID");
     cmd.env_remove("SUDO_GID");
 
+    // ── OAuth-over-API-key guard ─────────────────────────────────────────────
+    // When the parent process has ANTHROPIC_API_KEY set in its environment,
+    // the child `claude` subprocess inherits it and prefers it over the user's
+    // OAuth session.  An API key with exhausted credits produces:
+    //   "Credit balance is too low"
+    // even though the user's claude.ai subscription (Max / Pro) is active.
+    //
+    // Removing ANTHROPIC_API_KEY forces the subprocess to authenticate via
+    // the stored OAuth token (~/.claude.json), which is exactly what the
+    // claude_code provider is designed to use.  Users who deliberately want
+    // API-key billing should use the `anthropic` provider instead.
+    cmd.env_remove("ANTHROPIC_API_KEY");
+
     // ── Working directory ────────────────────────────────────────────────────
     // Run the subprocess from the user's home directory (not the caller's CWD).
     //
