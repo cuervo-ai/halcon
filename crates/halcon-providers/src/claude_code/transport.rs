@@ -95,13 +95,18 @@ impl CliTransport for MockTransport {
         if !self.alive {
             return Err(HalconError::StreamError("mock: transport not alive".into()));
         }
-        // Activate the next response script for this request.
-        self.current_lines = self
-            .response_queue
-            .pop_front()
-            .unwrap_or_default()
-            .into_iter()
-            .collect();
+        // Only dequeue the next response script when starting a new turn
+        // (i.e., the current response is fully consumed). Mid-turn sends
+        // such as `control_response` replies must NOT advance the queue —
+        // the remaining lines of the current response are still needed.
+        if self.current_lines.is_empty() {
+            self.current_lines = self
+                .response_queue
+                .pop_front()
+                .unwrap_or_default()
+                .into_iter()
+                .collect();
+        }
         Ok(())
     }
 
@@ -153,6 +158,27 @@ pub fn mock_error_response(message: &str) -> Vec<String> {
         "cost_usd": null
     })
     .to_string()]
+}
+
+/// Build a single NDJSON line simulating an incoming `can_use_tool` control_request from the CLI.
+///
+/// Used in `ManagedProcess` tests to verify the permission-response flow.
+pub fn mock_can_use_tool_request(
+    request_id: &str,
+    tool_name: &str,
+    tool_use_id: &str,
+) -> String {
+    serde_json::json!({
+        "type": "control_request",
+        "request_id": request_id,
+        "request": {
+            "subtype": "can_use_tool",
+            "tool_name": tool_name,
+            "input": {},
+            "tool_use_id": tool_use_id
+        }
+    })
+    .to_string()
 }
 
 /// Build a mock `control_response` acknowledging a `set_model` request.

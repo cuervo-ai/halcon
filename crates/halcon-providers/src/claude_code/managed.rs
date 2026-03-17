@@ -16,7 +16,8 @@ use tracing::{debug, info, warn};
 use halcon_core::error::{HalconError, Result};
 
 use super::protocol::{
-    control_request_set_model, ndjson_chunk_to_model_chunks, NdjsonChunk,
+    control_request_set_model, control_response_allow_tool, control_response_deny_tool,
+    ndjson_chunk_to_model_chunks, NdjsonChunk, NdjsonIncomingRequest,
 };
 use super::transport::CliTransport;
 use halcon_core::types::ModelChunk;
@@ -38,6 +39,29 @@ pub enum ProtocolState {
     Draining,
     /// Transport is unhealthy; attempting respawn.
     Recovering,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Tool permission policy
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Policy for responding to incoming `can_use_tool` permission requests.
+///
+/// When Claude Code CLI is NOT running with `--dangerously-skip-permissions`,
+/// it sends `control_request { subtype: "can_use_tool" }` before each tool call.
+/// Without a response the subprocess blocks and eventually times out (→ EOF).
+///
+/// This policy is evaluated in `execute_request()` for every `ControlRequest`
+/// received during a streaming response.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ToolPermissionPolicy {
+    /// Allow every tool request unconditionally and pass input through unchanged.
+    /// Use this when the caller already enforces its own security policy.
+    #[default]
+    AllowAll,
+    /// Deny every tool request with a standard message.
+    /// Produces a `ModelChunk::Error` so the agent loop can handle gracefully.
+    DenyAll,
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -93,6 +117,10 @@ pub struct ManagedProcess {
     /// System prompt that was passed at the most recent spawn.
     /// Used to detect when a re-spawn is required due to system prompt change.
     pub spawned_system_prompt: Option<String>,
+
+    /// How to respond to incoming `can_use_tool` permission requests.
+    /// Default: `AllowAll` (pass-through; caller's own policy enforces security).
+    pub tool_permission_policy: ToolPermissionPolicy,
 }
 
 impl ManagedProcess {
@@ -115,6 +143,7 @@ impl ManagedProcess {
             max_retries: 3,
             drain_timeout,
             spawned_system_prompt: None,
+            tool_permission_policy: ToolPermissionPolicy::AllowAll,
         }
     }
 
@@ -146,6 +175,7 @@ impl ManagedProcess {
             max_retries: 0, // no retries for test transport
             drain_timeout,
             spawned_system_prompt: None,
+            tool_permission_policy: ToolPermissionPolicy::AllowAll,
         }
     }
 
@@ -459,6 +489,57 @@ impl ManagedProcess {
             };
 
             let is_terminal = matches!(chunk, NdjsonChunk::Result { .. });
+
+            // ── Incoming permission request: respond before collecting chunks ──────
+            // When Claude Code CLI is not in --dangerously-skip-permissions mode,
+            // it sends control_request { subtype: "can_use_tool" } before each tool.
+            // We must respond immediately or the subprocess blocks and times out.
+            if let NdjsonChunk::ControlRequest { ref request_id, ref request } = chunk {
+                let response_line = match request {
+                    NdjsonIncomingRequest::CanUseTool { tool_use_id, input, .. } => {
+                        match self.tool_permission_policy {
+                            ToolPermissionPolicy::AllowAll => {
+                                debug!(
+                                    tool_use_id = %tool_use_id,
+                                    "claude-code: allowing can_use_tool (AllowAll policy)"
+                                );
+                                control_response_allow_tool(request_id, tool_use_id, input)
+                            }
+                            ToolPermissionPolicy::DenyAll => {
+                                warn!(
+                                    tool_use_id = %tool_use_id,
+                                    "claude-code: denying can_use_tool (DenyAll policy)"
+                                );
+                                control_response_deny_tool(
+                                    request_id,
+                                    "Tool use denied by halcon policy",
+                                )
+                            }
+                        }
+                    }
+                    NdjsonIncomingRequest::Unknown => {
+                        // Unknown subtype — respond with a generic deny to unblock the subprocess.
+                        debug!(
+                            request_id = %request_id,
+                            "claude-code: unknown control_request subtype, denying"
+                        );
+                        control_response_deny_tool(request_id, "Unrecognized control request")
+                    }
+                };
+
+                // Use the already-borrowed `transport` to send the response.
+                if let Err(e) = transport.send_line(&response_line).await {
+                    warn!(error = %e, "claude-code: failed to send can_use_tool response");
+                    self.needs_drain = false;
+                    // Clear the transport reference by breaking then setting None after the loop.
+                    // We signal this by returning an error — transport will be cleaned up on next use.
+                    return Err(e);
+                }
+                // Continue loop — more chunks will follow (including the eventual Result)
+                continue;
+            }
+            // ─────────────────────────────────────────────────────────────────────
+
             model_chunks.extend(ndjson_chunk_to_model_chunks(chunk));
 
             if is_terminal {
@@ -497,6 +578,164 @@ mod tests {
     }
 
     // ── Basic request execution ───────────────────────────────────────────────
+
+    // ── can_use_tool handling ─────────────────────────────────────────────────
+
+    /// Helper: build a mock response that includes a can_use_tool control_request
+    /// before the final assistant text and result.
+    fn mock_can_use_tool_then_success(text: &str) -> Vec<String> {
+        vec![
+            // CLI asks for permission to use a tool
+            serde_json::json!({
+                "type": "control_request",
+                "request_id": "perm_1",
+                "request": {
+                    "subtype": "can_use_tool",
+                    "tool_name": "Bash",
+                    "input": { "command": "ls /tmp" },
+                    "tool_use_id": "tu_abc"
+                }
+            })
+            .to_string(),
+            // After allow response, CLI continues and emits text
+            serde_json::json!({
+                "type": "assistant",
+                "message": {
+                    "role": "assistant",
+                    "content": [{ "type": "text", "text": text }]
+                }
+            })
+            .to_string(),
+            serde_json::json!({
+                "type": "result",
+                "is_error": false,
+                "usage": { "input_tokens": 20, "output_tokens": 8 }
+            })
+            .to_string(),
+        ]
+    }
+
+    #[tokio::test]
+    async fn can_use_tool_allow_all_policy_unblocks_subprocess() {
+        let mut mock = MockTransport::new();
+        mock.queue_response(mock_can_use_tool_then_success("tool result text"));
+
+        let mut mgd = managed_with_mock(mock);
+        mgd.tool_permission_policy = ToolPermissionPolicy::AllowAll;
+
+        let chunks = mgd
+            .execute_request(r#"{"type":"user"}"#, Duration::from_secs(5))
+            .await
+            .unwrap();
+
+        // Must have received the text after the permission was granted
+        let has_text = chunks
+            .iter()
+            .any(|c| matches!(c, ModelChunk::TextDelta(t) if t.contains("tool result text")));
+        let has_done = chunks.iter().any(|c| matches!(c, ModelChunk::Done(_)));
+        assert!(has_text, "expected text delta after can_use_tool allow");
+        assert!(has_done, "expected Done chunk");
+    }
+
+    #[tokio::test]
+    async fn can_use_tool_deny_all_policy_sends_deny() {
+        // DenyAll: CLI receives deny, then sends its own error result
+        let mut mock = MockTransport::new();
+        mock.queue_response(vec![
+            serde_json::json!({
+                "type": "control_request",
+                "request_id": "perm_2",
+                "request": {
+                    "subtype": "can_use_tool",
+                    "tool_name": "Write",
+                    "input": {},
+                    "tool_use_id": "tu_xyz"
+                }
+            })
+            .to_string(),
+            // After deny, CLI returns an error result
+            serde_json::json!({
+                "type": "result",
+                "is_error": true,
+                "error": "Tool use denied",
+            })
+            .to_string(),
+        ]);
+
+        let mut mgd = managed_with_mock(mock);
+        mgd.tool_permission_policy = ToolPermissionPolicy::DenyAll;
+
+        let chunks = mgd
+            .execute_request(r#"{"type":"user"}"#, Duration::from_secs(5))
+            .await
+            .unwrap();
+
+        // Should get an Error chunk from the result
+        assert!(
+            chunks.iter().any(|c| matches!(c, ModelChunk::Error(_))),
+            "expected Error chunk after deny"
+        );
+    }
+
+    #[tokio::test]
+    async fn multiple_can_use_tool_in_one_response() {
+        // Simulate CLI requesting permission for 2 tools in one turn
+        let mut mock = MockTransport::new();
+        mock.queue_response(vec![
+            serde_json::json!({
+                "type": "control_request",
+                "request_id": "p1",
+                "request": { "subtype": "can_use_tool", "tool_name": "Bash",
+                             "input": {}, "tool_use_id": "tu1" }
+            })
+            .to_string(),
+            serde_json::json!({
+                "type": "control_request",
+                "request_id": "p2",
+                "request": { "subtype": "can_use_tool", "tool_name": "Read",
+                             "input": {}, "tool_use_id": "tu2" }
+            })
+            .to_string(),
+            serde_json::json!({
+                "type": "assistant",
+                "message": { "role": "assistant",
+                             "content": [{ "type": "text", "text": "done" }] }
+            })
+            .to_string(),
+            serde_json::json!({ "type": "result", "is_error": false }).to_string(),
+        ]);
+
+        let mut mgd = managed_with_mock(mock);
+        let chunks = mgd
+            .execute_request("req", Duration::from_secs(5))
+            .await
+            .unwrap();
+
+        assert!(chunks.iter().any(|c| matches!(c, ModelChunk::TextDelta(t) if t == "done")));
+        assert!(chunks.iter().any(|c| matches!(c, ModelChunk::Done(_))));
+    }
+
+    #[tokio::test]
+    async fn unknown_control_request_subtype_responds_deny() {
+        // Unknown subtype: should respond with deny and not crash
+        let mut mock = MockTransport::new();
+        mock.queue_response(vec![
+            serde_json::json!({
+                "type": "control_request",
+                "request_id": "unk_1",
+                "request": { "subtype": "future_unknown_subtype" }
+            })
+            .to_string(),
+            serde_json::json!({ "type": "result", "is_error": false }).to_string(),
+        ]);
+
+        let mut mgd = managed_with_mock(mock);
+        let result = mgd.execute_request("req", Duration::from_secs(5)).await;
+        // Should complete without error
+        assert!(result.is_ok());
+    }
+
+    // ── Original tests ────────────────────────────────────────────────────────
 
     #[tokio::test]
     async fn execute_request_success() {

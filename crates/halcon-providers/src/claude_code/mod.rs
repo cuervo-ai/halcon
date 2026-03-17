@@ -30,6 +30,7 @@
 //! | `Approve` mode               | Hard error        | Non-fatal `ConfigError`       |
 //! | Token counting               | Approximate       | Marked approximate; prefers CLI value |
 //! | Observability                | None              | `ProviderMetrics`             |
+//! | `can_use_tool` permissions   | `Allow`/`Deny` via `PermissionResponse` | ✅ `ToolPermissionPolicy` (`AllowAll`/`DenyAll`) |
 
 pub mod managed;
 pub mod metrics;

@@ -76,9 +76,35 @@ pub enum NdjsonChunk {
         #[serde(default)]
         model: Option<String>,
     },
-    /// Response to a `control_request` (e.g. `set_model`).
+    /// Response to a `control_request` we sent (e.g. `set_model` ack).
     ControlResponse { response: NdjsonControlResponseBody },
+    /// Incoming permission request from the CLI: the subprocess wants to use a tool
+    /// and requires an explicit allow/deny response before it will proceed.
+    ///
+    /// This is sent by Claude Code CLI in non-`--dangerously-skip-permissions` modes.
+    /// The subprocess will block and time out if no `control_response` is sent back.
+    ControlRequest {
+        request_id: String,
+        request: NdjsonIncomingRequest,
+    },
     /// Catch-all for future / unknown event types.
+    #[serde(other)]
+    Unknown,
+}
+
+/// Body of an incoming `control_request` from the CLI.
+#[derive(Debug, Deserialize)]
+#[serde(tag = "subtype", rename_all = "snake_case")]
+pub enum NdjsonIncomingRequest {
+    /// The CLI wants to use a tool — must respond allow or deny.
+    CanUseTool {
+        tool_name: String,
+        #[serde(default)]
+        input: serde_json::Map<String, serde_json::Value>,
+        #[serde(default)]
+        tool_use_id: String,
+    },
+    /// Other subtypes we don't need to handle explicitly.
     #[serde(other)]
     Unknown,
 }
@@ -160,6 +186,48 @@ pub fn request_to_ndjson(req: &ModelRequest, session_id: &str) -> String {
     })
 }
 
+/// Build a `control_response` NDJSON line allowing a `can_use_tool` request.
+///
+/// Sent back to the CLI to unblock it when it asked permission to use a tool.
+/// `tool_use_id` and `updated_input` are echoed back unchanged (allow-all policy).
+pub fn control_response_allow_tool(
+    request_id: &str,
+    tool_use_id: &str,
+    input: &serde_json::Map<String, serde_json::Value>,
+) -> String {
+    serde_json::json!({
+        "type": "control_response",
+        "response": {
+            "subtype": "success",
+            "request_id": request_id,
+            "response": {
+                "behavior": "allow",
+                "updatedInput": input,
+                "toolUseID": tool_use_id
+            }
+        }
+    })
+    .to_string()
+}
+
+/// Build a `control_response` NDJSON line denying a `can_use_tool` request.
+///
+/// Sent back to the CLI to block a tool call (e.g. when halcon policy forbids it).
+pub fn control_response_deny_tool(request_id: &str, reason: &str) -> String {
+    serde_json::json!({
+        "type": "control_response",
+        "response": {
+            "subtype": "success",
+            "request_id": request_id,
+            "response": {
+                "behavior": "deny",
+                "message": reason
+            }
+        }
+    })
+    .to_string()
+}
+
 /// Build a `control_request` NDJSON line for switching the active model.
 ///
 /// The CLI responds with a matching `control_response` carrying the same
@@ -225,8 +293,11 @@ pub fn ndjson_chunk_to_model_chunks(chunk: NdjsonChunk) -> Vec<ModelChunk> {
             out
         }
 
+        // ControlRequest must be handled by ManagedProcess (needs I/O to respond).
+        // It never maps to a ModelChunk — it's a side-channel protocol message.
         NdjsonChunk::System { .. }
         | NdjsonChunk::ControlResponse { .. }
+        | NdjsonChunk::ControlRequest { .. }
         | NdjsonChunk::Unknown => vec![],
     }
 }
