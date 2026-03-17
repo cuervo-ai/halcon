@@ -1,3 +1,5 @@
+use std::io::{BufRead, BufReader};
+
 use anyhow::Result;
 use halcon_auth::KeyStore;
 use serde_json;
@@ -20,58 +22,173 @@ pub fn login(provider: &str) -> Result<()> {
     login_api_key(provider)
 }
 
-/// OAuth login for the `claude_code` provider.
+/// OAuth login for the `claude_code` provider — OpenCode-style browser flow.
 ///
-/// Delegates to `claude auth login` which opens the browser for claude.ai sign-in.
-/// After successful login the OAuth token is stored by the Claude Code CLI itself
-/// in `~/.claude.json` — halcon does not need to persist anything separately.
+/// Pattern (mirrors OpenCode's `McpOAuthCallback` + browser-open approach):
+/// 1. Check if already authenticated via `claude auth status --json`
+/// 2. If not: spawn `claude auth login` with piped stdout
+/// 3. Read output line-by-line; when a https:// URL is detected → open browser +
+///    print it as a manual fallback (for SSH / headless sessions)
+/// 4. Confirm success via another `claude auth status` call
 fn login_claude_code_oauth() -> Result<()> {
-    // Find the claude binary.
     let claude_bin = find_claude_binary();
-    println!("┌─ Claude Code — OAuth Login ──────────────────────────────┐");
 
-    // 1. Check if already logged in.
-    let status_out = std::process::Command::new(&claude_bin)
-        .args(["auth", "status", "--json"])
-        .output();
+    println!();
+    println!("  ╔══════════════════════════════════════════════════════╗");
+    println!("  ║        Claude Code — OAuth Login (claude.ai)         ║");
+    println!("  ╚══════════════════════════════════════════════════════╝");
+    println!();
 
-    if let Ok(out) = status_out {
-        let json_str = String::from_utf8_lossy(&out.stdout);
-        if json_str.contains("\"loggedIn\": true") || json_str.contains("\"loggedIn\":true") {
-            // Already logged in — show status and exit.
-            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&json_str) {
-                let method = v["authMethod"].as_str().unwrap_or("unknown");
-                let sub = v["subscriptionType"].as_str().unwrap_or("unknown");
-                println!("│  ✓ Already authenticated                                  │");
-                println!("│    Method: {method:<47}│");
-                println!("│    Plan:   {sub:<47}│");
-                println!("└──────────────────────────────────────────────────────────┘");
-                println!();
-                println!("Claude Code OAuth is active. Use: halcon -p claude_code chat \"...\"");
-                return Ok(());
+    // ── 1. Already logged in? ────────────────────────────────────────────────
+    if let Some((method, sub, email)) = check_claude_auth_status(&claude_bin) {
+        let email_display = if email.is_empty() { "—".to_string() } else { email };
+        println!("  ✓  Ya autenticado");
+        println!("     Cuenta:      {email_display}");
+        println!("     Método:      {method}");
+        println!("     Plan:        {sub}");
+        println!();
+        println!("  Listo. Usa: halcon -p claude_code chat \"tu pregunta\"");
+        println!();
+        return Ok(());
+    }
+
+    // ── 2. Spawn claude auth login, pipe stdout to detect the auth URL ───────
+    println!("  Iniciando flujo OAuth con claude.ai...");
+    println!("  Se abrirá el navegador automáticamente.");
+    println!("  Si no se abre, copia la URL que aparece abajo.");
+    println!();
+
+    let mut child = std::process::Command::new(&claude_bin)
+        .args(["auth", "login"])
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::inherit()) // show errors directly
+        .spawn()
+        .map_err(|e| anyhow::anyhow!("No se pudo lanzar '{claude_bin} auth login': {e}"))?;
+
+    // ── 3. Read stdout line by line, open browser on first URL seen ──────────
+    let mut browser_opened = false;
+    if let Some(stdout) = child.stdout.take() {
+        let reader = BufReader::new(stdout);
+        for line in reader.lines() {
+            let line = match line {
+                Ok(l) => l,
+                Err(_) => break,
+            };
+
+            // Echo every line from the claude CLI so the user sees everything.
+            println!("  {line}");
+
+            // Detect a https:// URL in the output (the authorization URL).
+            if let Some(url) = extract_https_url(&line) {
+                if !browser_opened {
+                    println!();
+                    println!("  ┌─ URL de autorización ──────────────────────────────────┐");
+                    println!("  │  {url}");
+                    println!("  └────────────────────────────────────────────────────────┘");
+                    println!();
+
+                    // Try to open the default browser (OpenCode pattern).
+                    match open_browser(&url) {
+                        Ok(_) => println!("  ✓ Navegador abierto"),
+                        Err(_) => println!("  ⚠ No se pudo abrir el navegador — copia la URL de arriba"),
+                    }
+                    println!();
+                    browser_opened = true;
+                }
             }
         }
     }
 
-    // 2. Not logged in — launch browser flow.
-    println!("│  Opening browser for claude.ai sign-in...                │");
-    println!("│  Sign in with your Anthropic account (Pro / Max / Team)  │");
-    println!("└──────────────────────────────────────────────────────────┘");
-    println!();
-
-    let status = std::process::Command::new(&claude_bin)
-        .args(["auth", "login"])
-        .status()
-        .map_err(|e| anyhow::anyhow!("Failed to run '{claude_bin} auth login': {e}"))?;
-
-    if !status.success() {
-        anyhow::bail!("Claude Code auth login failed (exit {})", status);
+    let exit_status = child.wait()?;
+    if !exit_status.success() {
+        anyhow::bail!("claude auth login falló (código {})", exit_status);
     }
 
+    // ── 4. Confirm final auth state ──────────────────────────────────────────
     println!();
-    println!("✓ Claude Code OAuth login complete.");
-    println!("  Use: halcon -p claude_code chat \"tu pregunta\"");
+    if let Some((method, sub, email)) = check_claude_auth_status(&claude_bin) {
+        let email_display = if email.is_empty() { "—".to_string() } else { email };
+        println!("  ✓  Login exitoso");
+        println!("     Cuenta:      {email_display}");
+        println!("     Método:      {method}");
+        println!("     Plan:        {sub}");
+        println!();
+        println!("  Listo. Usa: halcon -p claude_code chat \"tu pregunta\"");
+    } else {
+        println!("  ✓  Proceso completado.");
+        println!("     Ejecuta `halcon auth status` para verificar.");
+    }
+    println!();
     Ok(())
+}
+
+/// Run `claude auth status --json` and return (method, subscriptionType, email)
+/// if logged in, or None otherwise.
+fn check_claude_auth_status(claude_bin: &str) -> Option<(String, String, String)> {
+    let out = std::process::Command::new(claude_bin)
+        .args(["auth", "status", "--json"])
+        .output()
+        .ok()?;
+
+    let json_str = String::from_utf8_lossy(&out.stdout);
+    let v: serde_json::Value = serde_json::from_str(&json_str).ok()?;
+
+    if v["loggedIn"].as_bool() != Some(true) {
+        return None;
+    }
+
+    let method = v["authMethod"].as_str().unwrap_or("unknown").to_string();
+    let sub = v["subscriptionType"].as_str().unwrap_or("unknown").to_string();
+    let email = v["email"].as_str().unwrap_or("").to_string();
+    Some((method, sub, email))
+}
+
+/// Extract the first `https://` URL from a line of text.
+fn extract_https_url(line: &str) -> Option<String> {
+    // Find "https://" in the line and extract until whitespace or end.
+    let start = line.find("https://")?;
+    let rest = &line[start..];
+    let end = rest
+        .find(|c: char| c.is_whitespace() || c == '"' || c == '\'' || c == ')')
+        .unwrap_or(rest.len());
+    let url = &rest[..end];
+    if url.len() > 8 {
+        Some(url.to_string())
+    } else {
+        None
+    }
+}
+
+/// Open the default browser for the given URL.
+///
+/// - macOS: `open <url>`
+/// - Linux: `xdg-open <url>`
+/// - Fallback: silently fail (user sees the printed URL)
+fn open_browser(url: &str) -> Result<()> {
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(url)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map_err(|e| anyhow::anyhow!("open failed: {e}"))?;
+        return Ok(());
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(url)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .map_err(|e| anyhow::anyhow!("xdg-open failed: {e}"))?;
+        return Ok(());
+    }
+
+    #[allow(unreachable_code)]
+    Err(anyhow::anyhow!("browser open not supported on this platform"))
 }
 
 /// Locate the `claude` binary: prefer the native install location, then PATH.
