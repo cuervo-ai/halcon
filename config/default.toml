@@ -40,7 +40,7 @@ default_model = "gemini-2.0-flash"
 # Cenzontle — plataforma AI propia de Zuclubit (SSO OAuth 2.1 PKCE)
 # Autenticación: halcon login cenzontle  o  CENZONTLE_ACCESS_TOKEN
 [models.providers.cenzontle]
-enabled       = false
+enabled       = true
 api_base      = "https://ca-cenzontle-backend.graypond-e35bfdd8.eastus2.azurecontainerapps.io"
 api_key_env   = "CENZONTLE_ACCESS_TOKEN"
 default_model = "claude-sonnet-4-6"
@@ -69,6 +69,21 @@ enabled       = false
 project_env   = "ANTHROPIC_VERTEX_PROJECT_ID"
 region        = "us-east5"
 default_model = "claude-sonnet-4-6"
+
+# MCP servers — halcon connects to these as MCP clients
+# Transport: stdio (spawn child process) or ws (WebSocket, for remote servers)
+#
+# Cenzontle exposes its MCP server on the /mcp Socket.io namespace.
+# The `ws` transport type connects via WebSocket with Bearer JWT auth.
+# Auth token: CENZONTLE_ACCESS_TOKEN env var (set by `halcon login cenzontle`).
+[mcp.servers.cenzontle]
+enabled   = false
+transport = "ws"
+url       = "https://ca-cenzontle-backend.graypond-e35bfdd8.eastus2.azurecontainerapps.io"
+namespace = "/mcp"
+auth_env  = "CENZONTLE_ACCESS_TOKEN"
+# Tools exposed: llm_chat, knowledge_search, agent_submit_task,
+#                conversation_create, agent_list
 
 [tools]
 confirm_destructive = true

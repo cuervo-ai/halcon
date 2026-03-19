@@ -126,6 +126,154 @@ fn print_result(provider: &str, model: &str, result: &StreamResult) {
 }
 
 // ========================================================
+// Cenzontle tests (gated on CENZONTLE_ACCESS_TOKEN)
+// ========================================================
+
+/// Full integration test for the Cenzontle AI provider.
+///
+/// Verifies:
+/// 1. Token resolves from env var
+/// 2. Provider connects (is_available)
+/// 3. SSE stream returns text chunks + usage + done
+/// 4. HTTP/1.1 framing delivers incremental chunks (chunk_count > 1)
+/// 5. Response is coherent (non-empty text)
+///
+/// Run:
+///   CENZONTLE_ACCESS_TOKEN=<jwt> cargo test -p halcon-providers --test live_provider_validation cenzontle -- --nocapture
+#[tokio::test]
+async fn cenzontle_connectivity() {
+    use halcon_providers::CenzonzleProvider;
+
+    let token = match std::env::var("CENZONTLE_ACCESS_TOKEN")
+        .ok()
+        .filter(|v| !v.is_empty())
+    {
+        Some(t) => t,
+        None => {
+            eprintln!("SKIP: CENZONTLE_ACCESS_TOKEN not set");
+            return;
+        }
+    };
+
+    let base_url = std::env::var("CENZONTLE_BASE_URL").ok();
+    let provider = CenzonzleProvider::new(token, base_url, Vec::new());
+
+    eprintln!("\n=== Cenzontle Connectivity Test ===");
+
+    // 1. Availability check (hits /v1/auth/me)
+    let available = provider.is_available().await;
+    eprintln!("  is_available: {available}");
+    if !available {
+        eprintln!("SKIP: Cenzontle backend not reachable (token expired or network issue)");
+        return;
+    }
+
+    // 2. Chat completion — streaming
+    let request = simple_request("deepseek-v3-2-coding", "Responde solo: hola");
+    let result = collect_stream(&provider, &request).await;
+
+    match result {
+        Err(e) => panic!("Cenzontle invoke failed: {e}"),
+        Ok(r) => {
+            print_result("cenzontle", "gpt-4o-mini", &r);
+
+            assert_eq!(r.error_count, 0, "stream had errors");
+            assert!(r.has_done, "stream did not emit Done chunk");
+            assert!(!r.text.is_empty(), "response text is empty");
+            assert!(
+                r.chunk_count > 1,
+                "expected incremental SSE chunks (HTTP/1.1 streaming), got only {}",
+                r.chunk_count
+            );
+
+            eprintln!("  PASS: Cenzontle SSE streaming OK");
+        }
+    }
+}
+
+/// Verify Cenzontle returns usage tokens when stream_options.include_usage=true.
+#[tokio::test]
+async fn cenzontle_usage_tokens() {
+    use halcon_providers::CenzonzleProvider;
+
+    let token = match std::env::var("CENZONTLE_ACCESS_TOKEN")
+        .ok()
+        .filter(|v| !v.is_empty())
+    {
+        Some(t) => t,
+        None => {
+            eprintln!("SKIP: CENZONTLE_ACCESS_TOKEN not set");
+            return;
+        }
+    };
+
+    let provider = CenzonzleProvider::new(token, std::env::var("CENZONTLE_BASE_URL").ok(), Vec::new());
+
+    if !provider.is_available().await {
+        eprintln!("SKIP: Cenzontle not reachable");
+        return;
+    }
+
+    eprintln!("\n=== Cenzontle Usage Tokens Test ===");
+    let request = simple_request("deepseek-v3-2-coding", "Di solo: ok");
+    let result = collect_stream(&provider, &request).await.expect("invoke failed");
+    print_result("cenzontle", "deepseek-v3-2-coding", &result);
+
+    assert_eq!(result.error_count, 0);
+    assert!(result.has_done);
+    // Usage may be 0 if backend doesn't forward token counts, but should not error
+    eprintln!(
+        "  Tokens: {} prompt / {} completion",
+        result.input_tokens, result.output_tokens
+    );
+    eprintln!("  PASS");
+}
+
+/// Verify x-halcon-context header is accepted (backend should not reject it).
+#[tokio::test]
+async fn cenzontle_context_header_accepted() {
+    use halcon_providers::CenzonzleProvider;
+
+    let token = match std::env::var("CENZONTLE_ACCESS_TOKEN")
+        .ok()
+        .filter(|v| !v.is_empty())
+    {
+        Some(t) => t,
+        None => {
+            eprintln!("SKIP: CENZONTLE_ACCESS_TOKEN not set");
+            return;
+        }
+    };
+
+    // Set a CWD so context header is populated
+    let provider = CenzonzleProvider::new(token, std::env::var("CENZONTLE_BASE_URL").ok(), Vec::new());
+
+    if !provider.is_available().await {
+        eprintln!("SKIP: Cenzontle not reachable");
+        return;
+    }
+
+    eprintln!("\n=== Cenzontle Context Header Test ===");
+    let request = ModelRequest {
+        model: "deepseek-v3-2-coding".into(),
+        messages: vec![ChatMessage {
+            role: Role::User,
+            content: MessageContent::Text("Di solo: contexto ok".into()),
+        }],
+        tools: vec![],
+        max_tokens: Some(20),
+        temperature: Some(0.0),
+        system: None,
+        stream: true,
+    };
+
+    let result = collect_stream(&provider, &request).await.expect("invoke failed");
+    assert_eq!(result.error_count, 0, "backend rejected x-halcon-context header");
+    assert!(result.has_done);
+    eprintln!("  PASS: x-halcon-context accepted by backend");
+}
+
+// ========================================================
 // Ollama tests (always available if Ollama is running)
 // ========================================================
 

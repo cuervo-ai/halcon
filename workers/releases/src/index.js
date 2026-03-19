@@ -348,7 +348,8 @@ async function fetchRelease(tag, githubAuth, repo) {
 
 // ─── Build manifest.json from GitHub release data ────────────────────────────
 function buildManifest(release, checksums) {
-  const version = (release.tag_name || "").replace(/^v/, "") || "unknown";
+  const tag     = release.tag_name || "";
+  const version = tag.replace(/^v/, "") || "unknown";
 
   // Parse "sha256  filename" lines from checksums.txt
   const sha256Map = {};
@@ -380,13 +381,44 @@ function buildManifest(release, checksums) {
       };
     });
 
-  return {
-    version,
-    published_at:  release.published_at,
-    artifacts,
-    checksums_url: `https://releases.cli.cuervo.cloud/v${version}/checksums.txt`,
-    github_url:    release.html_url,
+  // Derive channel from tag: alpha/beta/rc → beta; nightly → nightly; else stable
+  const channel = /alpha|beta|rc/i.test(tag)
+    ? "beta"
+    : /nightly/i.test(tag)
+    ? "nightly"
+    : "stable";
+
+  // Extract release notes from GitHub release body (strip markdown headers, cap 2000 chars)
+  let release_notes = (release.body || "").trim();
+  if (release_notes.length > 2000) release_notes = release_notes.slice(0, 2000) + "...";
+
+  // Minimum OS versions (informational, enforced by installer)
+  const min_os = {
+    macos:         "12.0",       // Monterey — required for arm64 native
+    linux_glibc:   "glibc-2.17", // RHEL 7 / Ubuntu 16.04 era
+    windows:       "10",
   };
+
+  // SBOM and provenance URLs (published by release.yml)
+  const sbom_spdx     = `https://releases.cli.cuervo.cloud/v${version}/halcon-${version}.sbom.spdx.json`;
+  const sbom_cyclone  = `https://releases.cli.cuervo.cloud/v${version}/halcon-${version}.sbom.cyclonedx.json`;
+
+  const manifest = {
+    version,
+    channel,
+    published_at:   release.published_at,
+    artifacts,
+    checksums_url:  `https://releases.cli.cuervo.cloud/v${version}/checksums.txt`,
+    sbom_spdx_url:  sbom_spdx,
+    sbom_cdx_url:   sbom_cyclone,
+    github_url:     release.html_url,
+    min_os,
+  };
+
+  // Include release_notes only if non-empty
+  if (release_notes) manifest.release_notes = release_notes;
+
+  return manifest;
 }
 
 function extractTarget(filename, version) {

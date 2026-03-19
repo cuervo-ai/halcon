@@ -462,7 +462,7 @@ impl OpenAICompatibleProvider {
     }
 
     /// Build the SSE stream from an HTTP response.
-    fn build_sse_stream(
+    pub(crate) fn build_sse_stream(
         response: reqwest::Response,
         provider_name: String,
     ) -> BoxStream<'static, Result<ModelChunk>> {

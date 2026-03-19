@@ -20,18 +20,19 @@ pub mod types;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use futures::stream::{self, BoxStream};
+use futures::stream::BoxStream;
 use tracing::{debug, info, instrument, warn};
+use uuid::Uuid;
 
 use halcon_core::error::{HalconError, Result};
 use halcon_core::traits::ModelProvider;
 use halcon_core::types::{
-    HttpConfig, ModelChunk, ModelInfo, ModelRequest, StopReason, TokenCost, TokenUsage, ToolFormat,
+    HttpConfig, ModelChunk, ModelInfo, ModelRequest, TokenCost, ToolFormat,
 };
 
-use crate::http;
+use crate::openai_compat::types::StreamOptions;
 use crate::openai_compat::OpenAICompatibleProvider;
-use types::{CenzonzleChatResponse, CenzontleModel, CenzontleModelsResponse};
+use types::{CenzontleModel, CenzontleModelsResponse};
 
 /// Production Cenzontle backend on Azure Container Apps.
 /// Override with CENZONTLE_BASE_URL env var or provider config api_base.
@@ -74,6 +75,10 @@ pub struct CenzonzleProvider {
     http_config: HttpConfig,
     /// Inner OpenAI-compat provider — used only for request building.
     inner: OpenAICompatibleProvider,
+    /// Unique session ID for this provider instance (generated once per process).
+    /// Reported to Cenzontle via x-halcon-context so all LLM calls within a
+    /// single halcon invocation are grouped into the same session.
+    session_id: String,
 }
 
 impl std::fmt::Debug for CenzonzleProvider {
@@ -93,7 +98,16 @@ impl CenzonzleProvider {
         let http_config = HttpConfig::default();
         let base_url = base_url.unwrap_or_else(|| DEFAULT_BASE_URL.to_string());
         let chat_url = format!("{}/v1/llm/chat", base_url);
-        let client = http::build_client(&http_config);
+
+        // Force HTTP/1.1 so the server sends individual SSE frames instead of
+        // batching them in a single HTTP/2 DATA frame (which breaks eventsource parsing).
+        let client = reqwest::Client::builder()
+            .http1_only()
+            .connect_timeout(Duration::from_secs(http_config.connect_timeout_secs))
+            .pool_max_idle_per_host(4)
+            .user_agent(format!("halcon-cli/{}", env!("CARGO_PKG_VERSION")))
+            .build()
+            .expect("failed to build HTTP/1.1 client for Cenzontle SSE");
 
         // Inner provider used only for build_request() — its base_url is unused.
         let inner = OpenAICompatibleProvider::new(
@@ -112,6 +126,9 @@ impl CenzonzleProvider {
             models,
             http_config,
             inner,
+            // One UUID per provider instance = one UUID per halcon process invocation.
+            // Cenzontle groups all LLM calls with the same session_id together.
+            session_id: Uuid::new_v4().to_string(),
         }
     }
 
@@ -124,7 +141,7 @@ impl CenzonzleProvider {
         }
         let base = base_url.unwrap_or_else(|| DEFAULT_BASE_URL.to_string());
         let http_config = HttpConfig::default();
-        let client = http::build_client(&http_config);
+        let client = crate::http::build_client(&http_config);
 
         let models = fetch_models(&client, &base, &access_token)
             .await
@@ -206,36 +223,6 @@ fn model_info_from_cenzontle(m: CenzontleModel) -> ModelInfo {
 // The provider_factory (halcon-cli) is responsible for resolving the token
 // from env var or keychain before calling CenzonzleProvider::new().
 
-/// Convert a parsed non-streaming cenzontle chat response into a synthetic ModelChunk stream.
-///
-/// Cenzontle buffers the full LLM response before returning, so we use stream=false to avoid
-/// issues with eventsource_stream parsing all SSE events from a single HTTP/2 DATA frame.
-fn json_response_to_stream(resp: CenzonzleChatResponse) -> BoxStream<'static, Result<ModelChunk>> {
-    let mut chunks: Vec<Result<ModelChunk>> = Vec::with_capacity(3);
-
-    if !resp.content.is_empty() {
-        chunks.push(Ok(ModelChunk::TextDelta(resp.content)));
-    }
-
-    if resp.prompt_tokens.is_some() || resp.completion_tokens.is_some() {
-        chunks.push(Ok(ModelChunk::Usage(TokenUsage {
-            input_tokens: resp.prompt_tokens.unwrap_or(0),
-            output_tokens: resp.completion_tokens.unwrap_or(0),
-            reasoning_tokens: None,
-            ..Default::default()
-        })));
-    }
-
-    let stop_reason = match resp.finish_reason.as_deref() {
-        Some("length") => StopReason::MaxTokens,
-        Some("tool_calls") => StopReason::ToolUse,
-        _ => StopReason::EndTurn,
-    };
-    chunks.push(Ok(ModelChunk::Done(stop_reason)));
-
-    Box::pin(stream::iter(chunks))
-}
-
 #[async_trait]
 impl ModelProvider for CenzonzleProvider {
     fn name(&self) -> &str {
@@ -255,14 +242,30 @@ impl ModelProvider for CenzonzleProvider {
         &self,
         request: &ModelRequest,
     ) -> Result<BoxStream<'static, Result<ModelChunk>>> {
-        // Build the OpenAI-compatible request body but override stream=false.
-        // Cenzontle buffers the full LLM response before emitting SSE events, so all SSE
-        // data arrives in a single HTTP/2 DATA frame. eventsource_stream may not reliably
-        // parse multiple events from one chunk. Using stream=false returns plain JSON and
-        // we convert it to a synthetic ModelChunk stream — simpler and more robust.
+        // Build the OpenAI-compatible request body with SSE streaming enabled.
+        // HTTP/1.1 (forced in the client) ensures each SSE event arrives as an
+        // individual frame — on HTTP/2 the backend may batch all events in one DATA frame
+        // which breaks eventsource_stream parsing.
         let mut chat_request = self.inner.build_request(request);
-        chat_request.stream = false;
-        chat_request.stream_options = None;
+        chat_request.stream = true;
+        chat_request.stream_options = Some(StreamOptions { include_usage: true });
+
+        // Build the halcon context header so Cenzontle can enrich the request via RAG/CRM.
+        let halcon_ctx = {
+            let tool_names: Vec<&str> = request.tools.iter().map(|t| t.name.as_str()).collect();
+            let cwd = std::env::current_dir()
+                .ok()
+                .and_then(|p| p.to_str().map(String::from))
+                .unwrap_or_default();
+            serde_json::json!({
+                "client": "halcon-cli",
+                "session_id": self.session_id,
+                "model": request.model,
+                "tools": tool_names,
+                "cwd": cwd,
+            })
+            .to_string()
+        };
 
         let max_retries = self.http_config.max_retries;
         let timeout_secs = self.http_config.request_timeout_secs;
@@ -271,20 +274,23 @@ impl ModelProvider for CenzonzleProvider {
             model = %chat_request.model,
             messages = chat_request.messages.len(),
             url = %self.chat_url,
-            "Cenzontle: invoking chat API (non-streaming JSON)"
+            "Cenzontle: invoking chat API (SSE streaming)"
         );
 
         for attempt in 0..=max_retries {
             if attempt > 0 {
-                let delay = http::backoff_delay(1000, attempt);
+                let delay = crate::http::backoff_delay(1000, attempt);
                 tokio::time::sleep(delay).await;
             }
 
+            // Timeout only covers connection + first-byte (headers).
+            // The SSE body is consumed incrementally after this point.
             let result = tokio::time::timeout(
                 Duration::from_secs(timeout_secs),
                 self.client
                     .post(&self.chat_url)
                     .bearer_auth(&self.access_token)
+                    .header("x-halcon-context", &halcon_ctx)
                     .json(&chat_request)
                     .send(),
             )
@@ -342,22 +348,13 @@ impl ModelProvider for CenzonzleProvider {
                 });
             }
 
-            // Parse the non-streaming JSON response and convert to a synthetic stream.
-            let chat_resp: CenzonzleChatResponse =
-                response.json().await.map_err(|e| HalconError::ApiError {
-                    message: format!("Cenzontle: failed to parse chat response: {e}"),
-                    status: None,
-                })?;
+            debug!(url = %self.chat_url, "Cenzontle: SSE stream connected");
 
-            debug!(
-                content_len = chat_resp.content.len(),
-                model = ?chat_resp.model,
-                prompt_tokens = ?chat_resp.prompt_tokens,
-                completion_tokens = ?chat_resp.completion_tokens,
-                "Cenzontle: received JSON response"
-            );
-
-            return Ok(json_response_to_stream(chat_resp));
+            // Hand off the response body to the OpenAI-compat SSE parser.
+            return Ok(OpenAICompatibleProvider::build_sse_stream(
+                response,
+                PROVIDER_NAME.to_string(),
+            ));
         }
 
         Err(HalconError::ApiError {

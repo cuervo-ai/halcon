@@ -254,28 +254,55 @@ pub fn build_registry(config: &AppConfig) -> ProviderRegistry {
 
     // Register Cenzontle if an SSO access token is available.
     //
-    // Priority:
-    // 1. CENZONTLE_ACCESS_TOKEN env var (CI/CD)
+    // Enabled when:
+    //   a) config.models.providers["cenzontle"].enabled == true, OR
+    //   b) CENZONTLE_ACCESS_TOKEN env var is set (env var overrides config for CI/CD)
+    //
+    // Token priority:
+    // 1. CENZONTLE_ACCESS_TOKEN env var (CI/CD — also forces registration)
     // 2. OS keychain (stored by `halcon login cenzontle`)
     //
     // Model discovery is deferred to an async initializer; the provider is only
     // registered when the token resolves, so `is_available()` gates usage.
-    let cenzontle_token: Option<String> = std::env::var("CENZONTLE_ACCESS_TOKEN")
+    let cenzontle_env_token = std::env::var("CENZONTLE_ACCESS_TOKEN")
         .ok()
-        .filter(|v| !v.is_empty())
-        .or_else(|| {
+        .filter(|v| !v.is_empty());
+
+    let cenzontle_enabled = cenzontle_env_token.is_some()
+        || config
+            .models
+            .providers
+            .get("cenzontle")
+            .map(|c| c.enabled)
+            .unwrap_or(false);
+
+    if cenzontle_enabled {
+        let cenzontle_token: Option<String> = cenzontle_env_token.or_else(|| {
             let keystore = halcon_auth::KeyStore::new("halcon-cli");
             keystore.get_secret("cenzontle:access_token").ok().flatten()
         });
 
-    if let Some(token) = cenzontle_token {
-        let base_url = std::env::var("CENZONTLE_BASE_URL").ok();
-        // Build with empty model list — `is_available()` will verify connectivity.
-        // `ensure_cenzontle_models()` should be called after registry construction
-        // to populate models if needed, but the provider is usable immediately.
-        let provider = CenzonzleProvider::new(token, base_url, Vec::new());
-        registry.register(Arc::new(provider));
-        tracing::debug!("Registered Cenzontle provider (token found)");
+        // Resolve base URL: env var > config api_base > built-in default
+        let base_url = std::env::var("CENZONTLE_BASE_URL").ok().or_else(|| {
+            config
+                .models
+                .providers
+                .get("cenzontle")
+                .and_then(|c| c.api_base.clone())
+                .filter(|s| !s.is_empty())
+        });
+
+        if let Some(token) = cenzontle_token {
+            // Build with empty model list — `ensure_cenzontle_models()` populates async.
+            let provider = CenzonzleProvider::new(token, base_url, Vec::new());
+            registry.register(Arc::new(provider));
+            tracing::debug!("Registered Cenzontle provider (token found, enabled=true)");
+        } else {
+            tracing::warn!(
+                "Cenzontle is enabled but no access token found. \
+                 Run `halcon auth login cenzontle` or set CENZONTLE_ACCESS_TOKEN."
+            );
+        }
     }
 
     // P0.3: Load dynamic providers from ~/.halcon/providers.d/*.toml
