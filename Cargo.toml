@@ -122,6 +122,9 @@ printpdf = "0.7"
 # Cron expression parsing (scheduler — PASO 4-C)
 croner = "2"
 
+# Tokenization — exact BPE counting (replaces chars/4 heuristic)
+tiktoken-rs = "0.5"
+
 # Testing
 assert_cmd = "2"
 predicates = "3"

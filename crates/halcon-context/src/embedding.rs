@@ -1,27 +1,33 @@
 //! Embedding engine for the L3 vector semantic store.
 //!
-//! ## Engine hierarchy (SOTA 2026)
+//! ## Engine hierarchy (Sprint 1 Q3 — 2026 update)
 //!
-//! 1. `OllamaEmbeddingEngine` — neural multilingual embeddings via local Ollama server.
-//!    Supports nomic-embed-text, mxbai-embed-large, paraphrase-multilingual-minilm, etc.
-//!    Activated automatically when `http://localhost:11434` is reachable.
-//!    Language-agnostic: "crear un juego" ≈ "create a game" in the shared embedding space.
+//! Resolution order (first available wins):
 //!
-//! 2. `TfIdfHashEngine` — TF-IDF hash projection (384-dim, pure Rust, zero deps).
-//!    Fallback when Ollama is unavailable. English-biased but fast and dependency-free.
+//! 1. **`FastEmbedEngine`** *(feature = "fastembed", Q3)* — `all-MiniLM-L6-v2`
+//!    via ONNX Runtime, 384-dim, ~5 ms/chunk on CPU.  Downloaded once (~23 MB)
+//!    to `$FASTEMBED_CACHE_PATH` or `~/.cache/fastembed`.  Activated when:
+//!    - The feature flag is compiled in AND the model is already cached, OR
+//!    - `HALCON_EMBEDDING_ENGINE=fastembed` is set explicitly (triggers download).
+//!    No server required.  Gives **real semantic similarity** unlike the
+//!    TfIdfHashEngine fallback.
 //!
-//! Use `EmbeddingEngineFactory::best_available()` to obtain the best engine at runtime.
+//! 2. **`OllamaEmbeddingEngine`** — neural multilingual embeddings via a local
+//!    Ollama server.  Activated when `http://localhost:11434` (or `OLLAMA_HOST`)
+//!    is reachable within 300 ms.  768-dim with `nomic-embed-text`.
 //!
-//! ## SOTA references (2026)
+//! 3. **`TfIdfHashEngine`** — FNV-1a hash projection (384-dim, pure Rust).
+//!    **Last resort only.**  Has zero semantic properties: synonym queries map to
+//!    orthogonal vectors.  Retained for air-gapped environments where neither
+//!    Ollama nor fastembed are available.
 //!
-//! - Wang et al. (2024) "Improving Text Embeddings with Large Language Models" (E5-mistral)
+//! Use `EmbeddingEngineFactory::from_env()` to obtain the best available engine.
+//!
+//! ## References (2026)
+//!
+//! - Reimers & Gurevych (2019) "Sentence-BERT" — all-MiniLM-L6-v2 architecture
+//! - Wang et al. (2024) "Improving Text Embeddings with LLMs" (E5-mistral)
 //! - Muennighoff et al. (2023) "MTEB: Massive Text Embedding Benchmark"
-//! - Reimers & Gurevych (2020) "Making Monolingual Sentence Embeddings Multilingual via
-//!   Knowledge Distillation" — the paraphrase-multilingual-minilm family
-//! - Zhang et al. (2022) "E5: Text Embeddings by Weakly-Supervised Contrastive Pre-training"
-//!
-//! Neural multilingual embeddings outperform token-hash projections by 15–30% mAP on
-//! cross-lingual intent benchmarks (MTEB 2024, BEIR multilingual subset).
 
 use std::time::Duration;
 
@@ -199,59 +205,205 @@ impl EmbeddingEngine for OllamaEmbeddingEngine {
     }
 }
 
+// ── FastEmbedEngine (Q3 — Sprint 1) ──────────────────────────────────────────
+//
+// Requires feature flag: cargo build --features fastembed
+//
+// Uses fastembed-rs (ONNX Runtime) with `all-MiniLM-L6-v2`:
+//   - 384-dim output (same as DIMS constant — drop-in compatible)
+//   - ~23 MB model download, cached at $FASTEMBED_CACHE_PATH or ~/.cache/fastembed
+//   - ~5 ms per text chunk on a modern CPU (no GPU required)
+//   - Real semantic similarity: cosine_sim("car", "automobile") ≈ 0.85
+//   - Self-contained: no server process required
+//
+// Activation logic (EmbeddingEngineFactory::from_env):
+//   - If HALCON_EMBEDDING_ENGINE=fastembed → use it, downloading if needed
+//   - Otherwise → try if already cached, skip download silently
+//   - Fallback chain: FastEmbed → Ollama → TfIdfHash
+
+#[cfg(feature = "fastembed")]
+pub mod fastembed_engine {
+    use super::{cosine_sim, EmbeddingEngine, DIMS};
+
+    /// Cache directory for fastembed models.
+    /// Resolution order: FASTEMBED_CACHE_PATH env var → ~/.cache/fastembed
+    fn cache_dir() -> std::path::PathBuf {
+        std::env::var("FASTEMBED_CACHE_PATH")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(|_| {
+                dirs_next::cache_dir()
+                    .unwrap_or_else(|| std::path::PathBuf::from("."))
+                    .join("fastembed")
+            })
+    }
+
+    /// Check whether the `all-MiniLM-L6-v2` model is already in the cache
+    /// WITHOUT attempting a download.
+    ///
+    /// fastembed stores each model in a subdirectory named after the model slug.
+    /// We look for the expected directory name as a reliable cache-presence signal.
+    pub fn is_model_cached() -> bool {
+        let dir = cache_dir();
+        if !dir.exists() {
+            return false;
+        }
+        // fastembed names the directory after the model's slug.
+        let expected = "fast-all-MiniLM-L6-v2";
+        std::fs::read_dir(&dir)
+            .map(|mut entries| {
+                entries.any(|e| {
+                    e.ok()
+                        .map(|e| {
+                            e.file_name()
+                                .to_string_lossy()
+                                .contains(expected)
+                        })
+                        .unwrap_or(false)
+                })
+            })
+            .unwrap_or(false)
+    }
+
+    /// Local ONNX-based embedding engine using `all-MiniLM-L6-v2`.
+    ///
+    /// 384-dim, L2-normalized output, real semantic similarity.
+    pub struct FastEmbedEngine {
+        model: fastembed::TextEmbedding,
+    }
+
+    impl FastEmbedEngine {
+        /// Try to construct the engine.
+        ///
+        /// - `allow_download = true`: download the model if not cached (use for
+        ///   explicit `halcon embeddings download` or `HALCON_EMBEDDING_ENGINE=fastembed`)
+        /// - `allow_download = false`: only succeed if model is already cached
+        pub fn try_new(allow_download: bool) -> Option<Self> {
+            if !allow_download && !is_model_cached() {
+                tracing::debug!(
+                    target: "halcon::embedding",
+                    "FastEmbedEngine: model not cached — skipping (set \
+                     HALCON_EMBEDDING_ENGINE=fastembed to download)"
+                );
+                return None;
+            }
+
+            let opts = fastembed::InitOptions::new(
+                fastembed::EmbeddingModel::AllMiniLML6V2,
+            )
+            .with_show_download_progress(allow_download)
+            .with_cache_dir(cache_dir());
+
+            match fastembed::TextEmbedding::try_new(opts) {
+                Ok(model) => {
+                    tracing::info!(
+                        target: "halcon::embedding",
+                        dims = DIMS,
+                        "FastEmbedEngine: all-MiniLM-L6-v2 loaded (ONNX)"
+                    );
+                    Some(Self { model })
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        target: "halcon::embedding",
+                        error = %e,
+                        "FastEmbedEngine: init failed"
+                    );
+                    None
+                }
+            }
+        }
+    }
+
+    impl EmbeddingEngine for FastEmbedEngine {
+        fn embed(&self, text: &str) -> Vec<f32> {
+            match self.model.embed(vec![text.to_string()], None) {
+                Ok(mut embeddings) => {
+                    let mut v = embeddings
+                        .pop()
+                        .unwrap_or_else(|| vec![0.0; DIMS]);
+                    // fastembed returns L2-normalised vectors by default for
+                    // all-MiniLM models, but we re-normalise to be safe.
+                    let norm: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
+                    if norm > 1e-9 {
+                        v.iter_mut().for_each(|x| *x /= norm);
+                    }
+                    v
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        target: "halcon::embedding",
+                        error = %e,
+                        "FastEmbedEngine: embed failed, returning zero vector"
+                    );
+                    vec![0.0; DIMS]
+                }
+            }
+        }
+    }
+
+    // Re-export for EmbeddingEngineFactory use
+    pub use super::cosine_sim;
+}
+
 // ── EmbeddingEngineFactory ────────────────────────────────────────────────────
 
 /// Factory for obtaining the best available embedding engine at runtime.
 ///
-/// ## Selection policy
+/// ## Resolution order (Sprint 1 Q3 update)
 ///
-/// 1. Probe Ollama at `endpoint` with a 300 ms timeout.
-/// 2. Success → return `OllamaEmbeddingEngine` with a 5 s inference timeout.
-/// 3. Failure → return `TfIdfHashEngine` (pure Rust, zero deps).
+/// 1. **FastEmbedEngine** (`feature = "fastembed"`) — ONNX local embeddings.
+///    Selected when `HALCON_EMBEDDING_ENGINE=fastembed` (download allowed) or
+///    when model is already cached (download skipped).
 ///
-/// The 300 ms probe is fast enough for startup: on a loopback connection refused
-/// returns in < 1 ms; the full 300 ms budget is only spent on hosts with Ollama
-/// installed but a model not yet loaded (rare in practice).
+/// 2. **OllamaEmbeddingEngine** — neural embeddings via local Ollama server.
+///    Selected when `{endpoint}` responds within 300 ms.
 ///
-/// ## Why this matters for multilingual classification
-///
-/// TfIdfHashEngine uses FNV-1a hash projection over ASCII-lowercased tokens.
-/// Spanish tokens like "crear", "juego", "implementar" project to completely
-/// different dims than their English equivalents — the classifier must learn
-/// separate prototypes per language. OllamaEmbeddingEngine uses a shared
-/// multilingual space where semantically equivalent queries cluster together
-/// regardless of language (MTEB multilingual BEIR avg: +18 nDCG@10 over BM25).
+/// 3. **TfIdfHashEngine** — FNV-1a hash projection.
+///    **Last resort only.** Zero semantic properties.  Used in air-gapped
+///    environments where neither fastembed nor Ollama is available.
 pub struct EmbeddingEngineFactory;
 
 impl EmbeddingEngineFactory {
-    /// Return the best available engine for the given endpoint and model.
+    /// Return the best available engine for the given Ollama endpoint and model.
     ///
-    /// The Ollama probe is isolated in a `std::thread::spawn` to prevent panics
-    /// when called from an async tokio context. `reqwest::blocking::Client` cannot
-    /// be dropped inside a tokio runtime without `spawn_blocking`, but since we
-    /// need to return a `Box<dyn EmbeddingEngine>` synchronously this thread-channel
-    /// pattern (identical to `AnthropicLlmLayer`) is the correct solution.
+    /// FastEmbed (when compiled in) is tried first — it is self-contained and
+    /// needs no server.  Then Ollama.  Then the TfIdf hash fallback.
+    ///
+    /// The Ollama probe is isolated in `std::thread::spawn` to prevent panics
+    /// when called from a tokio async context (reqwest::blocking cannot be
+    /// dropped inside a tokio runtime).
     pub fn best_available(endpoint: &str, model: &str) -> Box<dyn EmbeddingEngine> {
+        // ── Step 1: try FastEmbed (no-download path, honours explicit flag) ──
+        #[cfg(feature = "fastembed")]
+        {
+            let explicit = std::env::var("HALCON_EMBEDDING_ENGINE")
+                .map(|v| v.to_lowercase() == "fastembed")
+                .unwrap_or(false);
+            if let Some(engine) =
+                fastembed_engine::FastEmbedEngine::try_new(explicit)
+            {
+                return Box::new(engine);
+            }
+        }
+
+        // ── Step 2: try Ollama ──────────────────────────────────────────────
         const PROBE_TIMEOUT_MS: u64 = 300;
         const INFERENCE_TIMEOUT_MS: u64 = 5_000;
         let endpoint_s = endpoint.to_string();
         let model_s = model.to_string();
-        // Both the probe AND the final engine construction must happen inside a
-        // std::thread::spawn because reqwest::blocking::Client cannot be created
-        // or dropped inside a Tokio async runtime.
+
         let (tx, rx) = std::sync::mpsc::channel::<Option<Box<dyn EmbeddingEngine>>>();
         std::thread::spawn(move || {
             let probe = OllamaEmbeddingEngine::new(&endpoint_s, &model_s, PROBE_TIMEOUT_MS);
             if probe.probe().is_some() {
-                // Probe succeeded — create the full-timeout engine in this thread.
                 let engine: Box<dyn EmbeddingEngine> =
                     Box::new(OllamaEmbeddingEngine::new(&endpoint_s, &model_s, INFERENCE_TIMEOUT_MS));
                 let _ = tx.send(Some(engine));
             } else {
                 let _ = tx.send(None);
             }
-            // All reqwest::blocking resources dropped here — safe, not in async context.
         });
+
         match rx
             .recv_timeout(std::time::Duration::from_millis(PROBE_TIMEOUT_MS + 100))
             .ok()
@@ -262,15 +414,18 @@ impl EmbeddingEngineFactory {
                     target: "halcon::embedding",
                     endpoint = endpoint,
                     model = model,
-                    "OllamaEmbeddingEngine available — multilingual mode active"
+                    "OllamaEmbeddingEngine active — multilingual mode"
                 );
                 engine
             }
             None => {
-                tracing::debug!(
+                // ── Step 3: TfIdf hash fallback ──────────────────────────────
+                tracing::warn!(
                     target: "halcon::embedding",
                     endpoint = endpoint,
-                    "Ollama unavailable — falling back to TfIdfHashEngine"
+                    "No neural embedding engine available — \
+                     TfIdfHashEngine active (zero semantic similarity). \
+                     Install Ollama or set HALCON_EMBEDDING_ENGINE=fastembed."
                 );
                 Box::new(TfIdfHashEngine)
             }
@@ -278,8 +433,6 @@ impl EmbeddingEngineFactory {
     }
 
     /// Probe the default local Ollama instance with the default model.
-    ///
-    /// Equivalent to `best_available(OLLAMA_DEFAULT_ENDPOINT, OLLAMA_DEFAULT_MODEL)`.
     pub fn default_local() -> Box<dyn EmbeddingEngine> {
         Self::best_available(OLLAMA_DEFAULT_ENDPOINT, OLLAMA_DEFAULT_MODEL)
     }
@@ -287,12 +440,10 @@ impl EmbeddingEngineFactory {
     /// Select the best engine, honouring environment variable overrides.
     ///
     /// Resolution order:
-    /// 1. `HALCON_EMBEDDING_ENDPOINT` + `HALCON_EMBEDDING_MODEL` — explicit Halcon overrides
-    /// 2. `OLLAMA_HOST` — Ollama CLI convention (e.g. `http://gpu-server:11434`)
-    /// 3. `OLLAMA_DEFAULT_ENDPOINT` / `OLLAMA_DEFAULT_MODEL` — compile-time defaults
-    ///
-    /// This is the **canonical factory method** for all subsystems.
-    /// Prefer `from_env()` over `default_local()` to support remote and air-gapped deployments.
+    /// 1. `HALCON_EMBEDDING_ENGINE=fastembed` — explicit FastEmbed selection
+    /// 2. `HALCON_EMBEDDING_ENDPOINT` + `HALCON_EMBEDDING_MODEL` — Ollama overrides
+    /// 3. `OLLAMA_HOST` — Ollama CLI convention
+    /// 4. Compiled-in defaults
     pub fn from_env() -> Box<dyn EmbeddingEngine> {
         let endpoint = std::env::var("HALCON_EMBEDDING_ENDPOINT")
             .or_else(|_| std::env::var("OLLAMA_HOST"))
@@ -302,15 +453,7 @@ impl EmbeddingEngineFactory {
         Self::best_available(&endpoint, &model)
     }
 
-    /// Select the best engine with explicit config, still honouring env var overrides.
-    ///
-    /// Priority (highest first):
-    /// 1. `HALCON_EMBEDDING_ENDPOINT` / `HALCON_EMBEDDING_MODEL` env vars
-    /// 2. `OLLAMA_HOST` env var
-    /// 3. `endpoint` / `model` parameters (from PolicyConfig or caller)
-    ///
-    /// Use this when the caller has policy-level defaults (e.g., halcon-cli agent loop
-    /// reads `policy.embedding_endpoint` and passes it here, letting env vars still win).
+    /// Select the best engine with explicit config, honouring env var overrides.
     pub fn with_config(endpoint: &str, model: &str) -> Box<dyn EmbeddingEngine> {
         let resolved_endpoint = std::env::var("HALCON_EMBEDDING_ENDPOINT")
             .or_else(|_| std::env::var("OLLAMA_HOST"))

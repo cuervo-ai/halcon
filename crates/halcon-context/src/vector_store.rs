@@ -25,7 +25,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use tracing::{debug, warn};
 
-use crate::embedding::{cosine_sim, EmbeddingEngine, EmbeddingEngineFactory, TfIdfHashEngine, DIMS};
+use crate::embedding::{cosine_sim, EmbeddingEngine, EmbeddingEngineFactory, DIMS};
 
 /// MMR trade-off: relevance weight (1 − λ = diversity weight).
 const MMR_LAMBDA: f32 = 0.7;

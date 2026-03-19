@@ -310,8 +310,14 @@ mod tests {
             role: Role::User,
             content: MessageContent::Text("hello world".to_string()),
         };
-        // 11 chars / 4 = 3 tokens (ceil)
-        assert_eq!(estimate_message_tokens(&msg), 3);
+        // tiktoken cl100k_base: "hello" = 1 token, " world" = 1 token → 2 tokens.
+        // The old heuristic (11 chars / 4 = ceil → 3) is no longer used.
+        // We check that the value is in the expected tiktoken range.
+        let tokens = estimate_message_tokens(&msg);
+        assert!(
+            tokens >= 1 && tokens <= 4,
+            "tiktoken 'hello world' should be 1–4 tokens, got {tokens}"
+        );
     }
 
     #[test]

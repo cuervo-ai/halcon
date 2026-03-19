@@ -1,5 +1,81 @@
 use serde::{Deserialize, Serialize};
 
+// --- Prompt-caching support (Q2 — Sprint 1) ---
+
+/// Anthropic prompt-caching cache-control directive.
+///
+/// Setting `cache_type = "ephemeral"` on a content block tells Anthropic's API
+/// to cache everything **up to and including this block** as a reusable KV
+/// prefix.  Cached tokens are billed at 10 % of normal input cost on a cache
+/// hit; the write (first request) is billed at 125 % — break-even at ~2 reads.
+///
+/// See: <https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching>
+#[derive(Debug, Clone, Serialize)]
+pub struct CacheControl {
+    /// Must be `"ephemeral"` — the only supported value as of API v2024-07-31.
+    #[serde(rename = "type")]
+    pub cache_type: &'static str,
+}
+
+impl CacheControl {
+    /// Construct the single supported variant: `{"type": "ephemeral"}`.
+    #[inline]
+    pub fn ephemeral() -> Self {
+        Self { cache_type: "ephemeral" }
+    }
+}
+
+/// A single block inside a structured system prompt.
+///
+/// Structured system prompts (arrays of blocks) are required to attach
+/// `cache_control` to the system prompt; a plain string cannot carry it.
+#[derive(Debug, Clone, Serialize)]
+pub struct ApiSystemBlock {
+    /// Always `"text"` for system-prompt blocks.
+    #[serde(rename = "type")]
+    pub block_type: &'static str,
+    pub text: String,
+    /// When `Some(CacheControl::ephemeral())`, the API caches up to this block.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cache_control: Option<CacheControl>,
+}
+
+impl ApiSystemBlock {
+    /// Build a text block with an ephemeral cache breakpoint.
+    pub fn cached(text: impl Into<String>) -> Self {
+        Self {
+            block_type: "text",
+            text: text.into(),
+            cache_control: Some(CacheControl::ephemeral()),
+        }
+    }
+
+    /// Build a plain text block with no cache control (legacy / testing).
+    pub fn plain(text: impl Into<String>) -> Self {
+        Self {
+            block_type: "text",
+            text: text.into(),
+            cache_control: None,
+        }
+    }
+}
+
+/// System prompt content: either a plain string (legacy) or structured blocks
+/// (required for prompt caching).
+///
+/// Uses `#[serde(untagged)]` so serde selects the correct JSON form:
+/// - `Text("…")` → `"…"` (string)
+/// - `Blocks([…])` → `[{"type":"text","text":"…","cache_control":{"type":"ephemeral"}}]`
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
+pub enum ApiSystem {
+    /// Plain string — no caching, used when system prompt is empty or
+    /// prompt-caching beta is not active.
+    Text(String),
+    /// Structured blocks — required for `cache_control` attachment.
+    Blocks(Vec<ApiSystemBlock>),
+}
+
 // --- Request types ---
 
 #[derive(Debug, Serialize)]
@@ -9,8 +85,9 @@ pub struct ApiRequest {
     pub max_tokens: u32,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub temperature: Option<f32>,
+    /// System prompt, structured for prompt-caching when non-empty.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub system: Option<String>,
+    pub system: Option<ApiSystem>,
     pub stream: bool,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub tools: Vec<ApiToolDefinition>,
@@ -257,6 +334,26 @@ mod tests {
         assert!(json.contains("\"stream\":true"));
         assert!(!json.contains("system"));
         assert!(!json.contains("tools")); // skip_serializing_if empty
+    }
+
+    #[test]
+    fn serialize_api_request_with_cached_system() {
+        let req = ApiRequest {
+            model: "claude-sonnet-4-5-20250929".into(),
+            messages: vec![ApiMessage {
+                role: "user".into(),
+                content: ApiMessageContent::Text("hello".into()),
+            }],
+            max_tokens: 1024,
+            temperature: None,
+            system: Some(ApiSystem::Blocks(vec![ApiSystemBlock::cached("You are helpful.")])),
+            stream: true,
+            tools: vec![],
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"system\""), "system must be serialized");
+        assert!(json.contains("ephemeral"), "cache_control must appear");
+        assert!(json.contains("You are helpful"), "system text must appear");
     }
 
     #[test]

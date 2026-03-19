@@ -18,7 +18,19 @@ serde_json = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 zstd = { workspace = true }
+sha2 = { workspace = true }
 reqwest = { workspace = true, features = ["blocking", "json"] }
+
+# Exact BPE tokenization (Q1 — Sprint 1)
+tiktoken-rs = { workspace = true }
+
+# Local neural embeddings — optional feature (Q3 — Sprint 1)
+# Enable with: cargo build --features fastembed
+# Downloads ~23 MB model on first use; cached at $FASTEMBED_CACHE_PATH or ~/.cache/fastembed
+fastembed = { version = "3", optional = true, default-features = false }
+
+[features]
+fastembed = ["dep:fastembed"]
 
 [dev-dependencies]
 criterion = { version = "0.5", features = ["html_reports"] }
