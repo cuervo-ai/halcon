@@ -840,6 +840,7 @@ async fn main() -> Result<()> {
 
     // Apply CLI overrides
     let explicit_model = cli.model.is_some();
+    let explicit_provider = cli.provider.is_some();
     let provider = cli
         .provider
         .unwrap_or_else(|| config.general.default_provider.clone());
@@ -868,7 +869,7 @@ async fn main() -> Result<()> {
     match cli.command {
         Some(Commands::Chat { prompt, resume, tui, orchestrate, tasks, reflexion, metrics, timeline, full, expert, trace_out, trace_in }) => {
             commands::chat::run(
-                &config, &provider, &model, prompt, resume, cli.no_banner, tui, explicit_model,
+                &config, &provider, &model, prompt, resume, cli.no_banner, tui, explicit_model, explicit_provider,
                 commands::chat::FeatureFlags { orchestrate, tasks, reflexion, metrics, timeline, full, expert, background_tools: false, trace_out, trace_in },
                 cli.output_format == OutputFormat::Json,
             ).await
@@ -1070,7 +1071,7 @@ async fn main() -> Result<()> {
         None => {
             // Default: start interactive chat
             commands::chat::run(
-                &config, &provider, &model, None, None, cli.no_banner, false, explicit_model,
+                &config, &provider, &model, None, None, cli.no_banner, false, explicit_model, explicit_provider,
                 commands::chat::FeatureFlags::default(),
                 cli.output_format == OutputFormat::Json,
             ).await

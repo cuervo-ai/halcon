@@ -94,6 +94,7 @@ pub async fn run(
     no_banner: bool,
     tui: bool,
     explicit_model: bool,
+    explicit_provider: bool,
     flags: FeatureFlags,
     // US-output-format (PASO 2-A): when true, use CiSink (NDJSON) instead of ClassicSink.
     use_ci_sink: bool,
@@ -138,6 +139,28 @@ pub async fn run(
 
     // Populate Cenzontle model list from the API (no-op if Cenzontle not registered).
     provider_factory::ensure_cenzontle_models(&mut registry).await;
+
+    // If cenzontle was auto-detected from the keystore (token exists) but the
+    // config still lists a different default_provider, promote cenzontle in-memory.
+    // This covers users who ran `halcon auth login cenzontle` before v0.3.8
+    // without the config-patching logic.  We only promote when:
+    //   (a) the user did NOT explicitly pass -p <provider>
+    //   (b) cenzontle is registered in the registry
+    //   (c) the config default_provider is not already "cenzontle"
+    let provider = if !explicit_provider
+        && config.general.default_provider != "cenzontle"
+        && registry.get("cenzontle").is_some()
+    {
+        tracing::info!(
+            prev_default = %config.general.default_provider,
+            "cenzontle token found in keystore — promoting to default provider (no -p flag)"
+        );
+        config.general.default_provider = "cenzontle".to_string();
+        provider_factory::activate_cenzontle_in_config_once();
+        "cenzontle"
+    } else {
+        provider
+    };
 
     // Precheck that the selected provider is available, falling back if needed.
     // In TUI mode, allow starting even without providers (show error on first prompt).

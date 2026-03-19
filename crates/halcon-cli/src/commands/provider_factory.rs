@@ -819,6 +819,14 @@ pub fn load_dynamic_providers(dir: &std::path::Path, registry: &mut ProviderRegi
     }
 }
 
+/// Promote cenzontle to default provider in the on-disk config, at most once per process.
+/// Called from chat::run() when cenzontle is auto-detected at runtime but the config still
+/// points to a different default_provider (e.g. users who logged in before v0.3.8).
+pub fn activate_cenzontle_in_config_once() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(|| crate::commands::sso::activate_cenzontle_in_config());
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

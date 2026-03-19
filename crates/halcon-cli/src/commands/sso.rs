@@ -488,6 +488,128 @@ fn store_tokens(
     }
 }
 
+/// Patch `~/.halcon/config.toml` after a successful cenzontle login.
+///
+/// Sets `default_provider = "cenzontle"` and `enabled = true` under
+/// `[models.providers.cenzontle]` using line-oriented text replacement so that
+/// existing comments and formatting are preserved.
+///
+/// This is intentionally a best-effort operation: failures are logged at WARN
+/// and never bubble up as errors (the login itself succeeded).
+pub(crate) fn activate_cenzontle_in_config() {
+    let config_path = match dirs::home_dir() {
+        Some(h) => h.join(".halcon").join("config.toml"),
+        None => {
+            tracing::warn!("activate_cenzontle_in_config: could not determine home directory");
+            return;
+        }
+    };
+
+    if !config_path.exists() {
+        // No config file yet — the binary will auto-detect from keystore anyway.
+        tracing::debug!("activate_cenzontle_in_config: no config.toml found, skipping patch");
+        return;
+    }
+
+    let content = match std::fs::read_to_string(&config_path) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!("activate_cenzontle_in_config: failed to read config: {e}");
+            return;
+        }
+    };
+
+    let mut lines: Vec<String> = content.lines().map(String::from).collect();
+    let mut in_general = false;
+    let mut in_cenzontle = false;
+    let mut default_provider_patched = false;
+    let mut cenzontle_enabled_patched = false;
+
+    for line in &mut lines {
+        let trimmed = line.trim();
+
+        // Track which TOML section we're in
+        if trimmed.starts_with('[') {
+            in_general = trimmed == "[general]";
+            // Match exact section or section with trailing comment
+            in_cenzontle = trimmed == "[models.providers.cenzontle]"
+                || trimmed.starts_with("[models.providers.cenzontle]");
+        }
+
+        // Patch default_provider inside [general]
+        if in_general && !default_provider_patched {
+            if trimmed.starts_with("default_provider") && trimmed.contains('=') {
+                *line = "default_provider = \"cenzontle\"".to_string();
+                default_provider_patched = true;
+                tracing::debug!("activate_cenzontle_in_config: patched default_provider");
+                continue;
+            }
+        }
+
+        // Patch enabled inside [models.providers.cenzontle]
+        if in_cenzontle && !cenzontle_enabled_patched {
+            if trimmed.starts_with("enabled") && trimmed.contains('=') {
+                *line = "enabled       = true".to_string();
+                cenzontle_enabled_patched = true;
+                tracing::debug!("activate_cenzontle_in_config: patched cenzontle.enabled");
+                continue;
+            }
+        }
+    }
+
+    // If default_provider wasn't in config, prepend it to [general]
+    if !default_provider_patched {
+        let mut patched = Vec::with_capacity(lines.len() + 2);
+        let mut inserted = false;
+        for line in &lines {
+            patched.push(line.clone());
+            if line.trim() == "[general]" && !inserted {
+                patched.push("default_provider = \"cenzontle\"".to_string());
+                inserted = true;
+                default_provider_patched = true;
+            }
+        }
+        if !inserted {
+            // No [general] section — prepend it
+            patched.insert(0, String::new());
+            patched.insert(0, "default_provider = \"cenzontle\"".to_string());
+            patched.insert(0, "[general]".to_string());
+            default_provider_patched = true;
+        }
+        lines = patched;
+    }
+
+    // If cenzontle section wasn't found, append it
+    if !cenzontle_enabled_patched {
+        lines.push(String::new());
+        lines.push("# Added by 'halcon auth login cenzontle'".to_string());
+        lines.push("[models.providers.cenzontle]".to_string());
+        lines.push("enabled       = true".to_string());
+        lines.push(
+            "api_base      = \"https://ca-cenzontle-backend.graypond-e35bfdd8.eastus2.azurecontainerapps.io\"".to_string(),
+        );
+        lines.push("api_key_env   = \"CENZONTLE_ACCESS_TOKEN\"".to_string());
+        lines.push("default_model = \"claude-sonnet-4-6\"".to_string());
+        cenzontle_enabled_patched = true;
+    }
+
+    let new_content = lines.join("\n") + "\n";
+    match std::fs::write(&config_path, new_content) {
+        Ok(()) => {
+            if default_provider_patched || cenzontle_enabled_patched {
+                println!(
+                    "Config updated: default_provider = \"cenzontle\", \
+                     providers.cenzontle.enabled = true  ({})",
+                    config_path.display()
+                );
+            }
+        }
+        Err(e) => {
+            tracing::warn!("activate_cenzontle_in_config: failed to write config: {e}");
+        }
+    }
+}
+
 /// Print the result of a `store_tokens` call to stdout/stderr.
 ///
 /// `backend_info` is passed in so this function does not need to construct a
@@ -496,6 +618,9 @@ fn print_store_outcome(outcome: &StoreOutcome, access_token: &str, backend_info:
     match outcome {
         StoreOutcome::Persisted => {
             println!("Cenzontle session stored. Backend: {backend_info}");
+            // Activate cenzontle as the default provider in config.toml so that
+            // subsequent `halcon chat` uses cenzontle without requiring -p flag.
+            activate_cenzontle_in_config();
         }
         StoreOutcome::NotPersisted { reason } => {
             eprintln!();
