@@ -8,6 +8,7 @@
 //! Also provides bracketed-paste normalization and safety guards
 //! (Phase 93: Cross-Platform SOTA).
 
+#[cfg(feature = "arboard")]
 use arboard::Clipboard;
 
 // --- Phase 93: Bracketed Paste Support ---
@@ -65,22 +66,39 @@ pub fn paste_safe(raw: &str) -> PasteOutcome {
 /// Copy text to the system clipboard.
 ///
 /// Returns Ok(()) on success, Err(String) with error message on failure.
+/// When compiled without the `arboard` feature, always returns Err (no-op).
 pub fn copy_to_clipboard(text: &str) -> Result<(), String> {
-    let mut clipboard = Clipboard::new().map_err(|e| format!("Failed to access clipboard: {}", e))?;
-    clipboard
-        .set_text(text)
-        .map_err(|e| format!("Failed to copy to clipboard: {}", e))?;
-    Ok(())
+    #[cfg(feature = "arboard")]
+    {
+        let mut clipboard = Clipboard::new().map_err(|e| format!("Failed to access clipboard: {}", e))?;
+        clipboard
+            .set_text(text)
+            .map_err(|e| format!("Failed to copy to clipboard: {}", e))?;
+        Ok(())
+    }
+    #[cfg(not(feature = "arboard"))]
+    {
+        let _ = text;
+        Err("Clipboard not available (compiled without arboard support)".to_string())
+    }
 }
 
 /// Get text from the system clipboard.
 ///
 /// Returns Ok(String) with clipboard content on success, Err(String) on failure.
+/// When compiled without the `arboard` feature, always returns Err (no-op).
 pub fn paste_from_clipboard() -> Result<String, String> {
-    let mut clipboard = Clipboard::new().map_err(|e| format!("Failed to access clipboard: {}", e))?;
-    clipboard
-        .get_text()
-        .map_err(|e| format!("Failed to paste from clipboard: {}", e))
+    #[cfg(feature = "arboard")]
+    {
+        let mut clipboard = Clipboard::new().map_err(|e| format!("Failed to access clipboard: {}", e))?;
+        clipboard
+            .get_text()
+            .map_err(|e| format!("Failed to paste from clipboard: {}", e))
+    }
+    #[cfg(not(feature = "arboard"))]
+    {
+        Err("Clipboard not available (compiled without arboard support)".to_string())
+    }
 }
 
 #[cfg(test)]

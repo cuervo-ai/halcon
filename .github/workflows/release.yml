@@ -87,40 +87,42 @@ jobs:
       matrix:
         include:
           # Linux x86_64 — dynamic glibc (primary Linux artifact)
+          # tui: TUI rendering without clipboard (arboard needs X11 headers at cross-compile time)
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             use-cross: true
             archive: tar.gz
-            features: headless,vendored-openssl
+            features: tui,vendored-openssl
 
           # Linux x86_64 — static musl (Alpine/Docker)
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
             use-cross: true
             archive: tar.gz
-            features: headless,vendored-openssl
+            features: tui,vendored-openssl
 
           # Linux ARM64 glibc
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             use-cross: true
             archive: tar.gz
-            features: headless,vendored-openssl
+            features: tui,vendored-openssl
 
           # Linux ARM64 musl (for Alpine/Docker)
           - os: ubuntu-latest
             target: aarch64-unknown-linux-musl
             use-cross: true
             archive: tar.gz
-            features: vendored-openssl
+            features: tui,vendored-openssl
 
           # macOS — single runner builds BOTH targets (ARM64 native + Intel cross)
           # macos-latest is ARM64 (M-series); x86_64 cross-compile is fully supported
+          # tui-clipboard: Full TUI + OS clipboard (arboard has native macOS support)
           - os: macos-latest
             target: aarch64-apple-darwin
             use-cross: false
             archive: tar.gz
-            features: tui,vendored-openssl
+            features: tui-clipboard,vendored-openssl
             extra-target: x86_64-apple-darwin
 
           # Windows x86_64 — native runner, MSVC target (prebuilt ORT binaries available)

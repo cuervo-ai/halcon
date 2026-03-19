@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.7] — 2026-03-19
+
+### Fixed
+
+- **Cenzontle auto-detection**: Provider is now auto-registered when a valid token exists in the OS keystore from a prior `halcon auth login cenzontle` — no longer requires `cenzontle.enabled = true` in config. Existing authenticated users upgrade transparently.
+- **TUI on Linux**: Release binaries for all Linux targets now include TUI rendering (`ratatui` + `tui-textarea`). Previously Linux binaries were compiled `headless` (no TUI). Clipboard (`arboard`) remains unavailable on cross-compiled Linux builds due to X11 header requirements; paste/copy operations gracefully return an error instead of crashing.
+
+### Changed
+
+- `tui` feature no longer includes `arboard`. New `tui-clipboard` feature opt-in adds clipboard support (macOS and native Linux builds). This is a compile-time-only change — runtime behavior is identical for users with clipboard support.
+
+---
+
 ## [0.3.6] — 2026-03-19
 
 ### Security

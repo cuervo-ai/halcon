@@ -276,13 +276,20 @@ pub fn build_registry(config: &AppConfig) -> ProviderRegistry {
         .ok()
         .filter(|v| !v.is_empty());
 
+    // Auto-detect cenzontle: enabled if (a) env var set, (b) config opt-in, or
+    // (c) a token already exists in the keystore from a prior `halcon auth login cenzontle`.
+    // Case (c) ensures that logging in is sufficient — no manual config edit required.
     let cenzontle_enabled = cenzontle_env_token.is_some()
         || config
             .models
             .providers
             .get("cenzontle")
             .map(|c| c.enabled)
-            .unwrap_or(false);
+            .unwrap_or(false)
+        || {
+            let ks = halcon_auth::KeyStore::new("halcon-cli");
+            matches!(ks.get_secret("cenzontle:access_token"), Ok(Some(_)))
+        };
 
     if cenzontle_enabled {
         let cenzontle_token: Option<String> = cenzontle_env_token.or_else(|| {

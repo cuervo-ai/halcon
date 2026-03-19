@@ -100,7 +100,11 @@ croner = { workspace = true }                  # Cron expression parsing for sch
 default = ["color-science", "tui"]
 color-science = ["momoto-core", "momoto-metrics", "momoto-intelligence"]
 headless = []
-tui = ["headless", "ratatui", "tui-textarea", "arboard", "png"]
+# tui: TUI rendering (ratatui + tui-textarea). Clipboard support is opt-in via tui-clipboard.
+# Use plain `tui` for Linux cross-compiled builds where X11/Wayland headers are unavailable.
+tui = ["headless", "ratatui", "tui-textarea", "png"]
+# tui-clipboard: Full TUI + OS clipboard (arboard). Use on macOS and native Linux builds.
+tui-clipboard = ["tui", "arboard"]
 vendored-openssl = ["openssl/vendored"]
 # ── Optional architectural additions (all off by default) ──────────────────
 ## Enables the CompletionValidator trait and KeywordCompletionValidator.
