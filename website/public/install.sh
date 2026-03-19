@@ -711,45 +711,77 @@ main() {
     # ─── Full-capacity configuration ─────────────────────────────────────────
     configure_halcon
 
-    printf "\n${GREEN}${BOLD}  Installation complete!${RESET}\n\n"
+    printf "\n${GREEN}${BOLD}  ✅ Instalación completa — Halcon CLI v${VERSION}${RESET}\n"
+    printf "  ──────────────────────────────────────────────\n\n"
+
+    # ── Verify binary executes correctly ─────────────────────────────────────
+    _HALCON_BIN="${INSTALL_DIR}/halcon"
+    if "${_HALCON_BIN}" --version >/dev/null 2>&1; then
+        _ver_out="$("${_HALCON_BIN}" --version 2>/dev/null || echo "v${VERSION}")"
+        ok "Binary verified: ${_ver_out}"
+    else
+        warn "Binary may need PATH reload — open a new shell or run: source ~/.bashrc"
+    fi
 
     # ── Cenzontle active path ─────────────────────────────────────────────────
     if [ "$_SYS_CENZONTLE_CONFIGURED" = "true" ]; then
-        printf "${GREEN}${BOLD}  ✓ Cenzontle AI active — you're ready to go!${RESET}\n\n"
-        printf "  ${BOLD}Start now:${RESET}\n"
-        printf "    ${BOLD}halcon chat --tui --full --expert${RESET}       ${CYAN}# default: Cenzontle${RESET}\n"
-        printf "    ${BOLD}halcon -p cenzontle chat --tui${RESET}          ${CYAN}# explicit${RESET}\n"
-        printf "    ${BOLD}halcon auth status${RESET}                      ${CYAN}# verify token${RESET}\n"
-        printf "\n  ${BOLD}Other providers (optional):${RESET}\n"
-        printf "    ${BOLD}halcon -p anthropic chat${RESET}                ${CYAN}# Claude direct (needs ANTHROPIC_API_KEY)${RESET}\n"
-        printf "    ${BOLD}halcon -p ollama chat${RESET}                   ${CYAN}# local, no API key${RESET}\n"
+        printf "\n${GREEN}${BOLD}  ✓ Cenzontle AI activo — ¡listo para comenzar!${RESET}\n\n"
+        printf "  ${BOLD}Iniciar ahora:${RESET}\n"
+        printf "    ${BOLD}halcon chat --tui --full --expert${RESET}       ${CYAN}# TUI completo con Cenzontle${RESET}\n"
+        printf "    ${BOLD}halcon chat${RESET}                             ${CYAN}# modo clásico${RESET}\n"
+        printf "    ${BOLD}halcon auth status${RESET}                      ${CYAN}# verificar token${RESET}\n"
+        printf "\n  ${BOLD}Otros proveedores (opcional):${RESET}\n"
+        printf "    ${BOLD}halcon -p anthropic chat${RESET}                ${CYAN}# Claude directo${RESET}\n"
+        printf "    ${BOLD}halcon -p ollama chat${RESET}                   ${CYAN}# local, sin API key${RESET}\n"
     else
-        # ── No provider yet ──────────────────────────────────────────────────
-        printf "  ${BOLD}Next step — connect a provider:${RESET}\n"
-        printf "\n  ${CYAN}Enterprise (recommended):${RESET}\n"
-        printf "    ${BOLD}halcon auth login cenzontle${RESET}     ${CYAN}# Cenzontle SSO — browser OAuth, no API key needed${RESET}\n"
-        printf "\n  ${CYAN}Cloud APIs (API key):${RESET}\n"
-        printf "    ${BOLD}halcon auth login anthropic${RESET}     ${CYAN}# Claude — recommended${RESET}\n"
+        # ── Interactive auth gate notice (v0.3.10+) ──────────────────────────
+        printf "\n  ${CYAN}${BOLD}⚡ Auth wizard integrado (v0.3.10)${RESET}\n"
+        printf "  Al ejecutar ${BOLD}halcon chat${RESET} por primera vez, se abrirá automáticamente\n"
+        printf "  un asistente interactivo para configurar tu proveedor de IA.\n\n"
+        printf "  ${BOLD}Solo ejecuta:${RESET}\n"
+        printf "    ${BOLD}halcon chat --tui${RESET}               ${CYAN}# el wizard abre si no hay proveedor configurado${RESET}\n"
+        printf "\n  ${BOLD}O configura manualmente:${RESET}\n"
+        printf "\n  ${CYAN}Enterprise (recomendado):${RESET}\n"
+        printf "    ${BOLD}halcon auth login cenzontle${RESET}     ${CYAN}# SSO OAuth — sin API key${RESET}\n"
+        printf "\n  ${CYAN}APIs en la nube:${RESET}\n"
+        printf "    ${BOLD}halcon auth login anthropic${RESET}     ${CYAN}# Claude (ANTHROPIC_API_KEY)${RESET}\n"
         printf "    ${BOLD}halcon auth login openai${RESET}        ${CYAN}# GPT models${RESET}\n"
-        printf "    ${BOLD}halcon auth login deepseek${RESET}      ${CYAN}# cheapest option${RESET}\n"
+        printf "    ${BOLD}halcon auth login deepseek${RESET}      ${CYAN}# más económico${RESET}\n"
         printf "    ${BOLD}halcon auth login gemini${RESET}        ${CYAN}# Google Gemini${RESET}\n"
-        printf "\n  ${CYAN}Cloud Infrastructure:${RESET}\n"
-        printf "    ${BOLD}export CLAUDE_CODE_USE_BEDROCK=1${RESET} ${CYAN}# AWS Bedrock (+ AWS_REGION + credentials)${RESET}\n"
-        printf "    ${BOLD}export CLAUDE_CODE_USE_AZURE=1${RESET}   ${CYAN}# Azure AI Foundry (+ AZURE_AI_ENDPOINT)${RESET}\n"
-        printf "    ${BOLD}export CLAUDE_CODE_USE_VERTEX=1${RESET}  ${CYAN}# Google Vertex AI (+ project + gcloud ADC)${RESET}\n"
-        printf "\n  ${CYAN}Local (no API key):${RESET}\n"
-        printf "    ${BOLD}halcon chat -p ollama${RESET}           ${CYAN}# Ollama — fully local${RESET}\n"
-        printf "\n  ${BOLD}Then start:${RESET}\n"
-        printf "    ${BOLD}halcon chat --tui --full --expert${RESET}\n"
+        printf "\n  ${CYAN}Infraestructura cloud:${RESET}\n"
+        printf "    ${BOLD}export CLAUDE_CODE_USE_BEDROCK=1${RESET} ${CYAN}# AWS Bedrock${RESET}\n"
+        printf "    ${BOLD}export CLAUDE_CODE_USE_VERTEX=1${RESET}  ${CYAN}# Google Vertex AI${RESET}\n"
+        printf "\n  ${CYAN}Local (sin API key):${RESET}\n"
+        printf "    ${BOLD}halcon chat -p ollama${RESET}           ${CYAN}# Ollama — 100%% local${RESET}\n"
     fi
 
-    printf "\n  ${BOLD}Useful commands:${RESET}\n"
-    printf "    ${BOLD}halcon auth status${RESET}              ${CYAN}# check configured providers${RESET}\n"
-    printf "    ${BOLD}halcon doctor${RESET}                   ${CYAN}# runtime diagnostics${RESET}\n"
-    printf "    ${BOLD}halcon update${RESET}                   ${CYAN}# update to latest version${RESET}\n"
-    printf "    ${BOLD}halcon agents list${RESET}              ${CYAN}# sub-agent registry${RESET}\n"
-    printf "    ${BOLD}halcon mcp list${RESET}                 ${CYAN}# MCP servers${RESET}\n"
-    printf "\n"
+    printf "\n  ${BOLD}Características clave:${RESET}\n"
+    printf "    ${BOLD}halcon chat --tui --full --expert${RESET}   ${CYAN}# TUI completo + todos los agentes${RESET}\n"
+    printf "    ${BOLD}halcon auth status${RESET}                  ${CYAN}# proveedores configurados${RESET}\n"
+    printf "    ${BOLD}halcon doctor${RESET}                       ${CYAN}# diagnóstico del sistema${RESET}\n"
+    printf "    ${BOLD}halcon update${RESET}                       ${CYAN}# actualizar (wizard integrado)${RESET}\n"
+    printf "    ${BOLD}halcon audit export --format pdf${RESET}    ${CYAN}# exportar auditoría SOC2${RESET}\n"
+    printf "    ${BOLD}halcon mcp serve${RESET}                    ${CYAN}# exponer como servidor MCP${RESET}\n"
+    printf "    ${BOLD}halcon agents list${RESET}                  ${CYAN}# sub-agentes registrados${RESET}\n"
+    printf "    ${BOLD}halcon schedule add '0 9 * * 1' 'revisa PRs'${RESET}  ${CYAN}# agente programado${RESET}\n"
+
+    printf "\n  ${BOLD}Archivos de configuración:${RESET}\n"
+    printf "    ${CYAN}~/.halcon/config.toml${RESET}        — configuración principal\n"
+    printf "    ${CYAN}~/.halcon/MEMORY.md${RESET}          — memoria semántica del agente\n"
+    printf "    ${CYAN}~/.halcon/agents/README.md${RESET}   — cómo crear sub-agentes\n"
+    printf "    ${CYAN}~/.halcon/hooks/README.md${RESET}    — lifecycle hooks (pre/post tool)\n"
+
+    # ── Run doctor if binary is accessible ───────────────────────────────────
+    if [ "$_SYS_IS_CI" = "0" ] && [ "$_SYS_IS_CONTAINER" = "0" ] && [ -t 1 ]; then
+        printf "\n  ${BOLD}Ejecutando diagnóstico...${RESET}\n"
+        if "${_HALCON_BIN}" doctor 2>/dev/null; then
+            true
+        else
+            warn "halcon doctor falló — verifica tu configuración con: halcon auth status"
+        fi
+    fi
+
+    printf "\n${GREEN}${BOLD}  ¡Listo! Ejecuta: halcon chat --tui${RESET}\n\n"
 }
 
 # ─── System detection ────────────────────────────────────────────────────────
@@ -1128,6 +1160,119 @@ configure_halcon() {
         fi
         ok "Cenzontle: active (token found in ${_cz_backend})"
     fi
+
+    # ── Hooks directory ────────────────────────────────────────────────────────
+    _setup_hooks_directory "$HALCON_DIR"
+
+    # ── MEMORY.md starter ─────────────────────────────────────────────────────
+    _init_memory_md "$HALCON_DIR"
+
+    # ── Stamp update-check (avoid spurious update prompt on first launch) ──────
+    # Writing an up-to-date stamp ensures the 24h background checker doesn't
+    # run on first invocation, and any stale notification files are cleared.
+    _stamp_fresh_install "$HALCON_DIR"
+}
+
+# ─── Hooks directory setup ───────────────────────────────────────────────────
+# Creates ~/.halcon/hooks/ with README and example hooks.
+# Hooks run before/after each tool call for custom audit, telemetry, CI gates.
+_setup_hooks_directory() {
+    local halcon_dir="$1"
+    local hooks_dir="${halcon_dir}/hooks"
+    mkdir -p "$hooks_dir" 2>/dev/null || true
+
+    if [ ! -f "${hooks_dir}/README.md" ]; then
+        cat > "${hooks_dir}/README.md" << 'HOOKS_README'
+# Halcon Lifecycle Hooks
+
+Shell scripts placed here run automatically before/after each tool execution.
+
+## Hook types
+
+| Filename pattern        | Trigger                          |
+|-------------------------|----------------------------------|
+| `pre_tool_call.sh`      | Before any tool executes         |
+| `post_tool_call.sh`     | After any tool executes (pass)   |
+| `on_tool_error.sh`      | After a tool fails               |
+| `on_session_start.sh`   | At the start of a chat session   |
+| `on_session_end.sh`     | At the end of a chat session     |
+
+## Environment variables (injected by halcon)
+
+- `HALCON_TOOL_NAME`    — name of the tool being called (e.g. `bash`, `file_read`)
+- `HALCON_SESSION_ID`   — UUID of the current session
+- `HALCON_PROVIDER`     — active provider (e.g. `cenzontle`, `anthropic`)
+- `HALCON_ROUND`        — current round number
+
+## Example: audit log
+
+```sh
+#!/bin/sh
+# post_tool_call.sh — append tool usage to a local audit log
+echo "$(date -u +%FT%TZ)  session=${HALCON_SESSION_ID}  tool=${HALCON_TOOL_NAME}  round=${HALCON_ROUND}" \
+    >> "$HOME/.halcon/audit.log"
+```
+
+Make hooks executable: `chmod +x ~/.halcon/hooks/*.sh`
+HOOKS_README
+        ok "Hooks directory ready: ${hooks_dir}"
+    fi
+}
+
+# ─── MEMORY.md starter ────────────────────────────────────────────────────────
+# Creates ~/.halcon/MEMORY.md with placeholder sections.
+# Halcon's semantic memory engine indexes this file for context-aware recall.
+_init_memory_md() {
+    local halcon_dir="$1"
+    local memory_file="${halcon_dir}/MEMORY.md"
+    [ -f "$memory_file" ] && { ok "MEMORY.md already exists — skipping"; return; }
+
+    cat > "$memory_file" << MEMORY_MD
+# Halcon Memory
+
+> This file is indexed by Halcon's semantic memory engine.
+> Add notes here and Halcon will surface relevant context during chat.
+
+## Profile
+
+- Installed: $(date '+%Y-%m-%d')
+- System: ${_SYS_OS} ${_SYS_ARCH} | ${_SYS_CORES} cores | ${_SYS_RAM_GB} GB RAM
+- Provider: ${_SYS_DEFAULT_PROVIDER}
+
+## Projects
+
+<!-- Add notes about your active projects here -->
+
+## Preferences
+
+<!-- e.g. "I prefer TypeScript over JavaScript" or "Always use conventional commits" -->
+
+## Important Notes
+
+<!-- Capture key decisions, context, or recurring patterns -->
+MEMORY_MD
+    ok "MEMORY.md initialized: ${memory_file}"
+}
+
+# ─── Stamp fresh install / upgrade ───────────────────────────────────────────
+# On fresh install or upgrade:
+#   1. Write .update-check stamp → suppresses background check for 24h
+#      (the user just installed the latest; no point re-checking immediately)
+#   2. Clear stale .update-available and related files → prevents the
+#      v0.3.10 interactive update prompt from triggering right after install
+_stamp_fresh_install() {
+    local halcon_dir="$1"
+    mkdir -p "$halcon_dir" 2>/dev/null || true
+
+    # Touch the 24h stamp file
+    printf '' > "${halcon_dir}/.update-check" 2>/dev/null || true
+
+    # Remove stale notification files (safe — they'll be recreated by next check)
+    for _uf in ".update-available" ".update-notes" ".update-date" \
+               ".update-size" ".update-url" ".update-sha256"; do
+        rm -f "${halcon_dir}/${_uf}" 2>/dev/null || true
+    done
+    ok "Update-check stamp written"
 }
 
 _write_config() {
