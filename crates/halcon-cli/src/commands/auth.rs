@@ -43,13 +43,30 @@ fn login_claude_code_oauth() -> Result<()> {
     // ── 1. Already logged in? ────────────────────────────────────────────────
     if let Some((method, sub, email)) = check_claude_auth_status(&claude_bin) {
         let email_display = if email.is_empty() { "—".to_string() } else { email };
-        println!("  ✓  Ya autenticado");
-        println!("     Cuenta  {email_display}");
-        println!("     Método  {method}");
-        println!("     Plan    {sub}");
-        println!();
-        print_usage_hint();
-        return Ok(());
+
+        // Validate that the token is still accepted by the API (not just stored).
+        print!("  Verificando validez del token...");
+        let _ = std::io::Write::flush(&mut std::io::stdout());
+        let token_ok = validate_claude_token(&claude_bin);
+
+        if token_ok {
+            println!("  ✓");
+            println!("  ✓  Ya autenticado (token válido)");
+            println!("     Cuenta  {email_display}");
+            println!("     Método  {method}");
+            println!("     Plan    {sub}");
+            println!();
+            print_usage_hint();
+            return Ok(());
+        } else {
+            println!("  ✗  Token expirado");
+            println!();
+            println!("  ⚠  Tu sesión de Claude Code ha expirado.");
+            println!("     Cuenta  {email_display}");
+            println!("     Iniciando renovación de sesión...");
+            println!();
+            // Fall through to re-authenticate below.
+        }
     }
 
     // ── 2. Show instructions + open browser ──────────────────────────────────
@@ -194,6 +211,77 @@ fn check_claude_auth_status(claude_bin: &str) -> Option<(String, String, String)
     let sub = v["subscriptionType"].as_str().unwrap_or("unknown").to_string();
     let email = v["email"].as_str().unwrap_or("").to_string();
     Some((method, sub, email))
+}
+
+/// Validate the Claude OAuth token by making a minimal `claude api messages` call.
+///
+/// Returns `true` when the token is valid (or when we cannot determine validity —
+/// e.g. `claude api messages` is not available in the installed version).
+/// Returns `false` only when the API explicitly returns an `authentication_error`.
+///
+/// Uses a 10-second timeout via a background thread + channel so we never block
+/// the login flow indefinitely.
+fn validate_claude_token(claude_bin: &str) -> bool {
+    use std::io::Write as _;
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    // A minimal Anthropic messages request — 1 output token, no tools.
+    let req = concat!(
+        r#"{"model":"claude-haiku-4-5-20251001","max_tokens":1,"messages":"#,
+        r#"[{"role":"user","content":"hi"}]}"#
+    );
+
+    let mut child = match std::process::Command::new(claude_bin)
+        .args(["api", "messages"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+    {
+        Ok(c) => c,
+        // `claude api messages` might not exist in older versions — skip validation.
+        Err(_) => return true,
+    };
+
+    // Write the request body to stdin, then drop to signal EOF.
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(req.as_bytes());
+        // stdin auto-dropped here → EOF → claude reads the full request
+    }
+
+    // Read stdout in a background thread so we can apply a timeout.
+    let stdout = match child.stdout.take() {
+        Some(s) => s,
+        None => return true,
+    };
+
+    let (tx, rx) = mpsc::channel::<String>();
+    std::thread::spawn(move || {
+        use std::io::Read as _;
+        let mut buf = String::new();
+        let mut reader = std::io::BufReader::new(stdout);
+        let _ = reader.read_to_string(&mut buf);
+        let _ = tx.send(buf);
+    });
+
+    // Wait up to 10 s for the probe result.
+    let output = rx
+        .recv_timeout(Duration::from_secs(10))
+        .unwrap_or_default();
+
+    // Clean up the process regardless of outcome.
+    let _ = child.kill();
+    let _ = child.wait();
+
+    // An authentication_error in the response means the token is expired/invalid.
+    if output.contains("authentication_error") {
+        return false;
+    }
+
+    // Any other response (including network errors, empty body from timeout) is
+    // treated as "valid" to avoid false positives that force re-login.
+    true
 }
 
 /// Extract the first `https://` URL from a line of text.

@@ -462,6 +462,27 @@ impl ModelProvider for ClaudeCodeProvider {
         .map_err(|e| HalconError::Internal(format!("claude-code task join: {e}")))?;
 
         let chunks = result?;
+
+        // Detect authentication errors and surface an actionable message.
+        let chunks = chunks
+            .into_iter()
+            .map(|chunk| {
+                if let ModelChunk::Error(ref msg) = chunk {
+                    if msg.contains("authentication_error")
+                        || msg.contains("OAuth token has expired")
+                    {
+                        return ModelChunk::Error(format!(
+                            "{msg}\n\n\
+                            💡  Tu token de Claude Code ha expirado.\n\
+                            \x20   Renueva la sesión ejecutando:\n\
+                            \x20     halcon auth login claude_code"
+                        ));
+                    }
+                }
+                chunk
+            })
+            .collect::<Vec<_>>();
+
         Ok(Box::pin(futures::stream::iter(
             chunks.into_iter().map(Ok),
         )))
