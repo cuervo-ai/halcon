@@ -398,7 +398,7 @@ async fn do_refresh(
 ) -> Result<(String, Option<String>, u64)> {
     let token_url = format!("{sso_url}/oauth/token");
     let http = reqwest::Client::builder()
-        .timeout(Duration::from_secs(15))
+        .timeout(Duration::from_secs(20))
         .build()
         .unwrap_or_default();
 
@@ -407,32 +407,69 @@ async fn do_refresh(
     params.insert("client_id", CLIENT_ID);
     params.insert("refresh_token", refresh_token);
 
-    let resp = http
-        .post(&token_url)
-        .form(&params)
-        .send()
-        .await
-        .context("Refresh token request failed")?;
+    // Retry on transient server errors (503 temporarily_unavailable, 500 server_error)
+    // with Retry-After header respect — RFC 6749 §5.2.
+    const MAX_ATTEMPTS: u8 = 3;
+    let mut last_err = String::new();
+    for attempt in 0..MAX_ATTEMPTS {
+        let resp = http
+            .post(&token_url)
+            .form(&params)
+            .send()
+            .await
+            .context("Refresh token request failed")?;
 
-    if !resp.status().is_success() {
-        let status = resp.status().as_u16();
-        let body = resp.text().await.unwrap_or_default();
-        return Err(anyhow!("Token refresh failed (HTTP {status}): {body}"));
+        let status = resp.status();
+
+        if status.is_success() {
+            let body: serde_json::Value = resp
+                .json()
+                .await
+                .context("Failed to parse refresh token response")?;
+
+            let access = body["access_token"]
+                .as_str()
+                .ok_or_else(|| anyhow!("No access_token in refresh response"))?
+                .to_string();
+            let new_refresh = body["refresh_token"].as_str().map(String::from);
+            let expires_in = body["expires_in"].as_u64().unwrap_or(3600);
+
+            return Ok((access, new_refresh, expires_in));
+        }
+
+        // Non-retryable client errors (4xx except 429) — fail immediately.
+        let is_retryable = status.as_u16() == 429
+            || status.as_u16() == 500
+            || status.as_u16() == 502
+            || status.as_u16() == 503
+            || status.as_u16() == 504;
+
+        let retry_after_secs = resp
+            .headers()
+            .get("Retry-After")
+            .and_then(|v| v.to_str().ok())
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(0);
+
+        let body_text = resp.text().await.unwrap_or_default();
+        last_err = format!("Token refresh failed (HTTP {}): {}", status.as_u16(), body_text);
+
+        if !is_retryable || attempt + 1 == MAX_ATTEMPTS {
+            break;
+        }
+
+        // Exponential backoff: 1s, 2s (capped at Retry-After if provided)
+        let backoff = retry_after_secs.max(1u64 << attempt);
+        tracing::debug!(
+            attempt = attempt + 1,
+            backoff_secs = backoff,
+            status = status.as_u16(),
+            "Token refresh transient error — retrying"
+        );
+        tokio::time::sleep(Duration::from_secs(backoff)).await;
     }
 
-    let body: serde_json::Value = resp
-        .json()
-        .await
-        .context("Failed to parse refresh token response")?;
-
-    let access = body["access_token"]
-        .as_str()
-        .ok_or_else(|| anyhow!("No access_token in refresh response"))?
-        .to_string();
-    let new_refresh = body["refresh_token"].as_str().map(String::from);
-    let expires_in = body["expires_in"].as_u64().unwrap_or(900);
-
-    Ok((access, new_refresh, expires_in))
+    Err(anyhow!("{last_err}"))
 }
 
 // ── Token storage ─────────────────────────────────────────────────────────────
