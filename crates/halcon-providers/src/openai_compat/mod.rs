@@ -11,6 +11,7 @@ use async_trait::async_trait;
 use eventsource_stream::Eventsource as _;
 use futures::stream::{self, BoxStream};
 use futures::StreamExt;
+use tokio_stream::StreamExt as TokioStreamExt;
 use tracing::{debug, instrument, warn};
 
 use halcon_core::error::{HalconError, Result};
@@ -462,47 +463,94 @@ impl OpenAICompatibleProvider {
     }
 
     /// Build the SSE stream from an HTTP response.
+    ///
+    /// `chunk_timeout_secs`: maximum seconds to wait for the NEXT chunk after the
+    /// previous one arrived.  A value of `0` disables per-chunk timeout (not recommended
+    /// for production — use ≥30s).  Detects stalled Azure Container Apps backends that
+    /// send the first byte but then hang without ever sending the next chunk.
     pub(crate) fn build_sse_stream(
         response: reqwest::Response,
         provider_name: String,
     ) -> BoxStream<'static, Result<ModelChunk>> {
+        Self::build_sse_stream_with_timeout(response, provider_name, 120)
+    }
+
+    /// Like `build_sse_stream` but with explicit per-chunk timeout.
+    pub(crate) fn build_sse_stream_with_timeout(
+        response: reqwest::Response,
+        provider_name: String,
+        chunk_timeout_secs: u64,
+    ) -> BoxStream<'static, Result<ModelChunk>> {
         let byte_stream = response.bytes_stream();
         let sse_stream = byte_stream.eventsource();
 
-        let chunk_stream = sse_stream
-            .flat_map(move |sse_result| {
-                // Use &provider_name (captured by move) — no per-chunk clone.
-                match sse_result {
-                    Ok(event) => {
-                        let data = event.data;
-                        if data.trim() == "[DONE]" {
-                            return stream::iter(vec![]);
-                        }
-                        match serde_json::from_str::<OpenAISseChunk>(&data) {
-                            Ok(chunk) => {
-                                let mapped: Vec<Result<ModelChunk>> =
-                                    Self::map_sse_chunk(&chunk).into_iter().map(Ok).collect();
-                                stream::iter(mapped)
-                            }
-                            Err(e) => {
-                                warn!(
-                                    provider = %provider_name,
-                                    error = %e,
-                                    data = %data,
-                                    "Failed to parse SSE chunk"
-                                );
-                                stream::iter(vec![])
-                            }
-                        }
+        // Wrap with per-chunk timeout so stalled streams are detected.
+        // Without this, a server that sends the first SSE byte and then stalls
+        // would cause the agent to hang indefinitely (the 300s request-level timeout
+        // only applies to connection + headers, not inter-chunk gaps in the body).
+        let timed_stream = if chunk_timeout_secs > 0 {
+            let timeout = Duration::from_secs(chunk_timeout_secs);
+            // Branch A: timeout-wrapped stream
+            let mapped = futures::StreamExt::map(
+                TokioStreamExt::timeout(sse_stream, timeout),
+                move |item| -> std::result::Result<_, String> {
+                    match item {
+                        Ok(sse_r) => Ok(sse_r),
+                        Err(_elapsed) => Err(format!(
+                            "SSE stream stalled: no chunk received within {chunk_timeout_secs}s"
+                        )),
                     }
-                    Err(e) => {
-                        warn!(provider = %provider_name, error = %e, "SSE stream error");
-                        stream::iter(vec![Err(HalconError::StreamError(format!(
-                            "{} SSE error: {e}", provider_name
-                        )))])
+                },
+            );
+            Box::pin(mapped) as BoxStream<'static, std::result::Result<_, String>>
+        } else {
+            // Branch B: pass-through (no timeout)
+            // Wrap each SSE result in Ok so the flat_map consumer sees the same
+            // Result<Result<Event, _>, String> shape as branch A.
+            Box::pin(futures::StreamExt::map(
+                sse_stream,
+                |r| -> std::result::Result<_, String> { Ok(r) },
+            ))
+        };
+
+        let chunk_stream = timed_stream.flat_map(move |outer| {
+            match outer {
+                Err(timeout_msg) => {
+                    warn!(provider = %provider_name, msg = %timeout_msg, "SSE per-chunk timeout");
+                    stream::iter(vec![Err(HalconError::StreamError(format!(
+                        "{provider_name}: {timeout_msg}"
+                    )))])
+                }
+                Ok(Ok(event)) => {
+                    let data = event.data;
+                    if data.trim() == "[DONE]" {
+                        return stream::iter(vec![]);
+                    }
+                    match serde_json::from_str::<OpenAISseChunk>(&data) {
+                        Ok(chunk) => {
+                            let mapped: Vec<Result<ModelChunk>> =
+                                Self::map_sse_chunk(&chunk).into_iter().map(Ok).collect();
+                            stream::iter(mapped)
+                        }
+                        Err(e) => {
+                            warn!(
+                                provider = %provider_name,
+                                error = %e,
+                                data = %data,
+                                "Failed to parse SSE chunk"
+                            );
+                            stream::iter(vec![])
+                        }
                     }
                 }
-            });
+                Ok(Err(e)) => {
+                    warn!(provider = %provider_name, error = %e, "SSE stream error");
+                    stream::iter(vec![Err(HalconError::StreamError(format!(
+                        "{provider_name} SSE error: {e}"
+                    )))])
+                }
+            }
+        });
 
         Box::pin(chunk_stream)
     }

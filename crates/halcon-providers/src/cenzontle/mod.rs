@@ -17,10 +17,13 @@
 
 pub mod types;
 
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
 use futures::stream::BoxStream;
+use sha2::{Digest, Sha256};
 use tracing::{debug, info, instrument, warn};
 use uuid::Uuid;
 
@@ -88,6 +91,58 @@ fn tokenizer_hint_for_model(model_id: &str) -> TokenizerHint {
 /// NOTE: The original struct was named `CenzonzleProvider` (double-z typo).
 /// It is now `CenzontleProvider`. A type alias at the bottom of this file
 /// preserves the old name for any external code that references it directly.
+/// Circuit breaker state shared across all clones of the provider.
+///
+/// - `consecutive_failures`: count of consecutive 5xx/timeout errors.
+///   Resets to 0 on any successful response.
+/// - `open_until_unix_ms`: if > 0 and < now, circuit is "open" → fail fast.
+///   Set to `now + 60s` when `consecutive_failures` exceeds `CB_THRESHOLD`.
+#[derive(Debug, Default)]
+struct CircuitBreaker {
+    consecutive_failures: AtomicU32,
+    open_until_unix_ms: AtomicU64,
+}
+
+/// Number of consecutive failures before opening the circuit (fail fast for 60s).
+const CB_THRESHOLD: u32 = 5;
+/// How long the circuit stays open after tripping (milliseconds).
+const CB_OPEN_MS: u64 = 60_000;
+
+impl CircuitBreaker {
+    fn is_open(&self) -> bool {
+        let until = self.open_until_unix_ms.load(Ordering::Relaxed);
+        if until == 0 {
+            return false;
+        }
+        let now_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_millis() as u64;
+        now_ms < until
+    }
+
+    fn record_failure(&self) {
+        let n = self.consecutive_failures.fetch_add(1, Ordering::Relaxed) + 1;
+        if n >= CB_THRESHOLD {
+            let until = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as u64
+                + CB_OPEN_MS;
+            self.open_until_unix_ms.store(until, Ordering::Relaxed);
+            warn!(failures = n, open_until_unix_ms = until, "Cenzontle: circuit breaker opened");
+        }
+    }
+
+    fn record_success(&self) {
+        let prev = self.consecutive_failures.swap(0, Ordering::Relaxed);
+        if prev > 0 {
+            self.open_until_unix_ms.store(0, Ordering::Relaxed);
+            info!("Cenzontle: circuit breaker reset after success");
+        }
+    }
+}
+
 pub struct CenzontleProvider {
     /// reqwest client for API calls.
     client: reqwest::Client,
@@ -111,6 +166,8 @@ pub struct CenzontleProvider {
     /// returns immediately without making another network call — the successful model
     /// fetch already proved that the endpoint is reachable and the token is valid.
     connection_verified: bool,
+    /// Shared circuit breaker — trips after 5 consecutive errors, auto-resets after 60s.
+    circuit_breaker: Arc<CircuitBreaker>,
 }
 
 impl std::fmt::Debug for CenzontleProvider {
@@ -173,6 +230,7 @@ impl CenzontleProvider {
             // When constructed with new(), connection is unverified.
             // from_token() will set this to true after a successful model fetch.
             connection_verified: false,
+            circuit_breaker: Arc::new(CircuitBreaker::default()),
         }
     }
 
@@ -302,10 +360,42 @@ impl ModelProvider for CenzontleProvider {
         &self,
         request: &ModelRequest,
     ) -> Result<BoxStream<'static, Result<ModelChunk>>> {
+        // ── Circuit breaker check ────────────────────────────────────────────
+        // After CB_THRESHOLD consecutive server errors, fail fast for CB_OPEN_MS
+        // to avoid thundering-herd against a degraded Azure Container Apps backend.
+        if self.circuit_breaker.is_open() {
+            return Err(HalconError::ApiError {
+                message: "Cenzontle: circuit breaker open — backend is degraded, retrying in 60s. \
+                          Run `halcon -p cenzontle chat` again when ready."
+                    .to_string(),
+                status: None,
+            });
+        }
+
         // Build the OpenAI-compatible request body with SSE streaming enabled.
         let mut chat_request = self.inner.build_request(request);
         chat_request.stream = true;
         chat_request.stream_options = Some(StreamOptions { include_usage: true });
+
+        // ── Idempotency key ──────────────────────────────────────────────────
+        // SHA-256(model + last user message content) → stable hex key.
+        // Cenzontle can de-duplicate identical requests within a 5min window,
+        // preventing duplicate charges from accidental double-submissions.
+        let idempotency_key = {
+            let last_content = request
+                .messages
+                .last()
+                .map(|m| match &m.content {
+                    halcon_core::types::MessageContent::Text(t) => t.as_str(),
+                    halcon_core::types::MessageContent::Blocks(_) => "",
+                })
+                .unwrap_or("");
+            let mut h = Sha256::new();
+            h.update(request.model.as_bytes());
+            h.update(b":");
+            h.update(last_content.as_bytes());
+            hex::encode(h.finalize())[..16].to_string() // 16-char prefix is sufficient
+        };
 
         // Build the halcon context header so Cenzontle can enrich the request
         // with RAG/session correlation.
@@ -330,12 +420,14 @@ impl ModelProvider for CenzontleProvider {
         // Unique identifier for this request — propagated so Cenzontle logs
         // can be correlated with client-side traces.
         let request_id = Uuid::new_v4().to_string();
+        let cb = Arc::clone(&self.circuit_breaker);
 
         debug!(
             model = %chat_request.model,
             messages = chat_request.messages.len(),
             url = %self.chat_url,
             request_id = %request_id,
+            idempotency_key = %idempotency_key,
             "Cenzontle: invoking chat API (SSE streaming)"
         );
 
@@ -355,6 +447,7 @@ impl ModelProvider for CenzontleProvider {
                     .bearer_auth(&self.access_token)
                     .header("x-halcon-context", &halcon_ctx)
                     .header("x-request-id", &request_id)
+                    .header("idempotency-key", &idempotency_key)
                     .json(&chat_request)
                     .send(),
             )
@@ -363,6 +456,7 @@ impl ModelProvider for CenzontleProvider {
             let response = match result {
                 Ok(Ok(resp)) => resp,
                 Ok(Err(e)) if e.is_connect() => {
+                    cb.record_failure();
                     if attempt < max_retries {
                         warn!(attempt = attempt + 1, error = %e, "Cenzontle: connection error, retrying");
                         continue;
@@ -379,6 +473,7 @@ impl ModelProvider for CenzontleProvider {
                     });
                 }
                 Err(_) => {
+                    cb.record_failure();
                     if attempt < max_retries {
                         warn!(attempt = attempt + 1, "Cenzontle: request timeout, retrying");
                         continue;
@@ -392,7 +487,7 @@ impl ModelProvider for CenzontleProvider {
 
             let status = response.status();
 
-            // Non-retryable auth errors: return immediately.
+            // Non-retryable auth errors: return immediately (don't count as CB failure).
             if status == reqwest::StatusCode::UNAUTHORIZED {
                 return Err(HalconError::ApiError {
                     message: "Cenzontle: access token expired or invalid. Run `halcon login cenzontle` to refresh.".to_string(),
@@ -406,18 +501,24 @@ impl ModelProvider for CenzontleProvider {
                 });
             }
 
-            // Retryable server-side errors (429 rate-limit, 500/502/503/529).
-            // Honour the Retry-After header when the server sends one (429).
+            // Retryable server-side errors (429, 500, 502, 503, 529).
+            // Always check Retry-After header first — server knows best wait time.
             if is_retryable_status(status.as_u16()) {
+                cb.record_failure();
                 if attempt < max_retries {
-                    let retry_delay = if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
-                        // Prefer server-specified wait; fall back to exponential backoff.
-                        parse_retry_after(response.headers())
-                            .map(Duration::from_secs)
-                            .unwrap_or_else(|| backoff_delay_with_jitter(2000, attempt))
-                    } else {
-                        backoff_delay_with_jitter(1000, attempt)
-                    };
+                    // Prefer server-specified Retry-After for ALL retryable statuses,
+                    // not just 429. Azure backends send 503+Retry-After during maintenance.
+                    let retry_delay = parse_retry_after(response.headers())
+                        .map(Duration::from_secs)
+                        .unwrap_or_else(|| {
+                            // Base 2000ms for 429 (rate-limited), 1000ms for others.
+                            let base = if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                                2000
+                            } else {
+                                1000
+                            };
+                            backoff_delay_with_jitter(base, attempt)
+                        });
                     warn!(
                         status = status.as_u16(),
                         attempt = attempt + 1,
@@ -444,12 +545,17 @@ impl ModelProvider for CenzontleProvider {
                 });
             }
 
+            // Success — reset circuit breaker.
+            cb.record_success();
+
             debug!(url = %self.chat_url, request_id = %request_id, "Cenzontle: SSE stream connected");
 
-            // Hand off the response body to the OpenAI-compat SSE parser.
-            return Ok(OpenAICompatibleProvider::build_sse_stream(
+            // Hand off the response body to the OpenAI-compat SSE parser with
+            // per-chunk timeout so stalled Azure backends are detected quickly.
+            return Ok(OpenAICompatibleProvider::build_sse_stream_with_timeout(
                 response,
                 PROVIDER_NAME.to_string(),
+                120, // 120s per-chunk timeout — stall detection without ending long generations
             ));
         }
 

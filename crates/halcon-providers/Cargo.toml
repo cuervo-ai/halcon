@@ -12,6 +12,7 @@ halcon-storage = { workspace = true }
 
 async-trait = { workspace = true }
 tokio = { workspace = true }
+tokio-stream = { workspace = true }
 reqwest = { workspace = true }
 eventsource-stream = { workspace = true }
 serde = { workspace = true }
@@ -24,6 +25,8 @@ rand = { workspace = true }
 bytes = { workspace = true }
 libc = { workspace = true }
 regex = { workspace = true }
+sha2 = { workspace = true }
+hex = { workspace = true }
 # Cloud provider auth (optional features — see [features])
 aws-sigv4 = { workspace = true, optional = true }
 gcp_auth = { workspace = true, optional = true }
