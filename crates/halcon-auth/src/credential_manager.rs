@@ -226,7 +226,7 @@ impl CredentialManager {
 
         #[cfg(target_os = "linux")]
         {
-            return Self::detect_linux_backend(service);
+            Self::detect_linux_backend(service)
         }
 
         // Fallback for other Unix (FreeBSD, etc.) — use file store.
