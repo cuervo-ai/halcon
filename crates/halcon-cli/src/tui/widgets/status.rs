@@ -19,8 +19,8 @@ use crate::tui::state::{AgentControl, TokenBudget, UiMode};
 /// State for the status bar zone.
 pub struct StatusState {
     session_id: String,
-    provider: String,
-    model: String,
+    pub(crate) provider: String,
+    pub(crate) model: String,
     round: usize,
     input_tokens: u32,
     output_tokens: u32,
@@ -380,13 +380,14 @@ impl StatusState {
             // Provider/model
             spans.push(Span::styled(
                 self.provider.clone(),
-                Style::default().fg(c_accent).add_modifier(Modifier::BOLD),
+                Style::default().fg(c_accent).add_modifier(Modifier::BOLD).add_modifier(Modifier::UNDERLINED),
             ));
             spans.push(Span::styled("/", Style::default().fg(c_muted)));
             spans.push(Span::styled(
                 self.model.clone(),
-                Style::default().fg(c_text),
+                Style::default().fg(c_text).add_modifier(Modifier::UNDERLINED),
             ));
+            spans.push(Span::styled(" ↕", Style::default().fg(c_muted)));
             // Provider health indicator
             let (health_icon, health_color) = match &self.provider_health {
                 ProviderHealthStatus::Healthy => (" ●", c_success),

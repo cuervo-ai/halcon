@@ -224,6 +224,10 @@ pub(crate) async fn check_control(
                         // Session resume is handled by the repl loop, not the agent loop.
                         tracing::trace!("ResumeSession received while paused (handled by repl loop)");
                     }
+                    Some(ControlEvent::SwitchModel { .. }) => {
+                        // Model switch is handled by the repl loop, not the agent loop.
+                        tracing::trace!("SwitchModel received while paused (handled by repl loop)");
+                    }
                 }
             }
         }
@@ -246,6 +250,11 @@ pub(crate) async fn check_control(
         Ok(ControlEvent::ResumeSession(_)) => {
             // Session resume is handled by the repl loop, not the agent loop.
             tracing::trace!("ResumeSession received in agent loop (handled by repl loop)");
+            ControlAction::Continue
+        }
+        Ok(ControlEvent::SwitchModel { .. }) => {
+            // Model switch is handled by the repl loop, not the agent loop.
+            tracing::trace!("SwitchModel received in agent loop (handled by repl loop)");
             ControlAction::Continue
         }
         Err(_) => ControlAction::Continue, // No events pending.

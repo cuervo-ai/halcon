@@ -625,9 +625,15 @@ async fn precheck_providers_with_explicit(
             };
             return Ok((primary.to_string(), resolved_model));
         }
+        // For cenzontle, the most likely cause is an expired SSO token — give a specific hint.
+        let unavail_hint = if primary == "cenzontle" {
+            "SSO token expired — run `halcon auth login cenzontle` to re-authenticate"
+        } else {
+            "Checking fallback providers..."
+        };
         feedback::user_warning(
             &format!("primary provider '{primary}' is not available"),
-            Some("Checking fallback providers..."),
+            Some(unavail_hint),
         );
     } else {
         // Check for typos before falling back silently.

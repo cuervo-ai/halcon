@@ -99,17 +99,9 @@ impl TuiApp {
             "help" => {
                 self.state.overlay.open(OverlayKind::Help);
             }
-            "model" => {
-                let provider = self.status.current_provider();
-                let model = self.status.current_model();
-                let display = if provider.is_empty() && model.is_empty() {
-                    "(none configured)".to_string()
-                } else {
-                    format!("{provider}/{model}")
-                };
-                self.activity_model.push_info(&format!(
-                    "[model] Active: {display}  —  Use ~/.halcon/config.toml to change"
-                ));
+            "model" | "model select" | "models" => {
+                // Open the model selector overlay (same as Ctrl+M).
+                self.handle_action(input::InputAction::OpenModelSelector);
             }
             "mode" => {
                 self.handle_action(input::InputAction::CycleUiMode);

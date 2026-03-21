@@ -987,10 +987,14 @@
     }
 
     #[test]
-    fn slash_model_shows_info() {
+    fn slash_model_opens_selector() {
         let mut app = test_app();
         app.execute_slash_command("model");
-        assert!(app.activity_model.line_count() > 0);
+        // /model now opens the ModelSelector overlay instead of printing to activity feed.
+        assert!(matches!(
+            app.state.overlay.active,
+            Some(crate::tui::overlay::OverlayKind::ModelSelector { .. })
+        ));
     }
 
     #[test]

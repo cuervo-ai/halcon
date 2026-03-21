@@ -1272,6 +1272,37 @@ pub(super) async fn run(
         state.context_pipeline.add_message(tool_result_msg.clone());
         session.add_message(tool_result_msg);
 
+        // web_search no-results guard: if web_search returned "no results" in this round,
+        // suppress tools on the next round to force the model to respond directly.
+        // Without this, the model loops: web_search → no results → web_search again → ...
+        // The "SEARCH RETURNED NO RESULTS" sentinel is written by WebSearchTool::format_results().
+        // tool_result_blocks were already moved into state.messages above, so check there.
+        {
+            let web_search_no_results = state.messages.last().map_or(false, |msg| {
+                if let MessageContent::Blocks(blocks) = &msg.content {
+                    blocks.iter().any(|b| {
+                        matches!(b, ContentBlock::ToolResult { content, .. }
+                            if content.starts_with("SEARCH RETURNED NO RESULTS"))
+                    })
+                } else {
+                    false
+                }
+            });
+            if web_search_no_results {
+                tracing::debug!(
+                    round,
+                    "web_search returned no results — suppressing tools next round to force direct response"
+                );
+                state.synthesis.tool_decision.set_force_next();
+                if !state.silent {
+                    render_sink.loop_guard_action(
+                        "web_search_no_results",
+                        "local search index empty — next round will be tool-free for direct response",
+                    );
+                }
+            }
+        }
+
         // P1-A: Parallel Batch Failure Escalation.
         // Tool results are now in state.messages (protocol integrity maintained). If every tool in
         // the parallel batch failed and no sequential tool succeeded, another model invocation

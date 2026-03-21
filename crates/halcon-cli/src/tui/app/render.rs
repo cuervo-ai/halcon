@@ -72,12 +72,15 @@ impl TuiApp {
         }
 
         // Always show mode (effective, not raw) and panel toggle.
+        // Ctrl+M model selector is always visible (idle + running modes).
         // Show degradation indicator if effective mode differs from user-selected mode.
         let mode_label = if eff_mode != self.state.ui_mode {
             format!(" F3:{} (→{})  ", self.state.ui_mode.label(), eff_mode.label())
         } else {
             format!(" F3:{}  ", eff_mode.label())
         };
+        spans.push(Span::styled("Ctrl+M", key_style));
+        spans.push(Span::styled(" model  ", hint_style));
         spans.push(Span::styled("F1", key_style));
         spans.push(Span::styled(" help  ", hint_style));
         spans.push(Span::styled("F2", key_style));

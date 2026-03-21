@@ -44,7 +44,14 @@ impl WebSearchTool {
     fn format_results(results: &halcon_search::types::SearchResults) -> String {
         if results.results.is_empty() {
             return format!(
-                "No results found for query: '{}'\n\nTry:\n- Different keywords\n- Broader terms\n- Check spelling\n\nNote: Index may be empty. Use native_crawl to populate.",
+                "SEARCH RETURNED NO RESULTS for query: '{}'\n\n\
+                 IMPORTANT: This is a LOCAL index search, NOT an internet search.\n\
+                 The local search index is empty or has no matching content.\n\n\
+                 You MUST inform the user that:\n\
+                 1. The local search index has no results for their query.\n\
+                 2. To search the internet, an external integration is required.\n\
+                 3. Based on your training knowledge, provide the best answer you can.\n\n\
+                 Do not leave the response empty — always synthesize an answer from your knowledge.",
                 results.query
             );
         }
@@ -160,11 +167,15 @@ impl Tool for WebSearchTool {
         // Format results for LLM consumption
         let content = Self::format_results(&results);
 
-        // Return structured output with rich metadata
+        // Return structured output with rich metadata.
+        // is_error: false even for empty results — "no results" is valid output, not a failure.
+        // Marking as error triggers parallel_batch_collapse which suppresses the synthesis round.
+        // The format_results() message already instructs the LLM to synthesize from knowledge.
+        let is_error = false;
         Ok(ToolOutput {
             tool_use_id: input.tool_use_id,
             content,
-            is_error: false,
+            is_error,
             metadata: Some(json!({
                 "query": query,
                 "result_count": results.total_count,

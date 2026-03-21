@@ -38,6 +38,12 @@ const GREETING_PREFIXES: &[&str] = &[
     "how are you", "cómo estás",
     // Knowledge questions (short Q&A, no task implied)
     "what is", "what's", "qué es", "cuál es",
+    // Spanish direct-answer requests — no task implied
+    "responde", "dime", "explícame", "dí ", "solo di", "solo responde",
+    // English direct-answer requests
+    "just say", "just answer", "answer only", "respond with", "say ",
+    // Affirmations / confirmations
+    "funciona", "perfecto", "entendido", "listo", "correcto",
 ];
 
 /// Keywords that signal each intent category.

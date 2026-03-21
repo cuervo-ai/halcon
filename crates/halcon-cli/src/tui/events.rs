@@ -413,6 +413,12 @@ pub enum UiEvent {
     PluginBootstrapComplete { installed: usize, skipped: usize, failed: usize },
     /// A plugin's operational state changed (suspend/resume).
     PluginStatusChanged { plugin_id: String, new_status: String },
+    /// All configured providers and their models, sent once at session startup.
+    /// Pre-populates the model selector so it has options even before any round runs.
+    AvailableProviders {
+        /// (provider_name, model_id, display_label) triples for every registered model.
+        models: Vec<(String, String, String)>,
+    },
 }
 
 /// A single suggestion item for the PluginSuggest overlay.
@@ -554,6 +560,8 @@ pub enum ControlEvent {
     RequestContextServers,
     /// Load a past session by UUID string (session browser selection).
     ResumeSession(String),
+    /// Switch to a different model for subsequent agent rounds.
+    SwitchModel { provider: String, model: String },
 }
 
 /// Display status for a single plan step in the TUI.

@@ -335,6 +335,38 @@ impl TuiApp {
                 }
             }
 
+            input::InputAction::OpenModelSelector => {
+                let current_model = self.status.current_model().to_string();
+                let current_provider = self.status.current_provider().to_string();
+
+                // Build the models list: start from known_models, ensure current is present.
+                let mut models = self.known_models.clone();
+                let current_key = format!("{}/{}", current_provider, current_model);
+                let already_present = models.iter()
+                    .any(|(p, m, _)| format!("{p}/{m}") == current_key);
+                if !already_present && !current_model.is_empty() {
+                    models.insert(0, (
+                        current_provider.clone(),
+                        current_model.clone(),
+                        format!("{}/{}", current_provider, current_model),
+                    ));
+                }
+
+                // Pre-select the currently active model.
+                let selected = models.iter()
+                    .position(|(_, m, _)| m == &current_model)
+                    .unwrap_or(0);
+
+                let error_context = self.model_error_context.clone();
+
+                self.state.overlay.open(OverlayKind::ModelSelector {
+                    models,
+                    selected,
+                    current_model,
+                    error_context,
+                });
+            }
+
             // Phase 93: Open file picker / attachment instructions.
             input::InputAction::OpenFilePicker => {
                 self.toasts.push(Toast::new(

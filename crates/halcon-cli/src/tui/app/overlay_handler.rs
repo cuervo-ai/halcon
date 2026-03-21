@@ -364,6 +364,86 @@ impl TuiApp {
             return;
         }
 
+        // Model selector overlay: Up/Down navigate, Enter confirms, Esc cancels.
+        if matches!(self.state.overlay.active, Some(OverlayKind::ModelSelector { .. })) {
+            match key.code {
+                KeyCode::Up => {
+                    if let Some(OverlayKind::ModelSelector { ref mut selected, .. }) =
+                        self.state.overlay.active
+                    {
+                        if *selected > 0 {
+                            *selected -= 1;
+                        }
+                    }
+                }
+                KeyCode::Down => {
+                    if let Some(OverlayKind::ModelSelector { ref mut selected, ref models, .. }) =
+                        self.state.overlay.active
+                    {
+                        if *selected + 1 < models.len() {
+                            *selected += 1;
+                        }
+                    }
+                }
+                KeyCode::Enter => {
+                    // Confirm model selection.
+                    if let Some(OverlayKind::ModelSelector {
+                        ref models,
+                        selected,
+                        ref current_model,
+                        ..
+                    }) = self.state.overlay.active
+                    {
+                        if let Some((provider, model_id, label)) = models.get(selected) {
+                            let is_same = model_id == current_model || label == current_model;
+                            let provider = provider.clone();
+                            let model_id = model_id.clone();
+                            let label = label.clone();
+
+                            self.state.overlay.close();
+
+                            if is_same {
+                                self.toasts.push(Toast::new(
+                                    format!("Modelo ya activo: {label}"),
+                                    ToastLevel::Info,
+                                ));
+                            } else {
+                                // Send model switch request to agent loop.
+                                let _ = self.ctrl_tx.send(ControlEvent::SwitchModel {
+                                    provider: provider.clone(),
+                                    model: model_id.clone(),
+                                });
+                                // Optimistically update status bar.
+                                self.status.apply_patch(crate::tui::widgets::status::StatusPatch {
+                                    provider: Some(provider),
+                                    model: Some(model_id.clone()),
+                                    ..Default::default()
+                                });
+                                // Clear previous error context.
+                                self.model_error_context = None;
+                                self.toasts.push(Toast::new(
+                                    format!("Cambiando a {label}…"),
+                                    ToastLevel::Info,
+                                ));
+                                self.activity_model.push_info(&format!(
+                                    "[model] Cambiando a: {label}"
+                                ));
+                            }
+                        } else {
+                            self.state.overlay.close();
+                        }
+                    } else {
+                        self.state.overlay.close();
+                    }
+                }
+                KeyCode::Esc => {
+                    self.state.overlay.close();
+                }
+                _ => {}
+            }
+            return;
+        }
+
         // Non-permission overlays: use original logic.
         match key.code {
             KeyCode::Esc => {

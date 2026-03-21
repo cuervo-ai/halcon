@@ -106,6 +106,9 @@ pub enum InputAction {
     /// Toggle sub-agent detail view: collapsed pills ↔ expanded tool list + summary (Ctrl+B).
     ToggleSubAgentDetail,
 
+    /// Open the model selector overlay (Ctrl+M).
+    OpenModelSelector,
+
     /// Pass the key to the currently focused widget (e.g. tui-textarea).
     ForwardToWidget(KeyEvent),
 }
@@ -163,6 +166,8 @@ pub fn dispatch_key(key: KeyEvent) -> InputAction {
         (m, KeyCode::Backspace) if m.contains(KeyModifiers::CONTROL) => InputAction::RemoveLastAttachment,
         // Ctrl+B: toggle sub-agent detail view (collapsed pills ↔ tool list + summary)
         (m, KeyCode::Char('b')) if m.contains(KeyModifiers::CONTROL) => InputAction::ToggleSubAgentDetail,
+        // Ctrl+M: open model selector overlay
+        (m, KeyCode::Char('m')) if m.contains(KeyModifiers::CONTROL) => InputAction::OpenModelSelector,
         // Tab: cycle focus
         (_, KeyCode::Tab) => InputAction::CycleFocus,
         // Shift+Up / PageUp: scroll activity up

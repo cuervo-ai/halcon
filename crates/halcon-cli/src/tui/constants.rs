@@ -100,6 +100,7 @@ pub const HELP_SECTION_PANELS: &[(&str, &str)] = &[
     ("F6", "Session browser"),
     ("Ctrl+P", "Command palette"),
     ("Ctrl+F", "Search activity"),
+    ("Ctrl+M", "Model selector — change active model"),
 ];
 
 /// Help section: Agent Control keybindings.

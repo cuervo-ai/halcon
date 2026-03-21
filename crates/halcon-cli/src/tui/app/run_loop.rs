@@ -368,6 +368,20 @@ impl TuiApp {
                     width: sid_len,
                     height: 1,
                 };
+                // Model button: after session ID + separator " │ " (3 chars).
+                // Covers "provider/model ↕" — underlined clickable area.
+                let model_x = mode_layout.status.x + 20 + sid_len + 3;
+                let model_w = (self.status.provider.chars().count()
+                    + 1  // "/"
+                    + self.status.model.chars().count()
+                    + 2  // " ↕"
+                ) as u16;
+                self.model_button_area = Rect {
+                    x: model_x,
+                    y: mode_layout.status.y + 1,
+                    width: model_w,
+                    height: 1,
+                };
 
                 // Render footer with context-aware keybinding hints.
                 // Use effective_mode (degraded for terminal width) not ui_mode.
@@ -469,6 +483,16 @@ impl TuiApp {
                             notes,
                             published_at,
                             *size_bytes,
+                        );
+                    }
+                    Some(OverlayKind::ModelSelector { models, selected, current_model, error_context }) => {
+                        overlay::render_model_selector(
+                            frame,
+                            area,
+                            models,
+                            *selected,
+                            current_model,
+                            error_context.as_deref(),
                         );
                     }
                     None => {}
@@ -594,6 +618,20 @@ impl TuiApp {
                                             Err(e) => self.toasts.push(Toast::new(format!("Copy failed: {e}"), ToastLevel::Warning)),
                                         }
                                     }
+                                }
+                            }
+
+                            // Model selector button: click provider/model in status bar.
+                            {
+                                let r = self.model_button_area;
+                                if mouse.kind == MouseEventKind::Down(MouseButton::Left)
+                                    && r.width > 0
+                                    && mouse.column >= r.x
+                                    && mouse.column < r.x + r.width
+                                    && mouse.row >= r.y
+                                    && mouse.row < r.y + r.height
+                                {
+                                    self.handle_action(input::InputAction::OpenModelSelector);
                                 }
                             }
 

@@ -231,6 +231,8 @@ pub struct TuiApp {
     ctrl_button_area: Rect,
     /// Computed session ID label area for click-to-copy detection.
     session_id_button_area: Rect,
+    /// Computed provider/model area for click-to-open-model-selector detection.
+    model_button_area: Rect,
     /// Sender clone used by background async tasks to push UiEvents back to the app.
     ui_tx_for_bg: Option<tokio::sync::mpsc::UnboundedSender<UiEvent>>,
     /// Cached session list loaded from DB (for SessionList overlay).
@@ -255,6 +257,13 @@ pub struct TuiApp {
     /// prompt and the palette mirrors the current `/xxx` prefix as its filter; when
     /// false the palette consumes Backspace and Char events itself (normal Ctrl+P mode).
     slash_completing: bool,
+
+    /// Known models discovered during this session (provider, model_id, display_label).
+    /// Populated from StatusUpdate and ModelSelected events; used by the ModelSelector overlay.
+    known_models: Vec<(String, String, String)>,
+    /// Error context for the model selector: set when a StreamError follows a model switch.
+    /// Cleared on next successful round.
+    model_error_context: Option<String>,
 
     // ─── Frontier update notification (v0.3.10) ──────────────────────────────
     /// Pending update info — Some when `get_pending_update_info()` returned data.
@@ -355,6 +364,7 @@ impl TuiApp {
             last_status_area: Rect::default(),
             ctrl_button_area: Rect::default(),
             session_id_button_area: Rect::default(),
+            model_button_area: Rect::default(),
             ui_tx_for_bg: None,
             session_list: Vec::new(),
             session_list_selected: 0,
@@ -365,6 +375,8 @@ impl TuiApp {
             sudo_has_cached: false,
             sudo_cache: None,
             slash_completing: false,
+            known_models: Vec::new(),
+            model_error_context: None,
             pending_update: None,
             update_install_signal: None,
         }
@@ -586,6 +598,7 @@ pub(crate) fn event_summary(ev: &UiEvent) -> String {
         UiEvent::PluginBootstrapStarted { count, dry_run } => format!("PluginBootstrapStarted({count}, dry_run={dry_run})"),
         UiEvent::PluginBootstrapComplete { installed, skipped, failed } => format!("PluginBootstrapComplete(✓{installed} ○{skipped} ✗{failed})"),
         UiEvent::PluginStatusChanged { plugin_id, new_status } => format!("PluginStatusChanged({plugin_id}→{new_status})"),
+        UiEvent::AvailableProviders { models } => format!("AvailableProviders({} models)", models.len()),
     }
 }
 

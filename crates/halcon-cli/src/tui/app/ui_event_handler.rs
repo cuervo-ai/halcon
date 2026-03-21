@@ -106,8 +106,17 @@ impl TuiApp {
                 tracing::trace!("StreamDone received");
             }
             UiEvent::StreamError(msg) => {
-                self.activity_model.push_error(&msg, None);
-                self.toasts.push(Toast::new("Stream error", ToastLevel::Error));
+                self.activity_model.push_error(&msg, Some("Usa Ctrl+M para cambiar de modelo"));
+                self.toasts.push(Toast::new(
+                    format!("Error — Ctrl+M para cambiar modelo"),
+                    ToastLevel::Error,
+                ));
+                // Record error context so model selector shows it as a banner.
+                let model = self.status.current_model().to_string();
+                let provider = self.status.current_provider().to_string();
+                self.model_error_context = Some(format!(
+                    "{}/{}: {}", provider, model, &msg[..msg.len().min(80)]
+                ));
             }
             UiEvent::ToolStart { name, input } => {
                 // Phase B2: Track tool start time for shimmer animation
@@ -182,6 +191,15 @@ impl TuiApp {
                 provider, model, round, tokens, cost,
                 session_id, elapsed_ms, tool_count, input_tokens, output_tokens,
             } => {
+                // Track discovered model in known_models for model selector.
+                if let (Some(ref p), Some(ref m)) = (&provider, &model) {
+                    let already_known = self.known_models.iter()
+                        .any(|(kp, km, _)| kp == p && km == m);
+                    if !already_known && !m.is_empty() {
+                        let label = format!("{}/{}", p, m);
+                        self.known_models.push((p.clone(), m.clone(), label));
+                    }
+                }
                 self.status.update(
                     provider, model, round, tokens, cost,
                     session_id, elapsed_ms, tool_count, input_tokens, output_tokens,
@@ -370,6 +388,8 @@ impl TuiApp {
                     ..Default::default()
                 });
                 self.panel.update_metrics(round, input_tokens, output_tokens, cost, duration_ms);
+                // Clear model error context on successful round completion.
+                self.model_error_context = None;
             }
             UiEvent::ModelSelected { model, provider, reason: _ } => {
                 // [model] info already visible in status bar — suppress from activity feed
@@ -377,6 +397,15 @@ impl TuiApp {
                     format!("Model: {provider}/{model}"),
                     ToastLevel::Info,
                 ));
+                // Track this model in the known_models list for the model selector.
+                let label = format!("{}/{}", provider, model);
+                let already_known = self.known_models.iter()
+                    .any(|(p, m, _)| *p == provider && *m == model);
+                if !already_known {
+                    self.known_models.push((provider.clone(), model.clone(), label));
+                }
+                // Clear error context on successful model switch.
+                self.model_error_context = None;
             }
             UiEvent::ProviderFallback { from, to, reason } => {
                 // Single push using chip-aware prefix (⇄ rendered by Warning chip classifier)
@@ -919,6 +948,17 @@ impl TuiApp {
 
             UiEvent::MediaAnalysisComplete { filename, tokens } => {
                 self.activity_model.push_info(&format!("[media]   {filename}: {tokens} tokens"));
+            }
+
+            // Pre-populate model selector with all configured providers (sent once at startup).
+            UiEvent::AvailableProviders { models } => {
+                for (provider, model_id, label) in models {
+                    let already_known = self.known_models.iter()
+                        .any(|(p, m, _)| p == &provider && m == &model_id);
+                    if !already_known {
+                        self.known_models.push((provider, model_id, label));
+                    }
+                }
             }
 
             // IDE buffer count changed — update ⚡ IDE:N indicator.

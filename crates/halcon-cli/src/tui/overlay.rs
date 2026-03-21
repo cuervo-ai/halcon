@@ -64,6 +64,20 @@ pub enum OverlayKind {
         published_at: Option<String>,
         size_bytes: u64,
     },
+    /// Model selector overlay — shows available models for the active provider.
+    ///
+    /// Navigation: Up/Down = move selection; Enter = confirm; Esc = cancel.
+    /// Opened via Ctrl+M or `/model select` slash command.
+    ModelSelector {
+        /// List of (provider, model_id, display_label) tuples.
+        models: Vec<(String, String, String)>,
+        /// Currently highlighted index.
+        selected: usize,
+        /// Current active model (pre-selected on open).
+        current_model: String,
+        /// Optional error context shown at top (e.g. previous model failed).
+        error_context: Option<String>,
+    },
 }
 
 /// State for the overlay system.
@@ -257,7 +271,7 @@ pub fn default_commands() -> Vec<OverlayItem> {
         },
         OverlayItem {
             label: "/model".into(),
-            description: "Show active provider and model info".into(),
+            description: "Open model selector — change active model (Ctrl+M)".into(),
             action: "model".into(),
         },
         OverlayItem {
@@ -1302,6 +1316,143 @@ pub fn render_update_available(
     let paragraph = ratatui::widgets::Paragraph::new(lines)
         .wrap(Wrap { trim: false });
     frame.render_widget(paragraph, inner);
+}
+
+/// Render the model selector overlay.
+///
+/// Shows a list of available models with keyboard navigation.
+/// Optionally shows an error banner at the top when switching after a failure.
+pub fn render_model_selector(
+    frame: &mut Frame,
+    area: Rect,
+    models: &[(String, String, String)],
+    selected: usize,
+    current_model: &str,
+    error_context: Option<&str>,
+) {
+    let p = &theme::active().palette;
+    let c_border = p.border_ratatui();
+    let c_accent = p.accent_ratatui();
+    let c_text = p.text_ratatui();
+    let c_muted = p.muted_ratatui();
+    let c_running = p.running_ratatui();
+    let c_success = p.success_ratatui();
+    let c_warning = p.warning_ratatui();
+    let c_highlight = p.bg_highlight_ratatui();
+
+    let popup_width = area.width.saturating_sub(8).min(72);
+    let extra_height = if error_context.is_some() { 3u16 } else { 0u16 };
+    let list_height = (models.len() as u16).max(3).min(15);
+    let popup_height = (list_height + 6 + extra_height).min(area.height.saturating_sub(4));
+    let x = area.x + (area.width.saturating_sub(popup_width)) / 2;
+    let y = area.y + (area.height.saturating_sub(popup_height)) / 2;
+    let popup_area = Rect { x, y, width: popup_width, height: popup_height };
+
+    frame.render_widget(Clear, popup_area);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(c_border))
+        .title(Span::styled(
+            " ◈ Seleccionar Modelo  (Ctrl+M) ",
+            Style::default().fg(c_accent).add_modifier(Modifier::BOLD),
+        ));
+
+    let inner = block.inner(popup_area);
+    frame.render_widget(block, popup_area);
+
+    let mut lines: Vec<Line> = Vec::new();
+
+    // Error banner (shown when switching after a failure).
+    if let Some(err) = error_context {
+        lines.push(Line::from(vec![
+            Span::styled("⚠ ", Style::default().fg(c_warning).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                format!("Error anterior: {}", &err[..err.len().min(popup_width as usize - 14)]),
+                Style::default().fg(c_warning),
+            ),
+        ]));
+        lines.push(Line::from(Span::styled(
+            "  Selecciona un modelo distinto o presiona Esc para conservar el actual.",
+            Style::default().fg(c_muted),
+        )));
+        lines.push(Line::from(""));
+    }
+
+    // Header.
+    lines.push(Line::from(vec![
+        Span::styled("  PROVEEDOR", Style::default().fg(c_accent).add_modifier(Modifier::BOLD)),
+        Span::raw("   "),
+        Span::styled("MODELO", Style::default().fg(c_accent).add_modifier(Modifier::BOLD)),
+    ]));
+    lines.push(Line::from(Span::styled(
+        "─".repeat(popup_width.saturating_sub(4) as usize),
+        Style::default().fg(c_muted),
+    )));
+
+    if models.is_empty() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "  No hay modelos disponibles.",
+            Style::default().fg(c_muted),
+        )));
+        lines.push(Line::from(Span::styled(
+            "  Conecta un proveedor en ~/.halcon/config.toml",
+            Style::default().fg(c_muted),
+        )));
+    } else {
+        let scroll = if selected >= (inner.height as usize).saturating_sub(4 + extra_height as usize) {
+            selected.saturating_sub((inner.height as usize).saturating_sub(5 + extra_height as usize))
+        } else {
+            0
+        };
+
+        for (i, (provider, model_id, label)) in models.iter().enumerate().skip(scroll) {
+            if lines.len() >= inner.height.saturating_sub(2) as usize {
+                break;
+            }
+            let is_selected = i == selected;
+            let is_current = model_id == current_model || label == current_model;
+
+            let prefix = if is_selected { "  ▸ " } else { "    " };
+            let active_marker = if is_current { " ✓" } else { "" };
+
+            let style = if is_selected {
+                Style::default().fg(c_running).bg(c_highlight).add_modifier(Modifier::BOLD)
+            } else if is_current {
+                Style::default().fg(c_success)
+            } else {
+                Style::default().fg(c_text)
+            };
+
+            let provider_col = format!("{:<14}", &provider[..provider.len().min(14)]);
+            let label_display: String = label.chars()
+                .take(popup_width.saturating_sub(22) as usize)
+                .collect();
+
+            lines.push(Line::from(vec![
+                Span::styled(prefix, style),
+                Span::styled(provider_col, style),
+                Span::styled(label_display, style),
+                Span::styled(active_marker, Style::default().fg(c_success).add_modifier(Modifier::BOLD)),
+            ]));
+        }
+    }
+
+    // Footer.
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("  [↑↓] Navegar  ", Style::default().fg(c_muted)),
+        Span::styled("[Enter]", Style::default().fg(c_success).add_modifier(Modifier::BOLD)),
+        Span::styled(" Confirmar  ", Style::default().fg(c_muted)),
+        Span::styled("[Esc]", Style::default().fg(c_accent)),
+        Span::styled(" Cancelar", Style::default().fg(c_muted)),
+    ]));
+
+    frame.render_widget(
+        Paragraph::new(lines).wrap(Wrap { trim: false }),
+        inner,
+    );
 }
 
 #[cfg(test)]
