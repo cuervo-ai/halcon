@@ -267,11 +267,8 @@ mod sota_tests {
     fn mcp_integration_available() {
         let config = AppConfig::default();
 
-        // MCP should be configurable (may have 0 reconnects as default)
-        assert!(
-            config.mcp.max_reconnect_attempts >= 0,
-            "MCP config should exist"
-        );
+        // MCP config should be present and initialized
+        let _ = config.mcp.max_reconnect_attempts; // field exists
 
         // Servers list should be available
         assert!(
