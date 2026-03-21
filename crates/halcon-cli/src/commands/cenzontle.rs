@@ -104,7 +104,11 @@ pub fn resolve_access_token_silent() -> Option<String> {
 pub async fn run(action: CenzontleAction) -> Result<()> {
     // Attempt silent token refresh before resolving — the SSO access token
     // may have expired since the last `halcon login cenzontle`.
-    super::sso::refresh_if_needed().await;
+    // refresh_if_needed() logs errors internally via tracing; returns true if refreshed.
+    let refreshed = super::sso::refresh_if_needed().await;
+    if refreshed {
+        tracing::debug!("Cenzontle: SSO token refreshed before API call");
+    }
 
     let token = resolve_access_token()?;
     let client = Arc::new(CenzontleAgentClient::new(token, resolve_base_url()));

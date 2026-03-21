@@ -182,20 +182,40 @@ impl CenzontleAgentClient {
             "Cenzontle: submitting agent task (SSE streaming)"
         );
 
-        let response = self
-            .client
-            .post(&url)
-            .bearer_auth(&self.access_token)
-            .header("x-halcon-context", &halcon_ctx)
-            .header("x-request-id", &request_id)
-            .header("accept", "text/event-stream")
-            .json(req)
-            .send()
-            .await
-            .map_err(|e| HalconError::ConnectionError {
-                provider: "cenzontle-agent".to_string(),
-                message: format!("Cannot reach Cenzontle agent API: {e}"),
-            })?;
+        // Retry once on connection error (SSE connect is not retried in the loop).
+        let response = {
+            let send_request = || {
+                self.client
+                    .post(&url)
+                    .bearer_auth(&self.access_token)
+                    .header("x-halcon-context", &halcon_ctx)
+                    .header("x-request-id", &request_id)
+                    .header("accept", "text/event-stream")
+                    .timeout(Duration::from_secs(30))
+                    .json(req)
+                    .send()
+            };
+
+            match send_request().await {
+                Ok(r) => r,
+                Err(e) if e.is_connect() => {
+                    // Single retry on connection failure.
+                    warn!(error = %e, "Cenzontle agent task: connection error, retrying once");
+                    let delay = backoff_delay_with_jitter(1000, 1);
+                    tokio::time::sleep(delay).await;
+                    send_request().await.map_err(|e| HalconError::ConnectionError {
+                        provider: "cenzontle-agent".to_string(),
+                        message: format!("Cannot reach Cenzontle agent API: {e}"),
+                    })?
+                }
+                Err(e) => {
+                    return Err(HalconError::ConnectionError {
+                        provider: "cenzontle-agent".to_string(),
+                        message: format!("Cannot reach Cenzontle agent API: {e}"),
+                    });
+                }
+            }
+        };
 
         let status = response.status();
         if !status.is_success() {
@@ -222,8 +242,8 @@ impl CenzontleAgentClient {
             .to_string();
 
         if content_type.contains("application/json") {
-            // Synchronous JSON response — convert to synthetic TaskEvent stream.
-            let body: serde_json::Value = response.json().await.map_err(|e| {
+            // Synchronous JSON response — parse as typed TaskSyncResponse.
+            let sync_resp: TaskSyncResponse = response.json().await.map_err(|e| {
                 HalconError::ApiError {
                     message: format!("Failed to parse task JSON response: {e}"),
                     status: None,
@@ -232,40 +252,35 @@ impl CenzontleAgentClient {
 
             let mut events = Vec::new();
 
-            // Extract combinedOutput or error from the JSON response.
-            let all_succeeded = body.get("allSucceeded").and_then(|v| v.as_bool()).unwrap_or(false);
-            let combined_output = body
-                .get("combinedOutput")
-                .and_then(|v| v.as_str())
-                .unwrap_or("")
-                .to_string();
+            // Extract token usage from agent results.
+            let tokens_used = sync_resp
+                .agent_results
+                .first()
+                .and_then(|r| r.token_usage.as_ref())
+                .map(|u| u.total_tokens);
 
-            if all_succeeded {
+            if sync_resp.all_succeeded {
                 events.push(Ok(TaskEvent::Completed {
-                    output: combined_output,
-                    tokens_used: None,
+                    output: sync_resp.combined_output,
+                    tokens_used,
                 }));
             } else {
-                // Check for agent-level errors.
-                let error_msg = body
-                    .get("agentResults")
-                    .and_then(|a| a.as_array())
-                    .and_then(|arr| arr.first())
-                    .and_then(|r| r.get("error"))
-                    .and_then(|e| e.as_str())
-                    .unwrap_or("unknown");
+                let error_code = sync_resp
+                    .agent_results
+                    .first()
+                    .and_then(|r| r.error.clone())
+                    .unwrap_or_else(|| "unknown".to_string());
 
-                if !combined_output.is_empty() {
-                    events.push(Ok(TaskEvent::Error {
-                        message: combined_output,
-                        code: Some(error_msg.to_string()),
-                    }));
+                let message = if !sync_resp.combined_output.is_empty() {
+                    sync_resp.combined_output
                 } else {
-                    events.push(Ok(TaskEvent::Error {
-                        message: format!("Task failed: {}", error_msg),
-                        code: Some(error_msg.to_string()),
-                    }));
-                }
+                    format!("Task failed: {}", error_code)
+                };
+
+                events.push(Ok(TaskEvent::Error {
+                    message,
+                    code: Some(error_code),
+                }));
             }
 
             return Ok(Box::pin(futures::stream::iter(events)));
@@ -276,7 +291,8 @@ impl CenzontleAgentClient {
 
         struct SseState {
             byte_stream: futures::stream::BoxStream<'static, std::result::Result<bytes::Bytes, reqwest::Error>>,
-            buffer: String,
+            /// Raw byte buffer — avoids UTF-8 corruption at chunk boundaries.
+            raw_buffer: Vec<u8>,
             pending_events: std::collections::VecDeque<Result<TaskEvent>>,
             done: bool,
             cb: Arc<AgentCircuitBreaker>,
@@ -284,12 +300,14 @@ impl CenzontleAgentClient {
 
         /// Max SSE buffer size (4 MB) to prevent OOM on malformed streams.
         const MAX_SSE_BUFFER: usize = 4 * 1024 * 1024;
+        /// Idle timeout per SSE chunk (5 minutes).
+        const SSE_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 
         let byte_stream: futures::stream::BoxStream<'static, _> =
             Box::pin(response.bytes_stream());
         let initial = SseState {
             byte_stream,
-            buffer: String::new(),
+            raw_buffer: Vec::new(),
             pending_events: std::collections::VecDeque::new(),
             done: false,
             cb,
@@ -305,9 +323,30 @@ impl CenzontleAgentClient {
             }
 
             loop {
-                match state.byte_stream.next().await {
-                    None => return None,
-                    Some(Err(e)) => {
+                // Idle timeout: if no data arrives within 5 minutes, abort.
+                let next_chunk = tokio::time::timeout(
+                    SSE_IDLE_TIMEOUT,
+                    state.byte_stream.next(),
+                )
+                .await;
+
+                let chunk_result = match next_chunk {
+                    Ok(Some(r)) => r,
+                    Ok(None) => return None, // Stream ended cleanly.
+                    Err(_) => {
+                        state.done = true;
+                        return Some((
+                            Err(HalconError::ApiError {
+                                message: "SSE stream idle timeout (5 min) — aborting".to_string(),
+                                status: None,
+                            }),
+                            state,
+                        ));
+                    }
+                };
+
+                match chunk_result {
+                    Err(e) => {
                         state.cb.record_failure();
                         state.done = true;
                         return Some((
@@ -318,13 +357,11 @@ impl CenzontleAgentClient {
                             state,
                         ));
                     }
-                    Some(Ok(chunk)) => {
-                        // Normalize \r\n to \n for cross-platform SSE parsing.
-                        let text = String::from_utf8_lossy(&chunk).replace("\r\n", "\n");
-                        state.buffer.push_str(&text);
+                    Ok(chunk) => {
+                        state.raw_buffer.extend_from_slice(&chunk);
 
                         // Guard against unbounded buffer growth.
-                        if state.buffer.len() > MAX_SSE_BUFFER {
+                        if state.raw_buffer.len() > MAX_SSE_BUFFER {
                             state.done = true;
                             return Some((
                                 Err(HalconError::ApiError {
@@ -335,10 +372,30 @@ impl CenzontleAgentClient {
                             ));
                         }
 
+                        // Convert raw bytes to string, keeping only valid UTF-8 prefix.
+                        // This avoids corruption at multi-byte char boundaries.
+                        let valid_len = match std::str::from_utf8(&state.raw_buffer) {
+                            Ok(_) => state.raw_buffer.len(),
+                            Err(e) => e.valid_up_to(),
+                        };
+                        if valid_len == 0 {
+                            continue; // Wait for more bytes.
+                        }
+
+                        // Normalize \r\n → \n for cross-platform SSE parsing.
+                        let text = std::str::from_utf8(&state.raw_buffer[..valid_len])
+                            .unwrap_or("")
+                            .replace("\r\n", "\n");
+                        // Keep incomplete UTF-8 bytes in the buffer.
+                        state.raw_buffer = state.raw_buffer[valid_len..].to_vec();
+
                         // Process complete SSE events (double-newline delimited).
-                        while let Some(pos) = state.buffer.find("\n\n") {
-                            let event_text = state.buffer[..pos].to_string();
-                            state.buffer = state.buffer[pos + 2..].to_string();
+                        // We need a persistent text buffer across chunks.
+                        // Use a simple approach: prepend any leftover text.
+                        let mut work = text;
+
+                        while let Some(pos) = work.find("\n\n") {
+                            let event_text = &work[..pos];
 
                             for line in event_text.lines() {
                                 let line = line.trim();
@@ -360,6 +417,15 @@ impl CenzontleAgentClient {
                                     }
                                 }
                             }
+
+                            work = work[pos + 2..].to_string();
+                        }
+
+                        // Put remaining incomplete text back as raw bytes.
+                        if !work.is_empty() {
+                            let mut remaining = work.into_bytes();
+                            remaining.extend_from_slice(&state.raw_buffer);
+                            state.raw_buffer = remaining;
                         }
 
                         // Return first pending event if any (FIFO).
@@ -501,78 +567,7 @@ impl CenzontleAgentClient {
 
     /// GET request with JSON response, retry, and circuit breaker.
     async fn get_json<T: serde::de::DeserializeOwned>(&self, url: &str) -> Result<T> {
-        self.check_circuit_breaker()?;
-
-        let max_retries = 2u32;
-        for attempt in 0..=max_retries {
-            if attempt > 0 {
-                let delay = backoff_delay_with_jitter(1000, attempt);
-                tokio::time::sleep(delay).await;
-            }
-
-            let result = self
-                .client
-                .get(url)
-                .bearer_auth(&self.access_token)
-                .header("x-halcon-context", &self.halcon_context())
-                .timeout(Duration::from_secs(15))
-                .send()
-                .await;
-
-            let response = match result {
-                Ok(r) => r,
-                Err(e) if e.is_connect() && attempt < max_retries => {
-                    self.circuit_breaker.record_failure();
-                    warn!(attempt = attempt + 1, error = %e, "Cenzontle agent API: retry");
-                    continue;
-                }
-                Err(e) => {
-                    self.circuit_breaker.record_failure();
-                    return Err(HalconError::ConnectionError {
-                        provider: "cenzontle-agent".to_string(),
-                        message: format!("Cannot reach Cenzontle: {e}"),
-                    });
-                }
-            };
-
-            let status = response.status();
-            if status == reqwest::StatusCode::UNAUTHORIZED {
-                return Err(HalconError::ApiError {
-                    message: "Cenzontle: token expired. Run `halcon login cenzontle`.".to_string(),
-                    status: Some(401),
-                });
-            }
-
-            if is_retryable_status(status.as_u16()) && attempt < max_retries {
-                self.circuit_breaker.record_failure();
-                let delay = parse_retry_after(response.headers())
-                    .map(Duration::from_secs)
-                    .unwrap_or_else(|| backoff_delay_with_jitter(1000, attempt));
-                tokio::time::sleep(delay).await;
-                continue;
-            }
-
-            if !status.is_success() {
-                let code = status.as_u16();
-                let body = response.text().await.unwrap_or_default();
-                return Err(HalconError::ApiError {
-                    message: format!("Cenzontle agent API HTTP {code}: {body}"),
-                    status: Some(code),
-                });
-            }
-
-            self.circuit_breaker.record_success();
-            let body: T = response.json().await.map_err(|e| HalconError::ApiError {
-                message: format!("Failed to parse Cenzontle response: {e}"),
-                status: None,
-            })?;
-            return Ok(body);
-        }
-
-        Err(HalconError::ApiError {
-            message: "Cenzontle agent API: all retries exhausted".to_string(),
-            status: None,
-        })
+        self.request_json(reqwest::Method::GET, url, None::<&()>).await
     }
 
     /// POST request with JSON body/response, retry, and circuit breaker.
@@ -581,26 +576,43 @@ impl CenzontleAgentClient {
         url: &str,
         body: &B,
     ) -> Result<T> {
+        self.request_json(reqwest::Method::POST, url, Some(body)).await
+    }
+
+    /// Unified request method with retry, circuit breaker, and no double-sleep.
+    async fn request_json<B: serde::Serialize, T: serde::de::DeserializeOwned>(
+        &self,
+        method: reqwest::Method,
+        url: &str,
+        body: Option<&B>,
+    ) -> Result<T> {
         self.check_circuit_breaker()?;
 
         let max_retries = 2u32;
+        let timeout_secs = if method == reqwest::Method::GET { 15 } else { 30 };
+        // Track whether the previous iteration already slept for a retryable error
+        // to avoid double-sleeping (loop-top delay + retryable delay).
+        let mut already_delayed = false;
+
         for attempt in 0..=max_retries {
-            if attempt > 0 {
+            if attempt > 0 && !already_delayed {
                 let delay = backoff_delay_with_jitter(1000, attempt);
                 tokio::time::sleep(delay).await;
             }
+            already_delayed = false;
 
-            let result = self
+            let mut req = self
                 .client
-                .post(url)
+                .request(method.clone(), url)
                 .bearer_auth(&self.access_token)
                 .header("x-halcon-context", &self.halcon_context())
-                .json(body)
-                .timeout(Duration::from_secs(30))
-                .send()
-                .await;
+                .timeout(Duration::from_secs(timeout_secs));
 
-            let response = match result {
+            if let Some(b) = body {
+                req = req.json(b);
+            }
+
+            let response = match req.send().await {
                 Ok(r) => r,
                 Err(e) if e.is_connect() && attempt < max_retries => {
                     self.circuit_breaker.record_failure();
@@ -630,6 +642,7 @@ impl CenzontleAgentClient {
                     .map(Duration::from_secs)
                     .unwrap_or_else(|| backoff_delay_with_jitter(1000, attempt));
                 tokio::time::sleep(delay).await;
+                already_delayed = true; // Skip loop-top delay on next iteration.
                 continue;
             }
 
@@ -643,11 +656,11 @@ impl CenzontleAgentClient {
             }
 
             self.circuit_breaker.record_success();
-            let body: T = response.json().await.map_err(|e| HalconError::ApiError {
+            let parsed: T = response.json().await.map_err(|e| HalconError::ApiError {
                 message: format!("Failed to parse Cenzontle response: {e}"),
                 status: None,
             })?;
-            return Ok(body);
+            return Ok(parsed);
         }
 
         Err(HalconError::ApiError {

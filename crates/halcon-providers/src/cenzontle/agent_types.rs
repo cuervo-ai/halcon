@@ -86,12 +86,15 @@ pub struct FileContext {
 // ── Task Streaming Events (SSE) ─────────────────────────────────────────────
 
 /// A server-sent event from task execution.
+///
+/// Field names use `#[serde(alias)]` to accept both snake_case and camelCase
+/// from the backend (Cenzontle may send either depending on the transport).
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum TaskEvent {
     /// Agent started processing.
     Started {
-        #[serde(default)]
+        #[serde(default, alias = "agentId")]
         agent_id: Option<String>,
     },
     /// Agent is reasoning/thinking.
@@ -112,7 +115,7 @@ pub enum TaskEvent {
     ToolResult {
         name: String,
         output: String,
-        #[serde(default)]
+        #[serde(default, alias = "isError")]
         is_error: bool,
     },
     /// Execution plan step.
@@ -126,7 +129,7 @@ pub enum TaskEvent {
     /// Task completed successfully.
     Completed {
         output: String,
-        #[serde(default)]
+        #[serde(default, alias = "tokensUsed")]
         tokens_used: Option<u64>,
     },
     /// Task failed.
@@ -138,6 +141,55 @@ pub enum TaskEvent {
     /// Unknown event type (forward compatibility).
     #[serde(other)]
     Unknown,
+}
+
+/// Synchronous JSON response from `POST /v1/agents/sessions/:id/tasks`.
+///
+/// Returned when the task completes without SSE streaming (e.g., fast results,
+/// no agents available, or single-shot execution).
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TaskSyncResponse {
+    pub task_id: String,
+    pub session_id: String,
+    #[serde(default)]
+    pub combined_output: String,
+    #[serde(default)]
+    pub all_succeeded: bool,
+    #[serde(default)]
+    pub agent_results: Vec<AgentResultEntry>,
+    #[serde(default)]
+    pub total_latency_ms: u64,
+    #[serde(default)]
+    pub strategy: Option<String>,
+}
+
+/// A single agent's result within a synchronous task response.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentResultEntry {
+    #[serde(default)]
+    pub agent_id: String,
+    #[serde(default)]
+    pub agent_name: String,
+    #[serde(default)]
+    pub output: String,
+    #[serde(default)]
+    pub success: bool,
+    #[serde(default)]
+    pub error: Option<String>,
+    #[serde(default)]
+    pub latency_ms: u64,
+    #[serde(default)]
+    pub token_usage: Option<TokenUsageInfo>,
+}
+
+/// Token usage reported by an agent.
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TokenUsageInfo {
+    #[serde(default)]
+    pub total_tokens: u64,
 }
 
 /// Convenience: task result after streaming completes.
@@ -265,7 +317,7 @@ pub struct KnowledgeChunk {
     pub score: f64,
     #[serde(default)]
     pub source: Option<String>,
-    #[serde(default)]
+    #[serde(default = "default_empty_object")]
     pub metadata: serde_json::Value,
 }
 
@@ -339,5 +391,95 @@ mod tests {
         // None fields should be skipped
         assert!(!json.contains("context"));
         assert!(!json.contains("priority"));
+    }
+
+    // ── Forward compatibility ───────────────────────────────────────────
+
+    #[test]
+    fn task_event_unknown_type_deserializes_as_unknown() {
+        let json = r#"{"type": "heartbeat"}"#;
+        let event: TaskEvent = serde_json::from_str(json).unwrap();
+        assert!(matches!(event, TaskEvent::Unknown));
+    }
+
+    // ── camelCase alias support ─────────────────────────────────────────
+
+    #[test]
+    fn task_event_completed_accepts_camel_case_tokens_used() {
+        let json = r#"{"type": "completed", "output": "ok", "tokensUsed": 200}"#;
+        let event: TaskEvent = serde_json::from_str(json).unwrap();
+        assert!(matches!(event, TaskEvent::Completed { tokens_used: Some(200), .. }));
+    }
+
+    #[test]
+    fn task_event_tool_result_accepts_camel_case_is_error() {
+        let json = r#"{"type": "tool_result", "name": "bash", "output": "fail", "isError": true}"#;
+        let event: TaskEvent = serde_json::from_str(json).unwrap();
+        assert!(matches!(event, TaskEvent::ToolResult { is_error: true, .. }));
+    }
+
+    #[test]
+    fn task_event_started_accepts_camel_case_agent_id() {
+        let json = r#"{"type": "started", "agentId": "bot-1"}"#;
+        let event: TaskEvent = serde_json::from_str(json).unwrap();
+        assert!(matches!(event, TaskEvent::Started { agent_id: Some(id) } if id == "bot-1"));
+    }
+
+    // ── Real API format tests ───────────────────────────────────────────
+
+    #[test]
+    fn agent_session_deserializes_from_real_api() {
+        let json = r#"{"id":"session_123","status":"active","agentIds":[],"createdAt":"2026-01-01T00:00:00Z"}"#;
+        let session: AgentSession = serde_json::from_str(json).unwrap();
+        assert_eq!(session.id, "session_123");
+        assert_eq!(session.status, "active");
+        assert!(session.agent_ids.is_empty());
+    }
+
+    #[test]
+    fn mcp_tool_call_response_text_extracts_content() {
+        let json = r#"{"content":[{"type":"text","text":"hello"},{"type":"text","text":"world"}],"isError":false}"#;
+        let resp: McpToolCallResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.text(), "hello\nworld");
+        assert!(!resp.is_error);
+    }
+
+    #[test]
+    fn mcp_tool_call_response_empty_content() {
+        let json = r#"{"content":[],"isError":false}"#;
+        let resp: McpToolCallResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.text(), "");
+    }
+
+    #[test]
+    fn task_sync_response_deserializes() {
+        let json = r#"{
+            "taskId": "task_1",
+            "sessionId": "session_1",
+            "combinedOutput": "Hello!",
+            "allSucceeded": true,
+            "agentResults": [{
+                "agentId": "bot-1",
+                "agentName": "Test",
+                "output": "Hello!",
+                "success": true,
+                "latencyMs": 1000,
+                "tokenUsage": {"totalTokens": 500}
+            }],
+            "totalLatencyMs": 1000,
+            "strategy": "first_success"
+        }"#;
+        let resp: TaskSyncResponse = serde_json::from_str(json).unwrap();
+        assert!(resp.all_succeeded);
+        assert_eq!(resp.combined_output, "Hello!");
+        assert_eq!(resp.agent_results[0].latency_ms, 1000);
+        assert_eq!(resp.agent_results[0].token_usage.as_ref().unwrap().total_tokens, 500);
+    }
+
+    #[test]
+    fn knowledge_chunk_metadata_defaults_to_empty_object() {
+        let json = r#"{"content": "text", "score": 0.5}"#;
+        let chunk: KnowledgeChunk = serde_json::from_str(json).unwrap();
+        assert_eq!(chunk.metadata, serde_json::json!({}));
     }
 }

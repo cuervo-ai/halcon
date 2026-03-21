@@ -27,6 +27,13 @@ const TOOL_PREFIX: &str = "cenzontle_";
 // ---------------------------------------------------------------------------
 
 /// A `Tool` implementation that routes calls through the Cenzontle MCP API.
+/// Known read-only Cenzontle MCP tool names (safe to execute without confirmation).
+const KNOWN_READONLY_TOOLS: &[&str] = &[
+    "knowledge_search",
+    "agent_list",
+    "llm_chat", // LLM chat is read-only (no side effects on server)
+];
+
 struct CenzontleMcpTool {
     client: Arc<CenzontleAgentClient>,
     /// Prefixed tool name (e.g. "cenzontle_llm_chat").
@@ -34,19 +41,19 @@ struct CenzontleMcpTool {
     /// Original tool name on the Cenzontle side (e.g. "llm_chat").
     original_name: String,
     definition: McpToolDef,
+    /// Cached permission level (computed once at construction).
+    permission: PermissionLevel,
 }
 
-impl CenzontleMcpTool {
-    fn infer_permission(&self) -> PermissionLevel {
-        // Cenzontle tools run server-side, but some have side effects.
-        let name = self.original_name.to_lowercase();
-        if name.contains("search") || name.contains("list") || name.contains("get") {
-            PermissionLevel::ReadOnly
-        } else {
-            // Default to ReadWrite for tools that may have side effects
-            // (e.g. agent_submit_task, conversation_create).
-            PermissionLevel::Destructive
-        }
+/// Infer permission from tool name. Defaults to Destructive for safety —
+/// only explicitly allow-listed tools get ReadOnly.
+fn infer_permission_for_tool(name: &str) -> PermissionLevel {
+    if KNOWN_READONLY_TOOLS.contains(&name) {
+        PermissionLevel::ReadOnly
+    } else {
+        // Default to Destructive — server-side tools like agent_submit_task
+        // and conversation_create have side effects.
+        PermissionLevel::Destructive
     }
 }
 
@@ -64,7 +71,7 @@ impl Tool for CenzontleMcpTool {
     }
 
     fn permission_level(&self) -> PermissionLevel {
-        self.infer_permission()
+        self.permission
     }
 
     async fn execute(&self, input: ToolInput) -> HalconResult<ToolOutput> {
@@ -128,10 +135,20 @@ impl CenzontleMcpManager {
         }
         self.initialized = true;
 
-        let tools = match self.client.list_mcp_tools().await {
-            Ok(t) => t,
-            Err(e) => {
+        // Timeout tool discovery to avoid blocking REPL startup.
+        let tools = match tokio::time::timeout(
+            std::time::Duration::from_secs(10),
+            self.client.list_mcp_tools(),
+        )
+        .await
+        {
+            Ok(Ok(t)) => t,
+            Ok(Err(e)) => {
                 warn!(error = %e, "Failed to discover Cenzontle MCP tools — skipping bridge");
+                return;
+            }
+            Err(_) => {
+                warn!("Cenzontle MCP tool discovery timed out (10s) — skipping bridge");
                 return;
             }
         };
@@ -142,7 +159,14 @@ impl CenzontleMcpManager {
         }
 
         let mut registered = 0;
+        let mut seen_names = std::collections::HashSet::new();
         for tool_def in tools {
+            // Deduplicate: if the backend returns the same tool name twice, skip.
+            if !seen_names.insert(tool_def.name.clone()) {
+                debug!(name = %tool_def.name, "Skipping duplicate Cenzontle MCP tool");
+                continue;
+            }
+
             let prefixed = format!("{}{}", TOOL_PREFIX, tool_def.name);
 
             // Don't override native tools.
@@ -151,11 +175,13 @@ impl CenzontleMcpManager {
                 continue;
             }
 
+            let permission = infer_permission_for_tool(&tool_def.name);
             let tool = CenzontleMcpTool {
                 client: Arc::clone(&self.client),
                 prefixed_name: prefixed.clone(),
                 original_name: tool_def.name.clone(),
                 definition: tool_def,
+                permission,
             };
 
             registry.register(Arc::new(tool));
@@ -187,31 +213,34 @@ mod tests {
 
     #[test]
     fn infer_permission_search_is_readonly() {
-        let tool = CenzontleMcpTool {
-            client: Arc::new(CenzontleAgentClient::new("tok".into(), None)),
-            prefixed_name: "cenzontle_knowledge_search".into(),
-            original_name: "knowledge_search".into(),
-            definition: McpToolDef {
-                name: "knowledge_search".into(),
-                description: Some("Search knowledge base".into()),
-                input_schema: serde_json::json!({}),
-            },
-        };
-        assert_eq!(tool.infer_permission(), PermissionLevel::ReadOnly);
+        assert_eq!(
+            infer_permission_for_tool("knowledge_search"),
+            PermissionLevel::ReadOnly
+        );
+        assert_eq!(
+            infer_permission_for_tool("agent_list"),
+            PermissionLevel::ReadOnly
+        );
+        assert_eq!(
+            infer_permission_for_tool("llm_chat"),
+            PermissionLevel::ReadOnly
+        );
     }
 
     #[test]
     fn infer_permission_submit_is_destructive() {
-        let tool = CenzontleMcpTool {
-            client: Arc::new(CenzontleAgentClient::new("tok".into(), None)),
-            prefixed_name: "cenzontle_agent_submit_task".into(),
-            original_name: "agent_submit_task".into(),
-            definition: McpToolDef {
-                name: "agent_submit_task".into(),
-                description: Some("Submit task to agent".into()),
-                input_schema: serde_json::json!({}),
-            },
-        };
-        assert_eq!(tool.infer_permission(), PermissionLevel::Destructive);
+        assert_eq!(
+            infer_permission_for_tool("agent_submit_task"),
+            PermissionLevel::Destructive
+        );
+        assert_eq!(
+            infer_permission_for_tool("conversation_create"),
+            PermissionLevel::Destructive
+        );
+        // Unknown tools default to destructive for safety.
+        assert_eq!(
+            infer_permission_for_tool("some_new_dangerous_tool"),
+            PermissionLevel::Destructive
+        );
     }
 }
