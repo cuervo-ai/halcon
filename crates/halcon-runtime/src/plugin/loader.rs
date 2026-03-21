@@ -56,8 +56,7 @@ impl PluginLoader {
     }
 
     fn load_manifest(&self, path: &std::path::Path) -> Result<PluginManifest, String> {
-        let content =
-            std::fs::read_to_string(path).map_err(|e| format!("read error: {e}"))?;
+        let content = std::fs::read_to_string(path).map_err(|e| format!("read error: {e}"))?;
         let manifest: PluginManifest =
             toml::from_str(&content).map_err(|e| format!("parse error: {e}"))?;
         manifest.validate()?;
@@ -65,16 +64,9 @@ impl PluginLoader {
     }
 
     /// Load a single plugin from its manifest.
-    pub fn load(
-        &self,
-        manifest: &PluginManifest,
-    ) -> Result<Arc<dyn RuntimeAgent>, String> {
+    pub fn load(&self, manifest: &PluginManifest) -> Result<Arc<dyn RuntimeAgent>, String> {
         match &manifest.transport {
-            PluginTransport::Stdio {
-                command,
-                args,
-                env,
-            } => {
+            PluginTransport::Stdio { command, args, env } => {
                 let agent = CliProcessAgent::new(
                     &manifest.name,
                     command,
@@ -290,8 +282,7 @@ command = "echo"
 "#,
         );
 
-        let loader =
-            PluginLoader::new(vec![dir1.path().to_path_buf(), dir2.path().to_path_buf()]);
+        let loader = PluginLoader::new(vec![dir1.path().to_path_buf(), dir2.path().to_path_buf()]);
         let manifests = loader.discover();
         assert_eq!(manifests.len(), 2);
         // First dir's plugins come first

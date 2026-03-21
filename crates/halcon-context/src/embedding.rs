@@ -9,8 +9,9 @@
 //!    to `$FASTEMBED_CACHE_PATH` or `~/.cache/fastembed`.  Activated when:
 //!    - The feature flag is compiled in AND the model is already cached, OR
 //!    - `HALCON_EMBEDDING_ENGINE=fastembed` is set explicitly (triggers download).
-//!    No server required.  Gives **real semantic similarity** unlike the
-//!    TfIdfHashEngine fallback.
+//!
+//!    No server required. Gives **real semantic similarity** unlike the
+//!    `TfIdfHashEngine` fallback.
 //!
 //! 2. **`OllamaEmbeddingEngine`** — neural multilingual embeddings via a local
 //!    Ollama server.  Activated when `http://localhost:11434` (or `OLLAMA_HOST`)
@@ -161,7 +162,11 @@ impl OllamaEmbeddingEngine {
     /// Returns `None` when the server is unreachable or returns an empty vector.
     pub fn probe(&self) -> Option<usize> {
         let v = self.embed("probe");
-        if !v.is_empty() { Some(v.len()) } else { None }
+        if !v.is_empty() {
+            Some(v.len())
+        } else {
+            None
+        }
     }
 }
 
@@ -179,7 +184,10 @@ impl EmbeddingEngine for OllamaEmbeddingEngine {
         }
 
         let url = format!("{}/api/embeddings", self.endpoint);
-        let req = EmbedRequest { model: &self.model, prompt: text };
+        let req = EmbedRequest {
+            model: &self.model,
+            prompt: text,
+        };
 
         let resp = match self.client.post(&url).json(&req).send() {
             Ok(r) => r,
@@ -253,11 +261,7 @@ pub mod fastembed_engine {
             .map(|mut entries| {
                 entries.any(|e| {
                     e.ok()
-                        .map(|e| {
-                            e.file_name()
-                                .to_string_lossy()
-                                .contains(expected)
-                        })
+                        .map(|e| e.file_name().to_string_lossy().contains(expected))
                         .unwrap_or(false)
                 })
             })
@@ -287,11 +291,9 @@ pub mod fastembed_engine {
                 return None;
             }
 
-            let opts = fastembed::InitOptions::new(
-                fastembed::EmbeddingModel::AllMiniLML6V2,
-            )
-            .with_show_download_progress(allow_download)
-            .with_cache_dir(cache_dir());
+            let opts = fastembed::InitOptions::new(fastembed::EmbeddingModel::AllMiniLML6V2)
+                .with_show_download_progress(allow_download)
+                .with_cache_dir(cache_dir());
 
             match fastembed::TextEmbedding::try_new(opts) {
                 Ok(model) => {
@@ -318,9 +320,7 @@ pub mod fastembed_engine {
         fn embed(&self, text: &str) -> Vec<f32> {
             match self.model.embed(vec![text.to_string()], None) {
                 Ok(mut embeddings) => {
-                    let mut v = embeddings
-                        .pop()
-                        .unwrap_or_else(|| vec![0.0; DIMS]);
+                    let mut v = embeddings.pop().unwrap_or_else(|| vec![0.0; DIMS]);
                     // fastembed returns L2-normalised vectors by default for
                     // all-MiniLM models, but we re-normalise to be safe.
                     let norm: f32 = v.iter().map(|x| x * x).sum::<f32>().sqrt();
@@ -379,9 +379,7 @@ impl EmbeddingEngineFactory {
             let explicit = std::env::var("HALCON_EMBEDDING_ENGINE")
                 .map(|v| v.to_lowercase() == "fastembed")
                 .unwrap_or(false);
-            if let Some(engine) =
-                fastembed_engine::FastEmbedEngine::try_new(explicit)
-            {
+            if let Some(engine) = fastembed_engine::FastEmbedEngine::try_new(explicit) {
                 return Box::new(engine);
             }
         }
@@ -396,8 +394,11 @@ impl EmbeddingEngineFactory {
         std::thread::spawn(move || {
             let probe = OllamaEmbeddingEngine::new(&endpoint_s, &model_s, PROBE_TIMEOUT_MS);
             if probe.probe().is_some() {
-                let engine: Box<dyn EmbeddingEngine> =
-                    Box::new(OllamaEmbeddingEngine::new(&endpoint_s, &model_s, INFERENCE_TIMEOUT_MS));
+                let engine: Box<dyn EmbeddingEngine> = Box::new(OllamaEmbeddingEngine::new(
+                    &endpoint_s,
+                    &model_s,
+                    INFERENCE_TIMEOUT_MS,
+                ));
                 let _ = tx.send(Some(engine));
             } else {
                 let _ = tx.send(None);
@@ -458,8 +459,8 @@ impl EmbeddingEngineFactory {
         let resolved_endpoint = std::env::var("HALCON_EMBEDDING_ENDPOINT")
             .or_else(|_| std::env::var("OLLAMA_HOST"))
             .unwrap_or_else(|_| endpoint.to_string());
-        let resolved_model = std::env::var("HALCON_EMBEDDING_MODEL")
-            .unwrap_or_else(|_| model.to_string());
+        let resolved_model =
+            std::env::var("HALCON_EMBEDDING_MODEL").unwrap_or_else(|_| model.to_string());
         Self::best_available(&resolved_endpoint, &resolved_model)
     }
 }

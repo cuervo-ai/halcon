@@ -67,7 +67,11 @@ impl ContextCompactor {
     /// window, which reserves 40% of the pipeline budget for output tokens plus a 10% safety
     /// margin above the old 70% threshold. This prevents the agent from invoking the model
     /// when insufficient headroom remains for a non-truncated response.
-    pub fn needs_compaction_with_budget(&self, messages: &[ChatMessage], pipeline_budget: u32) -> bool {
+    pub fn needs_compaction_with_budget(
+        &self,
+        messages: &[ChatMessage],
+        pipeline_budget: u32,
+    ) -> bool {
         if !self.config.enabled || pipeline_budget == 0 {
             return false;
         }
@@ -94,9 +98,7 @@ impl ContextCompactor {
                     .iter()
                     .map(|b| match b {
                         halcon_core::types::ContentBlock::Text { text } => text.as_str(),
-                        halcon_core::types::ContentBlock::ToolUse { name, .. } => {
-                            name.as_str()
-                        }
+                        halcon_core::types::ContentBlock::ToolUse { name, .. } => name.as_str(),
                         halcon_core::types::ContentBlock::ToolResult { content, .. } => {
                             // Truncate long tool results in summary input
                             if content.len() > 200 {
@@ -278,7 +280,12 @@ impl ContextCompactor {
 mod tests {
     use super::*;
 
-    fn make_config(enabled: bool, threshold: f32, keep: usize, max_tokens: u32) -> CompactionConfig {
+    fn make_config(
+        enabled: bool,
+        threshold: f32,
+        keep: usize,
+        max_tokens: u32,
+    ) -> CompactionConfig {
         CompactionConfig {
             enabled,
             threshold_fraction: threshold,
@@ -341,8 +348,10 @@ mod tests {
         let big_text2 = "x".repeat(124_001);
         let messages2 = vec![text_msg(Role::User, &big_text2)];
         let pipeline_budget = (64_000_u32 as f64 * 0.80) as u32; // 51200
-        assert!(compactor.needs_compaction_with_budget(&messages2, pipeline_budget),
-            "Should trigger compaction: 31K tokens > 60% × 51.2K = 30.7K threshold");
+        assert!(
+            compactor.needs_compaction_with_budget(&messages2, pipeline_budget),
+            "Should trigger compaction: 31K tokens > 60% × 51.2K = 30.7K threshold"
+        );
     }
 
     #[test]
@@ -365,10 +374,14 @@ mod tests {
         let just_above = "x".repeat(19_200); // ceil(19200/4) = 4800 tokens — at threshold
         let msgs_below = vec![text_msg(Role::User, &just_below)];
         let msgs_above = vec![text_msg(Role::User, &just_above)];
-        assert!(!compactor.needs_compaction_with_budget(&msgs_below, 8000),
-            "4799 tokens < 4800 threshold — should NOT compact");
-        assert!(compactor.needs_compaction_with_budget(&msgs_above, 8000),
-            "4800 tokens >= 4800 threshold — should compact");
+        assert!(
+            !compactor.needs_compaction_with_budget(&msgs_below, 8000),
+            "4799 tokens < 4800 threshold — should NOT compact"
+        );
+        assert!(
+            compactor.needs_compaction_with_budget(&msgs_above, 8000),
+            "4800 tokens >= 4800 threshold — should compact"
+        );
     }
 
     #[test]
@@ -405,14 +418,8 @@ mod tests {
             .as_text()
             .unwrap()
             .contains("Summary of old conversation"));
-        assert_eq!(
-            messages[1].content.as_text().unwrap(),
-            "recent message"
-        );
-        assert_eq!(
-            messages[2].content.as_text().unwrap(),
-            "recent response"
-        );
+        assert_eq!(messages[1].content.as_text().unwrap(), "recent message");
+        assert_eq!(messages[2].content.as_text().unwrap(), "recent response");
     }
 
     #[test]
@@ -431,7 +438,7 @@ mod tests {
     #[test]
     fn estimate_message_tokens_basic() {
         let messages = vec![
-            text_msg(Role::User, "hello"), // 5 chars → 2 tokens
+            text_msg(Role::User, "hello"),      // 5 chars → 2 tokens
             text_msg(Role::Assistant, "world"), // 5 chars → 2 tokens
         ];
         let tokens = ContextCompactor::estimate_message_tokens(&messages);
@@ -452,26 +459,22 @@ mod tests {
     fn tool_use_msg(id: &str, name: &str) -> ChatMessage {
         ChatMessage {
             role: Role::Assistant,
-            content: MessageContent::Blocks(vec![
-                halcon_core::types::ContentBlock::ToolUse {
-                    id: id.to_string(),
-                    name: name.to_string(),
-                    input: serde_json::json!({}),
-                },
-            ]),
+            content: MessageContent::Blocks(vec![halcon_core::types::ContentBlock::ToolUse {
+                id: id.to_string(),
+                name: name.to_string(),
+                input: serde_json::json!({}),
+            }]),
         }
     }
 
     fn tool_result_msg(tool_use_id: &str, content: &str) -> ChatMessage {
         ChatMessage {
             role: Role::User,
-            content: MessageContent::Blocks(vec![
-                halcon_core::types::ContentBlock::ToolResult {
-                    tool_use_id: tool_use_id.to_string(),
-                    content: content.to_string(),
-                    is_error: false,
-                },
-            ]),
+            content: MessageContent::Blocks(vec![halcon_core::types::ContentBlock::ToolResult {
+                tool_use_id: tool_use_id.to_string(),
+                content: content.to_string(),
+                is_error: false,
+            }]),
         }
     }
 
@@ -482,12 +485,12 @@ mod tests {
         // The compactor must extend to keep messages[3] too.
         let compactor = ContextCompactor::new(make_config(true, 0.80, 2, 200_000));
         let mut messages = vec![
-            text_msg(Role::User, "old 1"),            // 0: discarded
-            text_msg(Role::Assistant, "old 2"),        // 1: discarded
-            text_msg(Role::User, "old 3"),             // 2: discarded
-            tool_use_msg("t1", "bash"),                // 3: MUST be kept (has t1)
-            tool_result_msg("t1", "ok"),               // 4: kept (references t1)
-            text_msg(Role::Assistant, "done"),          // 5: kept
+            text_msg(Role::User, "old 1"),      // 0: discarded
+            text_msg(Role::Assistant, "old 2"), // 1: discarded
+            text_msg(Role::User, "old 3"),      // 2: discarded
+            tool_use_msg("t1", "bash"),         // 3: MUST be kept (has t1)
+            tool_result_msg("t1", "ok"),        // 4: kept (references t1)
+            text_msg(Role::Assistant, "done"),  // 5: kept
         ];
         compactor.apply_compaction(&mut messages, "Summary");
 
@@ -497,7 +500,9 @@ mod tests {
 
         // Verify the tool_use message was preserved.
         if let MessageContent::Blocks(blocks) = &messages[1].content {
-            assert!(matches!(&blocks[0], halcon_core::types::ContentBlock::ToolUse { id, .. } if id == "t1"));
+            assert!(
+                matches!(&blocks[0], halcon_core::types::ContentBlock::ToolUse { id, .. } if id == "t1")
+            );
         } else {
             panic!("Expected blocks in message[1]");
         }
@@ -508,12 +513,12 @@ mod tests {
         // keep_recent=4: the tool pair is entirely within the keep window.
         let compactor = ContextCompactor::new(make_config(true, 0.80, 4, 200_000));
         let mut messages = vec![
-            text_msg(Role::User, "old"),               // 0: discarded
-            text_msg(Role::Assistant, "old"),           // 1: discarded
-            text_msg(Role::User, "recent"),             // 2: kept
-            tool_use_msg("t1", "bash"),                // 3: kept
-            tool_result_msg("t1", "ok"),               // 4: kept
-            text_msg(Role::Assistant, "done"),          // 5: kept
+            text_msg(Role::User, "old"),       // 0: discarded
+            text_msg(Role::Assistant, "old"),  // 1: discarded
+            text_msg(Role::User, "recent"),    // 2: kept
+            tool_use_msg("t1", "bash"),        // 3: kept
+            tool_result_msg("t1", "ok"),       // 4: kept
+            text_msg(Role::Assistant, "done"), // 5: kept
         ];
         compactor.apply_compaction(&mut messages, "Summary");
 
@@ -543,9 +548,10 @@ mod tests {
         // Must extend back to messages[2] which has the ToolUse blocks.
         let compactor = ContextCompactor::new(make_config(true, 0.80, 1, 200_000));
         let mut messages = vec![
-            text_msg(Role::User, "old"),               // 0
-            text_msg(Role::Assistant, "old"),           // 1
-            ChatMessage {                               // 2: assistant with 2 tool uses
+            text_msg(Role::User, "old"),      // 0
+            text_msg(Role::Assistant, "old"), // 1
+            ChatMessage {
+                // 2: assistant with 2 tool uses
                 role: Role::Assistant,
                 content: MessageContent::Blocks(vec![
                     halcon_core::types::ContentBlock::ToolUse {
@@ -560,7 +566,8 @@ mod tests {
                     },
                 ]),
             },
-            ChatMessage {                               // 3: user with 2 tool results
+            ChatMessage {
+                // 3: user with 2 tool results
                 role: Role::User,
                 content: MessageContent::Blocks(vec![
                     halcon_core::types::ContentBlock::ToolResult {
@@ -629,8 +636,14 @@ mod tests {
     fn adaptive_keep_recent_minimum_floor() {
         // Budgets ≤ 40K should always yield at least 4.
         assert_eq!(ContextCompactor::adaptive_keep_recent(0), 4);
-        assert_eq!(ContextCompactor::adaptive_keep_recent(10_000), 1_usize.max(4));
-        assert_eq!(ContextCompactor::adaptive_keep_recent(39_999), 3_usize.max(4));
+        assert_eq!(
+            ContextCompactor::adaptive_keep_recent(10_000),
+            1_usize.max(4)
+        );
+        assert_eq!(
+            ContextCompactor::adaptive_keep_recent(39_999),
+            3_usize.max(4)
+        );
         assert_eq!(ContextCompactor::adaptive_keep_recent(40_000), 4);
     }
 
@@ -672,7 +685,11 @@ mod tests {
         let compactor = ContextCompactor::new(make_config(true, 0.80, 4, 200_000));
         let mut messages: Vec<ChatMessage> = (0..10)
             .map(|i| {
-                let role = if i % 2 == 0 { Role::User } else { Role::Assistant };
+                let role = if i % 2 == 0 {
+                    Role::User
+                } else {
+                    Role::Assistant
+                };
                 text_msg(role, &format!("message {i}"))
             })
             .collect();
@@ -680,8 +697,12 @@ mod tests {
         let expected_keep = ContextCompactor::adaptive_keep_recent(pipeline_budget);
         compactor.apply_compaction_with_budget(&mut messages, "Summary", pipeline_budget);
         // summary + expected_keep
-        assert_eq!(messages.len(), 1 + expected_keep,
-            "Expected summary + {} recent messages", expected_keep);
+        assert_eq!(
+            messages.len(),
+            1 + expected_keep,
+            "Expected summary + {} recent messages",
+            expected_keep
+        );
         assert!(messages[0].content.as_text().unwrap().contains("Summary"));
     }
 
@@ -689,13 +710,14 @@ mod tests {
     fn apply_compaction_with_budget_noop_when_all_recent() {
         // If messages.len() <= keep, no compaction occurs.
         let compactor = ContextCompactor::new(make_config(true, 0.80, 4, 200_000));
-        let mut messages = vec![
-            text_msg(Role::User, "a"),
-            text_msg(Role::Assistant, "b"),
-        ];
+        let mut messages = vec![text_msg(Role::User, "a"), text_msg(Role::Assistant, "b")];
         let pipeline_budget = (64_000_u32 as f64 * 0.80) as u32; // keep = 5 > 2
         let original_len = messages.len();
         compactor.apply_compaction_with_budget(&mut messages, "Summary", pipeline_budget);
-        assert_eq!(messages.len(), original_len, "Should be no-op when all messages fit in keep window");
+        assert_eq!(
+            messages.len(),
+            original_len,
+            "Should be no-op when all messages fit in keep window"
+        );
     }
 }

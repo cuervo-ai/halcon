@@ -74,7 +74,11 @@ impl LoopCheckpointData {
             current_fsm_state: state.synthesis.phase_str().to_string(),
             next_round_restarts: state.next_round_restarts,
             drift_replan_count: state.convergence.drift_replan_count,
-            plan_steps_total: state.active_plan.as_ref().map(|p| p.steps.len()).unwrap_or(0),
+            plan_steps_total: state
+                .active_plan
+                .as_ref()
+                .map(|p| p.steps.len())
+                .unwrap_or(0),
             last_convergence_ratio: state.convergence.last_convergence_ratio,
         }
     }

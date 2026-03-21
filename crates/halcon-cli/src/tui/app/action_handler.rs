@@ -18,7 +18,11 @@ impl TuiApp {
                     return;
                 }
                 if trimmed.starts_with('/') {
-                    let cmd = trimmed.trim_start_matches('/').split_whitespace().next().unwrap_or("");
+                    let cmd = trimmed
+                        .trim_start_matches('/')
+                        .split_whitespace()
+                        .next()
+                        .unwrap_or("");
                     self.activity_model.push_user_prompt(&text);
                     // Always scroll to bottom on submit so prompt is immediately visible.
                     self.activity_navigator.scroll_to_bottom();
@@ -32,7 +36,8 @@ impl TuiApp {
 
                 // Queue the prompt (unbounded channel never blocks).
                 if let Err(e) = self.prompt_tx.send(text) {
-                    self.activity_model.push_error(&format!("Failed to queue prompt: {e}"), None);
+                    self.activity_model
+                        .push_error(&format!("Failed to queue prompt: {e}"), None);
                     return;
                 }
 
@@ -43,7 +48,7 @@ impl TuiApp {
                 if self.state.agent_running {
                     self.toasts.push(Toast::new(
                         format!("Prompt #{} queued", self.state.prompts_queued),
-                        ToastLevel::Info
+                        ToastLevel::Info,
                     ));
                 } else {
                     // First prompt, start agent.
@@ -75,8 +80,10 @@ impl TuiApp {
                 self.state.agent_running = false;
                 self.state.spinner_active = false;
                 self.state.prompts_queued = 0;
-                self.prompt.set_input_state(crate::tui::input_state::InputState::Idle);
-                self.activity_model.push_warning("Agent cancelled by user", None);
+                self.prompt
+                    .set_input_state(crate::tui::input_state::InputState::Idle);
+                self.activity_model
+                    .push_warning("Agent cancelled by user", None);
             }
             input::InputAction::Quit => {
                 self.state.should_quit = true;
@@ -118,8 +125,7 @@ impl TuiApp {
                     crate::tui::state::UiMode::Minimal => {
                         self.state.panel_visible = false;
                     }
-                    crate::tui::state::UiMode::Standard
-                    | crate::tui::state::UiMode::Expert => {
+                    crate::tui::state::UiMode::Standard | crate::tui::state::UiMode::Expert => {
                         self.state.panel_visible = true;
                     }
                 }
@@ -133,14 +139,16 @@ impl TuiApp {
                 } else {
                     self.state.agent_control = AgentControl::Paused;
                     let _ = self.ctrl_tx.send(ControlEvent::Pause);
-                    self.activity_model.push_info("[control] Paused — Space to resume, N to step");
+                    self.activity_model
+                        .push_info("[control] Paused — Space to resume, N to step");
                 }
             }
             input::InputAction::StepAgent => {
                 use crate::tui::state::AgentControl;
                 self.state.agent_control = AgentControl::StepMode;
                 let _ = self.ctrl_tx.send(ControlEvent::Step);
-                self.activity_model.push_info("[control] Step mode — executing one step");
+                self.activity_model
+                    .push_info("[control] Step mode — executing one step");
             }
             input::InputAction::ApproveAction => {
                 self.send_perm_decision(halcon_core::types::PermissionDecision::Allowed);
@@ -148,27 +156,35 @@ impl TuiApp {
             }
             input::InputAction::RejectAction => {
                 self.send_perm_decision(halcon_core::types::PermissionDecision::Denied);
-                self.activity_model.push_warning("[control] Action rejected", None);
+                self.activity_model
+                    .push_warning("[control] Action rejected", None);
             }
             input::InputAction::ApproveAlways => {
                 self.send_perm_decision(halcon_core::types::PermissionDecision::AllowedAlways);
-                self.activity_model.push_info("[control] Approved always (global)");
+                self.activity_model
+                    .push_info("[control] Approved always (global)");
             }
             input::InputAction::ApproveDirectory => {
-                self.send_perm_decision(halcon_core::types::PermissionDecision::AllowedForDirectory);
-                self.activity_model.push_info("[control] Approved for this directory");
+                self.send_perm_decision(
+                    halcon_core::types::PermissionDecision::AllowedForDirectory,
+                );
+                self.activity_model
+                    .push_info("[control] Approved for this directory");
             }
             input::InputAction::ApproveSession => {
                 self.send_perm_decision(halcon_core::types::PermissionDecision::AllowedThisSession);
-                self.activity_model.push_info("[control] Approved for this session");
+                self.activity_model
+                    .push_info("[control] Approved for this session");
             }
             input::InputAction::ApprovePattern => {
                 self.send_perm_decision(halcon_core::types::PermissionDecision::AllowedForPattern);
-                self.activity_model.push_info("[control] Approved for this pattern");
+                self.activity_model
+                    .push_info("[control] Approved for this pattern");
             }
             input::InputAction::DenyDirectory => {
                 self.send_perm_decision(halcon_core::types::PermissionDecision::DeniedForDirectory);
-                self.activity_model.push_warning("[control] Denied for this directory", None);
+                self.activity_model
+                    .push_warning("[control] Denied for this directory", None);
             }
             input::InputAction::OpenHelp => {
                 self.state.overlay.open(OverlayKind::Help);
@@ -243,7 +259,8 @@ impl TuiApp {
                 }
             }
             input::InputAction::ExpandAllTools => {
-                self.activity_navigator.expand_all_tools(&self.activity_model);
+                self.activity_navigator
+                    .expand_all_tools(&self.activity_model);
             }
             input::InputAction::CollapseAllTools => {
                 self.activity_navigator.collapse_all_tools();
@@ -254,10 +271,13 @@ impl TuiApp {
                 self.state.panel_section = crate::tui::state::PanelSection::Plan;
                 if let Some(plan_line) = self.activity_model.find_plan_overview_idx() {
                     let viewport_h = self.last_panel_area.height.max(20) as usize;
-                    self.activity_navigator.scroll_to_line(plan_line, viewport_h);
-                    self.activity_model.push_info("[plan] Jumped to plan overview");
+                    self.activity_navigator
+                        .scroll_to_line(plan_line, viewport_h);
+                    self.activity_model
+                        .push_info("[plan] Jumped to plan overview");
                 } else {
-                    self.activity_model.push_info("[plan] Plan panel opened (no plan overview yet)");
+                    self.activity_model
+                        .push_info("[plan] Plan panel opened (no plan overview yet)");
                 }
             }
             input::InputAction::SearchNext => {
@@ -342,18 +362,23 @@ impl TuiApp {
                 // Build the models list: start from known_models, ensure current is present.
                 let mut models = self.known_models.clone();
                 let current_key = format!("{}/{}", current_provider, current_model);
-                let already_present = models.iter()
+                let already_present = models
+                    .iter()
                     .any(|(p, m, _)| format!("{p}/{m}") == current_key);
                 if !already_present && !current_model.is_empty() {
-                    models.insert(0, (
-                        current_provider.clone(),
-                        current_model.clone(),
-                        format!("{}/{}", current_provider, current_model),
-                    ));
+                    models.insert(
+                        0,
+                        (
+                            current_provider.clone(),
+                            current_model.clone(),
+                            format!("{}/{}", current_provider, current_model),
+                        ),
+                    );
                 }
 
                 // Pre-select the currently active model.
-                let selected = models.iter()
+                let selected = models
+                    .iter()
                     .position(|(_, m, _)| m == &current_model)
                     .unwrap_or(0);
 
@@ -407,7 +432,8 @@ impl TuiApp {
                 // ── Esc: toggle pause/resume when agent is running ──────────────
                 // Works regardless of focus zone. If no agent running, Esc falls
                 // through to normal routing (clear textarea or activity selection).
-                if key.code == KeyCode::Esc && key.modifiers.is_empty() && self.state.agent_running {
+                if key.code == KeyCode::Esc && key.modifiers.is_empty() && self.state.agent_running
+                {
                     use crate::tui::state::AgentControl;
                     if self.state.agent_control == AgentControl::Paused {
                         self.state.agent_control = AgentControl::Running;
@@ -417,7 +443,7 @@ impl TuiApp {
                         self.state.agent_control = AgentControl::Paused;
                         let _ = self.ctrl_tx.send(ControlEvent::Pause);
                         self.activity_model.push_info(
-                            "[control] ⏸ Paused — Esc resume  /step one step  /cancel abort"
+                            "[control] ⏸ Paused — Esc resume  /step one step  /cancel abort",
                         );
                     }
                     return;
@@ -452,13 +478,22 @@ impl TuiApp {
                 // Phase A3: Activity-focused navigation keys (J/K vim-style + actions)
                 let is_activity_action = matches!(
                     key.code,
-                    KeyCode::Char('j') | KeyCode::Char('k') | KeyCode::Char('y') |
-                    KeyCode::Char('i') | KeyCode::Char('x') | KeyCode::Char('z') |
-                    KeyCode::Char('p') | KeyCode::Char('n') | KeyCode::Char('/') |
-                    KeyCode::Enter | KeyCode::Esc
+                    KeyCode::Char('j')
+                        | KeyCode::Char('k')
+                        | KeyCode::Char('y')
+                        | KeyCode::Char('i')
+                        | KeyCode::Char('x')
+                        | KeyCode::Char('z')
+                        | KeyCode::Char('p')
+                        | KeyCode::Char('n')
+                        | KeyCode::Char('/')
+                        | KeyCode::Enter
+                        | KeyCode::Esc
                 ) && key.modifiers.is_empty(); // Only when no modifiers (Ctrl+J still goes to prompt)
 
-                if (is_navigation_key || is_activity_action) && self.state.focus == FocusZone::Activity {
+                if (is_navigation_key || is_activity_action)
+                    && self.state.focus == FocusZone::Activity
+                {
                     // Phase A3: Route to activity controller when Activity focused
                     if is_activity_action {
                         let ctrl_action = self.activity_controller.handle_key(
@@ -510,23 +545,32 @@ impl TuiApp {
                                     }
                                 }
                             }
-                            crate::tui::activity_controller::ControlAction::JumpToPlanStep(step_idx) => {
+                            crate::tui::activity_controller::ControlAction::JumpToPlanStep(
+                                step_idx,
+                            ) => {
                                 // Switch side panel to Plan view and scroll activity to the plan overview.
                                 self.state.panel_visible = true;
                                 self.state.panel_section = crate::tui::state::PanelSection::Plan;
-                                if let Some(plan_line) = self.activity_model.find_plan_overview_idx() {
+                                if let Some(plan_line) =
+                                    self.activity_model.find_plan_overview_idx()
+                                {
                                     let viewport_h = self.last_panel_area.height.max(20) as usize;
-                                    self.activity_navigator.scroll_to_line(plan_line, viewport_h);
+                                    self.activity_navigator
+                                        .scroll_to_line(plan_line, viewport_h);
                                     self.activity_model.push_info(&format!(
-                                        "[plan] Jumped to step {} — plan overview above", step_idx + 1
+                                        "[plan] Jumped to step {} — plan overview above",
+                                        step_idx + 1
                                     ));
                                 } else {
                                     self.activity_model.push_info(&format!(
-                                        "[plan] Step {} — plan panel opened (no plan overview yet)", step_idx + 1
+                                        "[plan] Step {} — plan panel opened (no plan overview yet)",
+                                        step_idx + 1
                                     ));
                                 }
                             }
-                            crate::tui::activity_controller::ControlAction::OpenInspector(target) => {
+                            crate::tui::activity_controller::ControlAction::OpenInspector(
+                                target,
+                            ) => {
                                 // Show inspection data inline in the activity feed.
                                 let provider = self.status.current_provider().to_string();
                                 let model = self.status.current_model().to_string();

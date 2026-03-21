@@ -51,7 +51,10 @@ pub fn render_tool_result(output: &ToolOutput, duration_ms: u64) {
     };
 
     let mut out = io::stderr().lock();
-    let _ = write!(out, "  {muted}{bl}{h}{r} [{status_str} {dur_color}{dur}{r}] ");
+    let _ = write!(
+        out,
+        "  {muted}{bl}{h}{r} [{status_str} {dur_color}{dur}{r}] "
+    );
 
     // Truncate long output.
     let lines: Vec<&str> = output.content.lines().collect();
@@ -126,7 +129,10 @@ pub fn render_tool_output(block: &halcon_core::types::ContentBlock, duration_ms:
         };
 
         let mut out = io::stderr().lock();
-        let _ = write!(out, "  {muted}{bl}{h}{r} [{status_str} {dur_color}{dur}{r}] ");
+        let _ = write!(
+            out,
+            "  {muted}{bl}{h}{r} [{status_str} {dur_color}{dur}{r}] "
+        );
         let lines: Vec<&str> = content.lines().collect();
         if lines.len() <= MAX_RESULT_LINES {
             let _ = writeln!(out, "{content}");
@@ -153,7 +159,16 @@ fn summarize_tool_args(name: &str, args: &serde_json::Value) -> String {
         "bash" => {
             let cmd = args["command"].as_str().unwrap_or("?");
             if cmd.len() > 50 {
-                format!("{}...", &cmd[..{ let mut _fcb = (47).min(cmd.len()); while _fcb > 0 && !cmd.is_char_boundary(_fcb) { _fcb -= 1; } _fcb }])
+                format!(
+                    "{}...",
+                    &cmd[..{
+                        let mut _fcb = (47).min(cmd.len());
+                        while _fcb > 0 && !cmd.is_char_boundary(_fcb) {
+                            _fcb -= 1;
+                        }
+                        _fcb
+                    }]
+                )
             } else {
                 cmd.to_string()
             }
@@ -167,7 +182,16 @@ fn summarize_tool_args(name: &str, args: &serde_json::Value) -> String {
         _ => {
             let s = serde_json::to_string(args).unwrap_or_default();
             if s.len() > 60 {
-                format!("{}...", &s[..{ let mut _fcb = (57).min(s.len()); while _fcb > 0 && !s.is_char_boundary(_fcb) { _fcb -= 1; } _fcb }])
+                format!(
+                    "{}...",
+                    &s[..{
+                        let mut _fcb = (57).min(s.len());
+                        while _fcb > 0 && !s.is_char_boundary(_fcb) {
+                            _fcb -= 1;
+                        }
+                        _fcb
+                    }]
+                )
             } else {
                 s
             }

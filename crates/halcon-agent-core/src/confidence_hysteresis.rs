@@ -139,7 +139,10 @@ impl ConfidenceHysteresis {
             }
             _ => {
                 // New signal (or different from pending) — start accumulating
-                self.pending = Some(PendingSignal { label, consecutive_count: 1 });
+                self.pending = Some(PendingSignal {
+                    label,
+                    consecutive_count: 1,
+                });
                 self.rounds_suppressed += 1;
                 CriticSignal::Continue
             }
@@ -191,11 +194,17 @@ mod tests {
     }
 
     fn replan(score: f32) -> CriticSignal {
-        CriticSignal::Replan { reason: "stall".into(), alignment_score: score }
+        CriticSignal::Replan {
+            reason: "stall".into(),
+            alignment_score: score,
+        }
     }
 
     fn hint(score: f32) -> CriticSignal {
-        CriticSignal::InjectHint { hint: "slow".into(), alignment_score: score }
+        CriticSignal::InjectHint {
+            hint: "slow".into(),
+            alignment_score: score,
+        }
     }
 
     // ─── Basic pass-through tests ────────────────────────────────────────────
@@ -216,7 +225,9 @@ mod tests {
     #[test]
     fn terminal_always_passes_through() {
         let mut hysteresis = h();
-        let terminate = CriticSignal::Terminate { reason: "budget".into() };
+        let terminate = CriticSignal::Terminate {
+            reason: "budget".into(),
+        };
         // Even with zero delta
         let out = hysteresis.apply(terminate, 0.5);
         assert!(out.is_terminal());
@@ -228,13 +239,13 @@ mod tests {
         let mut hysteresis = h();
         // Start accumulating a replan
         hysteresis.apply(replan(0.5), 0.52); // delta=0.52-0.0=0.52>epsilon? No!
-        // At 0.0 initial, first call with confidence=0.52 has delta=0.52 which is large, passes through.
-        // Let me use a scenario where delta is small.
+                                             // At 0.0 initial, first call with confidence=0.52 has delta=0.52 which is large, passes through.
+                                             // Let me use a scenario where delta is small.
         let mut hysteresis2 = h();
         hysteresis2.apply(CriticSignal::Continue, 0.0); // accepted, last=0.0
-        // Small delta round
+                                                        // Small delta round
         hysteresis2.apply(replan(0.5), 0.02); // delta=0.02 < 0.05 → suppress, pending=(Replan,1)
-        // Terminal should clear pending
+                                              // Terminal should clear pending
         let out = hysteresis2.apply(CriticSignal::Terminate { reason: "x".into() }, 0.03);
         assert!(out.is_terminal());
         assert_eq!(hysteresis2.consecutive_count(), 0);
@@ -245,13 +256,17 @@ mod tests {
     #[test]
     fn small_delta_requires_consecutive_rounds() {
         let mut hysteresis = h(); // epsilon=0.05, required=2
-        // First: accept Continue to set baseline
+                                  // First: accept Continue to set baseline
         let out1 = hysteresis.apply(CriticSignal::Continue, 0.5);
         assert_eq!(out1, CriticSignal::Continue); // large delta from 0.0 → passes through, last=0.5
 
         // Now small delta (0.01 < 0.05) — first Replan → suppressed
         let out2 = hysteresis.apply(replan(0.5), 0.51);
-        assert_eq!(out2, CriticSignal::Continue, "first small-delta Replan should be suppressed");
+        assert_eq!(
+            out2,
+            CriticSignal::Continue,
+            "first small-delta Replan should be suppressed"
+        );
 
         // Second consecutive Replan with same small delta → confirmed
         let out3 = hysteresis.apply(replan(0.5), 0.52);
@@ -273,7 +288,11 @@ mod tests {
 
         // Different signal (InjectHint) → restart accumulation
         let out2 = hysteresis.apply(hint(0.5), 0.52);
-        assert_eq!(out2, CriticSignal::Continue, "new signal should restart accumulation");
+        assert_eq!(
+            out2,
+            CriticSignal::Continue,
+            "new signal should restart accumulation"
+        );
 
         // Continue (second InjectHint) → still suppressed (need 2 consecutive)
         let out3 = hysteresis.apply(hint(0.5), 0.52);
@@ -298,8 +317,8 @@ mod tests {
     #[test]
     fn no_suppression_when_delta_always_large() {
         let mut hysteresis = h(); // epsilon=0.05, initial last_accepted=0.0
-        // Confidences with steps of 0.2 >> epsilon=0.05
-        // First call: 0.1 → delta=|0.1-0.0|=0.1 > 0.05 (large) → no suppression
+                                  // Confidences with steps of 0.2 >> epsilon=0.05
+                                  // First call: 0.1 → delta=|0.1-0.0|=0.1 > 0.05 (large) → no suppression
         let confidences = [0.1f32, 0.3, 0.5, 0.7, 0.9, 1.0];
         for &c in &confidences {
             hysteresis.apply(CriticSignal::Continue, c);

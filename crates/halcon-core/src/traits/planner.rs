@@ -8,9 +8,9 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
-use crate::types::ToolDefinition;
 use crate::types::capability_types::{CapabilityDescriptor, Modality};
 use crate::types::execution_graph::{ExecutionEdge, ExecutionGraph, ExecutionNode, NodeId};
+use crate::types::ToolDefinition;
 
 /// Outcome of executing a plan step.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -42,7 +42,6 @@ pub struct PlanStep {
     #[serde(default)]
     pub outcome: Option<StepOutcome>,
 }
-
 
 impl Default for PlanStep {
     fn default() -> Self {
@@ -151,7 +150,9 @@ impl ExecutionPlan {
     ) {
         // Step 1: Compute required_tools (deduped) and modalities from step metadata.
         let mut seen = std::collections::HashSet::new();
-        let required_tools: Vec<String> = self.steps.iter()
+        let required_tools: Vec<String> = self
+            .steps
+            .iter()
             .filter_map(|s| s.tool_name.as_deref())
             .filter(|t| seen.insert(*t))
             .map(|t| t.to_string())
@@ -187,7 +188,10 @@ impl ExecutionPlan {
     /// Produces an acyclic graph by construction. Call `GraphValidator::validate()`
     /// on the result to enforce all 4 structural rules before execution.
     pub fn to_execution_graph(&self) -> ExecutionGraph {
-        let nodes: Vec<ExecutionNode> = self.steps.iter().enumerate()
+        let nodes: Vec<ExecutionNode> = self
+            .steps
+            .iter()
+            .enumerate()
             .map(|(i, step)| ExecutionNode {
                 id: NodeId(i),
                 tool: step.tool_name.clone(),
@@ -201,7 +205,10 @@ impl ExecutionPlan {
             .collect();
 
         let edges: Vec<ExecutionEdge> = (0..nodes.len().saturating_sub(1))
-            .map(|i| ExecutionEdge { from: NodeId(i), to: NodeId(i + 1) })
+            .map(|i| ExecutionEdge {
+                from: NodeId(i),
+                to: NodeId(i + 1),
+            })
             .collect();
 
         ExecutionGraph {
@@ -249,12 +256,10 @@ impl TaskStatus {
             | (Self::Running, Self::Failed)
             | (Self::Running, Self::Cancelled) => Ok(target),
             // Terminal → anything is invalid
-            (from, to) if from.is_terminal() => {
-                Err(format!("cannot transition from terminal state {from:?} to {to:?}"))
-            }
-            (from, to) => {
-                Err(format!("invalid transition from {from:?} to {to:?}"))
-            }
+            (from, to) if from.is_terminal() => Err(format!(
+                "cannot transition from terminal state {from:?} to {to:?}"
+            )),
+            (from, to) => Err(format!("invalid transition from {from:?} to {to:?}")),
         }
     }
 }
@@ -360,27 +365,31 @@ mod tests {
     #[test]
     fn avg_confidence_empty_returns_one() {
         let plan = make_plan(vec![]);
-        assert_eq!(plan.avg_confidence(), 1.0,
-            "Empty plan has no uncertainty — should return 1.0");
+        assert_eq!(
+            plan.avg_confidence(),
+            1.0,
+            "Empty plan has no uncertainty — should return 1.0"
+        );
     }
 
     #[test]
     fn avg_confidence_computed_correctly() {
-        let plan = make_plan(vec![
-            make_step(0.8),
-            make_step(0.6),
-            make_step(1.0),
-        ]);
+        let plan = make_plan(vec![make_step(0.8), make_step(0.6), make_step(1.0)]);
         let expected = (0.8 + 0.6 + 1.0) / 3.0;
         let diff = (plan.avg_confidence() - expected).abs();
-        assert!(diff < 1e-10,
-            "avg_confidence should be {expected:.4}, got {:.4}", plan.avg_confidence());
+        assert!(
+            diff < 1e-10,
+            "avg_confidence should be {expected:.4}, got {:.4}",
+            plan.avg_confidence()
+        );
     }
 
     #[test]
     fn task_status_pending_to_running() {
         assert_eq!(
-            TaskStatus::Pending.transition_to(TaskStatus::Running).unwrap(),
+            TaskStatus::Pending
+                .transition_to(TaskStatus::Running)
+                .unwrap(),
             TaskStatus::Running
         );
     }
@@ -388,7 +397,9 @@ mod tests {
     #[test]
     fn task_status_pending_to_skipped() {
         assert_eq!(
-            TaskStatus::Pending.transition_to(TaskStatus::Skipped).unwrap(),
+            TaskStatus::Pending
+                .transition_to(TaskStatus::Skipped)
+                .unwrap(),
             TaskStatus::Skipped
         );
     }
@@ -396,7 +407,9 @@ mod tests {
     #[test]
     fn task_status_pending_to_cancelled() {
         assert_eq!(
-            TaskStatus::Pending.transition_to(TaskStatus::Cancelled).unwrap(),
+            TaskStatus::Pending
+                .transition_to(TaskStatus::Cancelled)
+                .unwrap(),
             TaskStatus::Cancelled
         );
     }
@@ -404,7 +417,9 @@ mod tests {
     #[test]
     fn task_status_running_to_completed() {
         assert_eq!(
-            TaskStatus::Running.transition_to(TaskStatus::Completed).unwrap(),
+            TaskStatus::Running
+                .transition_to(TaskStatus::Completed)
+                .unwrap(),
             TaskStatus::Completed
         );
     }
@@ -412,7 +427,9 @@ mod tests {
     #[test]
     fn task_status_running_to_failed() {
         assert_eq!(
-            TaskStatus::Running.transition_to(TaskStatus::Failed).unwrap(),
+            TaskStatus::Running
+                .transition_to(TaskStatus::Failed)
+                .unwrap(),
             TaskStatus::Failed
         );
     }
@@ -420,14 +437,21 @@ mod tests {
     #[test]
     fn task_status_running_to_cancelled() {
         assert_eq!(
-            TaskStatus::Running.transition_to(TaskStatus::Cancelled).unwrap(),
+            TaskStatus::Running
+                .transition_to(TaskStatus::Cancelled)
+                .unwrap(),
             TaskStatus::Cancelled
         );
     }
 
     #[test]
     fn task_status_terminal_rejects_transition() {
-        for terminal in [TaskStatus::Completed, TaskStatus::Failed, TaskStatus::Skipped, TaskStatus::Cancelled] {
+        for terminal in [
+            TaskStatus::Completed,
+            TaskStatus::Failed,
+            TaskStatus::Skipped,
+            TaskStatus::Cancelled,
+        ] {
             assert!(terminal.transition_to(TaskStatus::Running).is_err());
             assert!(terminal.transition_to(TaskStatus::Pending).is_err());
         }
@@ -436,12 +460,16 @@ mod tests {
     #[test]
     fn task_status_invalid_pending_to_completed() {
         // Can't skip Running
-        assert!(TaskStatus::Pending.transition_to(TaskStatus::Completed).is_err());
+        assert!(TaskStatus::Pending
+            .transition_to(TaskStatus::Completed)
+            .is_err());
     }
 
     #[test]
     fn task_status_invalid_pending_to_failed() {
-        assert!(TaskStatus::Pending.transition_to(TaskStatus::Failed).is_err());
+        assert!(TaskStatus::Pending
+            .transition_to(TaskStatus::Failed)
+            .is_err());
     }
 
     #[test]
@@ -550,7 +578,9 @@ mod tests {
     fn make_plan_step(tool: Option<&str>, done: bool) -> PlanStep {
         PlanStep {
             tool_name: tool.map(str::to_owned),
-            outcome: done.then(|| StepOutcome::Success { summary: "ok".into() }),
+            outcome: done.then(|| StepOutcome::Success {
+                summary: "ok".into(),
+            }),
             ..PlanStep::default()
         }
     }
@@ -560,16 +590,19 @@ mod tests {
     #[test]
     fn bug007_mixed_plan_reports_pending_execution() {
         let steps = vec![
-            make_plan_step(Some("bash"), false),        // pending execution
-            make_plan_step(Some("file_write"), false),  // pending execution
-            make_plan_step(None, false),                // pending coordination
-            make_plan_step(None, false),                // pending synthesis
+            make_plan_step(Some("bash"), false),       // pending execution
+            make_plan_step(Some("file_write"), false), // pending execution
+            make_plan_step(None, false),               // pending coordination
+            make_plan_step(None, false),               // pending synthesis
         ];
-        let any_pending_execution = steps.iter()
+        let any_pending_execution = steps
+            .iter()
             .filter(|s| s.outcome.is_none())
             .any(|s| s.tool_name.is_some());
-        assert!(any_pending_execution,
-            "Mixed plan must report pending execution — synthesis guard must NOT fire");
+        assert!(
+            any_pending_execution,
+            "Mixed plan must report pending execution — synthesis guard must NOT fire"
+        );
     }
 
     /// Pure synthesis plan (all execution steps done, only text steps remain).
@@ -577,16 +610,19 @@ mod tests {
     #[test]
     fn bug007_pure_synthesis_plan_no_pending_execution() {
         let steps = vec![
-            make_plan_step(Some("bash"), true),         // completed
-            make_plan_step(Some("file_write"), true),   // completed
-            make_plan_step(None, false),                // pending coordination
-            make_plan_step(None, false),                // pending synthesis
+            make_plan_step(Some("bash"), true),       // completed
+            make_plan_step(Some("file_write"), true), // completed
+            make_plan_step(None, false),              // pending coordination
+            make_plan_step(None, false),              // pending synthesis
         ];
-        let any_pending_execution = steps.iter()
+        let any_pending_execution = steps
+            .iter()
             .filter(|s| s.outcome.is_none())
             .any(|s| s.tool_name.is_some());
-        assert!(!any_pending_execution,
-            "Pure synthesis plan must report no pending execution — guard SHOULD fire");
+        assert!(
+            !any_pending_execution,
+            "Pure synthesis plan must report no pending execution — guard SHOULD fire"
+        );
     }
 
     /// Demonstrates the original bug fires when a pending execution step
@@ -599,25 +635,33 @@ mod tests {
     fn bug007_new_condition_is_path_independent() {
         // Scenario A: pending execution step exists anywhere in the list
         let steps_a = vec![
-            make_plan_step(None, false),          // coordination (pending)
-            make_plan_step(Some("bash"), false),  // execution (pending)
+            make_plan_step(None, false),         // coordination (pending)
+            make_plan_step(Some("bash"), false), // execution (pending)
         ];
-        let any_exec_a = steps_a.iter()
+        let any_exec_a = steps_a
+            .iter()
             .filter(|s| s.outcome.is_none())
             .any(|s| s.tool_name.is_some());
         // New condition: guard does NOT fire (execution step is pending)
         let new_fires_a = steps_a.iter().any(|s| s.outcome.is_none()) && !any_exec_a;
-        assert!(!new_fires_a, "New condition must not fire when execution step is pending");
+        assert!(
+            !new_fires_a,
+            "New condition must not fire when execution step is pending"
+        );
 
         // Scenario B: no execution steps pending
         let steps_b = vec![
-            make_plan_step(None, false),         // coordination (pending)
-            make_plan_step(Some("bash"), true),  // execution (done)
+            make_plan_step(None, false),        // coordination (pending)
+            make_plan_step(Some("bash"), true), // execution (done)
         ];
-        let any_exec_b = steps_b.iter()
+        let any_exec_b = steps_b
+            .iter()
             .filter(|s| s.outcome.is_none())
             .any(|s| s.tool_name.is_some());
         let new_fires_b = steps_b.iter().any(|s| s.outcome.is_none()) && !any_exec_b;
-        assert!(new_fires_b, "New condition must fire when only coordination steps remain");
+        assert!(
+            new_fires_b,
+            "New condition must fire when only coordination steps remain"
+        );
     }
 }

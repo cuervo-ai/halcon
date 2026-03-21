@@ -49,7 +49,10 @@ impl LoopSignal {
     /// and `InjectSynthesis` (model forced to synthesize). `ForceNoTools` and `Continue`
     /// are non-disruptive — they modify the next round without changing the overall plan.
     pub fn is_disruptive(&self) -> bool {
-        matches!(self, Self::Break | Self::ReplanRequired | Self::InjectSynthesis)
+        matches!(
+            self,
+            Self::Break | Self::ReplanRequired | Self::InjectSynthesis
+        )
     }
 }
 
@@ -272,7 +275,12 @@ mod tests {
 
     #[test]
     fn round_feedback_construction_defaults_sane() {
-        let fb = make_feedback(LoopSignal::Continue, ConvergenceAction::Continue, false, false);
+        let fb = make_feedback(
+            LoopSignal::Continue,
+            ConvergenceAction::Continue,
+            false,
+            false,
+        );
         assert_eq!(fb.round, 0);
         assert!((fb.combined_score - 0.5).abs() < f32::EPSILON);
         assert!(!fb.replan_advised);
@@ -283,7 +291,12 @@ mod tests {
 
     #[test]
     fn continue_feedback_is_not_disruptive() {
-        let fb = make_feedback(LoopSignal::Continue, ConvergenceAction::Continue, false, false);
+        let fb = make_feedback(
+            LoopSignal::Continue,
+            ConvergenceAction::Continue,
+            false,
+            false,
+        );
         assert!(!fb.loop_signal.is_disruptive());
         assert!(!fb.loop_signal.is_terminal());
     }
@@ -325,39 +338,75 @@ mod tests {
 
     #[test]
     fn zero_score_feedback_flagged_as_low() {
-        let mut fb = make_feedback(LoopSignal::Continue, ConvergenceAction::Continue, false, false);
+        let mut fb = make_feedback(
+            LoopSignal::Continue,
+            ConvergenceAction::Continue,
+            false,
+            false,
+        );
         fb.combined_score = 0.0;
-        assert!(fb.combined_score < 0.15, "zero score should be below replan threshold");
+        assert!(
+            fb.combined_score < 0.15,
+            "zero score should be below replan threshold"
+        );
     }
 
     #[test]
     fn oscillation_feedback_correctly_tracked() {
-        let mut fb = make_feedback(LoopSignal::Continue, ConvergenceAction::Continue, false, false);
+        let mut fb = make_feedback(
+            LoopSignal::Continue,
+            ConvergenceAction::Continue,
+            false,
+            false,
+        );
         fb.oscillation = 0.25;
-        assert!(fb.oscillation > 0.15, "oscillation above threshold should be detectable");
+        assert!(
+            fb.oscillation > 0.15,
+            "oscillation above threshold should be detectable"
+        );
     }
 
     #[test]
     fn tool_round_vs_text_round_distinguished() {
-        let mut tool_fb = make_feedback(LoopSignal::Continue, ConvergenceAction::Continue, false, false);
+        let mut tool_fb = make_feedback(
+            LoopSignal::Continue,
+            ConvergenceAction::Continue,
+            false,
+            false,
+        );
         tool_fb.tool_round = true;
         assert!(tool_fb.tool_round);
 
-        let mut text_fb = make_feedback(LoopSignal::Continue, ConvergenceAction::Continue, false, false);
+        let mut text_fb = make_feedback(
+            LoopSignal::Continue,
+            ConvergenceAction::Continue,
+            false,
+            false,
+        );
         text_fb.tool_round = false;
         assert!(!text_fb.tool_round);
     }
 
     #[test]
     fn force_no_tools_signal_is_not_terminal_but_not_disruptive() {
-        let fb = make_feedback(LoopSignal::ForceNoTools, ConvergenceAction::Continue, false, false);
+        let fb = make_feedback(
+            LoopSignal::ForceNoTools,
+            ConvergenceAction::Continue,
+            false,
+            false,
+        );
         assert!(!fb.loop_signal.is_terminal());
         assert!(!fb.loop_signal.is_disruptive());
     }
 
     #[test]
     fn had_errors_flag_propagates_correctly() {
-        let mut fb = make_feedback(LoopSignal::Continue, ConvergenceAction::Continue, false, false);
+        let mut fb = make_feedback(
+            LoopSignal::Continue,
+            ConvergenceAction::Continue,
+            false,
+            false,
+        );
         fb.had_errors = true;
         assert!(fb.had_errors);
     }

@@ -188,7 +188,11 @@ impl ConfigValidatorTool {
                 issues.push(Issue {
                     severity: "error",
                     code: "ENV001",
-                    message: format!("Line {} is not a valid KEY=VALUE pair: '{}'", lineno + 1, trimmed.chars().take(40).collect::<String>()),
+                    message: format!(
+                        "Line {} is not a valid KEY=VALUE pair: '{}'",
+                        lineno + 1,
+                        trimmed.chars().take(40).collect::<String>()
+                    ),
                     line: Some(lineno + 1),
                 });
                 continue;
@@ -215,7 +219,9 @@ impl ConfigValidatorTool {
                     issues.push(Issue {
                         severity: "warning",
                         code: "ENV003",
-                        message: format!("Key '{key}' appears to contain a secret value in plaintext"),
+                        message: format!(
+                            "Key '{key}' appears to contain a secret value in plaintext"
+                        ),
                         line: Some(lineno + 1),
                     });
                     break;
@@ -242,7 +248,7 @@ impl ConfigValidatorTool {
 
     fn validate_ini(content: &str) -> ValidationResult {
         let mut issues = vec![];
-        let mut current_section = "global";
+        let mut _current_section = "global";
 
         for (lineno, line) in content.lines().enumerate() {
             let trimmed = line.trim();
@@ -260,14 +266,17 @@ impl ConfigValidatorTool {
                         line: Some(lineno + 1),
                     });
                 } else {
-                    current_section = "seen";
-                    let _ = current_section; // suppress unused
+                    _current_section = "seen";
                 }
             } else if !trimmed.contains('=') && !trimmed.contains(':') {
                 issues.push(Issue {
                     severity: "warning",
                     code: "INI002",
-                    message: format!("Line {} doesn't look like a key=value pair: '{}'", lineno + 1, trimmed.chars().take(40).collect::<String>()),
+                    message: format!(
+                        "Line {} doesn't look like a key=value pair: '{}'",
+                        lineno + 1,
+                        trimmed.chars().take(40).collect::<String>()
+                    ),
                     line: Some(lineno + 1),
                 });
             }
@@ -281,16 +290,38 @@ impl ConfigValidatorTool {
     }
 
     fn format_report(path: &str, result: &ValidationResult) -> String {
-        let status = if result.valid { "✅ VALID" } else { "❌ INVALID" };
-        let mut out = format!("## Config Validation: {path}\n\n**Format**: {} | **Status**: {}\n\n", result.format, status);
+        let status = if result.valid {
+            "✅ VALID"
+        } else {
+            "❌ INVALID"
+        };
+        let mut out = format!(
+            "## Config Validation: {path}\n\n**Format**: {} | **Status**: {}\n\n",
+            result.format, status
+        );
 
         if result.issues.is_empty() {
             out.push_str("No issues found.\n");
         } else {
-            let errors = result.issues.iter().filter(|i| i.severity == "error").count();
-            let warnings = result.issues.iter().filter(|i| i.severity == "warning").count();
-            let infos = result.issues.iter().filter(|i| i.severity == "info").count();
-            out.push_str(&format!("Found: {} error(s), {} warning(s), {} info(s)\n\n", errors, warnings, infos));
+            let errors = result
+                .issues
+                .iter()
+                .filter(|i| i.severity == "error")
+                .count();
+            let warnings = result
+                .issues
+                .iter()
+                .filter(|i| i.severity == "warning")
+                .count();
+            let infos = result
+                .issues
+                .iter()
+                .filter(|i| i.severity == "info")
+                .count();
+            out.push_str(&format!(
+                "Found: {} error(s), {} warning(s), {} info(s)\n\n",
+                errors, warnings, infos
+            ));
 
             for issue in &result.issues {
                 let icon = match issue.severity {
@@ -298,8 +329,14 @@ impl ConfigValidatorTool {
                     "warning" => "⚠️",
                     _ => "ℹ️",
                 };
-                let loc = issue.line.map(|l| format!(" (line {l})")).unwrap_or_default();
-                out.push_str(&format!("{} [{}]{} {}\n", icon, issue.code, loc, issue.message));
+                let loc = issue
+                    .line
+                    .map(|l| format!(" (line {l})"))
+                    .unwrap_or_default();
+                out.push_str(&format!(
+                    "{} [{}]{} {}\n",
+                    icon, issue.code, loc, issue.message
+                ));
             }
         }
         out
@@ -374,7 +411,10 @@ impl Tool for ConfigValidatorTool {
         PermissionLevel::ReadOnly
     }
 
-    async fn execute(&self, input: ToolInput) -> Result<ToolOutput, halcon_core::error::HalconError> {
+    async fn execute(
+        &self,
+        input: ToolInput,
+    ) -> Result<ToolOutput, halcon_core::error::HalconError> {
         let args = &input.arguments;
         let output_fmt = args["output"].as_str().unwrap_or("text");
         let required_keys: Vec<&str> = args["required_keys"]
@@ -418,27 +458,43 @@ impl Tool for ConfigValidatorTool {
             _ => {
                 // Try each format
                 let r = Self::validate_json(&content);
-                if r.valid { r } else {
+                if r.valid {
+                    r
+                } else {
                     let r2 = Self::validate_toml(&content, &required_keys);
-                    if r2.valid { r2 } else {
+                    if r2.valid {
+                        r2
+                    } else {
                         Self::validate_yaml(&content)
                     }
                 }
             }
         };
 
-        let error_count = result.issues.iter().filter(|i| i.severity == "error").count();
-        let warning_count = result.issues.iter().filter(|i| i.severity == "warning").count();
+        let error_count = result
+            .issues
+            .iter()
+            .filter(|i| i.severity == "error")
+            .count();
+        let warning_count = result
+            .issues
+            .iter()
+            .filter(|i| i.severity == "warning")
+            .count();
 
         let out_content = if output_fmt == "json" {
-            let issues_json: Vec<Value> = result.issues.iter().map(|i| {
-                json!({
-                    "severity": i.severity,
-                    "code": i.code,
-                    "message": i.message,
-                    "line": i.line
+            let issues_json: Vec<Value> = result
+                .issues
+                .iter()
+                .map(|i| {
+                    json!({
+                        "severity": i.severity,
+                        "code": i.code,
+                        "message": i.message,
+                        "line": i.line
+                    })
                 })
-            }).collect();
+                .collect();
             serde_json::to_string_pretty(&json!({
                 "path": display_path,
                 "format": result.format,
@@ -446,7 +502,8 @@ impl Tool for ConfigValidatorTool {
                 "errors": error_count,
                 "warnings": warning_count,
                 "issues": issues_json
-            })).unwrap_or_default()
+            }))
+            .unwrap_or_default()
         } else {
             Self::format_report(display_path, &result)
         };
@@ -481,16 +538,31 @@ mod tests {
 
     #[test]
     fn detect_format_toml() {
-        assert_eq!(ConfigValidatorTool::detect_format("Cargo.toml", None), "toml");
-        assert_eq!(ConfigValidatorTool::detect_format("config.json", None), "json");
-        assert_eq!(ConfigValidatorTool::detect_format("docker-compose.yml", None), "yaml");
+        assert_eq!(
+            ConfigValidatorTool::detect_format("Cargo.toml", None),
+            "toml"
+        );
+        assert_eq!(
+            ConfigValidatorTool::detect_format("config.json", None),
+            "json"
+        );
+        assert_eq!(
+            ConfigValidatorTool::detect_format("docker-compose.yml", None),
+            "yaml"
+        );
         assert_eq!(ConfigValidatorTool::detect_format(".env", None), "env");
-        assert_eq!(ConfigValidatorTool::detect_format(".env.production", None), "env");
+        assert_eq!(
+            ConfigValidatorTool::detect_format(".env.production", None),
+            "env"
+        );
     }
 
     #[test]
     fn validate_valid_toml() {
-        let r = ConfigValidatorTool::validate_toml("[package]\nname = \"hello\"\nversion = \"1.0.0\"\n", &[]);
+        let r = ConfigValidatorTool::validate_toml(
+            "[package]\nname = \"hello\"\nversion = \"1.0.0\"\n",
+            &[],
+        );
         assert!(r.valid);
         assert!(r.issues.is_empty() || r.issues.iter().all(|i| i.severity != "error"));
     }
@@ -504,7 +576,8 @@ mod tests {
 
     #[test]
     fn validate_toml_required_keys() {
-        let r = ConfigValidatorTool::validate_toml("[package]\nname = \"x\"\n", &["name", "version"]);
+        let r =
+            ConfigValidatorTool::validate_toml("[package]\nname = \"x\"\n", &["name", "version"]);
         assert!(r.issues.iter().any(|i| i.message.contains("version")));
     }
 
@@ -523,7 +596,9 @@ mod tests {
 
     #[test]
     fn validate_env_valid() {
-        let r = ConfigValidatorTool::validate_env("DATABASE_URL=postgres://localhost/db\nDEBUG=false\n");
+        let r = ConfigValidatorTool::validate_env(
+            "DATABASE_URL=postgres://localhost/db\nDEBUG=false\n",
+        );
         assert!(r.valid);
     }
 
@@ -548,11 +623,14 @@ mod tests {
     #[tokio::test]
     async fn execute_inline_json() {
         let tool = ConfigValidatorTool::new();
-        let out = tool.execute(ToolInput {
-            tool_use_id: "t1".into(),
-            arguments: serde_json::json!({ "content": r#"{"name":"test"}"#, "format": "json" }),
-            working_directory: "/tmp".into(),
-        }).await.unwrap();
+        let out = tool
+            .execute(ToolInput {
+                tool_use_id: "t1".into(),
+                arguments: serde_json::json!({ "content": r#"{"name":"test"}"#, "format": "json" }),
+                working_directory: "/tmp".into(),
+            })
+            .await
+            .unwrap();
         assert!(!out.is_error);
         assert!(out.content.contains("VALID") || out.content.contains("valid"));
     }
@@ -560,11 +638,14 @@ mod tests {
     #[tokio::test]
     async fn execute_missing_input() {
         let tool = ConfigValidatorTool::new();
-        let out = tool.execute(ToolInput {
-            tool_use_id: "t1".into(),
-            arguments: serde_json::json!({}),
-            working_directory: "/tmp".into(),
-        }).await.unwrap();
+        let out = tool
+            .execute(ToolInput {
+                tool_use_id: "t1".into(),
+                arguments: serde_json::json!({}),
+                working_directory: "/tmp".into(),
+            })
+            .await
+            .unwrap();
         assert!(out.is_error);
     }
 }

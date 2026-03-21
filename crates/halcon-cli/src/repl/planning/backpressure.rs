@@ -125,14 +125,11 @@ impl BackpressureGuard {
     }
 
     fn get_or_default(&self, provider: &str) -> Arc<Semaphore> {
-        self.semaphores
-            .get(provider)
-            .cloned()
-            .unwrap_or_else(|| {
-                Arc::new(Semaphore::new(
-                    self.config.max_concurrent_per_provider as usize,
-                ))
-            })
+        self.semaphores.get(provider).cloned().unwrap_or_else(|| {
+            Arc::new(Semaphore::new(
+                self.config.max_concurrent_per_provider as usize,
+            ))
+        })
     }
 
     fn try_acquire_inner(
@@ -237,7 +234,10 @@ mod tests {
         let elapsed = start.elapsed();
 
         assert!(result.is_err());
-        assert!(elapsed >= Duration::from_millis(900), "should have waited ~1s");
+        assert!(
+            elapsed >= Duration::from_millis(900),
+            "should have waited ~1s"
+        );
     }
 
     #[test]

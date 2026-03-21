@@ -168,12 +168,10 @@ impl GitEventListener {
 
             // Poll repository state.
             let path_clone = config.path.clone();
-            let ctx_opt = tokio::task::spawn_blocking(move || {
-                collect_git_context(&path_clone)
-            })
-            .await
-            .ok()
-            .flatten();
+            let ctx_opt = tokio::task::spawn_blocking(move || collect_git_context(&path_clone))
+                .await
+                .ok()
+                .flatten();
 
             if let Some(ctx) = ctx_opt {
                 let new_snap = Snapshot::from_context(&ctx);
@@ -248,10 +246,15 @@ impl GitEventListener {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::context::{GitContext, WorktreeStatus};
+    use super::*;
 
-    fn make_snap(branch: Option<&str>, sha: Option<&str>, conflicts: Vec<&str>, clean: bool) -> Snapshot {
+    fn make_snap(
+        branch: Option<&str>,
+        sha: Option<&str>,
+        conflicts: Vec<&str>,
+        clean: bool,
+    ) -> Snapshot {
         Snapshot {
             branch: branch.map(String::from),
             head_sha: sha.map(String::from),
@@ -260,11 +263,20 @@ mod tests {
         }
     }
 
-    fn make_ctx(branch: Option<&str>, sha: Option<&str>, subject: Option<&str>, conflicts: Vec<&str>) -> GitContext {
+    fn make_ctx(
+        branch: Option<&str>,
+        sha: Option<&str>,
+        subject: Option<&str>,
+        conflicts: Vec<&str>,
+    ) -> GitContext {
         GitContext {
             repo_root: PathBuf::from("/repo"),
             branch: branch.map(String::from),
-            status: if conflicts.is_empty() { WorktreeStatus::Clean } else { WorktreeStatus::Conflicted },
+            status: if conflicts.is_empty() {
+                WorktreeStatus::Clean
+            } else {
+                WorktreeStatus::Conflicted
+            },
             commits_ahead: 0,
             commits_behind: 0,
             conflict_files: conflicts.into_iter().map(String::from).collect(),
@@ -283,8 +295,10 @@ mod tests {
         GitEventListener::emit_events(&old, &new, &ctx, &tx);
 
         let event = rx.try_recv().expect("should have event");
-        assert!(matches!(event, GitEvent::BranchChanged { from: Some(ref f), to: Some(ref t) }
-            if f == "main" && t == "feature/x"));
+        assert!(
+            matches!(event, GitEvent::BranchChanged { from: Some(ref f), to: Some(ref t) }
+            if f == "main" && t == "feature/x")
+        );
     }
 
     #[test]
@@ -292,12 +306,19 @@ mod tests {
         let (tx, mut rx) = broadcast::channel(16);
         let old = make_snap(Some("main"), Some("abc1234"), vec![], false);
         let new = make_snap(Some("main"), Some("def5678"), vec![], false);
-        let ctx = make_ctx(Some("main"), Some("def5678"), Some("feat: add thing"), vec![]);
+        let ctx = make_ctx(
+            Some("main"),
+            Some("def5678"),
+            Some("feat: add thing"),
+            vec![],
+        );
         GitEventListener::emit_events(&old, &new, &ctx, &tx);
 
         let event = rx.try_recv().expect("should have event");
-        assert!(matches!(event, GitEvent::CommitMade { ref new_sha, ref subject, .. }
-            if new_sha == "def5678" && subject.as_deref() == Some("feat: add thing")));
+        assert!(
+            matches!(event, GitEvent::CommitMade { ref new_sha, ref subject, .. }
+            if new_sha == "def5678" && subject.as_deref() == Some("feat: add thing"))
+        );
     }
 
     #[test]
@@ -309,7 +330,9 @@ mod tests {
         GitEventListener::emit_events(&old, &new, &ctx, &tx);
 
         let event = rx.try_recv().expect("should have event");
-        assert!(matches!(event, GitEvent::ConflictDetected { ref files } if files.contains(&"src/lib.rs".to_string())));
+        assert!(
+            matches!(event, GitEvent::ConflictDetected { ref files } if files.contains(&"src/lib.rs".to_string()))
+        );
     }
 
     #[test]
@@ -333,7 +356,10 @@ mod tests {
         GitEventListener::emit_events(&old, &new, &ctx, &tx);
 
         let event = rx.try_recv().expect("should have event");
-        assert!(matches!(event, GitEvent::CleanStateChanged { is_clean: false }));
+        assert!(matches!(
+            event,
+            GitEvent::CleanStateChanged { is_clean: false }
+        ));
     }
 
     #[test]
@@ -342,7 +368,10 @@ mod tests {
         let snap = make_snap(Some("main"), Some("abc"), vec![], true);
         let ctx = make_ctx(Some("main"), Some("abc"), None, vec![]);
         GitEventListener::emit_events(&snap, &snap.clone(), &ctx, &tx);
-        assert!(rx.try_recv().is_err(), "no events should be emitted when nothing changed");
+        assert!(
+            rx.try_recv().is_err(),
+            "no events should be emitted when nothing changed"
+        );
     }
 
     #[test]

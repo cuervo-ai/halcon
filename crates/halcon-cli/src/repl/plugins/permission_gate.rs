@@ -6,8 +6,8 @@
 //! 3. Per-plugin supervisor restrictions (can only tighten, never relax)
 //! 4. Whether the cost budget is exhausted
 
-use std::collections::HashMap;
 use super::manifest::{RiskTier, ToolCapabilityDescriptor};
+use std::collections::HashMap;
 
 // ─── Decision ─────────────────────────────────────────────────────────────────
 
@@ -167,14 +167,16 @@ mod tests {
     fn budget_low_denies_any_risk() {
         let gate = PluginPermissionGate::default_permissive();
         let result = gate.evaluate("plugin-a", &cap("tool", RiskTier::Low), true);
-        assert!(matches!(result, PluginPermissionDecision::Denied { reason } if reason.contains("budget exhausted")));
+        assert!(
+            matches!(result, PluginPermissionDecision::Denied { reason } if reason.contains("budget exhausted"))
+        );
     }
 
     #[test]
     fn supervisor_restriction_tightens_ceiling() {
         let mut gate = PluginPermissionGate::default_permissive(); // global = High
         gate.supervisor_restrict("plugin-a", RiskTier::Low); // restrict to Low
-        // Medium now exceeds the per-plugin ceiling
+                                                             // Medium now exceeds the per-plugin ceiling
         let result = gate.evaluate("plugin-a", &cap("tool", RiskTier::Medium), false);
         assert!(matches!(result, PluginPermissionDecision::Denied { .. }));
     }

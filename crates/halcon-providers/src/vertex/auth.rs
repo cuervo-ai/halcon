@@ -25,8 +25,7 @@ impl GcpConfig {
     /// Returns `None` if `ANTHROPIC_VERTEX_PROJECT_ID` is absent.
     pub fn from_env() -> Option<Self> {
         let project_id = std::env::var("ANTHROPIC_VERTEX_PROJECT_ID").ok()?;
-        let region = std::env::var("CLOUD_ML_REGION")
-            .unwrap_or_else(|_| "us-east5".to_string());
+        let region = std::env::var("CLOUD_ML_REGION").unwrap_or_else(|_| "us-east5".to_string());
         Some(Self { project_id, region })
     }
 
@@ -99,9 +98,15 @@ mod tests {
             region: "us-east5".into(),
         };
         let url = cfg.stream_raw_predict_url("claude-sonnet-4-6");
-        assert!(url.contains("us-east5-aiplatform.googleapis.com"), "URL={url}");
+        assert!(
+            url.contains("us-east5-aiplatform.googleapis.com"),
+            "URL={url}"
+        );
         assert!(url.contains("my-project-123"), "URL={url}");
-        assert!(url.contains("publishers/anthropic/models/claude-sonnet-4-6"), "URL={url}");
+        assert!(
+            url.contains("publishers/anthropic/models/claude-sonnet-4-6"),
+            "URL={url}"
+        );
         assert!(url.ends_with(":streamRawPredict"), "URL={url}");
     }
 

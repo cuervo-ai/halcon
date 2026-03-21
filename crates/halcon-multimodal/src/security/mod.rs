@@ -27,9 +27,15 @@ pub struct ValidatedMedia {
 }
 
 impl ValidatedMedia {
-    pub fn is_image(&self) -> bool { self.mime.is_image() }
-    pub fn is_audio(&self) -> bool { self.mime.is_audio() }
-    pub fn is_video(&self) -> bool { self.mime.is_video() }
+    pub fn is_image(&self) -> bool {
+        self.mime.is_image()
+    }
+    pub fn is_audio(&self) -> bool {
+        self.mime.is_audio()
+    }
+    pub fn is_video(&self) -> bool {
+        self.mime.is_video()
+    }
 
     /// Convert to `ImageSource::Base64` for provider ingestion.
     /// Fails if this is not an image MIME type.
@@ -37,7 +43,8 @@ impl ValidatedMedia {
         use base64::Engine as _;
         let media_type = self.mime.to_image_media_type().ok_or_else(|| {
             MultimodalError::UnsupportedMimeType(format!(
-                "{} is not an image", self.mime.as_mime_str()
+                "{} is not an image",
+                self.mime.as_mime_str()
             ))
         })?;
         let data = base64::engine::general_purpose::STANDARD.encode(&self.data);
@@ -48,14 +55,18 @@ impl ValidatedMedia {
 /// Validates media inputs against security policies.
 #[derive(Debug, Clone)]
 pub struct MediaValidator {
-    limits:         SecurityLimits,
-    strip_exif:     bool,
+    limits: SecurityLimits,
+    strip_exif: bool,
     privacy_strict: bool,
 }
 
 impl MediaValidator {
     pub fn new(limits: SecurityLimits, strip_exif: bool, privacy_strict: bool) -> Self {
-        Self { limits, strip_exif, privacy_strict }
+        Self {
+            limits,
+            strip_exif,
+            privacy_strict,
+        }
     }
 
     /// Validate raw bytes.
@@ -80,10 +91,16 @@ impl MediaValidator {
                     // PNG IHDR chunk: bytes 16-23 contain width (4 bytes BE) + height (4 bytes BE).
                     if stripped.len() >= 24 {
                         let w = u32::from_be_bytes([
-                            stripped[16], stripped[17], stripped[18], stripped[19],
+                            stripped[16],
+                            stripped[17],
+                            stripped[18],
+                            stripped[19],
                         ]);
                         let h = u32::from_be_bytes([
-                            stripped[20], stripped[21], stripped[22], stripped[23],
+                            stripped[20],
+                            stripped[21],
+                            stripped[22],
+                            stripped[23],
                         ]);
                         if w > 0 && h > 0 {
                             self.limits.check_image_dimensions(w, h)?;
@@ -97,9 +114,11 @@ impl MediaValidator {
                     while i + 8 < stripped.len() {
                         if stripped[i] == 0xFF {
                             let marker = stripped[i + 1];
-                            if matches!(marker, 0xC0 | 0xC1 | 0xC2 | 0xC3) {
-                                let h = u16::from_be_bytes([stripped[i + 5], stripped[i + 6]]) as u32;
-                                let w = u16::from_be_bytes([stripped[i + 7], stripped[i + 8]]) as u32;
+                            if matches!(marker, 0xC0..=0xC3) {
+                                let h =
+                                    u16::from_be_bytes([stripped[i + 5], stripped[i + 6]]) as u32;
+                                let w =
+                                    u16::from_be_bytes([stripped[i + 7], stripped[i + 8]]) as u32;
                                 if w > 0 && h > 0 {
                                     self.limits.check_image_dimensions(w, h)?;
                                 }
@@ -107,7 +126,8 @@ impl MediaValidator {
                             }
                             // Skip marker: 2-byte marker + 2-byte length field (length includes itself).
                             if i + 3 < stripped.len() {
-                                let len = u16::from_be_bytes([stripped[i + 2], stripped[i + 3]]) as usize;
+                                let len =
+                                    u16::from_be_bytes([stripped[i + 2], stripped[i + 3]]) as usize;
                                 i += 2 + len;
                             } else {
                                 break;
@@ -121,7 +141,11 @@ impl MediaValidator {
             }
         }
 
-        Ok(ValidatedMedia { data: stripped, mime, original_size })
+        Ok(ValidatedMedia {
+            data: stripped,
+            mime,
+            original_size,
+        })
     }
 
     /// Validate a local file path.
@@ -180,7 +204,10 @@ mod tests {
 
     #[test]
     fn rejects_too_large() {
-        let limits = SecurityLimits { max_file_bytes: 4, ..Default::default() };
+        let limits = SecurityLimits {
+            max_file_bytes: 4,
+            ..Default::default()
+        };
         let v = MediaValidator::new(limits, false, false);
         let data = vec![0xFF, 0xD8, 0xFF, 0xD9, 0x00]; // 5 bytes
         assert!(v.validate_bytes(data).is_err());
@@ -209,7 +236,7 @@ mod tests {
         data.extend_from_slice(b"WAVE"); // format
         data.extend_from_slice(&[0x66, 0x6D, 0x74, 0x20]); // "fmt " subchunk
         data.extend_from_slice(&[0x10, 0x00, 0x00, 0x00]); // subchunk size = 16
-        // PCM format
+                                                           // PCM format
         data.extend_from_slice(&[0x01, 0x00]); // audio format = PCM
         data.extend_from_slice(&[0x01, 0x00]); // num channels = 1
         data.extend_from_slice(&[0x44, 0xAC, 0x00, 0x00]); // sample rate = 44100
@@ -219,20 +246,22 @@ mod tests {
         let vm = validator().validate_bytes(data).unwrap();
         assert!(vm.is_audio(), "WAV should be detected as audio");
         let err = vm.to_image_source().unwrap_err();
-        assert!(err.to_string().contains("not an image"),
-            "Audio media should fail to_image_source; got: {err}");
+        assert!(
+            err.to_string().contains("not an image"),
+            "Audio media should fail to_image_source; got: {err}"
+        );
     }
 
     #[test]
     fn exif_stripping_enabled_removes_app1() {
         // Minimal JPEG with an APP1 marker (0xFF 0xE1) followed by data
         let data = vec![
-            0xFF, 0xD8,             // SOI
-            0xFF, 0xE1,             // APP1 marker
-            0x00, 0x08,             // length = 8 (includes length field)
+            0xFF, 0xD8, // SOI
+            0xFF, 0xE1, // APP1 marker
+            0x00, 0x08, // length = 8 (includes length field)
             0x45, 0x78, 0x69, 0x66, // "Exif"
-            0x00, 0x00,             // Exif null padding
-            0xFF, 0xD9,             // EOI
+            0x00, 0x00, // Exif null padding
+            0xFF, 0xD9, // EOI
         ];
         let v = MediaValidator::new(SecurityLimits::default(), true, false);
         let vm = v.validate_bytes(data).unwrap();
@@ -247,12 +276,7 @@ mod tests {
     #[test]
     fn no_strip_exif_preserves_app1() {
         let data = vec![
-            0xFF, 0xD8,
-            0xFF, 0xE1,
-            0x00, 0x08,
-            0x45, 0x78, 0x69, 0x66,
-            0x00, 0x00,
-            0xFF, 0xD9,
+            0xFF, 0xD8, 0xFF, 0xE1, 0x00, 0x08, 0x45, 0x78, 0x69, 0x66, 0x00, 0x00, 0xFF, 0xD9,
         ];
         let v = MediaValidator::new(SecurityLimits::default(), false, false);
         let vm = v.validate_bytes(data.clone()).unwrap();
@@ -274,8 +298,8 @@ mod tests {
         // Craft a PNG header claiming 100000×100000 pixels (decompression bomb).
         let mut data = vec![
             0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // PNG magic (8 bytes)
-            0x00, 0x00, 0x00, 0x0D,                            // IHDR chunk length = 13
-            0x49, 0x48, 0x44, 0x52,                            // "IHDR" chunk type
+            0x00, 0x00, 0x00, 0x0D, // IHDR chunk length = 13
+            0x49, 0x48, 0x44, 0x52, // "IHDR" chunk type
         ];
         // width = 100000 (0x000186A0)
         data.extend_from_slice(&[0x00, 0x01, 0x86, 0xA0]);
@@ -296,8 +320,8 @@ mod tests {
         // PNG header with 100×100 dimensions — well within limits.
         let mut data = vec![
             0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, // PNG magic
-            0x00, 0x00, 0x00, 0x0D,                            // IHDR length = 13
-            0x49, 0x48, 0x44, 0x52,                            // "IHDR"
+            0x00, 0x00, 0x00, 0x0D, // IHDR length = 13
+            0x49, 0x48, 0x44, 0x52, // "IHDR"
         ];
         data.extend_from_slice(&[0x00, 0x00, 0x00, 0x64]); // width = 100
         data.extend_from_slice(&[0x00, 0x00, 0x00, 0x64]); // height = 100

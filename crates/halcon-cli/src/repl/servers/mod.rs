@@ -14,18 +14,10 @@
 pub mod architecture;
 pub mod codebase;
 pub mod requirements;
-pub mod workflow;
-pub mod test_results;
 pub mod runtime_metrics;
 pub mod security;
 pub mod support;
+pub mod test_results;
+pub mod workflow;
 
 // Re-exports to maintain backward compatibility for callers outside servers/
-pub use architecture::ArchitectureServer;
-pub use codebase::CodebaseServer;
-pub use requirements::RequirementsServer;
-pub use workflow::WorkflowServer;
-pub use test_results::TestResultsServer;
-pub use runtime_metrics::RuntimeMetricsServer;
-pub use security::SecurityServer;
-pub use support::SupportServer;

@@ -22,7 +22,9 @@ pub fn render_log_viewer(ui: &mut Ui, logs: &VecDeque<LogEntry>, max_lines: usiz
                     halcon_api::types::observability::LogLevel::Error => HalconTheme::ERROR,
                     halcon_api::types::observability::LogLevel::Warn => HalconTheme::WARNING,
                     halcon_api::types::observability::LogLevel::Info => HalconTheme::INFO,
-                    halcon_api::types::observability::LogLevel::Debug => HalconTheme::TEXT_SECONDARY,
+                    halcon_api::types::observability::LogLevel::Debug => {
+                        HalconTheme::TEXT_SECONDARY
+                    }
                     halcon_api::types::observability::LogLevel::Trace => HalconTheme::TEXT_MUTED,
                 };
 
@@ -39,11 +41,7 @@ pub fn render_log_viewer(ui: &mut Ui, logs: &VecDeque<LogEntry>, max_lines: usiz
                             .monospace()
                             .size(10.0),
                     );
-                    ui.label(
-                        RichText::new(&entry.message)
-                            .monospace()
-                            .size(10.0),
-                    );
+                    ui.label(RichText::new(&entry.message).monospace().size(10.0));
                 });
             }
         });

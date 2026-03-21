@@ -32,9 +32,8 @@ impl HTMLParser {
         let document = Html::parse_document(html);
 
         // ── Title ────────────────────────────────────────────────────────────
-        let title_sel = Selector::parse("title").map_err(|e| {
-            SearchError::ConfigError(format!("title selector error: {e:?}"))
-        })?;
+        let title_sel = Selector::parse("title")
+            .map_err(|e| SearchError::ConfigError(format!("title selector error: {e:?}")))?;
         let title = document
             .select(&title_sel)
             .next()
@@ -148,7 +147,10 @@ fn extract_text_excluding_scripts(document: &scraper::Html) -> String {
         match node.value() {
             Node::Element(el) => {
                 // Skip script/style/noscript/head subtrees entirely
-                if matches!(el.name(), "script" | "style" | "noscript" | "head" | "meta" | "link") {
+                if matches!(
+                    el.name(),
+                    "script" | "style" | "noscript" | "head" | "meta" | "link"
+                ) {
                     continue;
                 }
                 // Push children in reverse order to maintain document order
@@ -174,7 +176,11 @@ fn extract_text_excluding_scripts(document: &scraper::Html) -> String {
     }
 
     // Normalize whitespace
-    parts.join(" ").split_whitespace().collect::<Vec<_>>().join(" ")
+    parts
+        .join(" ")
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 // ─── Tests ────────────────────────────────────────────────────────────────────
@@ -209,7 +215,11 @@ mod tests {
         let doc = parser.parse(html, &url("https://example.com/")).unwrap();
         assert!(doc.text.contains("Visible text"));
         assert!(doc.text.contains("More visible"));
-        assert!(!doc.text.contains("hidden script content"), "script leaked: {}", doc.text);
+        assert!(
+            !doc.text.contains("hidden script content"),
+            "script leaked: {}",
+            doc.text
+        );
     }
 
     #[test]
@@ -221,7 +231,11 @@ mod tests {
         let parser = HTMLParser::new();
         let doc = parser.parse(html, &url("https://example.com/")).unwrap();
         assert!(doc.text.contains("Real content"));
-        assert!(!doc.text.contains("hidden-css"), "style leaked: {}", doc.text);
+        assert!(
+            !doc.text.contains("hidden-css"),
+            "style leaked: {}",
+            doc.text
+        );
     }
 
     #[test]
@@ -249,7 +263,10 @@ mod tests {
         </head><body>content</body></html>"#;
         let parser = HTMLParser::new();
         let doc = parser.parse(html, &url("https://example.com/")).unwrap();
-        assert_eq!(doc.metadata.description.as_deref(), Some("A great page about Rust"));
+        assert_eq!(
+            doc.metadata.description.as_deref(),
+            Some("A great page about Rust")
+        );
     }
 
     #[test]

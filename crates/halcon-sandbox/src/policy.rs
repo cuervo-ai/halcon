@@ -116,7 +116,9 @@ impl SandboxPolicy {
         // Privilege escalation check.
         if !self.allow_privilege_escalation {
             for escalation_cmd in &["sudo ", "sudo\t", " su ", "\tsu\t", "doas ", "pkexec "] {
-                if cmd_lower.contains(escalation_cmd) || cmd_lower.starts_with(&escalation_cmd.trim_start()) {
+                if cmd_lower.contains(escalation_cmd)
+                    || cmd_lower.starts_with(escalation_cmd.trim_start())
+                {
                     return Err(PolicyViolation {
                         kind: PolicyViolationKind::PrivilegeEscalation,
                         message: format!(
@@ -180,7 +182,9 @@ impl SandboxPolicy {
 
         // Directory escape check.
         if !self.allow_writes_outside_workdir
-            && (command.contains("../../") || command.contains("/etc/") || command.contains("/var/"))
+            && (command.contains("../../")
+                || command.contains("/etc/")
+                || command.contains("/var/"))
         {
             // Only flag writes, not reads.
             let write_indicators = [">", "tee ", "cp ", "mv ", "install "];
@@ -243,14 +247,20 @@ mod tests {
     fn sudo_blocked() {
         let result = policy().validate("sudo apt-get install vim");
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err().kind, PolicyViolationKind::PrivilegeEscalation));
+        assert!(matches!(
+            result.unwrap_err().kind,
+            PolicyViolationKind::PrivilegeEscalation
+        ));
     }
 
     #[test]
     fn network_blocked_by_default() {
         let result = policy().validate("curl https://example.com");
         assert!(result.is_err());
-        assert!(matches!(result.unwrap_err().kind, PolicyViolationKind::NetworkDisallowed));
+        assert!(matches!(
+            result.unwrap_err().kind,
+            PolicyViolationKind::NetworkDisallowed
+        ));
     }
 
     #[test]

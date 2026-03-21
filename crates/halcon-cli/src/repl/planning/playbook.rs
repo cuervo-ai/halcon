@@ -91,7 +91,9 @@ pub struct Playbook {
     pub priority: i32,
 }
 
-fn default_confidence() -> f64 { 0.9 }
+fn default_confidence() -> f64 {
+    0.9
+}
 
 // ---------------------------------------------------------------------------
 // PlaybookPlanner
@@ -107,7 +109,9 @@ pub struct PlaybookPlanner {
 impl PlaybookPlanner {
     /// Create a planner with no playbooks. Useful for testing.
     pub fn empty() -> Self {
-        Self { playbooks: Vec::new() }
+        Self {
+            playbooks: Vec::new(),
+        }
     }
 
     /// Load playbooks from `dir/*.yaml` and `dir/*.yml`.
@@ -176,9 +180,9 @@ impl PlaybookPlanner {
     /// Exported for testing: attempt to match a message against loaded playbooks.
     pub fn find_match(&self, user_message: &str) -> Option<&Playbook> {
         let lower = user_message.to_lowercase();
-        self.playbooks.iter().find(|p| {
-            p.triggers.iter().any(|t| lower.contains(&t.to_lowercase()))
-        })
+        self.playbooks
+            .iter()
+            .find(|p| p.triggers.iter().any(|t| lower.contains(&t.to_lowercase())))
     }
 
     /// Convert a `Playbook` to an `ExecutionPlan` (flat, no sub-playbook expansion).
@@ -315,9 +319,9 @@ impl PlaybookPlanner {
 
         // Extract trigger keywords from user_message (≥4 chars, non-stop words).
         let stop_words = [
-            "this", "that", "with", "from", "have", "will", "your", "what",
-            "make", "some", "into", "over", "then", "them", "their", "when",
-            "there", "these", "which", "while", "about", "would", "could",
+            "this", "that", "with", "from", "have", "will", "your", "what", "make", "some", "into",
+            "over", "then", "them", "their", "when", "there", "these", "which", "while", "about",
+            "would", "could",
         ];
         let mut triggers: Vec<String> = user_message
             .to_lowercase()
@@ -346,7 +350,11 @@ impl PlaybookPlanner {
             .filter(|s| !s.is_empty())
             .collect::<Vec<_>>()
             .join("-");
-        let slug = if slug.len() > 40 { slug[..40].to_string() } else { slug };
+        let slug = if slug.len() > 40 {
+            slug[..40].to_string()
+        } else {
+            slug
+        };
 
         // Build YAML content.
         let triggers_yaml: String = triggers
@@ -708,7 +716,7 @@ steps:
         let pb = p.find_match("minimal task").unwrap();
         let step = &pb.steps[0];
         assert_eq!(step.confidence, 0.9); // default
-        assert!(!step.parallel);          // default
+        assert!(!step.parallel); // default
         assert!(step.tool_name.is_none()); // not set
     }
 
@@ -784,8 +792,8 @@ steps:
         // Test trigger keyword extraction logic.
         let user_message = "deploy the application to staging environment";
         let stop_words = [
-            "this", "that", "with", "from", "have", "will", "your", "what",
-            "make", "some", "into", "over", "then", "them", "their", "when",
+            "this", "that", "with", "from", "have", "will", "your", "what", "make", "some", "into",
+            "over", "then", "them", "their", "when",
         ];
 
         let triggers: Vec<String> = user_message
@@ -801,9 +809,15 @@ steps:
             .take(5)
             .collect();
 
-        assert!(!triggers.is_empty(), "Should extract at least one trigger word");
+        assert!(
+            !triggers.is_empty(),
+            "Should extract at least one trigger word"
+        );
         // "deploy", "application", "staging", "environment" should be in triggers.
-        assert!(triggers.contains(&"deploy".to_string()), "Expected 'deploy' in triggers");
+        assert!(
+            triggers.contains(&"deploy".to_string()),
+            "Expected 'deploy' in triggers"
+        );
         assert!(triggers.len() <= 5, "Max 5 triggers");
     }
 
@@ -839,7 +853,10 @@ steps:
             description: "run checks".into(),
             triggers: vec!["check".into()],
             goal: "run checks".into(),
-            steps: vec![make_step("Lint code", "bash"), make_step("Run tests", "bash")],
+            steps: vec![
+                make_step("Lint code", "bash"),
+                make_step("Run tests", "bash"),
+            ],
             requires_confirmation: false,
             priority: 0,
         };
@@ -858,7 +875,11 @@ steps:
         let plan = planner.to_plan_composed(&planner.playbooks[1]);
 
         // Should have 3 steps: 2 from "checks" + 1 own step.
-        assert_eq!(plan.steps.len(), 3, "Should expand sub-playbook steps inline");
+        assert_eq!(
+            plan.steps.len(),
+            3,
+            "Should expand sub-playbook steps inline"
+        );
         assert_eq!(plan.steps[0].description, "Lint code");
         assert_eq!(plan.steps[1].description, "Run tests");
         assert_eq!(plan.steps[2].description, "Push to server");
@@ -871,10 +892,7 @@ steps:
             description: "".into(),
             triggers: vec!["broken".into()],
             goal: "broken goal".into(),
-            steps: vec![
-                make_sub_step("nonexistent"),
-                make_step("Real step", "bash"),
-            ],
+            steps: vec![make_sub_step("nonexistent"), make_step("Real step", "bash")],
             requires_confirmation: false,
             priority: 0,
         };
@@ -929,8 +947,8 @@ steps:
         // a expands b (depth 1) → c (depth 2) → d (depth 3, within limit) → "D step" + "C own step"
         // Then a's own "A own step"
         let plan = planner.to_plan_composed(&planner.playbooks[3]); // a is index 3
-        // a → [b→[c→[d→["D step"], "C own step"]], "A own step"]
-        // = ["D step", "C own step", "A own step"] → 3 steps
+                                                                    // a → [b→[c→[d→["D step"], "C own step"]], "A own step"]
+                                                                    // = ["D step", "C own step", "A own step"] → 3 steps
         assert_eq!(plan.steps.len(), 3);
         assert_eq!(plan.steps[0].description, "D step");
         assert_eq!(plan.steps[1].description, "C own step");
@@ -958,7 +976,10 @@ steps:
             description: "".into(),
             triggers: vec!["check".into()],
             goal: "run quick checks".into(),
-            steps: vec![make_step("Run linter", "bash"), make_step("Run unit tests", "bash")],
+            steps: vec![
+                make_step("Run linter", "bash"),
+                make_step("Run unit tests", "bash"),
+            ],
             requires_confirmation: false,
             priority: 0,
         };
@@ -967,12 +988,18 @@ steps:
             description: "".into(),
             triggers: vec!["full deploy".into()],
             goal: "full deployment".into(),
-            steps: vec![make_sub_step("quick-checks"), make_step("Deploy binary", "bash")],
+            steps: vec![
+                make_sub_step("quick-checks"),
+                make_step("Deploy binary", "bash"),
+            ],
             requires_confirmation: false,
             priority: 10,
         };
         let planner = planner_with(vec![checks, deploy]);
-        let result = planner.plan("full deploy to production", &[]).await.unwrap();
+        let result = planner
+            .plan("full deploy to production", &[])
+            .await
+            .unwrap();
         assert!(result.is_some());
         let plan = result.unwrap();
         assert_eq!(plan.steps.len(), 3);

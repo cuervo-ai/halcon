@@ -24,11 +24,15 @@ const MAX_OUTPUT_BYTES: usize = 64 * 1024; // 64 KB for listing output
 pub struct ArchiveTool;
 
 impl ArchiveTool {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 }
 
 impl Default for ArchiveTool {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ─── Format detection ─────────────────────────────────────────────────────────
@@ -44,11 +48,21 @@ enum ArchiveFormat {
 
 fn detect_format(path: &str) -> Option<ArchiveFormat> {
     let p = path.to_lowercase();
-    if p.ends_with(".zip") { return Some(ArchiveFormat::Zip); }
-    if p.ends_with(".tar.gz") || p.ends_with(".tgz") { return Some(ArchiveFormat::TarGz); }
-    if p.ends_with(".tar.bz2") || p.ends_with(".tbz2") { return Some(ArchiveFormat::TarBz2); }
-    if p.ends_with(".tar.xz") || p.ends_with(".txz") { return Some(ArchiveFormat::TarXz); }
-    if p.ends_with(".tar") { return Some(ArchiveFormat::Tar); }
+    if p.ends_with(".zip") {
+        return Some(ArchiveFormat::Zip);
+    }
+    if p.ends_with(".tar.gz") || p.ends_with(".tgz") {
+        return Some(ArchiveFormat::TarGz);
+    }
+    if p.ends_with(".tar.bz2") || p.ends_with(".tbz2") {
+        return Some(ArchiveFormat::TarBz2);
+    }
+    if p.ends_with(".tar.xz") || p.ends_with(".txz") {
+        return Some(ArchiveFormat::TarXz);
+    }
+    if p.ends_with(".tar") {
+        return Some(ArchiveFormat::Tar);
+    }
     None
 }
 
@@ -115,7 +129,11 @@ async fn run_cmd(
 }
 
 fn truncate(s: &str, max: usize) -> &str {
-    if s.len() <= max { s } else { &s[..max] }
+    if s.len() <= max {
+        s
+    } else {
+        &s[..max]
+    }
 }
 
 // ─── Operations ───────────────────────────────────────────────────────────────
@@ -165,7 +183,7 @@ async fn op_create(
     };
 
     match result {
-        Ok((_, stderr, code)) if code == 0 => ToolOutput {
+        Ok((_, _stderr, 0)) => ToolOutput {
             tool_use_id: "archive".into(),
             content: format!("Created '{archive_path}' successfully."),
             is_error: false,
@@ -215,28 +233,60 @@ async fn op_extract(
 
     let result: std::result::Result<(String, String, i32), String> = match format {
         ArchiveFormat::Zip => {
-            run_cmd("unzip", &["-o", archive_path, "-d", dest], working_dir, timeout_secs).await
+            run_cmd(
+                "unzip",
+                &["-o", archive_path, "-d", dest],
+                working_dir,
+                timeout_secs,
+            )
+            .await
         }
         ArchiveFormat::TarGz => {
-            run_cmd("tar", &["-xzf", archive_path, "-C", dest], working_dir, timeout_secs).await
+            run_cmd(
+                "tar",
+                &["-xzf", archive_path, "-C", dest],
+                working_dir,
+                timeout_secs,
+            )
+            .await
         }
         ArchiveFormat::TarBz2 => {
-            run_cmd("tar", &["-xjf", archive_path, "-C", dest], working_dir, timeout_secs).await
+            run_cmd(
+                "tar",
+                &["-xjf", archive_path, "-C", dest],
+                working_dir,
+                timeout_secs,
+            )
+            .await
         }
         ArchiveFormat::TarXz => {
-            run_cmd("tar", &["-xJf", archive_path, "-C", dest], working_dir, timeout_secs).await
+            run_cmd(
+                "tar",
+                &["-xJf", archive_path, "-C", dest],
+                working_dir,
+                timeout_secs,
+            )
+            .await
         }
         ArchiveFormat::Tar => {
-            run_cmd("tar", &["-xf", archive_path, "-C", dest], working_dir, timeout_secs).await
+            run_cmd(
+                "tar",
+                &["-xf", archive_path, "-C", dest],
+                working_dir,
+                timeout_secs,
+            )
+            .await
         }
     };
 
     match result {
-        Ok((_, stderr, code)) if code == 0 => ToolOutput {
+        Ok((_, _stderr, 0)) => ToolOutput {
             tool_use_id: "archive".into(),
             content: format!("Extracted '{archive_path}' → '{dest}'."),
             is_error: false,
-            metadata: Some(json!({ "operation": "extract", "archive": archive_path, "destination": dest })),
+            metadata: Some(
+                json!({ "operation": "extract", "archive": archive_path, "destination": dest }),
+            ),
         },
         Ok((_, stderr, code)) => ToolOutput {
             tool_use_id: "archive".into(),
@@ -272,20 +322,20 @@ async fn op_list(
         ArchiveFormat::Zip => {
             run_cmd("unzip", &["-l", archive_path], working_dir, timeout_secs).await
         }
-        _ => {
-            run_cmd("tar", &["-tvf", archive_path], working_dir, timeout_secs).await
-        }
+        _ => run_cmd("tar", &["-tvf", archive_path], working_dir, timeout_secs).await,
     };
 
     match result {
-        Ok((stdout, stderr, code)) if code == 0 => {
+        Ok((stdout, _stderr, 0)) => {
             let listing = truncate(&stdout, MAX_OUTPUT_BYTES);
             let lines: usize = listing.lines().count();
             ToolOutput {
                 tool_use_id: "archive".into(),
                 content: format!("Contents of '{archive_path}' ({lines} entries):\n{listing}"),
                 is_error: false,
-                metadata: Some(json!({ "operation": "list", "archive": archive_path, "entry_count": lines })),
+                metadata: Some(
+                    json!({ "operation": "list", "archive": archive_path, "entry_count": lines }),
+                ),
             }
         }
         Ok((_, stderr, code)) => ToolOutput {
@@ -307,7 +357,9 @@ async fn op_list(
 
 #[async_trait]
 impl Tool for ArchiveTool {
-    fn name(&self) -> &str { "archive" }
+    fn name(&self) -> &str {
+        "archive"
+    }
 
     fn description(&self) -> &str {
         "Create, extract, or list archive files (zip, tar, tar.gz, tar.bz2, tar.xz). \
@@ -317,9 +369,11 @@ impl Tool for ArchiveTool {
          Format is auto-detected from the archive path extension."
     }
 
-    fn permission_level(&self) -> PermissionLevel { PermissionLevel::ReadWrite }
+    fn permission_level(&self) -> PermissionLevel {
+        PermissionLevel::ReadWrite
+    }
 
-    fn requires_confirmation(&self, input: &ToolInput) -> bool {
+    fn requires_confirmation(&self, _input: &ToolInput) -> bool {
         // Creating archives in non-temp locations or extracting over existing files
         // is considered non-destructive enough to skip confirmation.
         // Only require confirmation when overwriting is explicit (not implemented yet).
@@ -338,7 +392,9 @@ impl Tool for ArchiveTool {
             .arguments
             .get("archive")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| HalconError::InvalidInput("archive: 'archive' path is required".into()))?;
+            .ok_or_else(|| {
+                HalconError::InvalidInput("archive: 'archive' path is required".into())
+            })?;
 
         validate_path(archive_path, "archive")?;
 
@@ -349,9 +405,7 @@ impl Tool for ArchiveTool {
         let timeout_secs = 60u64;
 
         let mut out = match op {
-            "list" => {
-                op_list(archive_path, &format, working_dir, timeout_secs).await
-            }
+            "list" => op_list(archive_path, &format, working_dir, timeout_secs).await,
             "extract" => {
                 let dest = input
                     .arguments
@@ -439,7 +493,10 @@ mod tests {
         let schema = t.input_schema();
         assert_eq!(schema["type"], "object");
         assert!(schema["properties"]["operation"].is_object());
-        assert!(schema["required"].as_array().unwrap().contains(&json!("archive")));
+        assert!(schema["required"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("archive")));
     }
 
     #[test]
@@ -476,8 +533,14 @@ mod tests {
 
     #[test]
     fn infer_format_from_arg() {
-        assert_eq!(infer_format("any.xyz", Some("zip")).unwrap(), ArchiveFormat::Zip);
-        assert_eq!(infer_format("any.xyz", Some("tgz")).unwrap(), ArchiveFormat::TarGz);
+        assert_eq!(
+            infer_format("any.xyz", Some("zip")).unwrap(),
+            ArchiveFormat::Zip
+        );
+        assert_eq!(
+            infer_format("any.xyz", Some("tgz")).unwrap(),
+            ArchiveFormat::TarGz
+        );
         assert!(infer_format("any.xyz", Some("rar")).is_err());
     }
 
@@ -538,7 +601,9 @@ mod tests {
         let path = dir.path().to_str().unwrap();
 
         // Write a test file.
-        tokio::fs::write(format!("{path}/hello.txt"), b"hello").await.unwrap();
+        tokio::fs::write(format!("{path}/hello.txt"), b"hello")
+            .await
+            .unwrap();
 
         let archive = format!("{path}/test.tar.gz");
         let t = ArchiveTool::new();
@@ -561,7 +626,10 @@ mod tests {
         };
         let out = t.execute(list_in).await.unwrap();
         assert!(!out.is_error, "list failed: {}", out.content);
-        assert!(out.content.contains("hello.txt"), "expected file in listing");
+        assert!(
+            out.content.contains("hello.txt"),
+            "expected file in listing"
+        );
     }
 
     #[tokio::test]
@@ -569,7 +637,9 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().to_str().unwrap();
 
-        tokio::fs::write(format!("{path}/data.txt"), b"content").await.unwrap();
+        tokio::fs::write(format!("{path}/data.txt"), b"content")
+            .await
+            .unwrap();
 
         let archive = format!("{path}/data.tar.gz");
         let dest = format!("{path}/extracted");

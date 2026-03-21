@@ -67,7 +67,8 @@ pub(crate) fn compute_mutation(
     let mut mutations = Vec::new();
 
     // Axis 1: Remove repeatedly-failing tools
-    let tools_to_remove: Vec<String> = tool_failures.iter()
+    let tools_to_remove: Vec<String> = tool_failures
+        .iter()
         .filter(|tf| tf.failure_count >= policy.tool_failure_threshold)
         .map(|tf| tf.tool_name.clone())
         .collect();
@@ -145,7 +146,9 @@ pub(crate) fn apply_mutation(params: &RetryParams, record: &MutationRecord) -> R
 mod tests {
     use super::*;
 
-    fn dp() -> PolicyConfig { PolicyConfig::default() }
+    fn dp() -> PolicyConfig {
+        PolicyConfig::default()
+    }
 
     fn base_params() -> RetryParams {
         RetryParams {
@@ -158,9 +161,10 @@ mod tests {
 
     #[test]
     fn removes_failing_tools() {
-        let failures = vec![
-            ToolFailureRecord { tool_name: "ci_logs".into(), failure_count: 3 },
-        ];
+        let failures = vec![ToolFailureRecord {
+            tool_name: "ci_logs".into(),
+            failure_count: 3,
+        }];
         let record = compute_mutation(&base_params(), 1, &failures, &[], &dp()).unwrap();
         assert!(record.mutations.iter().any(|m| matches!(m,
             MutationAxis::ToolExposureReduced { removed } if removed.contains(&"ci_logs".to_string())
@@ -178,9 +182,10 @@ mod tests {
     #[test]
     fn reduces_plan_depth() {
         let record = compute_mutation(&base_params(), 1, &[], &[], &dp()).unwrap();
-        assert!(record.mutations.iter().any(|m| matches!(m,
-            MutationAxis::PlanDepthReduced { from: 5, to: 4 }
-        )));
+        assert!(record
+            .mutations
+            .iter()
+            .any(|m| matches!(m, MutationAxis::PlanDepthReduced { from: 5, to: 4 })));
     }
 
     #[test]
@@ -207,9 +212,10 @@ mod tests {
     #[test]
     fn apply_mutation_updates_params() {
         let params = base_params();
-        let failures = vec![
-            ToolFailureRecord { tool_name: "ci_logs".into(), failure_count: 3 },
-        ];
+        let failures = vec![ToolFailureRecord {
+            tool_name: "ci_logs".into(),
+            failure_count: 3,
+        }];
         let fallbacks = vec!["deepseek-chat".into()];
         let record = compute_mutation(&params, 1, &failures, &fallbacks, &dp()).unwrap();
         let updated = apply_mutation(&params, &record);
@@ -225,7 +231,10 @@ mod tests {
         let params = base_params();
         let fallbacks = vec!["claude-sonnet".into()]; // same as current
         let record = compute_mutation(&params, 1, &[], &fallbacks, &dp()).unwrap();
-        assert!(!record.mutations.iter().any(|m| matches!(m, MutationAxis::ModelFallback { .. })));
+        assert!(!record
+            .mutations
+            .iter()
+            .any(|m| matches!(m, MutationAxis::ModelFallback { .. })));
     }
 
     #[test]
@@ -236,9 +245,10 @@ mod tests {
 
     #[test]
     fn below_threshold_tools_not_removed() {
-        let failures = vec![
-            ToolFailureRecord { tool_name: "ci_logs".into(), failure_count: 1 },
-        ];
+        let failures = vec![ToolFailureRecord {
+            tool_name: "ci_logs".into(),
+            failure_count: 1,
+        }];
         let record = compute_mutation(&base_params(), 1, &failures, &[], &dp()).unwrap();
         assert!(!record.mutations.iter().any(|m| matches!(m,
             MutationAxis::ToolExposureReduced { removed } if removed.contains(&"ci_logs".to_string())
@@ -259,19 +269,21 @@ mod tests {
     fn custom_policy_thresholds_respected() {
         let mut policy = PolicyConfig::default();
         policy.tool_failure_threshold = 5; // higher threshold
-        policy.temperature_step = 0.2;     // bigger step
-        policy.max_temperature = 0.9;      // lower cap
+        policy.temperature_step = 0.2; // bigger step
+        policy.max_temperature = 0.9; // lower cap
 
-        let failures = vec![
-            ToolFailureRecord { tool_name: "ci_logs".into(), failure_count: 3 },
-        ];
+        let failures = vec![ToolFailureRecord {
+            tool_name: "ci_logs".into(),
+            failure_count: 3,
+        }];
         let params = base_params();
         let record = compute_mutation(&params, 1, &failures, &[], &policy).unwrap();
 
         // ci_logs has 3 failures < 5 threshold → NOT removed
-        assert!(!record.mutations.iter().any(|m| matches!(m,
-            MutationAxis::ToolExposureReduced { .. }
-        )));
+        assert!(!record
+            .mutations
+            .iter()
+            .any(|m| matches!(m, MutationAxis::ToolExposureReduced { .. })));
         // Temperature step = 0.2, so 0.7 → 0.9 (capped at max 0.9)
         assert!(record.mutations.iter().any(|m| matches!(m,
             MutationAxis::TemperatureIncreased { to, .. } if (*to - 0.9).abs() < 0.001

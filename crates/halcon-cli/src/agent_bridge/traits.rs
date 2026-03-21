@@ -11,7 +11,9 @@ use async_trait::async_trait;
 use halcon_core::types::PermissionDecision;
 use tokio_util::sync::CancellationToken;
 
-use super::types::{AgentBridgeError, AgentStreamEvent, PermissionRequest, TurnContext, TurnResult};
+use super::types::{
+    AgentBridgeError, AgentStreamEvent, PermissionRequest, TurnContext, TurnResult,
+};
 
 /// Primary port — clients (halcon-api) invoke this to execute a conversation turn.
 ///

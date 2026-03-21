@@ -28,18 +28,32 @@ impl OpenApiValidateTool {
     /// Find OpenAPI spec files in a directory.
     fn find_spec_files(dir: &Path) -> Vec<PathBuf> {
         let candidates = [
-            "openapi.yaml", "openapi.yml", "openapi.json",
-            "swagger.yaml", "swagger.yml", "swagger.json",
-            "api.yaml", "api.yml", "api.json",
-            "docs/openapi.yaml", "docs/openapi.json", "docs/swagger.yaml",
-            "api/openapi.yaml", "api/swagger.yaml",
-            ".openapi.yaml", ".openapi.json",
+            "openapi.yaml",
+            "openapi.yml",
+            "openapi.json",
+            "swagger.yaml",
+            "swagger.yml",
+            "swagger.json",
+            "api.yaml",
+            "api.yml",
+            "api.json",
+            "docs/openapi.yaml",
+            "docs/openapi.json",
+            "docs/swagger.yaml",
+            "api/openapi.yaml",
+            "api/swagger.yaml",
+            ".openapi.yaml",
+            ".openapi.json",
         ];
         candidates
             .iter()
             .filter_map(|&rel| {
                 let p = dir.join(rel);
-                if p.exists() { Some(p) } else { None }
+                if p.exists() {
+                    Some(p)
+                } else {
+                    None
+                }
             })
             .collect()
     }
@@ -50,13 +64,12 @@ impl OpenApiValidateTool {
             "yaml" | "yml" => {
                 serde_yaml::from_str(content).map_err(|e| format!("YAML parse error: {}", e))
             }
-            "json" => {
-                serde_json::from_str(content).map_err(|e| format!("JSON parse error: {}", e))
-            }
+            "json" => serde_json::from_str(content).map_err(|e| format!("JSON parse error: {}", e)),
             _ => {
                 // Try JSON first, then YAML
-                serde_json::from_str(content)
-                    .or_else(|_| serde_yaml::from_str(content).map_err(|e| format!("Parse error: {}", e)))
+                serde_json::from_str(content).or_else(|_| {
+                    serde_yaml::from_str(content).map_err(|e| format!("Parse error: {}", e))
+                })
             }
         }
     }
@@ -64,9 +77,13 @@ impl OpenApiValidateTool {
     fn detect_version(spec: &Value) -> &'static str {
         if spec.get("openapi").is_some() {
             let v = spec["openapi"].as_str().unwrap_or("");
-            if v.starts_with("3.1") { "OpenAPI 3.1" }
-            else if v.starts_with("3.0") { "OpenAPI 3.0" }
-            else { "OpenAPI 3.x" }
+            if v.starts_with("3.1") {
+                "OpenAPI 3.1"
+            } else if v.starts_with("3.0") {
+                "OpenAPI 3.0"
+            } else {
+                "OpenAPI 3.x"
+            }
         } else if spec.get("swagger").is_some() {
             "Swagger 2.0"
         } else {
@@ -92,7 +109,9 @@ impl OpenApiValidateTool {
         }
 
         if spec.get("paths").is_none() {
-            issues.push(ValidationIssue::warning("No 'paths' defined — is this intentional?"));
+            issues.push(ValidationIssue::warning(
+                "No 'paths' defined — is this intentional?",
+            ));
         }
 
         // Check OpenAPI 3.x specific fields
@@ -100,10 +119,10 @@ impl OpenApiValidateTool {
             issues.push(ValidationIssue::error("Missing 'openapi' version field"));
         }
         // Swagger 2.0 specific
-        if version == "Swagger 2.0" {
-            if spec.get("host").is_none() && spec.get("servers").is_none() {
-                issues.push(ValidationIssue::info("No 'host' defined (optional but recommended)"));
-            }
+        if version == "Swagger 2.0" && spec.get("host").is_none() && spec.get("servers").is_none() {
+            issues.push(ValidationIssue::info(
+                "No 'host' defined (optional but recommended)",
+            ));
         }
 
         // Validate paths
@@ -111,17 +130,24 @@ impl OpenApiValidateTool {
             for (path, path_item) in paths {
                 // Each path must start with /
                 if !path.starts_with('/') {
-                    issues.push(ValidationIssue::error(&format!("Path '{}' must start with '/'", path)));
+                    issues.push(ValidationIssue::error(&format!(
+                        "Path '{}' must start with '/'",
+                        path
+                    )));
                 }
 
                 // Check operations
-                let http_methods = ["get", "post", "put", "patch", "delete", "head", "options", "trace"];
+                let http_methods = [
+                    "get", "post", "put", "patch", "delete", "head", "options", "trace",
+                ];
                 for method in &http_methods {
                     if let Some(op) = path_item.get(method) {
                         // Each operation should have responses
                         if op.get("responses").is_none() {
                             issues.push(ValidationIssue::warning(&format!(
-                                "{} {} missing 'responses'", method.to_uppercase(), path
+                                "{} {} missing 'responses'",
+                                method.to_uppercase(),
+                                path
                             )));
                         }
                         // Check for duplicate operationIds (collected below)
@@ -138,7 +164,8 @@ impl OpenApiValidateTool {
                     if let Some(op_id) = path_item[method]["operationId"].as_str() {
                         if op_ids.contains(&op_id.to_string()) {
                             issues.push(ValidationIssue::error(&format!(
-                                "Duplicate operationId: '{}'", op_id
+                                "Duplicate operationId: '{}'",
+                                op_id
                             )));
                         }
                         op_ids.push(op_id.to_string());
@@ -161,7 +188,11 @@ impl OpenApiValidateTool {
                         let summary = op["summary"].as_str().unwrap_or("").to_string();
                         let tags: Vec<String> = op["tags"]
                             .as_array()
-                            .map(|arr| arr.iter().filter_map(|t| t.as_str().map(|s| s.to_string())).collect())
+                            .map(|arr| {
+                                arr.iter()
+                                    .filter_map(|t| t.as_str().map(|s| s.to_string()))
+                                    .collect()
+                            })
                             .unwrap_or_default();
                         let response_codes: Vec<String> = op["responses"]
                             .as_object()
@@ -174,7 +205,7 @@ impl OpenApiValidateTool {
                             operation_id: op_id,
                             summary,
                             tags,
-                            response_codes,
+                            _response_codes: response_codes,
                         });
                     }
                 }
@@ -208,13 +239,23 @@ impl OpenApiValidateTool {
         let api_version = spec["info"]["version"].as_str().unwrap_or("?");
 
         let errors: Vec<_> = issues.iter().filter(|i| i.level == Level::Error).collect();
-        let warnings: Vec<_> = issues.iter().filter(|i| i.level == Level::Warning).collect();
+        let warnings: Vec<_> = issues
+            .iter()
+            .filter(|i| i.level == Level::Warning)
+            .collect();
 
-        let status = if errors.is_empty() { "✅ Valid" } else { "❌ Invalid" };
+        let status = if errors.is_empty() {
+            "✅ Valid"
+        } else {
+            "❌ Invalid"
+        };
 
         let mut out = format!(
             "{} — {} ({}, v{})\nFile: {}\n\n",
-            status, title, version, api_version,
+            status,
+            title,
+            version,
+            api_version,
             path.display()
         );
 
@@ -226,14 +267,18 @@ impl OpenApiValidateTool {
         ));
 
         // Count by method
-        let mut method_counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
+        let mut method_counts: std::collections::HashMap<&str, usize> =
+            std::collections::HashMap::new();
         for ep in endpoints {
             *method_counts.entry(ep.method.as_str()).or_insert(0) += 1;
         }
         let mut methods: Vec<(&str, usize)> = method_counts.iter().map(|(&k, &v)| (k, v)).collect();
         methods.sort_by_key(|&(m, _)| m);
         if !methods.is_empty() {
-            let method_str: Vec<String> = methods.iter().map(|(m, n)| format!("{}:{}", m, n)).collect();
+            let method_str: Vec<String> = methods
+                .iter()
+                .map(|(m, n)| format!("{}:{}", m, n))
+                .collect();
             out.push_str(&format!("  Methods: {}\n", method_str.join("  ")));
         }
 
@@ -252,7 +297,11 @@ impl OpenApiValidateTool {
 
         // Issues
         if !issues.is_empty() {
-            out.push_str(&format!("\n⚠️  Issues ({} errors, {} warnings):\n", errors.len(), warnings.len()));
+            out.push_str(&format!(
+                "\n⚠️  Issues ({} errors, {} warnings):\n",
+                errors.len(),
+                warnings.len()
+            ));
             for issue in issues {
                 let icon = match issue.level {
                     Level::Error => "❌",
@@ -269,12 +318,26 @@ impl OpenApiValidateTool {
         if !endpoints.is_empty() {
             out.push_str("\n📋 Endpoints:\n");
             for ep in endpoints.iter().take(30) {
-                let op_hint = if ep.operation_id.is_empty() { String::new() } else { format!(" [{}]", ep.operation_id) };
-                let summary_hint = if ep.summary.is_empty() { String::new() } else { format!(" — {}", &ep.summary[..ep.summary.len().min(50)]) };
-                out.push_str(&format!("  {:7} {}{}{}\n", ep.method, ep.path, op_hint, summary_hint));
+                let op_hint = if ep.operation_id.is_empty() {
+                    String::new()
+                } else {
+                    format!(" [{}]", ep.operation_id)
+                };
+                let summary_hint = if ep.summary.is_empty() {
+                    String::new()
+                } else {
+                    format!(" — {}", &ep.summary[..ep.summary.len().min(50)])
+                };
+                out.push_str(&format!(
+                    "  {:7} {}{}{}\n",
+                    ep.method, ep.path, op_hint, summary_hint
+                ));
             }
             if endpoints.len() > 30 {
-                out.push_str(&format!("  ... and {} more endpoints\n", endpoints.len() - 30));
+                out.push_str(&format!(
+                    "  ... and {} more endpoints\n",
+                    endpoints.len() - 30
+                ));
             }
         }
 
@@ -289,7 +352,11 @@ impl Default for OpenApiValidateTool {
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
-enum Level { Error, Warning, Info }
+enum Level {
+    Error,
+    Warning,
+    Info,
+}
 
 struct ValidationIssue {
     level: Level,
@@ -297,9 +364,24 @@ struct ValidationIssue {
 }
 
 impl ValidationIssue {
-    fn error(msg: &str) -> Self { Self { level: Level::Error, message: msg.to_string() } }
-    fn warning(msg: &str) -> Self { Self { level: Level::Warning, message: msg.to_string() } }
-    fn info(msg: &str) -> Self { Self { level: Level::Info, message: msg.to_string() } }
+    fn error(msg: &str) -> Self {
+        Self {
+            level: Level::Error,
+            message: msg.to_string(),
+        }
+    }
+    fn warning(msg: &str) -> Self {
+        Self {
+            level: Level::Warning,
+            message: msg.to_string(),
+        }
+    }
+    fn info(msg: &str) -> Self {
+        Self {
+            level: Level::Info,
+            message: msg.to_string(),
+        }
+    }
 }
 
 struct EndpointInfo {
@@ -308,7 +390,7 @@ struct EndpointInfo {
     operation_id: String,
     summary: String,
     tags: Vec<String>,
-    response_codes: Vec<String>,
+    _response_codes: Vec<String>,
 }
 
 #[async_trait]
@@ -347,14 +429,21 @@ impl Tool for OpenApiValidateTool {
         PermissionLevel::ReadOnly
     }
 
-    async fn execute(&self, input: ToolInput) -> Result<ToolOutput, halcon_core::error::HalconError> {
+    async fn execute(
+        &self,
+        input: ToolInput,
+    ) -> Result<ToolOutput, halcon_core::error::HalconError> {
         let args = &input.arguments;
         let working_dir = PathBuf::from(&input.working_directory);
 
         let spec_path = match args["path"].as_str() {
             Some(p) => {
                 let p = Path::new(p);
-                if p.is_absolute() { p.to_path_buf() } else { working_dir.join(p) }
+                if p.is_absolute() {
+                    p.to_path_buf()
+                } else {
+                    working_dir.join(p)
+                }
             }
             None => {
                 let found = Self::find_spec_files(&working_dir);
@@ -416,7 +505,8 @@ impl Tool for OpenApiValidateTool {
                 if endpoints.is_empty() {
                     "No endpoints defined.".to_string()
                 } else {
-                    let lines: Vec<String> = endpoints.iter()
+                    let lines: Vec<String> = endpoints
+                        .iter()
                         .map(|ep| format!("{:7} {}", ep.method, ep.path))
                         .collect();
                     format!("{} endpoints:\n{}", endpoints.len(), lines.join("\n"))
@@ -426,7 +516,11 @@ impl Tool for OpenApiValidateTool {
                 if schema_names.is_empty() {
                     "No schemas defined.".to_string()
                 } else {
-                    format!("{} schemas:\n{}", schema_names.len(), schema_names.join("\n"))
+                    format!(
+                        "{} schemas:\n{}",
+                        schema_names.len(),
+                        schema_names.join("\n")
+                    )
                 }
             }
             "summary" => {
@@ -435,8 +529,12 @@ impl Tool for OpenApiValidateTool {
                 let api_version = spec["info"]["version"].as_str().unwrap_or("?");
                 format!(
                     "{} v{} ({})\nEndpoints: {}  Schemas: {}  Issues: {}",
-                    title, api_version, version,
-                    endpoints.len(), schema_names.len(), issues.len()
+                    title,
+                    api_version,
+                    version,
+                    endpoints.len(),
+                    schema_names.len(),
+                    issues.len()
                 )
             }
             _ => Self::format_report(&spec, &issues, &endpoints, &schema_names, &spec_path),
@@ -555,7 +653,11 @@ paths:
         let spec = OpenApiValidateTool::parse_spec(&content, &p).unwrap();
         let issues = OpenApiValidateTool::validate_spec(&spec);
         let errors: Vec<_> = issues.iter().filter(|i| i.level == Level::Error).collect();
-        assert!(errors.is_empty(), "valid spec should have no errors: {:?}", errors.iter().map(|i| &i.message).collect::<Vec<_>>());
+        assert!(
+            errors.is_empty(),
+            "valid spec should have no errors: {:?}",
+            errors.iter().map(|i| &i.message).collect::<Vec<_>>()
+        );
     }
 
     #[test]
@@ -596,13 +698,20 @@ paths:
         let dir = TempDir::new().unwrap();
         write_spec(dir.path(), "openapi.yaml", OPENAPI3_YAML);
         let tool = OpenApiValidateTool::new();
-        let out = tool.execute(ToolInput {
-            tool_use_id: "t1".into(),
-            arguments: json!({}),
-            working_directory: dir.path().to_str().unwrap().to_string(),
-        }).await.unwrap();
+        let out = tool
+            .execute(ToolInput {
+                tool_use_id: "t1".into(),
+                arguments: json!({}),
+                working_directory: dir.path().to_str().unwrap().to_string(),
+            })
+            .await
+            .unwrap();
         assert!(!out.is_error);
-        assert!(out.content.contains("Test API") || out.content.contains("Valid"), "content: {}", out.content);
+        assert!(
+            out.content.contains("Test API") || out.content.contains("Valid"),
+            "content: {}",
+            out.content
+        );
     }
 
     #[tokio::test]
@@ -610,24 +719,34 @@ paths:
         let dir = TempDir::new().unwrap();
         write_spec(dir.path(), "openapi.yaml", OPENAPI3_YAML);
         let tool = OpenApiValidateTool::new();
-        let out = tool.execute(ToolInput {
-            tool_use_id: "t1".into(),
-            arguments: json!({ "action": "endpoints" }),
-            working_directory: dir.path().to_str().unwrap().to_string(),
-        }).await.unwrap();
+        let out = tool
+            .execute(ToolInput {
+                tool_use_id: "t1".into(),
+                arguments: json!({ "action": "endpoints" }),
+                working_directory: dir.path().to_str().unwrap().to_string(),
+            })
+            .await
+            .unwrap();
         assert!(!out.is_error);
-        assert!(out.content.contains("GET") || out.content.contains("/users"), "content: {}", out.content);
+        assert!(
+            out.content.contains("GET") || out.content.contains("/users"),
+            "content: {}",
+            out.content
+        );
     }
 
     #[tokio::test]
     async fn execute_no_spec_returns_hint() {
         let dir = TempDir::new().unwrap();
         let tool = OpenApiValidateTool::new();
-        let out = tool.execute(ToolInput {
-            tool_use_id: "t1".into(),
-            arguments: json!({}),
-            working_directory: dir.path().to_str().unwrap().to_string(),
-        }).await.unwrap();
+        let out = tool
+            .execute(ToolInput {
+                tool_use_id: "t1".into(),
+                arguments: json!({}),
+                working_directory: dir.path().to_str().unwrap().to_string(),
+            })
+            .await
+            .unwrap();
         assert!(!out.is_error);
         assert!(out.content.contains("No OpenAPI") || out.content.contains("openapi"));
     }

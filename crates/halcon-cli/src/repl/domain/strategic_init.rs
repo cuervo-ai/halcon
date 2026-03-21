@@ -139,7 +139,12 @@ fn base_profile(complexity: Complexity) -> InitializationProfile {
 /// Quick/fast/rápido → SLAConstrained preset
 fn apply_keyword_overrides(lower: &str, profile: &mut InitializationProfile) {
     // Debug/fix patterns (EN/ES)
-    if contains_any(lower, &["debug", "fix", "error", "bug", "depurar", "arreglar", "corregir"]) {
+    if contains_any(
+        lower,
+        &[
+            "debug", "fix", "error", "bug", "depurar", "arreglar", "corregir",
+        ],
+    ) {
         profile.problem_class = ProblemClass::EvidenceSparse;
         profile.weights = StrategyWeights::for_class(ProblemClass::EvidenceSparse);
         profile.rationale = "debug/fix heuristic — evidence-sparse preset";
@@ -147,7 +152,10 @@ fn apply_keyword_overrides(lower: &str, profile: &mut InitializationProfile) {
     }
 
     // Refactor/migrate patterns (EN/ES)
-    if contains_any(lower, &["refactor", "migrate", "upgrade", "refactorizar", "migrar"]) {
+    if contains_any(
+        lower,
+        &["refactor", "migrate", "upgrade", "refactorizar", "migrar"],
+    ) {
         profile.problem_class = ProblemClass::ToolConstrained;
         profile.weights = StrategyWeights::for_class(ProblemClass::ToolConstrained);
         profile.rationale = "refactor/migrate heuristic — tool-constrained preset";
@@ -155,7 +163,17 @@ fn apply_keyword_overrides(lower: &str, profile: &mut InitializationProfile) {
     }
 
     // Investigation patterns (EN/ES)
-    if contains_any(lower, &["investigate", "research", "analyze", "investigar", "analizar", "explorar"]) {
+    if contains_any(
+        lower,
+        &[
+            "investigate",
+            "research",
+            "analyze",
+            "investigar",
+            "analizar",
+            "explorar",
+        ],
+    ) {
         profile.problem_class = ProblemClass::HighExploration;
         profile.weights = StrategyWeights::for_class(ProblemClass::HighExploration);
         profile.exploration_budget = 0.50;
@@ -250,7 +268,11 @@ mod tests {
 
     #[test]
     fn phase5_init_spanish_keywords() {
-        let profile = initialize(Complexity::Structured, "arreglar el error de autenticación", &[]);
+        let profile = initialize(
+            Complexity::Structured,
+            "arreglar el error de autenticación",
+            &[],
+        );
         assert_eq!(profile.problem_class, ProblemClass::EvidenceSparse);
 
         let profile2 = initialize(Complexity::Structured, "investigar por qué falla", &[]);
@@ -262,7 +284,11 @@ mod tests {
 
     #[test]
     fn phase5_init_granularity_labels_unique() {
-        let granularities = [PlanGranularity::Coarse, PlanGranularity::Standard, PlanGranularity::Fine];
+        let granularities = [
+            PlanGranularity::Coarse,
+            PlanGranularity::Standard,
+            PlanGranularity::Fine,
+        ];
         let labels: Vec<&str> = granularities.iter().map(|g| g.label()).collect();
         let unique: std::collections::HashSet<&str> = labels.iter().copied().collect();
         assert_eq!(labels.len(), unique.len());

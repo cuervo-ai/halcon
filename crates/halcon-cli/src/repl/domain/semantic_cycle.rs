@@ -75,15 +75,45 @@ const SYNONYM_GROUPS: &[&[&str]] = &[
     &["search", "find", "look", "query", "buscar", "encontrar"],
     &["read", "view", "show", "display", "leer", "ver", "mostrar"],
     &["list", "enumerate", "directory", "listar", "directorio"],
-    &["check", "verify", "validate", "inspect", "verificar", "inspeccionar"],
+    &[
+        "check",
+        "verify",
+        "validate",
+        "inspect",
+        "verificar",
+        "inspeccionar",
+    ],
     &["create", "make", "generate", "build", "crear", "generar"],
     &["delete", "remove", "drop", "clean", "eliminar", "borrar"],
-    &["update", "modify", "change", "edit", "actualizar", "modificar"],
+    &[
+        "update",
+        "modify",
+        "change",
+        "edit",
+        "actualizar",
+        "modificar",
+    ],
     &["test", "check", "assert", "probar", "verificar"],
     &["config", "setup", "configure", "settings", "configurar"],
-    &["deploy", "publish", "release", "ship", "desplegar", "publicar"],
-    &["debug", "trace", "log", "diagnose", "depurar", "diagnosticar"],
-    &["analyze", "inspect", "examine", "review", "analizar", "examinar"],
+    &[
+        "deploy",
+        "publish",
+        "release",
+        "ship",
+        "desplegar",
+        "publicar",
+    ],
+    &[
+        "debug",
+        "trace",
+        "log",
+        "diagnose",
+        "depurar",
+        "diagnosticar",
+    ],
+    &[
+        "analyze", "inspect", "examine", "review", "analizar", "examinar",
+    ],
 ];
 
 impl SemanticCycleDetector {
@@ -239,9 +269,9 @@ impl SemanticCycleDetector {
 /// Extract and normalize a file path from tool args.
 fn extract_and_normalize_path(args: &str) -> Option<String> {
     // Heuristic: look for path-like strings
-    let path = args
-        .split(|c: char| c == '"' || c == '\'' || c == ',' || c == ':')
-        .find(|s| s.contains('/') || s.contains('\\') || s.ends_with(".rs") || s.ends_with(".ts"))?;
+    let path = args.split(['"', '\'', ',', ':']).find(|s| {
+        s.contains('/') || s.contains('\\') || s.ends_with(".rs") || s.ends_with(".ts")
+    })?;
 
     let normalized = path
         .trim()
@@ -300,10 +330,7 @@ fn extract_search_words(args: &str) -> HashSet<String> {
 
 /// Check if a canonical tool name is a search tool.
 fn is_search_tool(canonical: &str) -> bool {
-    matches!(
-        canonical,
-        "grep" | "glob" | "web_search" | "directory_tree"
-    )
+    matches!(canonical, "grep" | "glob" | "web_search" | "directory_tree")
 }
 
 /// Compute synonym overlap between two word sets.
@@ -457,9 +484,7 @@ mod tests {
     #[test]
     fn phase3_cycle_record_round_batch() {
         let mut det = test_detector();
-        let batch = vec![
-            ("file_read".to_string(), r#"{"path": "/a.rs"}"#.to_string()),
-        ];
+        let batch = vec![("file_read".to_string(), r#"{"path": "/a.rs"}"#.to_string())];
         det.record_round(0, &batch);
         let detected = det.record_round(1, &batch);
         assert!(detected);

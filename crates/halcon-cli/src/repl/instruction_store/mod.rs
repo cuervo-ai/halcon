@@ -34,8 +34,6 @@ mod watcher;
 #[cfg(test)]
 mod tests;
 
-pub use loader::LoadError;
-
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -96,10 +94,8 @@ impl InstructionStore {
         }
 
         // Start watching all source files.
-        self.watcher = watcher::InstructionWatcher::start_with_interval(
-            &result.sources,
-            self.poll_interval,
-        );
+        self.watcher =
+            watcher::InstructionWatcher::start_with_interval(&result.sources, self.poll_interval);
 
         let injected = format!("{SECTION_HEADER}{}", result.text);
         self.current_injected = Some(injected.clone());
@@ -114,10 +110,7 @@ impl InstructionStore {
     ///                        text (from `current_injected()`) in `cached_system`.
     pub fn check_and_reload(&mut self) -> Option<String> {
         // Poll the background watcher.
-        let changed = self
-            .watcher
-            .as_ref()
-            .map_or(false, |w| w.has_changed());
+        let changed = self.watcher.as_ref().is_some_and(|w| w.has_changed());
         if !changed {
             return None;
         }
@@ -130,10 +123,8 @@ impl InstructionStore {
         let result = loader::load_all_scopes(&self.working_dir, &[]);
 
         // Restart watcher with the (possibly different) file list.
-        self.watcher = watcher::InstructionWatcher::start_with_interval(
-            &result.sources,
-            self.poll_interval,
-        );
+        self.watcher =
+            watcher::InstructionWatcher::start_with_interval(&result.sources, self.poll_interval);
 
         if result.text.is_empty() {
             // All instruction files were deleted — clear the section.

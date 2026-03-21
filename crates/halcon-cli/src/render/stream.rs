@@ -268,8 +268,10 @@ mod tests {
     #[test]
     fn multiple_code_blocks_in_sequence() {
         let mut r = StreamRenderer::new();
-        r.push(&ModelChunk::TextDelta("```rust\nfn a() {}\n```\ntext\n```py\npass\n```\n".into()))
-            .unwrap();
+        r.push(&ModelChunk::TextDelta(
+            "```rust\nfn a() {}\n```\ntext\n```py\npass\n```\n".into(),
+        ))
+        .unwrap();
         assert_eq!(r.state, State::Prose);
         assert!(r.full_text().contains("fn a() {}"));
         assert!(r.full_text().contains("pass"));
@@ -295,8 +297,10 @@ mod tests {
     #[test]
     fn unicode_prose_accumulates_correctly() {
         let mut r = StreamRenderer::new();
-        r.push(&ModelChunk::TextDelta("Hello 世界! 🦀🚀".into())).unwrap();
-        r.push(&ModelChunk::TextDelta(" Café résumé.".into())).unwrap();
+        r.push(&ModelChunk::TextDelta("Hello 世界! 🦀🚀".into()))
+            .unwrap();
+        r.push(&ModelChunk::TextDelta(" Café résumé.".into()))
+            .unwrap();
         assert_eq!(r.full_text(), "Hello 世界! 🦀🚀 Café résumé.");
     }
 
@@ -304,8 +308,10 @@ mod tests {
     #[test]
     fn code_block_with_unicode_content() {
         let mut r = StreamRenderer::new();
-        r.push(&ModelChunk::TextDelta("```python\nprint('こんにちは 🌍')\n```\n".into()))
-            .unwrap();
+        r.push(&ModelChunk::TextDelta(
+            "```python\nprint('こんにちは 🌍')\n```\n".into(),
+        ))
+        .unwrap();
         assert_eq!(r.state, State::Prose);
         // full_text must contain the original content intact
         assert!(r.full_text().contains("こんにちは"));
@@ -317,9 +323,11 @@ mod tests {
     #[test]
     fn unicode_code_block_split_across_chunks() {
         let mut r = StreamRenderer::new();
-        r.push(&ModelChunk::TextDelta("これは説明です\n```rust\n".into())).unwrap();
+        r.push(&ModelChunk::TextDelta("これは説明です\n```rust\n".into()))
+            .unwrap();
         assert_eq!(r.state, State::CodeBlock);
-        r.push(&ModelChunk::TextDelta("let x = \"日本語\"; // 🦀\n".into())).unwrap();
+        r.push(&ModelChunk::TextDelta("let x = \"日本語\"; // 🦀\n".into()))
+            .unwrap();
         assert_eq!(r.state, State::CodeBlock);
         r.push(&ModelChunk::TextDelta("```\n".into())).unwrap();
         assert_eq!(r.state, State::Prose);
@@ -342,7 +350,8 @@ mod tests {
         let mut r = StreamRenderer::new();
         let rtl = "مرحبا بالعالم";
         let combining = "e\u{0301}"; // é (decomposed)
-        r.push(&ModelChunk::TextDelta(format!("{rtl} {combining}").into())).unwrap();
+        r.push(&ModelChunk::TextDelta(format!("{rtl} {combining}").into()))
+            .unwrap();
         assert!(r.full_text().contains(rtl));
         assert!(r.full_text().contains(combining));
     }

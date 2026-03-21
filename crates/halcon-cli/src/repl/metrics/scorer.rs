@@ -236,7 +236,8 @@ impl RoundScorer {
             .max(1.0)) as usize;
         // Scale score threshold up with sensitivity (more likely to trigger).
         // At sensitivity=0.0: 0.15 (original). At sensitivity=1.0: 0.25.
-        let effective_threshold = self.policy.replan_score_threshold + self.replan_sensitivity * 0.10;
+        let effective_threshold =
+            self.policy.replan_score_threshold + self.replan_sensitivity * 0.10;
 
         if self.history.len() < effective_rounds {
             return false;
@@ -267,7 +268,13 @@ impl RoundScorer {
         if window == 0 {
             return 0.5;
         }
-        let sum: f32 = self.history.iter().rev().take(window).map(|e| e.combined_score).sum();
+        let sum: f32 = self
+            .history
+            .iter()
+            .rev()
+            .take(window)
+            .map(|e| e.combined_score)
+            .sum();
         sum / window as f32
     }
 
@@ -315,7 +322,10 @@ mod tests {
     use super::*;
 
     fn make_scorer() -> RoundScorer {
-        RoundScorer::new("implement file reading with error handling", Arc::new(PolicyConfig::default()))
+        RoundScorer::new(
+            "implement file reading with error handling",
+            Arc::new(PolicyConfig::default()),
+        )
     }
 
     #[test]
@@ -468,7 +478,14 @@ mod tests {
             0,
             1000,
             0.0,
-            vec!["A".into(), "B".into(), "C".into(), "D".into(), "E".into(), "F".into()],
+            vec![
+                "A".into(),
+                "B".into(),
+                "C".into(),
+                "D".into(),
+                "E".into(),
+                "F".into(),
+            ],
             "",
         );
         assert!(eval.combined_score >= 0.0);
@@ -530,8 +547,8 @@ mod tests {
     fn set_replan_sensitivity_clamps_to_zero_one() {
         let mut s = make_scorer();
         s.set_replan_sensitivity(-0.5); // below 0 → clamped to 0
-        s.set_replan_sensitivity(1.5);  // above 1 → clamped to 1
-        // Should not panic, and still produce valid boolean
+        s.set_replan_sensitivity(1.5); // above 1 → clamped to 1
+                                       // Should not panic, and still produce valid boolean
         s.score_round(0, 0, 5, 10, 100, 0.0, vec![], "");
         let _ = s.should_trigger_replan();
     }

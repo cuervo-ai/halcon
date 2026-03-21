@@ -10,21 +10,24 @@
 
 pub mod async_db;
 pub mod cache;
+pub mod db;
 pub mod mailbox;
 pub mod media;
 pub mod memory;
 pub mod metrics;
 pub mod migrations;
 pub mod resilience;
-pub mod db;
 pub mod trace;
 
 pub use async_db::AsyncDatabase;
 pub use cache::{CacheEntry, CacheStats};
-pub use mailbox::{Mailbox, MailboxMessage};
-pub use db::{AgentTaskRow, Database, PlanStepRow, SessionCheckpoint};
 pub use db::reasoning::ReasoningExperience;
+pub use db::{AgentTaskRow, Database, PlanStepRow, SessionCheckpoint};
+pub use mailbox::{Mailbox, MailboxMessage};
 pub use memory::{MemoryEntry, MemoryEntryType, MemoryEpisode, MemoryStats};
-pub use metrics::{InvocationMetric, ModelStats, ProviderWindowedMetrics, SystemMetrics, ToolExecutionMetric, ToolStats};
+pub use metrics::{
+    InvocationMetric, ModelStats, ProviderWindowedMetrics, SystemMetrics, ToolExecutionMetric,
+    ToolStats,
+};
 pub use resilience::ResilienceEvent;
 pub use trace::{TraceExport, TraceStep, TraceStepType};

@@ -29,23 +29,23 @@
 /// - Do NOT block commands that are safe redirections (e.g., `2>/dev/null`)
 /// - Use anchors (`^`) where possible to avoid false positives
 pub const CATASTROPHIC_PATTERNS: &[&str] = &[
-    r"(?i)^rm\s+(-[rfivRF]+\s+)+/\s*$",                    // rm -rf /
-    r"(?i)^rm\s+(-[rfivRF]+\s+)+/\*+\s*$",                // rm -rf /*
+    r"(?i)^rm\s+(-[rfivRF]+\s+)+/\s*$",    // rm -rf /
+    r"(?i)^rm\s+(-[rfivRF]+\s+)+/\*+\s*$", // rm -rf /*
     r"(?i)^rm\s+(-[rfivRF]+\s+)+/(bin|etc|usr|var|sys|proc|dev)\b", // rm -rf /etc
-    r"(?i)^rm\s+(-[rfivRF]+\s+)+~/?\s*$",                   // rm -rf ~/
-    r"(?i)^rm\s+(-[rfivRF]+\s+)+\$HOME/?\s*$",             // rm -rf $HOME
-    r"(?i)^rm\s+(-[rfivRF]+\s+)+/Users/\*",               // rm -rf /Users/*
-    r":\(\)\{:\|:&\};:",                                    // Fork bomb
-    r"(?i)^mkfs\.",                                         // mkfs.ext4
-    r"(?i)dd\s+.*\s+of=/dev/[sh]d[a-z]",                  // dd to /dev/sda
-    r"(?i)dd\s+.*\s+of=/dev/nvme",                         // dd to nvme
-    r"(?i)(curl|wget)\s+.*\|\s*(ba)?sh\b",                 // curl | bash
-    r"(?i)(curl|wget)\s+.*\|\s*python\b",                  // curl | python
-    r"(?i)^chmod\s+(-R\s+)?[0-7]{3,4}\s+/\s*$",           // chmod 777 /
-    r"(?i)^chown\s+(-R\s+)?.*\s+/\s*$",                   // chown -R user /
+    r"(?i)^rm\s+(-[rfivRF]+\s+)+~/?\s*$",  // rm -rf ~/
+    r"(?i)^rm\s+(-[rfivRF]+\s+)+\$HOME/?\s*$", // rm -rf $HOME
+    r"(?i)^rm\s+(-[rfivRF]+\s+)+/Users/\*", // rm -rf /Users/*
+    r":\(\)\{:\|:&\};:",                   // Fork bomb
+    r"(?i)^mkfs\.",                        // mkfs.ext4
+    r"(?i)dd\s+.*\s+of=/dev/[sh]d[a-z]",   // dd to /dev/sda
+    r"(?i)dd\s+.*\s+of=/dev/nvme",         // dd to nvme
+    r"(?i)(curl|wget)\s+.*\|\s*(ba)?sh\b", // curl | bash
+    r"(?i)(curl|wget)\s+.*\|\s*python\b",  // curl | python
+    r"(?i)^chmod\s+(-R\s+)?[0-7]{3,4}\s+/\s*$", // chmod 777 /
+    r"(?i)^chown\s+(-R\s+)?.*\s+/\s*$",    // chown -R user /
     r"(?i)^systemctl\s+stop\s+(sshd|network|NetworkManager)\b", // Stop critical services
-    r"(?i)^kill\s+-9\s+1\b",                               // kill -9 1 (init)
-    r"(?i)^(rm|mod)mod\s+",                                // rmmod/modmod kernel modules
+    r"(?i)^kill\s+-9\s+1\b",               // kill -9 1 (init)
+    r"(?i)^(rm|mod)mod\s+",                // rmmod/modmod kernel modules
     // NOTE: bare ">/dev/null" redirect (command IS only the redirect).
     // Anchored at ^ so "cargo build 2>/dev/null" is NOT matched — only standalone redirect.
     r"(?i)^\s*>\s*/dev/(null|zero)\s*$",
@@ -156,7 +156,11 @@ mod tests {
             .iter()
             .filter(|p| p.contains("/dev/(null|zero)"))
             .collect();
-        assert_eq!(dev_null_patterns.len(), 1, "should have exactly one /dev/null pattern");
+        assert_eq!(
+            dev_null_patterns.len(),
+            1,
+            "should have exactly one /dev/null pattern"
+        );
         assert!(
             dev_null_patterns[0].contains(r"^\s*>"),
             "the /dev/null pattern must be anchored at start to avoid blocking 2>/dev/null"

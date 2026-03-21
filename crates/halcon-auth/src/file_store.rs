@@ -197,9 +197,7 @@ impl FileCredentialStore {
         // Write to a uniquely-named sibling temp file to avoid concurrent
         // writers clobbering each other's in-flight tmp file (rename is the
         // only atomic operation; the write+chmod window must be per-writer).
-        let tmp = self
-            .path
-            .with_extension(format!("tmp.{}", tmp_suffix()));
+        let tmp = self.path.with_extension(format!("tmp.{}", tmp_suffix()));
         std::fs::write(&tmp, &serialized).map_err(|e| {
             HalconError::AuthFailed(format!(
                 "cannot write credential tmp file {}: {e}",
@@ -360,9 +358,18 @@ mod tests {
         store.set("access_token", "tok-abc").unwrap();
         store.set("refresh_token", "ref-xyz").unwrap();
         store.set("expires_at", "9999999999").unwrap();
-        assert_eq!(store.get("access_token").unwrap(), Some("tok-abc".to_string()));
-        assert_eq!(store.get("refresh_token").unwrap(), Some("ref-xyz".to_string()));
-        assert_eq!(store.get("expires_at").unwrap(), Some("9999999999".to_string()));
+        assert_eq!(
+            store.get("access_token").unwrap(),
+            Some("tok-abc".to_string())
+        );
+        assert_eq!(
+            store.get("refresh_token").unwrap(),
+            Some("ref-xyz".to_string())
+        );
+        assert_eq!(
+            store.get("expires_at").unwrap(),
+            Some("9999999999".to_string())
+        );
     }
 
     // ── set_multiple (atomic multi-key write) ─────────────────────────────────
@@ -377,8 +384,14 @@ mod tests {
                 ("expires_at", "9999"),
             ])
             .unwrap();
-        assert_eq!(store.get("access_token").unwrap(), Some("tok-a".to_string()));
-        assert_eq!(store.get("refresh_token").unwrap(), Some("tok-r".to_string()));
+        assert_eq!(
+            store.get("access_token").unwrap(),
+            Some("tok-a".to_string())
+        );
+        assert_eq!(
+            store.get("refresh_token").unwrap(),
+            Some("tok-r".to_string())
+        );
         assert_eq!(store.get("expires_at").unwrap(), Some("9999".to_string()));
     }
 
@@ -390,8 +403,14 @@ mod tests {
             .set_multiple([("access_token", "tok-a"), ("expires_at", "9999")])
             .unwrap();
         // Pre-existing key must survive.
-        assert_eq!(store.get("existing").unwrap(), Some("preserved".to_string()));
-        assert_eq!(store.get("access_token").unwrap(), Some("tok-a".to_string()));
+        assert_eq!(
+            store.get("existing").unwrap(),
+            Some("preserved".to_string())
+        );
+        assert_eq!(
+            store.get("access_token").unwrap(),
+            Some("tok-a".to_string())
+        );
     }
 
     #[test]
@@ -452,7 +471,10 @@ mod tests {
         let (_dir, store) = tmp_store();
         store.set("hello", "world").unwrap();
         let raw = std::fs::read_to_string(store.path()).unwrap();
-        assert!(raw.contains('\n'), "credentials file should be pretty-printed");
+        assert!(
+            raw.contains('\n'),
+            "credentials file should be pretty-printed"
+        );
         assert!(raw.contains("hello"), "key should appear in file");
     }
 
@@ -464,7 +486,10 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let (_dir, store) = tmp_store();
         store.set("k", "v").unwrap();
-        let mode = std::fs::metadata(store.path()).unwrap().permissions().mode();
+        let mode = std::fs::metadata(store.path())
+            .unwrap()
+            .permissions()
+            .mode();
         assert_eq!(mode & 0o777, 0o600, "file mode should be 0600");
     }
 
@@ -540,11 +565,14 @@ mod tests {
 
         // After all writers finish, the file must be valid JSON.
         let raw = std::fs::read_to_string(&*path).unwrap();
-        let map: HashMap<String, String> = serde_json::from_str(&raw)
-            .expect("file must be valid JSON after concurrent writes");
+        let map: HashMap<String, String> =
+            serde_json::from_str(&raw).expect("file must be valid JSON after concurrent writes");
 
         // At least access_token and worker_id must be present.
-        assert!(map.contains_key("access_token"), "access_token must be present");
+        assert!(
+            map.contains_key("access_token"),
+            "access_token must be present"
+        );
         assert!(map.contains_key("worker_id"), "worker_id must be present");
     }
 }

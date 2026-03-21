@@ -98,17 +98,17 @@ impl TaskIntent {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::CodeGeneration => "code_generation",
-            Self::CodeReview     => "code_review",
-            Self::Debugging      => "debugging",
-            Self::Refactoring    => "refactoring",
-            Self::DataAnalysis   => "data_analysis",
-            Self::Research       => "research",
-            Self::Planning       => "planning",
+            Self::CodeReview => "code_review",
+            Self::Debugging => "debugging",
+            Self::Refactoring => "refactoring",
+            Self::DataAnalysis => "data_analysis",
+            Self::Research => "research",
+            Self::Planning => "planning",
             Self::QuestionAnswer => "question_answer",
-            Self::Summarization  => "summarization",
-            Self::Translation    => "translation",
-            Self::Conversation   => "conversation",
-            Self::Unknown        => "unknown",
+            Self::Summarization => "summarization",
+            Self::Translation => "translation",
+            Self::Conversation => "conversation",
+            Self::Unknown => "unknown",
         }
     }
 }
@@ -201,25 +201,55 @@ mod tests {
     #[test]
     fn code_generation_detected() {
         // Pattern: starts with an imperative verb
-        assert_eq!(classify("Write a Rust function that parses JSON"), TaskIntent::CodeGeneration);
-        assert_eq!(classify("Implement a REST API endpoint in Python"), TaskIntent::CodeGeneration);
-        assert_eq!(classify("Create a React component for the login form"), TaskIntent::CodeGeneration);
+        assert_eq!(
+            classify("Write a Rust function that parses JSON"),
+            TaskIntent::CodeGeneration
+        );
+        assert_eq!(
+            classify("Implement a REST API endpoint in Python"),
+            TaskIntent::CodeGeneration
+        );
+        assert_eq!(
+            classify("Create a React component for the login form"),
+            TaskIntent::CodeGeneration
+        );
         assert_eq!(classify("Build a CLI tool"), TaskIntent::CodeGeneration);
-        assert_eq!(classify("Generate the migration script"), TaskIntent::CodeGeneration);
+        assert_eq!(
+            classify("Generate the migration script"),
+            TaskIntent::CodeGeneration
+        );
     }
 
     #[test]
     fn debugging_detected() {
-        assert_eq!(classify("Fix this error: thread panicked at index out of bounds"), TaskIntent::Debugging);
-        assert_eq!(classify("There is a bug in the parser"), TaskIntent::Debugging);
-        assert_eq!(classify("Getting an exception in production"), TaskIntent::Debugging);
+        assert_eq!(
+            classify("Fix this error: thread panicked at index out of bounds"),
+            TaskIntent::Debugging
+        );
+        assert_eq!(
+            classify("There is a bug in the parser"),
+            TaskIntent::Debugging
+        );
+        assert_eq!(
+            classify("Getting an exception in production"),
+            TaskIntent::Debugging
+        );
     }
 
     #[test]
     fn summarization_detected() {
-        assert_eq!(classify("Summarize this article in 3 bullet points"), TaskIntent::Summarization);
-        assert_eq!(classify("tl;dr of the following text"), TaskIntent::Summarization);
-        assert_eq!(classify("Give me a recap of this document"), TaskIntent::Summarization);
+        assert_eq!(
+            classify("Summarize this article in 3 bullet points"),
+            TaskIntent::Summarization
+        );
+        assert_eq!(
+            classify("tl;dr of the following text"),
+            TaskIntent::Summarization
+        );
+        assert_eq!(
+            classify("Give me a recap of this document"),
+            TaskIntent::Summarization
+        );
     }
 
     #[test]
@@ -233,7 +263,10 @@ mod tests {
     fn question_mark_is_question() {
         // "What is" / "How does" match Research first (correct: both route to BALANCED).
         // Pure question-mark queries without Research keywords hit QuestionAnswer.
-        assert_eq!(classify("What is Rust's ownership model?"), TaskIntent::Research);
+        assert_eq!(
+            classify("What is Rust's ownership model?"),
+            TaskIntent::Research
+        );
         assert_eq!(classify("How does tokio work?"), TaskIntent::Research);
         // A plain question that doesn't contain Research keywords → QuestionAnswer
         assert_eq!(classify("Is this correct?"), TaskIntent::QuestionAnswer);

@@ -29,7 +29,6 @@
 //! description = "Test name filter (optional, leave empty to run all)"
 //! ```
 
-use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Arc;
 
@@ -185,10 +184,13 @@ impl Tool for ExternalTool {
         }
 
         // Capture both stdout and stderr.
-        let output = cmd.output().await.map_err(|e| HalconError::ToolExecutionFailed {
-            tool: self.name.clone(),
-            message: format!("Failed to spawn command '{rendered}': {e}"),
-        })?;
+        let output = cmd
+            .output()
+            .await
+            .map_err(|e| HalconError::ToolExecutionFailed {
+                tool: self.name.clone(),
+                message: format!("Failed to spawn command '{rendered}': {e}"),
+            })?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
         let stderr = String::from_utf8_lossy(&output.stderr).into_owned();
@@ -362,8 +364,13 @@ mod tests {
 
     #[test]
     fn render_command_multiple_placeholders() {
-        let t = ExternalTool::from_manifest(make_manifest("t", "{{cmd}} {{arg1}} {{arg2}}", "ReadOnly"));
-        let cmd = t.render_command(&serde_json::json!({"cmd": "ls", "arg1": "-la", "arg2": "/tmp"}));
+        let t = ExternalTool::from_manifest(make_manifest(
+            "t",
+            "{{cmd}} {{arg1}} {{arg2}}",
+            "ReadOnly",
+        ));
+        let cmd =
+            t.render_command(&serde_json::json!({"cmd": "ls", "arg1": "-la", "arg2": "/tmp"}));
         assert_eq!(cmd, "ls -la /tmp");
     }
 
@@ -456,12 +463,25 @@ template = "echo ok"
         struct DummyTool;
         #[async_trait]
         impl Tool for DummyTool {
-            fn name(&self) -> &str { "existing_tool" }
-            fn description(&self) -> &str { "original" }
-            fn permission_level(&self) -> PermissionLevel { PermissionLevel::ReadOnly }
-            fn input_schema(&self) -> serde_json::Value { serde_json::json!({}) }
+            fn name(&self) -> &str {
+                "existing_tool"
+            }
+            fn description(&self) -> &str {
+                "original"
+            }
+            fn permission_level(&self) -> PermissionLevel {
+                PermissionLevel::ReadOnly
+            }
+            fn input_schema(&self) -> serde_json::Value {
+                serde_json::json!({})
+            }
             async fn execute(&self, input: ToolInput) -> HalconResult<ToolOutput> {
-                Ok(ToolOutput { tool_use_id: input.tool_use_id, content: "original".into(), is_error: false, metadata: None })
+                Ok(ToolOutput {
+                    tool_use_id: input.tool_use_id,
+                    content: "original".into(),
+                    is_error: false,
+                    metadata: None,
+                })
             }
         }
 

@@ -17,9 +17,9 @@ use tokio::process::{Child, Command};
 use tokio::sync::Mutex;
 
 use crate::error::{McpError, McpResult};
-use crate::types::JsonRpcResponse;
 #[cfg(test)]
 use crate::types::JsonRpcRequest;
+use crate::types::JsonRpcResponse;
 
 /// Default receive timeout: 30 seconds.
 const RECEIVE_TIMEOUT_SECS: u64 = 30;
@@ -46,7 +46,12 @@ impl std::fmt::Debug for StdioTransport {
 impl StdioTransport {
     /// Spawn a child process and create a transport with the default timeout.
     pub fn spawn(command: &str, args: &[String], env: &HashMap<String, String>) -> McpResult<Self> {
-        Self::spawn_with_timeout(command, args, env, Duration::from_secs(RECEIVE_TIMEOUT_SECS))
+        Self::spawn_with_timeout(
+            command,
+            args,
+            env,
+            Duration::from_secs(RECEIVE_TIMEOUT_SECS),
+        )
     }
 
     /// Spawn a child process with a custom receive timeout.
@@ -212,13 +217,9 @@ mod tests {
     /// Verify the timeout value is propagated to the error message.
     #[tokio::test]
     async fn transport_timeout_error_message_contains_secs() {
-        let transport = StdioTransport::spawn_with_timeout(
-            "cat",
-            &[],
-            &HashMap::new(),
-            Duration::from_secs(5),
-        )
-        .unwrap();
+        let transport =
+            StdioTransport::spawn_with_timeout("cat", &[], &HashMap::new(), Duration::from_secs(5))
+                .unwrap();
 
         // Don't send anything so receive() will time out.
         let result = transport.receive().await;
@@ -237,7 +238,10 @@ mod tests {
         use crate::types::JsonRpcNotification;
         let notif = JsonRpcNotification::new("notifications/initialized");
         let json = serde_json::to_string(&notif).unwrap();
-        assert!(!json.contains("\"id\""), "notification must not have id, got: {json}");
+        assert!(
+            !json.contains("\"id\""),
+            "notification must not have id, got: {json}"
+        );
         assert!(json.contains("notifications/initialized"), "got: {json}");
         assert!(json.contains("\"jsonrpc\":\"2.0\""), "got: {json}");
     }

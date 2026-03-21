@@ -44,11 +44,9 @@ mod inner {
             let size = info.size_bytes;
             let format = info.file_type;
 
-            tokio::task::spawn_blocking(move || {
-                extract_archive(&path, size, format, token_budget)
-            })
-            .await
-            .map_err(|e| Error::Internal(format!("archive spawn_blocking: {e}")))?
+            tokio::task::spawn_blocking(move || extract_archive(&path, size, format, token_budget))
+                .await
+                .map_err(|e| Error::Internal(format!("archive spawn_blocking: {e}")))?
         }
     }
 
@@ -61,13 +59,15 @@ mod inner {
         match format {
             FileType::Archive(ArchiveFormat::Zip) => extract_zip(path, size, token_budget),
             FileType::Archive(ArchiveFormat::Tar) => extract_tar(path, size, token_budget, false),
-            FileType::Archive(ArchiveFormat::TarGz) => {
-                extract_tar(path, size, token_budget, true)
-            }
+            FileType::Archive(ArchiveFormat::TarGz) => extract_tar(path, size, token_budget, true),
             _ => {
                 // Fallback: just show file info.
                 Ok(FileContent {
-                    text: format!("Archive: {} ({} bytes)\nFormat: {format}\n", path.display(), size),
+                    text: format!(
+                        "Archive: {} ({} bytes)\nFormat: {format}\n",
+                        path.display(),
+                        size
+                    ),
                     estimated_tokens: 20,
                     metadata: json!({
                         "format": format.to_string(),
@@ -101,8 +101,15 @@ mod inner {
         let mut truncated = false;
         let mut total_uncompressed: u64 = 0;
 
-        output.push_str(&format!("ZIP archive: {} ({} entries)\n\n", path.display(), total_entries));
-        output.push_str(&format!("{:<60} {:>12} {:>12}\n", "Name", "Size", "Compressed"));
+        output.push_str(&format!(
+            "ZIP archive: {} ({} entries)\n\n",
+            path.display(),
+            total_entries
+        ));
+        output.push_str(&format!(
+            "{:<60} {:>12} {:>12}\n",
+            "Name", "Size", "Compressed"
+        ));
         output.push_str(&format!("{}\n", "-".repeat(86)));
 
         for i in 0..total_entries {
@@ -112,7 +119,12 @@ mod inner {
                 let compressed = entry.compressed_size();
                 total_uncompressed += uncompressed;
 
-                let line = format!("{:<60} {:>12} {:>12}\n", name, format_size(uncompressed), format_size(compressed));
+                let line = format!(
+                    "{:<60} {:>12} {:>12}\n",
+                    name,
+                    format_size(uncompressed),
+                    format_size(compressed)
+                );
 
                 if output.len() + line.len() > max_chars {
                     truncated = true;
@@ -125,7 +137,10 @@ mod inner {
         }
 
         if truncated {
-            output.push_str(&format!("\n... and {} more entries\n", total_entries - entries_shown));
+            output.push_str(&format!(
+                "\n... and {} more entries\n",
+                total_entries - entries_shown
+            ));
         }
 
         let estimated_tokens = estimate_tokens_from_text(&output);
@@ -176,7 +191,10 @@ mod inner {
                     let entry_size = entry.size();
                     total_size += entry_size;
 
-                    let name = entry.path().map(|p| p.display().to_string()).unwrap_or_default();
+                    let name = entry
+                        .path()
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_default();
                     let line = format!("{:<60} {:>12}\n", name, format_size(entry_size));
 
                     if output.len() + line.len() > max_chars {
@@ -196,7 +214,10 @@ mod inner {
                     let entry_size = entry.size();
                     total_size += entry_size;
 
-                    let name = entry.path().map(|p| p.display().to_string()).unwrap_or_default();
+                    let name = entry
+                        .path()
+                        .map(|p| p.display().to_string())
+                        .unwrap_or_default();
                     let line = format!("{:<60} {:>12}\n", name, format_size(entry_size));
 
                     if output.len() + line.len() > max_chars {

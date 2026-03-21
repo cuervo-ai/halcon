@@ -10,10 +10,10 @@
 
 use std::sync::Arc;
 
+use futures::stream::BoxStream;
 use halcon_core::error::HalconError;
 use halcon_core::traits::ModelProvider;
 use halcon_core::types::{ModelChunk, ModelRequest, RoutingConfig};
-use futures::stream::BoxStream;
 
 /// A resolved route: provider + model to invoke.
 #[derive(Clone)]
@@ -56,8 +56,13 @@ impl ModelRouter {
         primary_provider: &Arc<dyn ModelProvider>,
         request: &ModelRequest,
         fallback_providers: &[(String, Arc<dyn ModelProvider>)],
-    ) -> Result<(BoxStream<'static, Result<ModelChunk, HalconError>>, ResolvedRoute), HalconError>
-    {
+    ) -> Result<
+        (
+            BoxStream<'static, Result<ModelChunk, HalconError>>,
+            ResolvedRoute,
+        ),
+        HalconError,
+    > {
         // Try the primary model with retries.
         let mut last_error = None;
         for attempt in 0..=self.config.max_retries {
@@ -102,7 +107,11 @@ impl ModelRouter {
         // fallback_models contains provider names; each provider uses its own default model
         // or the request model if it supports it.
         for (name, provider) in fallback_providers {
-            let fb_model = if provider.supported_models().iter().any(|m| m.id == request.model) {
+            let fb_model = if provider
+                .supported_models()
+                .iter()
+                .any(|m| m.id == request.model)
+            {
                 request.model.clone()
             } else {
                 provider
@@ -183,7 +192,10 @@ mod tests {
         let config = RoutingConfig::default();
         let router = ModelRouter::new(&config);
 
-        let (stream, route) = router.invoke(&provider, &make_request(), &[]).await.unwrap();
+        let (stream, route) = router
+            .invoke(&provider, &make_request(), &[])
+            .await
+            .unwrap();
         drop(stream);
 
         assert!(!route.is_fallback);
@@ -222,7 +234,10 @@ mod tests {
         let router = ModelRouter::new(&config);
 
         // Primary succeeds immediately, so fallback is not used.
-        let (stream, route) = router.invoke(&echo, &make_request(), &[("echo".into(), echo.clone())]).await.unwrap();
+        let (stream, route) = router
+            .invoke(&echo, &make_request(), &[("echo".into(), echo.clone())])
+            .await
+            .unwrap();
         drop(stream);
         assert!(!route.is_fallback);
     }

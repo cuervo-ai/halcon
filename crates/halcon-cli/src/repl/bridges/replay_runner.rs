@@ -10,16 +10,16 @@ use uuid::Uuid;
 
 use halcon_core::traits::ModelProvider;
 use halcon_core::types::{
-    AgentLimits, ChatMessage, ExecutionContext, MessageContent, ModelRequest, Phase14Context,
-    Role, RoutingConfig, Session,
+    AgentLimits, ChatMessage, ExecutionContext, MessageContent, ModelRequest, Phase14Context, Role,
+    RoutingConfig, Session,
 };
 use halcon_providers::ReplayProvider;
 use halcon_storage::AsyncDatabase;
 use halcon_tools::ToolRegistry;
 
 use super::super::agent::{self, AgentContext};
-use super::replay_executor::ReplayToolExecutor;
 use super::super::resilience::ResilienceManager;
+use super::replay_executor::ReplayToolExecutor;
 
 /// Result of a replay execution.
 #[derive(Debug)]
@@ -45,15 +45,21 @@ pub async fn run_replay(
     verify: bool,
 ) -> Result<ReplayResult> {
     // Load the original session.
-    let original_session = db.load_session(original_session_id).await?
+    let original_session = db
+        .load_session(original_session_id)
+        .await?
         .ok_or_else(|| anyhow::anyhow!("session not found: {original_session_id}"))?;
 
     // Load trace steps.
-    let steps = db.inner().load_trace_steps(original_session_id)
+    let steps = db
+        .inner()
+        .load_trace_steps(original_session_id)
         .map_err(|e| anyhow::anyhow!("{e}"))?;
 
     if steps.is_empty() {
-        return Err(anyhow::anyhow!("no trace steps found for session {original_session_id}"));
+        return Err(anyhow::anyhow!(
+            "no trace steps found for session {original_session_id}"
+        ));
     }
 
     // Construct ReplayProvider from trace steps.
@@ -61,7 +67,9 @@ pub async fn run_replay(
         .map_err(|e| anyhow::anyhow!("failed to construct replay provider: {e}"))?;
 
     if replay_provider.remaining() == 0 {
-        return Err(anyhow::anyhow!("no model responses found in trace for session {original_session_id}"));
+        return Err(anyhow::anyhow!(
+            "no model responses found in trace for session {original_session_id}"
+        ));
     }
 
     // Construct ReplayToolExecutor from trace steps.
@@ -76,7 +84,9 @@ pub async fn run_replay(
     replay_session.replay_source_session = Some(original_session_id.to_string());
 
     // Extract the first user message from the original session to seed the replay.
-    let first_user_msg = original_session.messages.iter()
+    let first_user_msg = original_session
+        .messages
+        .iter()
         .find(|m| m.role == Role::User)
         .cloned()
         .unwrap_or(ChatMessage {
@@ -102,7 +112,8 @@ pub async fn run_replay(
         ..Default::default()
     };
     let routing_config = RoutingConfig::default();
-    let mut permissions = super::super::conversational_permission::ConversationalPermissionHandler::new(true);
+    let mut permissions =
+        super::super::conversational_permission::ConversationalPermissionHandler::new(true);
     let mut resilience = ResilienceManager::new(Default::default());
 
     let silent_sink = crate::render::sink::SilentSink::new();
@@ -130,7 +141,11 @@ pub async fn run_replay(
         render_sink: &silent_sink,
         replay_tool_executor: Some(&replay_executor),
         phase14: {
-            let seed = format!("{}_{}", original_session.id, original_session.created_at.timestamp());
+            let seed = format!(
+                "{}_{}",
+                original_session.id,
+                original_session.created_at.timestamp()
+            );
             Phase14Context {
                 exec_ctx: ExecutionContext::deterministic(&seed, original_session.created_at),
                 ..Default::default()
@@ -185,8 +200,8 @@ pub async fn run_replay(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use halcon_storage::{Database, TraceStep, TraceStepType};
     use chrono::Utc;
+    use halcon_storage::{Database, TraceStep, TraceStepType};
 
     fn test_async_db() -> AsyncDatabase {
         AsyncDatabase::new(Arc::new(Database::open_in_memory().unwrap()))
@@ -234,7 +249,9 @@ mod tests {
             adb.inner().append_trace_step(step).unwrap();
         }
 
-        let result = run_replay(session_id, &adb, &tool_reg, &event_tx, true).await.unwrap();
+        let result = run_replay(session_id, &adb, &tool_reg, &event_tx, true)
+            .await
+            .unwrap();
         assert_eq!(result.original_session_id, session_id);
         // Fix #1: text-only rounds are now counted; replay of 1 model response = 1 round.
         assert_eq!(result.rounds, 1);
@@ -249,7 +266,10 @@ mod tests {
 
         let result = run_replay(Uuid::new_v4(), &adb, &tool_reg, &event_tx, false).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("session not found"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("session not found"));
     }
 
     #[tokio::test]
@@ -297,7 +317,9 @@ mod tests {
             adb.inner().append_trace_step(step).unwrap();
         }
 
-        let result = run_replay(session_id, &adb, &tool_reg, &event_tx, false).await.unwrap();
+        let result = run_replay(session_id, &adb, &tool_reg, &event_tx, false)
+            .await
+            .unwrap();
         // Replay session should have a different ID from the original.
         assert_ne!(result.replay_session_id, session_id);
 
@@ -311,8 +333,14 @@ mod tests {
     #[test]
     fn fingerprint_deterministic() {
         let messages = vec![
-            ChatMessage { role: Role::User, content: MessageContent::Text("hello".into()) },
-            ChatMessage { role: Role::Assistant, content: MessageContent::Text("world".into()) },
+            ChatMessage {
+                role: Role::User,
+                content: MessageContent::Text("hello".into()),
+            },
+            ChatMessage {
+                role: Role::Assistant,
+                content: MessageContent::Text("world".into()),
+            },
         ];
         let fp1 = agent::compute_fingerprint(&messages);
         let fp2 = agent::compute_fingerprint(&messages);
@@ -322,13 +350,18 @@ mod tests {
 
     #[test]
     fn fingerprint_changes_with_different_messages() {
-        let msg1 = vec![
-            ChatMessage { role: Role::User, content: MessageContent::Text("hello".into()) },
-        ];
-        let msg2 = vec![
-            ChatMessage { role: Role::User, content: MessageContent::Text("goodbye".into()) },
-        ];
-        assert_ne!(agent::compute_fingerprint(&msg1), agent::compute_fingerprint(&msg2));
+        let msg1 = vec![ChatMessage {
+            role: Role::User,
+            content: MessageContent::Text("hello".into()),
+        }];
+        let msg2 = vec![ChatMessage {
+            role: Role::User,
+            content: MessageContent::Text("goodbye".into()),
+        }];
+        assert_ne!(
+            agent::compute_fingerprint(&msg1),
+            agent::compute_fingerprint(&msg2)
+        );
     }
 
     // --- Deterministic context tests ---
@@ -339,8 +372,14 @@ mod tests {
         let seed = format!("{}_{}", session.id, session.created_at.timestamp());
         let ctx = ExecutionContext::deterministic(&seed, session.created_at);
         // Should be deterministic (seeded), not random.
-        matches!(ctx.uuid_gen, halcon_core::types::UuidGenerator::Seeded { .. });
-        matches!(ctx.clock, halcon_core::types::ExecutionClock::Deterministic { .. });
+        matches!(
+            ctx.uuid_gen,
+            halcon_core::types::UuidGenerator::Seeded { .. }
+        );
+        matches!(
+            ctx.clock,
+            halcon_core::types::ExecutionClock::Deterministic { .. }
+        );
     }
 
     #[test]

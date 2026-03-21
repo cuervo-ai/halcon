@@ -17,8 +17,8 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use super::schema::{SkillDefinition, SkillFrontmatter};
 use super::loader::split_frontmatter;
+use super::schema::{SkillDefinition, SkillFrontmatter};
 
 // ── Loading ───────────────────────────────────────────────────────────────────
 
@@ -203,8 +203,8 @@ mod tests {
 
     #[test]
     fn loads_skill_with_frontmatter() {
-        use tempfile::NamedTempFile;
         use std::io::Write;
+        use tempfile::NamedTempFile;
 
         let mut f = NamedTempFile::new().unwrap();
         writeln!(f, "---").unwrap();
@@ -223,8 +223,8 @@ mod tests {
 
     #[test]
     fn loads_skill_without_frontmatter_uses_filename() {
-        use tempfile::NamedTempFile;
         use std::io::Write;
+        use tempfile::NamedTempFile;
 
         let mut f = NamedTempFile::with_suffix(".md").unwrap();
         writeln!(f, "This is the skill body.").unwrap();
@@ -246,8 +246,14 @@ mod tests {
     #[test]
     fn no_cycle_when_all_unique() {
         let mut map = HashMap::new();
-        map.insert("agent-a".to_string(), vec!["skill-1".to_string(), "skill-2".to_string()]);
-        map.insert("agent-b".to_string(), vec!["skill-2".to_string(), "skill-3".to_string()]);
+        map.insert(
+            "agent-a".to_string(),
+            vec!["skill-1".to_string(), "skill-2".to_string()],
+        );
+        map.insert(
+            "agent-b".to_string(),
+            vec!["skill-2".to_string(), "skill-3".to_string()],
+        );
 
         assert!(detect_skill_cycles(&map).is_ok());
     }
@@ -257,7 +263,11 @@ mod tests {
         let mut map = HashMap::new();
         map.insert(
             "agent-dup".to_string(),
-            vec!["skill-x".to_string(), "skill-y".to_string(), "skill-x".to_string()],
+            vec![
+                "skill-x".to_string(),
+                "skill-y".to_string(),
+                "skill-x".to_string(),
+            ],
         );
 
         let result = detect_skill_cycles(&map);
@@ -295,18 +305,24 @@ mod tests {
     #[test]
     fn resolves_known_skills() {
         let mut skill_map = HashMap::new();
-        skill_map.insert("skill-a".to_string(), SkillDefinition {
-            name: "skill-a".to_string(),
-            description: String::new(),
-            body: "Content A".to_string(),
-            source_path: PathBuf::from("a.md"),
-        });
-        skill_map.insert("skill-b".to_string(), SkillDefinition {
-            name: "skill-b".to_string(),
-            description: String::new(),
-            body: "Content B".to_string(),
-            source_path: PathBuf::from("b.md"),
-        });
+        skill_map.insert(
+            "skill-a".to_string(),
+            SkillDefinition {
+                name: "skill-a".to_string(),
+                description: String::new(),
+                body: "Content A".to_string(),
+                source_path: PathBuf::from("a.md"),
+            },
+        );
+        skill_map.insert(
+            "skill-b".to_string(),
+            SkillDefinition {
+                name: "skill-b".to_string(),
+                description: String::new(),
+                body: "Content B".to_string(),
+                source_path: PathBuf::from("b.md"),
+            },
+        );
 
         let names = vec!["skill-a".to_string(), "skill-b".to_string()];
         let result = resolve_skills(&names, &skill_map, "my-agent");
@@ -325,12 +341,15 @@ mod tests {
     #[test]
     fn empty_skill_body_not_included() {
         let mut skill_map = HashMap::new();
-        skill_map.insert("empty-skill".to_string(), SkillDefinition {
-            name: "empty-skill".to_string(),
-            description: String::new(),
-            body: String::new(),
-            source_path: PathBuf::from("empty.md"),
-        });
+        skill_map.insert(
+            "empty-skill".to_string(),
+            SkillDefinition {
+                name: "empty-skill".to_string(),
+                description: String::new(),
+                body: String::new(),
+                source_path: PathBuf::from("empty.md"),
+            },
+        );
 
         let names = vec!["empty-skill".to_string()];
         let result = resolve_skills(&names, &skill_map, "my-agent");
@@ -341,8 +360,8 @@ mod tests {
 
     #[test]
     fn project_skills_override_user_skills() {
-        use tempfile::TempDir;
         use std::io::Write;
+        use tempfile::TempDir;
 
         let dir = TempDir::new().unwrap();
 
@@ -350,7 +369,11 @@ mod tests {
         let skills_dir = dir.path().join("skills");
         std::fs::create_dir_all(&skills_dir).unwrap();
         let mut f = std::fs::File::create(skills_dir.join("common.md")).unwrap();
-        writeln!(f, "---\nname: common\ndescription: project\n---\nProject version.").unwrap();
+        writeln!(
+            f,
+            "---\nname: common\ndescription: project\n---\nProject version."
+        )
+        .unwrap();
 
         // Manually test load_skills_from_dir with two dirs (unit level).
         let mut map: HashMap<String, SkillDefinition> = HashMap::new();
@@ -359,7 +382,11 @@ mod tests {
         let user_dir = dir.path().join("user_skills");
         std::fs::create_dir_all(&user_dir).unwrap();
         let mut uf = std::fs::File::create(user_dir.join("common.md")).unwrap();
-        writeln!(uf, "---\nname: common\ndescription: user\n---\nUser version.").unwrap();
+        writeln!(
+            uf,
+            "---\nname: common\ndescription: user\n---\nUser version."
+        )
+        .unwrap();
 
         load_skills_from_dir(&user_dir, &mut map);
         assert_eq!(map["common"].body, "User version.");

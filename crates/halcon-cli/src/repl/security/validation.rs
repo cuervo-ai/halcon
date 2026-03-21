@@ -23,11 +23,19 @@ pub enum ValidationError {
 impl std::fmt::Display for ValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ValidationError::ToolNotFound(tool) => write!(f, "Tool '{}' not found in registry", tool),
+            ValidationError::ToolNotFound(tool) => {
+                write!(f, "Tool '{}' not found in registry", tool)
+            }
             ValidationError::InvalidModification(msg) => write!(f, "Invalid modification: {}", msg),
-            ValidationError::UnsafeModification(msg) => write!(f, "Unsafe modification rejected: {}", msg),
-            ValidationError::InvalidParameter(msg) => write!(f, "Invalid parameter format: {}", msg),
-            ValidationError::DetailNotAvailable => write!(f, "Detail aspect not available for this tool"),
+            ValidationError::UnsafeModification(msg) => {
+                write!(f, "Unsafe modification rejected: {}", msg)
+            }
+            ValidationError::InvalidParameter(msg) => {
+                write!(f, "Invalid parameter format: {}", msg)
+            }
+            ValidationError::DetailNotAvailable => {
+                write!(f, "Detail aspect not available for this tool")
+            }
         }
     }
 }
@@ -205,7 +213,10 @@ impl PermissionValidator {
         // Check pipe-to-shell patterns (more flexible).
         // Detects: "curl ... | sh", "wget ... | sh", "curl ... | bash", etc.
         let has_curl_or_wget = text.contains("curl") || text.contains("wget");
-        let has_pipe_shell = text.contains("| sh") || text.contains("| bash") || text.contains("|sh") || text.contains("|bash");
+        let has_pipe_shell = text.contains("| sh")
+            || text.contains("| bash")
+            || text.contains("|sh")
+            || text.contains("|bash");
 
         if has_curl_or_wget && has_pipe_shell {
             return true;
@@ -255,10 +266,7 @@ impl PermissionValidator {
                 )
             }
             PermissionMessage::ConditionalApprove { condition } => {
-                format!(
-                    "[User approved {} with condition: \"{}\"]",
-                    tool, condition
-                )
+                format!("[User approved {} with condition: \"{}\"]", tool, condition)
             }
             PermissionMessage::SuggestAlternative { suggestion } => {
                 format!(
@@ -366,7 +374,10 @@ mod tests {
             "bash",
             &json!({"command": "ls"}),
         );
-        assert!(matches!(result, Err(ValidationError::InvalidModification(_))));
+        assert!(matches!(
+            result,
+            Err(ValidationError::InvalidModification(_))
+        ));
     }
 
     #[test]
@@ -379,7 +390,10 @@ mod tests {
             "bash",
             &json!({"command": "ls"}),
         );
-        assert!(matches!(result, Err(ValidationError::UnsafeModification(_))));
+        assert!(matches!(
+            result,
+            Err(ValidationError::UnsafeModification(_))
+        ));
     }
 
     #[test]
@@ -392,7 +406,10 @@ mod tests {
             "bash",
             &json!({"command": "ls"}),
         );
-        assert!(matches!(result, Err(ValidationError::UnsafeModification(_))));
+        assert!(matches!(
+            result,
+            Err(ValidationError::UnsafeModification(_))
+        ));
     }
 
     #[test]
@@ -618,7 +635,13 @@ mod tests {
     fn is_destructive_tool_classification() {
         let validator = PermissionValidator::new();
 
-        let destructive = ["bash", "file_write", "file_edit", "file_delete", "git_commit"];
+        let destructive = [
+            "bash",
+            "file_write",
+            "file_edit",
+            "file_delete",
+            "git_commit",
+        ];
         for tool in &destructive {
             assert!(
                 validator.is_destructive_tool(tool),

@@ -42,7 +42,11 @@ fn login_claude_code_oauth() -> Result<()> {
 
     // ── 1. Already logged in? ────────────────────────────────────────────────
     if let Some((method, sub, email)) = check_claude_auth_status(&claude_bin) {
-        let email_display = if email.is_empty() { "—".to_string() } else { email };
+        let email_display = if email.is_empty() {
+            "—".to_string()
+        } else {
+            email
+        };
 
         // Validate that the token is still accepted by the API (not just stored).
         print!("  Verificando validez del token...");
@@ -131,7 +135,11 @@ fn login_claude_code_oauth() -> Result<()> {
     // ── 4. Confirm ───────────────────────────────────────────────────────────
     println!();
     if let Some((method, sub, email)) = check_claude_auth_status(&claude_bin) {
-        let email_display = if email.is_empty() { "—".to_string() } else { email };
+        let email_display = if email.is_empty() {
+            "—".to_string()
+        } else {
+            email
+        };
         println!("  ✓  Login exitoso");
         println!("     Cuenta  {email_display}");
         println!("     Método  {method}");
@@ -208,7 +216,10 @@ fn check_claude_auth_status(claude_bin: &str) -> Option<(String, String, String)
     }
 
     let method = v["authMethod"].as_str().unwrap_or("unknown").to_string();
-    let sub = v["subscriptionType"].as_str().unwrap_or("unknown").to_string();
+    let sub = v["subscriptionType"]
+        .as_str()
+        .unwrap_or("unknown")
+        .to_string();
     let email = v["email"].as_str().unwrap_or("").to_string();
     Some((method, sub, email))
 }
@@ -266,9 +277,7 @@ fn validate_claude_token(claude_bin: &str) -> bool {
     });
 
     // Wait up to 10 s for the probe result.
-    let output = rx
-        .recv_timeout(Duration::from_secs(10))
-        .unwrap_or_default();
+    let output = rx.recv_timeout(Duration::from_secs(10)).unwrap_or_default();
 
     // Clean up the process regardless of outcome.
     let _ = child.kill();
@@ -329,7 +338,9 @@ fn open_browser(url: &str) -> Result<()> {
     }
 
     #[allow(unreachable_code)]
-    Err(anyhow::anyhow!("browser open not supported on this platform"))
+    Err(anyhow::anyhow!(
+        "browser open not supported on this platform"
+    ))
 }
 
 /// Locate the `claude` binary: prefer the native install location, then PATH.
@@ -398,7 +409,11 @@ pub fn status() -> Result<()> {
         .ok()
         .and_then(|o| {
             let s = String::from_utf8_lossy(&o.stdout).to_string();
-            if s.trim().is_empty() { None } else { Some(s) }
+            if s.trim().is_empty() {
+                None
+            } else {
+                Some(s)
+            }
         });
 
     let claude_code_status = match &claude_status_str {
@@ -421,7 +436,11 @@ pub fn status() -> Result<()> {
     println!("  claude_code: {claude_code_status}");
 
     // Cenzontle uses SSO tokens, not API keys — check its dedicated keychain entries.
-    let cenzontle_token = keystore.get_secret("cenzontle:access_token").ok().flatten().is_some();
+    let cenzontle_token = keystore
+        .get_secret("cenzontle:access_token")
+        .ok()
+        .flatten()
+        .is_some();
     let cenzontle_env = std::env::var("CENZONTLE_ACCESS_TOKEN")
         .map(|v| !v.is_empty())
         .unwrap_or(false);

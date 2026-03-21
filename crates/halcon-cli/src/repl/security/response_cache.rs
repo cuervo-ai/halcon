@@ -214,9 +214,9 @@ impl ResponseCache {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
     use halcon_core::types::{ChatMessage, MessageContent, Role};
     use halcon_storage::Database;
+    use std::sync::Arc;
 
     fn test_async_db() -> AsyncDatabase {
         AsyncDatabase::new(Arc::new(Database::open_in_memory().unwrap()))
@@ -264,7 +264,9 @@ mod tests {
         let cache = ResponseCache::new(test_async_db(), test_config(true));
         let request = test_request("hello");
 
-        cache.store(&request, "Hello world!", "end_turn", "{}", None).await;
+        cache
+            .store(&request, "Hello world!", "end_turn", "{}", None)
+            .await;
 
         let hit = cache.lookup(&request).await.unwrap();
         assert_eq!(hit.response_text, "Hello world!");
@@ -320,7 +322,9 @@ mod tests {
         let cache = ResponseCache::new(test_async_db(), test_config(true));
         let request = test_request("read that file");
 
-        cache.store(&request, "I'll read it", "tool_use", "{}", None).await;
+        cache
+            .store(&request, "I'll read it", "tool_use", "{}", None)
+            .await;
 
         assert!(cache.lookup(&request).await.is_none());
     }
@@ -331,7 +335,9 @@ mod tests {
         let cache = ResponseCache::new(db.clone(), test_config(false));
         let request = test_request("hello");
 
-        cache.store(&request, "response", "end_turn", "{}", None).await;
+        cache
+            .store(&request, "response", "end_turn", "{}", None)
+            .await;
 
         let stats = db.inner().cache_stats().unwrap();
         assert_eq!(stats.total_entries, 0);
@@ -345,7 +351,9 @@ mod tests {
         let request = test_request("l1 test");
 
         // Store populates both L1 and L2.
-        cache.store(&request, "l1 response", "end_turn", "{}", None).await;
+        cache
+            .store(&request, "l1 response", "end_turn", "{}", None)
+            .await;
 
         // Lookup should hit L1 (sub-microsecond).
         let hit = cache.lookup(&request).await.unwrap();
@@ -393,24 +401,29 @@ mod tests {
         let cache = ResponseCache::new(db.clone(), config);
         let request = test_request("expire me");
 
-        cache.store(&request, "ephemeral", "end_turn", "{}", None).await;
+        cache
+            .store(&request, "ephemeral", "end_turn", "{}", None)
+            .await;
 
         // The entry has no expires_at (ttl=0 means no expiry per current logic).
         // To test actual expiry, insert with a past expires_at directly.
         let key = ResponseCache::compute_key(&request);
         {
             let mut l1 = cache.l1.lock().unwrap();
-            l1.put(key, CacheEntry {
-                cache_key: ResponseCache::compute_key(&request),
-                model: "claude".into(),
-                response_text: "expired".into(),
-                tool_calls_json: None,
-                stop_reason: "end_turn".into(),
-                usage_json: "{}".into(),
-                created_at: Utc::now(),
-                expires_at: Some(Utc::now() - chrono::Duration::seconds(1)),
-                hit_count: 0,
-            });
+            l1.put(
+                key,
+                CacheEntry {
+                    cache_key: ResponseCache::compute_key(&request),
+                    model: "claude".into(),
+                    response_text: "expired".into(),
+                    tool_calls_json: None,
+                    stop_reason: "end_turn".into(),
+                    usage_json: "{}".into(),
+                    created_at: Utc::now(),
+                    expires_at: Some(Utc::now() - chrono::Duration::seconds(1)),
+                    hit_count: 0,
+                },
+            );
         }
 
         // L1 should find the expired entry and evict it.
@@ -461,7 +474,9 @@ mod tests {
         let cache = ResponseCache::new(db.clone(), test_config(true));
         let request = test_request("write through");
 
-        cache.store(&request, "both layers", "end_turn", "{}", None).await;
+        cache
+            .store(&request, "both layers", "end_turn", "{}", None)
+            .await;
 
         // Check L1.
         {
@@ -491,7 +506,9 @@ mod tests {
         let cache = ResponseCache::new(test_async_db(), test_config(true));
         let request = test_request("tool call");
 
-        cache.store(&request, "calling tool", "tool_use", "{}", None).await;
+        cache
+            .store(&request, "calling tool", "tool_use", "{}", None)
+            .await;
 
         // Neither L1 nor L2 should have it.
         assert!(cache.lookup(&request).await.is_none());
@@ -508,7 +525,9 @@ mod tests {
         let request = test_request("cache hit test");
 
         // Store once.
-        cache.store(&request, "first response", "end_turn", "{}", None).await;
+        cache
+            .store(&request, "first response", "end_turn", "{}", None)
+            .await;
 
         // Lookup should hit.
         let hit = cache.lookup(&request).await;
@@ -516,7 +535,9 @@ mod tests {
         assert_eq!(hit.unwrap().response_text, "first response");
 
         // Store a different response for the same key (overwrite).
-        cache.store(&request, "updated response", "end_turn", "{}", None).await;
+        cache
+            .store(&request, "updated response", "end_turn", "{}", None)
+            .await;
 
         // Lookup should return the updated response.
         let hit2 = cache.lookup(&request).await;
@@ -571,8 +592,12 @@ mod tests {
         let req1 = test_request("alpha");
         let req2 = test_request("beta");
 
-        cache.store(&req1, "alpha response", "end_turn", "{}", None).await;
-        cache.store(&req2, "beta response", "end_turn", "{}", None).await;
+        cache
+            .store(&req1, "alpha response", "end_turn", "{}", None)
+            .await;
+        cache
+            .store(&req2, "beta response", "end_turn", "{}", None)
+            .await;
 
         let hit1 = cache.lookup(&req1).await.unwrap();
         let hit2 = cache.lookup(&req2).await.unwrap();

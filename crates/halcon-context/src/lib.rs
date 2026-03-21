@@ -14,12 +14,12 @@ pub mod cold_archive;
 pub mod cold_store;
 pub mod compression;
 pub mod elider;
+pub mod embedding;
 pub mod hot_buffer;
 pub mod instruction_cache;
 pub mod pipeline;
-pub mod segment;
 pub mod repo_map;
-pub mod embedding;
+pub mod segment;
 pub mod semantic_store;
 pub mod sliding_window;
 pub mod vector_store;
@@ -32,17 +32,19 @@ pub use instruction_source::InstructionSource;
 pub use accountant::{estimate_message_tokens, BudgetResult, Tier, TokenAccountant};
 pub use cold_archive::ColdArchive;
 pub use cold_store::ColdStore;
-pub use compression::{compress, decompress, delta_decode, delta_encode, CompressedBlock, DeltaEncoded, DeltaOp};
+pub use compression::{
+    compress, decompress, delta_decode, delta_encode, CompressedBlock, DeltaEncoded, DeltaOp,
+};
 pub use elider::ToolOutputElider;
+pub use embedding::{
+    cosine_sim, EmbeddingEngine, EmbeddingEngineFactory, OllamaEmbeddingEngine, TfIdfHashEngine,
+    DIMS, OLLAMA_DEFAULT_ENDPOINT, OLLAMA_DEFAULT_MODEL,
+};
 pub use hot_buffer::HotBuffer;
 pub use instruction_cache::InstructionCache;
 pub use pipeline::{ContextPipeline, ContextPipelineConfig};
+pub use repo_map::{build_repo_map, RepoMap};
 pub use segment::{extract_segment_from_message, ContextSegment};
-pub use repo_map::{RepoMap, build_repo_map};
-pub use embedding::{
-    cosine_sim, EmbeddingEngine, EmbeddingEngineFactory, OllamaEmbeddingEngine,
-    TfIdfHashEngine, DIMS, OLLAMA_DEFAULT_ENDPOINT, OLLAMA_DEFAULT_MODEL,
-};
 
 /// Obtain the best available embedding engine, respecting env-var overrides.
 ///
@@ -55,12 +57,12 @@ pub fn embedding_engine() -> Box<dyn EmbeddingEngine> {
 }
 pub mod semantic_cache;
 pub use semantic_cache::{
-    CacheOutcome, CacheResult, SemanticCache,
-    TTL_CODE_GEN, TTL_CONVERSATION, TTL_DEFAULT, TTL_RESEARCH, TTL_SUMMARIZATION,
+    CacheOutcome, CacheResult, SemanticCache, TTL_CODE_GEN, TTL_CONVERSATION, TTL_DEFAULT,
+    TTL_RESEARCH, TTL_SUMMARIZATION,
 };
 pub use semantic_store::SemanticStore;
-pub use vector_store::{MemoryEntry, SearchResult, VectorMemoryStore};
 pub use sliding_window::SlidingWindow;
+pub use vector_store::{MemoryEntry, SearchResult, VectorMemoryStore};
 
 pub fn version() -> &'static str {
     env!("CARGO_PKG_VERSION")

@@ -18,12 +18,14 @@ use halcon_core::{
 use serde_json::{json, Value};
 
 pub struct CodeCoverageTool {
-    timeout_secs: u64,
+    _timeout_secs: u64,
 }
 
 impl CodeCoverageTool {
     pub fn new(timeout_secs: u64) -> Self {
-        Self { timeout_secs }
+        Self {
+            _timeout_secs: timeout_secs,
+        }
     }
 
     /// Find coverage report files in a directory (common locations).
@@ -45,7 +47,11 @@ impl CodeCoverageTool {
             .iter()
             .filter_map(|(rel, fmt)| {
                 let p = dir.join(rel);
-                if p.exists() { Some((p, *fmt)) } else { None }
+                if p.exists() {
+                    Some((p, *fmt))
+                } else {
+                    None
+                }
             })
             .collect()
     }
@@ -201,7 +207,11 @@ impl CodeCoverageTool {
         if !summary.file_summaries.is_empty() {
             out.push_str("\nPer-file breakdown (sorted by coverage):\n");
             let mut sorted = summary.file_summaries.clone();
-            sorted.sort_by(|a, b| a.line_coverage_pct.partial_cmp(&b.line_coverage_pct).unwrap());
+            sorted.sort_by(|a, b| {
+                a.line_coverage_pct
+                    .partial_cmp(&b.line_coverage_pct)
+                    .unwrap()
+            });
 
             // Show worst 10 first
             for f in sorted.iter().take(20) {
@@ -253,7 +263,15 @@ struct CoverageSummary {
 }
 
 fn coverage_badge(pct: f64) -> &'static str {
-    if pct >= 90.0 { "🟢" } else if pct >= 70.0 { "🟡" } else if pct >= 50.0 { "🟠" } else { "🔴" }
+    if pct >= 90.0 {
+        "🟢"
+    } else if pct >= 70.0 {
+        "🟡"
+    } else if pct >= 50.0 {
+        "🟠"
+    } else {
+        "🔴"
+    }
 }
 
 fn coverage_bar(pct: f64) -> String {
@@ -264,7 +282,11 @@ fn coverage_bar(pct: f64) -> String {
 
 fn short_path(path: &str) -> &str {
     // Show last 50 chars of path
-    if path.len() <= 60 { path } else { &path[path.len() - 60..] }
+    if path.len() <= 60 {
+        path
+    } else {
+        &path[path.len() - 60..]
+    }
 }
 
 fn extract_xml_attr(line: &str, attr: &str) -> Option<String> {
@@ -324,7 +346,10 @@ impl Tool for CodeCoverageTool {
         PermissionLevel::ReadOnly
     }
 
-    async fn execute(&self, input: ToolInput) -> Result<ToolOutput, halcon_core::error::HalconError> {
+    async fn execute(
+        &self,
+        input: ToolInput,
+    ) -> Result<ToolOutput, halcon_core::error::HalconError> {
         let args = &input.arguments;
         let working_dir = PathBuf::from(&input.working_directory);
 
@@ -332,7 +357,11 @@ impl Tool for CodeCoverageTool {
             .as_str()
             .map(|p| {
                 let p = Path::new(p);
-                if p.is_absolute() { p.to_path_buf() } else { working_dir.join(p) }
+                if p.is_absolute() {
+                    p.to_path_buf()
+                } else {
+                    working_dir.join(p)
+                }
             })
             .unwrap_or_else(|| working_dir.clone());
 
@@ -352,7 +381,10 @@ impl Tool for CodeCoverageTool {
             if run_tool != "none" {
                 let (cmd, cmd_args) = match run_tool {
                     "tarpaulin" => ("cargo", vec!["tarpaulin", "--out", "Xml"]),
-                    "llvm-cov" => ("cargo", vec!["llvm-cov", "--lcov", "--output-path", "lcov.info"]),
+                    "llvm-cov" => (
+                        "cargo",
+                        vec!["llvm-cov", "--lcov", "--output-path", "lcov.info"],
+                    ),
                     _ => {
                         return Ok(ToolOutput {
                             tool_use_id: input.tool_use_id,
@@ -376,7 +408,8 @@ impl Tool for CodeCoverageTool {
                         if new_reports.is_empty() {
                             return Ok(ToolOutput {
                                 tool_use_id: input.tool_use_id,
-                                content: "Coverage tool ran successfully but no report file found.".to_string(),
+                                content: "Coverage tool ran successfully but no report file found."
+                                    .to_string(),
                                 is_error: true,
                                 metadata: None,
                             });
@@ -388,7 +421,10 @@ impl Tool for CodeCoverageTool {
                         let stderr = String::from_utf8_lossy(&o.stderr);
                         return Ok(ToolOutput {
                             tool_use_id: input.tool_use_id,
-                            content: format!("Coverage tool failed:\n{}", &stderr[..stderr.len().min(2000)]),
+                            content: format!(
+                                "Coverage tool failed:\n{}",
+                                &stderr[..stderr.len().min(2000)]
+                            ),
                             is_error: true,
                             metadata: None,
                         });
@@ -396,7 +432,10 @@ impl Tool for CodeCoverageTool {
                     Err(e) => {
                         return Ok(ToolOutput {
                             tool_use_id: input.tool_use_id,
-                            content: format!("Failed to run {}: {} — is it installed?", run_tool, e),
+                            content: format!(
+                                "Failed to run {}: {} — is it installed?",
+                                run_tool, e
+                            ),
                             is_error: true,
                             metadata: None,
                         });

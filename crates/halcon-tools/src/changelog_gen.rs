@@ -126,8 +126,8 @@ impl ChangelogGenTool {
             commit_type,
             scope,
             description,
-            body,
-            author,
+            _body: body,
+            _author: author,
             breaking,
         }
     }
@@ -257,19 +257,17 @@ impl ChangelogGenTool {
         if let Some(latest) = tags.first() {
             let commits = Self::get_commits(&format!("{latest}..HEAD"), path_filter, dir);
             if !commits.is_empty() {
-                out = format!("# Changelog\n\n## [Unreleased]\n\n{}{out}", Self::render_section(&commits, show_hash));
+                out = format!(
+                    "# Changelog\n\n## [Unreleased]\n\n{}{out}",
+                    Self::render_section(&commits, show_hash)
+                );
             }
         }
 
         out
     }
 
-    fn generate_flat(
-        range: &str,
-        path_filter: Option<&str>,
-        show_hash: bool,
-        dir: &str,
-    ) -> String {
+    fn generate_flat(range: &str, path_filter: Option<&str>, show_hash: bool, dir: &str) -> String {
         let commits = Self::get_commits(range, path_filter, dir);
         if commits.is_empty() {
             return "No commits found in the specified range.\n".to_string();
@@ -286,8 +284,8 @@ struct Commit {
     commit_type: String,
     scope: Option<String>,
     description: String,
-    body: String,
-    author: String,
+    _body: String,
+    _author: String,
     breaking: bool,
 }
 
@@ -349,11 +347,12 @@ impl Tool for ChangelogGenTool {
         PermissionLevel::ReadOnly
     }
 
-    async fn execute(&self, input: ToolInput) -> Result<ToolOutput, halcon_core::error::HalconError> {
+    async fn execute(
+        &self,
+        input: ToolInput,
+    ) -> Result<ToolOutput, halcon_core::error::HalconError> {
         let args = &input.arguments;
-        let dir = args["path"]
-            .as_str()
-            .unwrap_or(&input.working_directory);
+        let dir = args["path"].as_str().unwrap_or(&input.working_directory);
         let mode = args["mode"].as_str().unwrap_or("tags");
         let filter_path = args["filter_path"].as_str();
         let max_versions = args["max_versions"].as_u64().unwrap_or(10) as usize;
@@ -516,8 +515,8 @@ mod tests {
             commit_type: "feat".into(),
             scope: Some("api".into()),
             description: "add new endpoint".into(),
-            body: "".into(),
-            author: "Alice".into(),
+            _body: "".into(),
+            _author: "Alice".into(),
             breaking: false,
         };
         let line = ChangelogGenTool::format_commit_line(&c, false);
@@ -534,8 +533,8 @@ mod tests {
             commit_type: "fix".into(),
             scope: None,
             description: "resolve crash".into(),
-            body: "".into(),
-            author: "Bob".into(),
+            _body: "".into(),
+            _author: "Bob".into(),
             breaking: false,
         };
         let line = ChangelogGenTool::format_commit_line(&c, true);
@@ -552,8 +551,8 @@ mod tests {
                 commit_type: "feat".into(),
                 scope: None,
                 description: "feature one".into(),
-                body: "".into(),
-                author: "X".into(),
+                _body: "".into(),
+                _author: "X".into(),
                 breaking: false,
             },
             Commit {
@@ -562,8 +561,8 @@ mod tests {
                 commit_type: "fix".into(),
                 scope: None,
                 description: "bug fix".into(),
-                body: "".into(),
-                author: "Y".into(),
+                _body: "".into(),
+                _author: "Y".into(),
                 breaking: false,
             },
         ];

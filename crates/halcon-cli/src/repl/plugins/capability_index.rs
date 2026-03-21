@@ -4,8 +4,8 @@
 //! full-text search by natural language query.  Reuses the same tokenisation
 //! approach as the L3 SemanticStore (split on non-alphanumeric, skip length-1 tokens).
 
-use std::collections::HashMap;
 use super::manifest::{PluginManifest, RiskTier};
+use std::collections::HashMap;
 
 // ─── BM25 Constants ───────────────────────────────────────────────────────────
 
@@ -104,7 +104,11 @@ impl CapabilityIndex {
             total_len as f64 / entries.len() as f64
         };
 
-        Self { entries, doc_freq, avg_doc_len }
+        Self {
+            entries,
+            doc_freq,
+            avg_doc_len,
+        }
     }
 
     /// BM25-ranked search.  Returns up to `limit` candidates ordered by score descending.
@@ -127,19 +131,27 @@ impl CapabilityIndex {
             .iter()
             .enumerate()
             .filter_map(|(idx, entry)| {
-                let score: f64 = query_terms.iter().map(|term| {
-                    let df = *self.doc_freq.get(term).unwrap_or(&0) as f64;
-                    if df == 0.0 {
-                        return 0.0;
-                    }
-                    let tf = *entry.term_freqs.get(term).unwrap_or(&0) as f64;
-                    let idf = ((n - df + 0.5) / (df + 0.5) + 1.0).ln();
-                    let tf_norm = (tf * (K1 + 1.0))
-                        / (tf + K1 * (1.0 - B + B * entry.term_count as f64 / self.avg_doc_len));
-                    idf * tf_norm
-                }).sum();
+                let score: f64 = query_terms
+                    .iter()
+                    .map(|term| {
+                        let df = *self.doc_freq.get(term).unwrap_or(&0) as f64;
+                        if df == 0.0 {
+                            return 0.0;
+                        }
+                        let tf = *entry.term_freqs.get(term).unwrap_or(&0) as f64;
+                        let idf = ((n - df + 0.5) / (df + 0.5) + 1.0).ln();
+                        let tf_norm = (tf * (K1 + 1.0))
+                            / (tf
+                                + K1 * (1.0 - B + B * entry.term_count as f64 / self.avg_doc_len));
+                        idf * tf_norm
+                    })
+                    .sum();
 
-                if score > 0.0 { Some((score, idx)) } else { None }
+                if score > 0.0 {
+                    Some((score, idx))
+                } else {
+                    None
+                }
             })
             .collect();
 
@@ -164,14 +176,15 @@ impl CapabilityIndex {
     /// Preferred over BM25 for avoiding low-IDF false negatives in small indexes.
     pub fn exact_match(&self, tool_name: &str) -> Option<CapabilityCandidate> {
         let lower = tool_name.to_lowercase();
-        self.entries.iter().find(|e| e.tool_name.to_lowercase() == lower).map(|e| {
-            CapabilityCandidate {
+        self.entries
+            .iter()
+            .find(|e| e.tool_name.to_lowercase() == lower)
+            .map(|e| CapabilityCandidate {
                 plugin_id: e.plugin_id.clone(),
                 tool_name: e.tool_name.clone(),
                 score: 1.0,
                 risk_tier: e.risk_tier,
-            }
-        })
+            })
     }
 
     /// Returns `true` when at least one plugin is indexed.
@@ -188,30 +201,32 @@ mod tests {
     use crate::repl::plugins::manifest::{PluginManifest, ToolCapabilityDescriptor};
 
     fn make_manifest(id: &str, tools: &[(&str, &str)]) -> PluginManifest {
-        let caps = tools.iter().map(|(name, desc)| ToolCapabilityDescriptor {
-            name: name.to_string(),
-            description: desc.to_string(),
-            risk_tier: RiskTier::Low,
-            idempotent: true,
-            permission_level: halcon_core::types::PermissionLevel::ReadOnly,
-            budget_tokens_per_call: 0,
-        }).collect();
+        let caps = tools
+            .iter()
+            .map(|(name, desc)| ToolCapabilityDescriptor {
+                name: name.to_string(),
+                description: desc.to_string(),
+                risk_tier: RiskTier::Low,
+                idempotent: true,
+                permission_level: halcon_core::types::PermissionLevel::ReadOnly,
+                budget_tokens_per_call: 0,
+            })
+            .collect();
         PluginManifest::new_local(id, id, "1.0.0", caps)
     }
 
     #[test]
     fn build_index_and_search_returns_ranked() {
-        let m1 = make_manifest("plugin-a", &[
-            ("search_github", "Search GitHub repositories for code"),
-            ("create_issue", "Create a GitHub issue"),
-        ]);
-        let m2 = make_manifest("plugin-b", &[
-            ("query_db", "Query a database with SQL"),
-        ]);
-        let plugins: Vec<(String, &PluginManifest)> = vec![
-            ("plugin-a".into(), &m1),
-            ("plugin-b".into(), &m2),
-        ];
+        let m1 = make_manifest(
+            "plugin-a",
+            &[
+                ("search_github", "Search GitHub repositories for code"),
+                ("create_issue", "Create a GitHub issue"),
+            ],
+        );
+        let m2 = make_manifest("plugin-b", &[("query_db", "Query a database with SQL")]);
+        let plugins: Vec<(String, &PluginManifest)> =
+            vec![("plugin-a".into(), &m1), ("plugin-b".into(), &m2)];
         let index = CapabilityIndex::build(&plugins);
         let results = index.search("search github", 5);
         assert!(!results.is_empty());
@@ -238,7 +253,10 @@ mod tests {
 
     #[test]
     fn single_plugin_found() {
-        let m = make_manifest("only-plugin", &[("do_task", "execute a specific task automatically")]);
+        let m = make_manifest(
+            "only-plugin",
+            &[("do_task", "execute a specific task automatically")],
+        );
         let plugins = vec![("only-plugin".into(), &m)];
         let index = CapabilityIndex::build(&plugins);
         let r = index.search("execute task", 3);

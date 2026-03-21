@@ -13,7 +13,7 @@
 //! - **Sparse accumulator**: each scanner returns a `ToolOutput` that is merged
 //!   into `ProjectContext` by the wave orchestrator (no new error surface).
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::{Duration, Instant};
 use tokio::time::timeout;
 
@@ -118,17 +118,18 @@ pub async fn system_profile_scanner() -> ToolOutput {
         let disk_free_gb: Option<f64> = {
             #[cfg(any(target_os = "macos", target_os = "linux"))]
             {
-                cmd_output("df", &["-k", "."])
-                    .and_then(|out| {
-                        out.lines()
-                            .nth(1)
-                            .and_then(|l| l.split_whitespace().nth(3))
-                            .and_then(|s| s.parse::<u64>().ok())
-                            .map(|kb| kb as f64 / 1_048_576.0)
-                    })
+                cmd_output("df", &["-k", "."]).and_then(|out| {
+                    out.lines()
+                        .nth(1)
+                        .and_then(|l| l.split_whitespace().nth(3))
+                        .and_then(|s| s.parse::<u64>().ok())
+                        .map(|kb| kb as f64 / 1_048_576.0)
+                })
             }
             #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-            { None }
+            {
+                None
+            }
         };
 
         // GPU detection
@@ -158,7 +159,9 @@ pub async fn system_profile_scanner() -> ToolOutput {
                     .unwrap_or(false)
             }
             #[cfg(not(target_os = "linux"))]
-            { false }
+            {
+                false
+            }
         };
 
         // Container detection
@@ -168,12 +171,21 @@ pub async fn system_profile_scanner() -> ToolOutput {
                 || std::env::var("container").is_ok()
         };
 
-        (os, cpu_cores, ram_mb, disk_free_gb, gpu_available, is_wsl, is_container)
+        (
+            os,
+            cpu_cores,
+            ram_mb,
+            disk_free_gb,
+            gpu_available,
+            is_wsl,
+            is_container,
+        )
     })
     .await;
 
     let mut out = ToolOutput::default();
-    if let Some((os, cpu_cores, ram_mb, disk_free_gb, gpu_available, is_wsl, is_container)) = result {
+    if let Some((os, cpu_cores, ram_mb, disk_free_gb, gpu_available, is_wsl, is_container)) = result
+    {
         out.sys_os = Some(os);
         out.sys_cpu_cores = Some(cpu_cores);
         out.sys_ram_mb = Some(ram_mb);
@@ -192,37 +204,53 @@ pub async fn tool_versions_scanner() -> ToolOutput {
     let started = Instant::now();
 
     let result = probe(|| {
-        let git     = cmd_output("git",    &["--version"]).map(|s| version_from(&s));
-        let docker  = cmd_output("docker", &["--version"]).map(|s| version_from(&s));
-        let node    = cmd_output("node",   &["--version"]);
-        let python  = cmd_output("python3",&["--version"]).map(|s| version_from(&s));
-        let rustc   = cmd_output("rustc",  &["--version"]).map(|s| version_from(&s));
-        let go      = cmd_output("go",     &["version"]).map(|s| version_from(&s));
-        let cargo   = cmd_output("cargo",  &["--version"]).map(|s| version_from(&s));
-        let make    = cmd_output("make",   &["--version"])
-            .map(|s| s.lines().next().unwrap_or("").to_string());
+        let git = cmd_output("git", &["--version"]).map(|s| version_from(&s));
+        let docker = cmd_output("docker", &["--version"]).map(|s| version_from(&s));
+        let node = cmd_output("node", &["--version"]);
+        let python = cmd_output("python3", &["--version"]).map(|s| version_from(&s));
+        let rustc = cmd_output("rustc", &["--version"]).map(|s| version_from(&s));
+        let go = cmd_output("go", &["version"]).map(|s| version_from(&s));
+        let cargo = cmd_output("cargo", &["--version"]).map(|s| version_from(&s));
+        let make =
+            cmd_output("make", &["--version"]).map(|s| s.lines().next().unwrap_or("").to_string());
         let kubectl = binary_exists("kubectl");
-        let helm    = binary_exists("helm");
+        let helm = binary_exists("helm");
         let terraform = binary_exists("terraform");
         let ansible = binary_exists("ansible");
-        (git, docker, node, python, rustc, go, cargo, make, kubectl, helm, terraform, ansible)
+        (
+            git, docker, node, python, rustc, go, cargo, make, kubectl, helm, terraform, ansible,
+        )
     })
     .await;
 
     let mut out = ToolOutput::default();
-    if let Some((git, docker, node, python, rustc, go, cargo, make, kubectl, helm, terraform, ansible)) = result {
-        out.tool_git_version    = git;
+    if let Some((
+        git,
+        docker,
+        node,
+        python,
+        rustc,
+        go,
+        cargo,
+        make,
+        kubectl,
+        helm,
+        terraform,
+        ansible,
+    )) = result
+    {
+        out.tool_git_version = git;
         out.tool_docker_version = docker;
-        out.tool_node_version   = node;
+        out.tool_node_version = node;
         out.tool_python_version = python;
-        out.tool_rust_version   = rustc;
-        out.tool_go_version     = go;
-        out.tool_cargo_version  = cargo;
-        out.tool_make_version   = make;
-        out.tool_has_kubectl    = Some(kubectl);
-        out.tool_has_helm       = Some(helm);
-        out.tool_has_terraform  = Some(terraform);
-        out.tool_has_ansible    = Some(ansible);
+        out.tool_rust_version = rustc;
+        out.tool_go_version = go;
+        out.tool_cargo_version = cargo;
+        out.tool_make_version = make;
+        out.tool_has_kubectl = Some(kubectl);
+        out.tool_has_helm = Some(helm);
+        out.tool_has_terraform = Some(terraform);
+        out.tool_has_ansible = Some(ansible);
     }
     out.environment_scan_time_ms = Some(started.elapsed().as_millis() as u64);
     out
@@ -232,7 +260,12 @@ pub async fn tool_versions_scanner() -> ToolOutput {
 fn version_from(raw: &str) -> String {
     // Try to grab the first thing that looks like a version number
     for word in raw.split_whitespace() {
-        if word.chars().next().map(|c| c.is_ascii_digit()).unwrap_or(false) {
+        if word
+            .chars()
+            .next()
+            .map(|c| c.is_ascii_digit())
+            .unwrap_or(false)
+        {
             return word.trim_start_matches('v').to_string();
         }
     }
@@ -244,14 +277,14 @@ fn version_from(raw: &str) -> String {
 pub async fn ide_context_scanner() -> ToolOutput {
     let started = Instant::now();
 
-    let result = probe(|| detect_ide_context()).await;
+    let result = probe(detect_ide_context).await;
 
     let mut out = ToolOutput::default();
     if let Some((ide, workspace, active_file, lsp_port)) = result {
-        out.ide_detected     = ide;
-        out.ide_workspace    = workspace;
-        out.ide_active_file  = active_file;
-        out.ide_lsp_port     = lsp_port;
+        out.ide_detected = ide;
+        out.ide_workspace = workspace;
+        out.ide_active_file = active_file;
+        out.ide_lsp_port = lsp_port;
         out.ide_lsp_connected = Some(lsp_port.is_some());
     }
     out.ide_context_integration_time_ms = Some(started.elapsed().as_millis() as u64);
@@ -262,40 +295,69 @@ fn detect_ide_context() -> (Option<String>, Option<String>, Option<String>, Opti
     let env = std::env::vars().collect::<Vec<_>>();
 
     // ── IDE detection via env vars (priority order) ──────────────────────────
-    let ide: Option<String> = if env.iter().any(|(k, _)| k == "CURSOR_TRACE_PATH" || k == "CURSOR_SESSION_ID") {
+    let ide: Option<String> = if env
+        .iter()
+        .any(|(k, _)| k == "CURSOR_TRACE_PATH" || k == "CURSOR_SESSION_ID")
+    {
         Some("Cursor".to_string())
-    } else if env.iter().any(|(k, v)| k == "TERM_PROGRAM" && v == "cursor") {
+    } else if env
+        .iter()
+        .any(|(k, v)| k == "TERM_PROGRAM" && v == "cursor")
+    {
         Some("Cursor".to_string())
-    } else if env.iter().any(|(k, _)| k == "VSCODE_PID" || k == "VSCODE_IPC_HOOK_CLI") {
+    } else if env
+        .iter()
+        .any(|(k, _)| k == "VSCODE_PID" || k == "VSCODE_IPC_HOOK_CLI")
+    {
         Some("VS Code".to_string())
-    } else if env.iter().any(|(k, v)| k == "TERM_PROGRAM" && v == "vscode") {
+    } else if env
+        .iter()
+        .any(|(k, v)| k == "TERM_PROGRAM" && v == "vscode")
+    {
         Some("VS Code".to_string())
-    } else if env.iter().any(|(k, _)| k == "JETBRAINS_IDE" || k == "IDEA_INITIAL_DIRECTORY") {
+    } else if env
+        .iter()
+        .any(|(k, _)| k == "JETBRAINS_IDE" || k == "IDEA_INITIAL_DIRECTORY")
+    {
         Some("JetBrains".to_string())
-    } else if env.iter().any(|(k, _)| k == "NVIM_LISTEN_ADDRESS" || k == "NVIM") {
+    } else if env
+        .iter()
+        .any(|(k, _)| k == "NVIM_LISTEN_ADDRESS" || k == "NVIM")
+    {
         Some("Neovim".to_string())
     } else if env.iter().any(|(k, _)| k == "EMACS" || k == "INSIDE_EMACS") {
         Some("Emacs".to_string())
-    } else if env.iter().any(|(k, _)| k == "ZED_SESSION_ID" || k == "ZED_TERM") {
+    } else if env
+        .iter()
+        .any(|(k, _)| k == "ZED_SESSION_ID" || k == "ZED_TERM")
+    {
         Some("Zed".to_string())
-    } else if env.iter().any(|(k, _)| k == "SUBLIME_TEXT_3" || k == "SUBLIME_SESSION_DIR") {
+    } else if env
+        .iter()
+        .any(|(k, _)| k == "SUBLIME_TEXT_3" || k == "SUBLIME_SESSION_DIR")
+    {
         Some("Sublime Text".to_string())
     } else {
         None
     };
 
     // ── Workspace root from env ──────────────────────────────────────────────
-    let workspace: Option<String> = env.iter()
+    let workspace: Option<String> = env
+        .iter()
         .find(|(k, _)| {
-            matches!(k.as_str(),
-                "VSCODE_WORKSPACE_FOLDER" | "JETBRAINS_PROJECT_FOLDER"
-                | "PROJECT_ROOT" | "WORKSPACE_ROOT"
+            matches!(
+                k.as_str(),
+                "VSCODE_WORKSPACE_FOLDER"
+                    | "JETBRAINS_PROJECT_FOLDER"
+                    | "PROJECT_ROOT"
+                    | "WORKSPACE_ROOT"
             )
         })
         .map(|(_, v)| v.clone());
 
     // ── Active file (VS Code / JetBrains pass this sometimes) ───────────────
-    let active_file: Option<String> = env.iter()
+    let active_file: Option<String> = env
+        .iter()
         .find(|(k, _)| matches!(k.as_str(), "VSCODE_ACTIVE_FILE" | "IDE_ACTIVE_FILE"))
         .map(|(_, v)| v.clone());
 
@@ -327,30 +389,39 @@ pub async fn agent_capabilities_scanner(project_root: &Path) -> ToolOutput {
 
     let mut out = ToolOutput::default();
     if let Some((tools, mcps, plugins, model, tier, flags)) = result {
-        out.agent_tools_available    = Some(tools);
-        out.agent_mcp_servers        = Some(mcps);
-        out.agent_plugins_loaded     = Some(plugins);
-        out.agent_model_name         = model;
-        out.agent_model_tier         = tier;
-        out.agent_reasoning_enabled  = Some(flags.reasoning);
-        out.agent_orchestration_on   = Some(flags.orchestration);
-        out.agent_plugin_system_on   = Some(flags.plugins);
-        out.agent_multimodal_on      = Some(flags.multimodal);
-        out.agent_hicon_active        = Some(flags.hicon);
+        out.agent_tools_available = Some(tools);
+        out.agent_mcp_servers = Some(mcps);
+        out.agent_plugins_loaded = Some(plugins);
+        out.agent_model_name = model;
+        out.agent_model_tier = tier;
+        out.agent_reasoning_enabled = Some(flags.reasoning);
+        out.agent_orchestration_on = Some(flags.orchestration);
+        out.agent_plugin_system_on = Some(flags.plugins);
+        out.agent_multimodal_on = Some(flags.multimodal);
+        out.agent_hicon_active = Some(flags.hicon);
     }
     out.hicon_query_time_ms = Some(started.elapsed().as_millis() as u64);
     out
 }
 
 struct AgentFlags {
-    reasoning:     bool,
+    reasoning: bool,
     orchestration: bool,
-    plugins:       bool,
-    multimodal:    bool,
-    hicon:         bool,
+    plugins: bool,
+    multimodal: bool,
+    hicon: bool,
 }
 
-fn detect_agent_capabilities(project_root: &Path) -> (Vec<String>, Vec<String>, u32, Option<String>, Option<String>, AgentFlags) {
+fn detect_agent_capabilities(
+    project_root: &Path,
+) -> (
+    Vec<String>,
+    Vec<String>,
+    u32,
+    Option<String>,
+    Option<String>,
+    AgentFlags,
+) {
     // ── MCP servers from ~/.halcon/.mcp.json ────────────────────────────────
     let mcp_path = dirs::home_dir()
         .map(|h| h.join(".halcon").join(".mcp.json"))
@@ -371,9 +442,7 @@ fn detect_agent_capabilities(project_root: &Path) -> (Vec<String>, Vec<String>, 
         .map(|entries| {
             entries
                 .flatten()
-                .filter(|e| {
-                    e.path().extension().map(|x| x == "toml").unwrap_or(false)
-                })
+                .filter(|e| e.path().extension().map(|x| x == "toml").unwrap_or(false))
                 .count() as u32
         })
         .unwrap_or(0);
@@ -406,11 +475,15 @@ fn detect_agent_capabilities(project_root: &Path) -> (Vec<String>, Vec<String>, 
         .unwrap_or_default();
 
     let flags = AgentFlags {
-        reasoning:     config_content.contains("enabled = true") && config_content.contains("[reasoning]"),
-        orchestration: config_content.contains("[orchestrator]") && config_content.contains("enabled = true"),
-        plugins:       plugins > 0 || (config_content.contains("[plugins]") && config_content.contains("enabled = true")),
-        multimodal:    config_content.contains("[multimodal]") && config_content.contains("enabled = true"),
-        hicon:         probe_hicon_active(project_root, &config_content),
+        reasoning: config_content.contains("enabled = true")
+            && config_content.contains("[reasoning]"),
+        orchestration: config_content.contains("[orchestrator]")
+            && config_content.contains("enabled = true"),
+        plugins: plugins > 0
+            || (config_content.contains("[plugins]") && config_content.contains("enabled = true")),
+        multimodal: config_content.contains("[multimodal]")
+            && config_content.contains("enabled = true"),
+        hicon: probe_hicon_active(project_root, &config_content),
     };
 
     // ── Available tools: infer from project capabilities ─────────────────────
@@ -425,8 +498,13 @@ fn detect_agent_capabilities(project_root: &Path) -> (Vec<String>, Vec<String>, 
     if flags.plugins || !mcps.is_empty() {
         tools.push("mcp_tools".to_string());
     }
-    if config_content.contains("docker") || std::process::Command::new("docker")
-        .arg("info").output().map(|o| o.status.success()).unwrap_or(false) {
+    if config_content.contains("docker")
+        || std::process::Command::new("docker")
+            .arg("info")
+            .output()
+            .map(|o| o.status.success())
+            .unwrap_or(false)
+    {
         tools.push("docker".to_string());
     }
 
@@ -443,7 +521,11 @@ fn probe_hicon_active(project_root: &Path, config_content: &str) -> bool {
         return true;
     }
     // HICON state file in project .halcon dir
-    if project_root.join(".halcon").join("hicon_state.json").exists() {
+    if project_root
+        .join(".halcon")
+        .join("hicon_state.json")
+        .exists()
+    {
         return true;
     }
     // HICON state file in home
@@ -454,7 +536,9 @@ fn probe_hicon_active(project_root: &Path, config_content: &str) -> bool {
         return true;
     }
     // Env var override
-    std::env::var("HALCON_HICON").map(|v| v == "1" || v.to_lowercase() == "true").unwrap_or(false)
+    std::env::var("HALCON_HICON")
+        .map(|v| v == "1" || v.to_lowercase() == "true")
+        .unwrap_or(false)
 }
 
 // ─── Phase 103-E: Runtime Profile ────────────────────────────────────────────
@@ -467,11 +551,11 @@ pub async fn runtime_profile_scanner(project_root: &Path) -> ToolOutput {
 
     let mut out = ToolOutput::default();
     if let Some((model_router, convergence, intent_scorer, token_budget, ci_env)) = result {
-        out.runtime_model_router_active        = Some(model_router);
-        out.runtime_convergence_controller_on  = Some(convergence);
-        out.runtime_intent_scorer_on           = Some(intent_scorer);
-        out.runtime_token_budget               = token_budget;
-        out.runtime_ci_environment             = Some(ci_env);
+        out.runtime_model_router_active = Some(model_router);
+        out.runtime_convergence_controller_on = Some(convergence);
+        out.runtime_intent_scorer_on = Some(intent_scorer);
+        out.runtime_token_budget = token_budget;
+        out.runtime_ci_environment = Some(ci_env);
     }
     out.environment_scan_time_ms = Some(started.elapsed().as_millis() as u64);
     out
@@ -486,12 +570,18 @@ fn detect_runtime_profile(project_root: &Path) -> (bool, bool, bool, Option<u32>
     // ModelRouter: present if model_router section or routing config exists
     let model_router = config_content.contains("[model_router]")
         || config_content.contains("routing_strategy")
-        || project_root.join(".halcon").join("model_router.toml").exists();
+        || project_root
+            .join(".halcon")
+            .join("model_router.toml")
+            .exists();
 
     // ConvergenceController: check config or state
     let convergence = config_content.contains("[convergence]")
         || config_content.contains("convergence_threshold")
-        || project_root.join(".halcon").join("convergence_state.json").exists();
+        || project_root
+            .join(".halcon")
+            .join("convergence_state.json")
+            .exists();
 
     // IntentScorer: check config
     let intent_scorer = config_content.contains("[intent_scorer]")
@@ -510,7 +600,13 @@ fn detect_runtime_profile(project_root: &Path) -> (bool, bool, bool, Option<u32>
         || std::env::var("JENKINS_HOME").is_ok()
         || std::env::var("CIRCLECI").is_ok();
 
-    (model_router, convergence, intent_scorer, token_budget, ci_env)
+    (
+        model_router,
+        convergence,
+        intent_scorer,
+        token_budget,
+        ci_env,
+    )
 }
 
 // ─── Scoring functions (Phase 107) ───────────────────────────────────────────
@@ -529,13 +625,27 @@ use super::tools::ProjectContext;
 /// - HICON active (10 pts)
 pub fn compute_agent_readiness_score(ctx: &ProjectContext) -> u8 {
     let mut score: u32 = 0;
-    if ctx.agent_model_name.is_some()         { score += 25; }
-    if !ctx.agent_mcp_servers.is_empty()      { score += 20; }
-    if ctx.agent_plugins_loaded > 0            { score += 15; }
-    if ctx.agent_reasoning_enabled             { score += 15; }
-    if ctx.agent_orchestration_on              { score += 10; }
-    if ctx.agent_multimodal_on                 { score +=  5; }
-    if ctx.agent_hicon_active                  { score += 10; }
+    if ctx.agent_model_name.is_some() {
+        score += 25;
+    }
+    if !ctx.agent_mcp_servers.is_empty() {
+        score += 20;
+    }
+    if ctx.agent_plugins_loaded > 0 {
+        score += 15;
+    }
+    if ctx.agent_reasoning_enabled {
+        score += 15;
+    }
+    if ctx.agent_orchestration_on {
+        score += 10;
+    }
+    if ctx.agent_multimodal_on {
+        score += 5;
+    }
+    if ctx.agent_hicon_active {
+        score += 10;
+    }
     score.min(100) as u8
 }
 
@@ -552,24 +662,48 @@ pub fn compute_agent_readiness_score(ctx: &ProjectContext) -> u8 {
 /// - Infra tools (kubectl/helm/terraform) (10 pts)
 pub fn compute_environment_compatibility_score(ctx: &ProjectContext) -> u8 {
     let mut score: u32 = 0;
-    if ctx.tool_git_version.is_some() { score += 15; }
+    if ctx.tool_git_version.is_some() {
+        score += 15;
+    }
 
     // Language runtime based on project type
     let type_lower = ctx.project_type.to_lowercase();
-    let has_runtime = if type_lower.contains("rust")       { ctx.tool_rust_version.is_some() }
-                      else if type_lower.contains("node") || type_lower.contains("react") { ctx.tool_node_version.is_some() }
-                      else if type_lower.contains("python") { ctx.tool_python_version.is_some() }
-                      else if type_lower.contains("go")     { ctx.tool_go_version.is_some() }
-                      else { ctx.tool_rust_version.is_some() || ctx.tool_node_version.is_some() || ctx.tool_python_version.is_some() };
-    if has_runtime { score += 20; }
+    let has_runtime = if type_lower.contains("rust") {
+        ctx.tool_rust_version.is_some()
+    } else if type_lower.contains("node") || type_lower.contains("react") {
+        ctx.tool_node_version.is_some()
+    } else if type_lower.contains("python") {
+        ctx.tool_python_version.is_some()
+    } else if type_lower.contains("go") {
+        ctx.tool_go_version.is_some()
+    } else {
+        ctx.tool_rust_version.is_some()
+            || ctx.tool_node_version.is_some()
+            || ctx.tool_python_version.is_some()
+    };
+    if has_runtime {
+        score += 20;
+    }
 
-    if ctx.tool_docker_version.is_some() { score += 10; }
-    if ctx.sys_ram_mb >= 4096            { score += 15; }
-    if ctx.runtime_ci_environment        { score += 10; }
-    if ctx.sys_cpu_cores >= 4            { score += 10; }
+    if ctx.tool_docker_version.is_some() {
+        score += 10;
+    }
+    if ctx.sys_ram_mb >= 4096 {
+        score += 15;
+    }
+    if ctx.runtime_ci_environment {
+        score += 10;
+    }
+    if ctx.sys_cpu_cores >= 4 {
+        score += 10;
+    }
     // Only award "not in container" when sys scan actually ran (sys_os non-empty)
-    if !ctx.sys_os.is_empty() && !ctx.sys_is_container { score += 10; }
-    if ctx.tool_has_kubectl || ctx.tool_has_helm || ctx.tool_has_terraform { score += 10; }
+    if !ctx.sys_os.is_empty() && !ctx.sys_is_container {
+        score += 10;
+    }
+    if ctx.tool_has_kubectl || ctx.tool_has_helm || ctx.tool_has_terraform {
+        score += 10;
+    }
 
     score.min(100) as u8
 }
@@ -649,13 +783,13 @@ mod tests {
     #[test]
     fn agent_readiness_full_when_all_on() {
         let ctx = ProjectContext {
-            agent_model_name:       Some("claude-sonnet-4-6".to_string()),
-            agent_mcp_servers:      vec!["filesystem".to_string(), "halcon".to_string()],
-            agent_plugins_loaded:   3,
+            agent_model_name: Some("claude-sonnet-4-6".to_string()),
+            agent_mcp_servers: vec!["filesystem".to_string(), "halcon".to_string()],
+            agent_plugins_loaded: 3,
             agent_reasoning_enabled: true,
-            agent_orchestration_on:  true,
-            agent_multimodal_on:     true,
-            agent_hicon_active:      true,
+            agent_orchestration_on: true,
+            agent_multimodal_on: true,
+            agent_hicon_active: true,
             ..Default::default()
         };
         let score = compute_agent_readiness_score(&ctx);
@@ -666,7 +800,7 @@ mod tests {
     fn agent_readiness_partial() {
         let ctx = ProjectContext {
             agent_model_name: Some("gpt-4o".to_string()), // +25
-            agent_reasoning_enabled: true,                 // +15
+            agent_reasoning_enabled: true,                // +15
             ..Default::default()
         };
         let score = compute_agent_readiness_score(&ctx);
@@ -696,8 +830,8 @@ mod tests {
     #[test]
     fn env_compat_awards_sufficient_ram() {
         let ctx = ProjectContext {
-            sys_ram_mb: 8192,  // 8 GB → +15
-            sys_cpu_cores: 4,  // → +10
+            sys_ram_mb: 8192, // 8 GB → +15
+            sys_cpu_cores: 4, // → +10
             ..Default::default()
         };
         let score = compute_environment_compatibility_score(&ctx);
@@ -707,15 +841,15 @@ mod tests {
     #[test]
     fn env_compat_capped_at_100() {
         let ctx = ProjectContext {
-            tool_git_version:    Some("2.43.0".to_string()),
-            tool_rust_version:   Some("1.80".to_string()),
+            tool_git_version: Some("2.43.0".to_string()),
+            tool_rust_version: Some("1.80".to_string()),
             tool_docker_version: Some("24.0".to_string()),
-            tool_node_version:   Some("20.0".to_string()),
-            tool_has_kubectl:    true,
-            sys_ram_mb:          16384,
-            sys_cpu_cores:       16,
+            tool_node_version: Some("20.0".to_string()),
+            tool_has_kubectl: true,
+            sys_ram_mb: 16384,
+            sys_cpu_cores: 16,
             runtime_ci_environment: true,
-            project_type:        "Rust".to_string(),
+            project_type: "Rust".to_string(),
             ..Default::default()
         };
         let score = compute_environment_compatibility_score(&ctx);

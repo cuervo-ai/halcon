@@ -65,12 +65,9 @@ impl SemanticGrepTool {
     /// Find the start line of the enclosing function for a given line number.
     fn find_enclosing_fn(lines: &[&str], target_line: usize, fn_re: &Regex) -> Option<usize> {
         // Search backwards from target_line
-        for i in (0..=target_line.min(lines.len().saturating_sub(1))).rev() {
-            if fn_re.is_match(lines[i]) {
-                return Some(i);
-            }
-        }
-        None
+        (0..=target_line.min(lines.len().saturating_sub(1)))
+            .rev()
+            .find(|&i| fn_re.is_match(lines[i]))
     }
 
     /// Find the end of a block starting at a given line (simple brace counting).
@@ -140,17 +137,22 @@ impl SemanticGrepTool {
             if only_tests {
                 // Must be inside a #[test] or test function
                 let in_test = lines[..=line_no].iter().rev().take(20).any(|l| {
-                    l.contains("#[test]") || l.contains("def test_") || l.contains("func Test") || l.contains("it(") || l.contains("test(")
+                    l.contains("#[test]")
+                        || l.contains("def test_")
+                        || l.contains("func Test")
+                        || l.contains("it(")
+                        || l.contains("test(")
                 });
                 if !in_test {
                     continue;
                 }
             }
             if only_public {
-                let is_pub = line.contains("pub ") || line.contains("export ") || line.contains("public ");
-                let near_pub = lines[line_no.saturating_sub(3)..=line_no].iter().any(|l| {
-                    l.contains("pub ") || l.contains("export ") || l.contains("public ")
-                });
+                let is_pub =
+                    line.contains("pub ") || line.contains("export ") || line.contains("public ");
+                let near_pub = lines[line_no.saturating_sub(3)..=line_no]
+                    .iter()
+                    .any(|l| l.contains("pub ") || l.contains("export ") || l.contains("public "));
                 if !is_pub && !near_pub {
                     continue;
                 }
@@ -198,17 +200,21 @@ impl SemanticGrepTool {
         matches
     }
 
-    fn collect_files(
-        root: &str,
-        extensions: &[String],
-        max_files: usize,
-    ) -> Vec<String> {
+    fn collect_files(root: &str, extensions: &[String], max_files: usize) -> Vec<String> {
         let mut files = vec![];
         let root_path = Path::new(root);
         if root_path.is_file() {
             return vec![root.to_string()];
         }
-        let skip_dirs = ["target", "node_modules", ".git", ".svn", "dist", "build", "__pycache__"];
+        let skip_dirs = [
+            "target",
+            "node_modules",
+            ".git",
+            ".svn",
+            "dist",
+            "build",
+            "__pycache__",
+        ];
 
         fn recurse(
             dir: &Path,
@@ -231,11 +237,15 @@ impl SemanticGrepTool {
                 let path = entry.path();
                 let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
                 if path.is_dir() {
-                    if !skip.iter().any(|&s| name == s) {
+                    if !skip.contains(&name) {
                         recurse(&path, exts, skip, files, max);
                     }
                 } else if path.is_file() {
-                    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+                    let ext = path
+                        .extension()
+                        .and_then(|e| e.to_str())
+                        .unwrap_or("")
+                        .to_lowercase();
                     if exts.is_empty() || exts.iter().any(|e| e.to_lowercase() == ext) {
                         files.push(path.to_string_lossy().to_string());
                     }
@@ -325,7 +335,10 @@ impl Tool for SemanticGrepTool {
         PermissionLevel::ReadOnly
     }
 
-    async fn execute(&self, input: ToolInput) -> Result<ToolOutput, halcon_core::error::HalconError> {
+    async fn execute(
+        &self,
+        input: ToolInput,
+    ) -> Result<ToolOutput, halcon_core::error::HalconError> {
         let args = &input.arguments;
 
         let pattern_str = match args["pattern"].as_str() {
@@ -361,7 +374,11 @@ impl Tool for SemanticGrepTool {
         let max_files = args["max_files"].as_u64().unwrap_or(200).clamp(1, 1000) as usize;
         let extensions: Vec<String> = args["extensions"]
             .as_array()
-            .map(|a| a.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
             .unwrap_or_default();
 
         let files = Self::collect_files(search_path, &extensions, max_files);
@@ -397,7 +414,11 @@ impl Tool for SemanticGrepTool {
                 content.push_str(&format!("── {} ──\n", m.path));
                 current_file = m.path.clone();
             }
-            content.push_str(&format!("  Line {}: {}\n", m.line_no, m.snippet.lines().next().unwrap_or("")));
+            content.push_str(&format!(
+                "  Line {}: {}\n",
+                m.line_no,
+                m.snippet.lines().next().unwrap_or("")
+            ));
             // If snippet has multiple lines (fn mode), show them indented
             for extra in m.snippet.lines().skip(1) {
                 content.push_str(&format!("  {extra}\n"));
@@ -443,7 +464,10 @@ mod tests {
         assert_eq!(t.permission_level(), PermissionLevel::ReadOnly);
         let schema = t.input_schema();
         assert_eq!(schema["type"], "object");
-        assert!(schema["required"].as_array().unwrap().contains(&json!("pattern")));
+        assert!(schema["required"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("pattern")));
     }
 
     #[test]
@@ -546,7 +570,11 @@ mod tests {
             .await
             .unwrap();
         assert!(!out.is_error, "error: {}", out.content);
-        assert!(out.content.contains("1 match") || out.content.contains("match"), "content: {}", out.content);
+        assert!(
+            out.content.contains("1 match") || out.content.contains("match"),
+            "content: {}",
+            out.content
+        );
     }
 
     #[tokio::test]

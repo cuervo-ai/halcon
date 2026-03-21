@@ -27,37 +27,53 @@ pub struct CiLogsTool {
 
 impl CiLogsTool {
     pub fn new(timeout_secs: u64) -> Self {
-        let timeout_secs = if timeout_secs == 0 { DEFAULT_TIMEOUT } else { timeout_secs };
+        let timeout_secs = if timeout_secs == 0 {
+            DEFAULT_TIMEOUT
+        } else {
+            timeout_secs
+        };
         Self { timeout_secs }
     }
 }
 
 impl Default for CiLogsTool {
-    fn default() -> Self { Self::new(DEFAULT_TIMEOUT) }
+    fn default() -> Self {
+        Self::new(DEFAULT_TIMEOUT)
+    }
 }
 
 // ─── Platform detection ───────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq)]
 enum CiPlatform {
-    GitHub,  // uses gh CLI
-    GitLab,  // uses glab CLI
+    GitHub, // uses gh CLI
+    GitLab, // uses glab CLI
 }
 
 fn detect_platform(working_dir: &str) -> Option<CiPlatform> {
     // Heuristic: look at git remote URL in .git/config
-    let git_config = std::path::Path::new(working_dir).join(".git").join("config");
+    let git_config = std::path::Path::new(working_dir)
+        .join(".git")
+        .join("config");
     if let Ok(content) = std::fs::read_to_string(&git_config) {
-        if content.contains("github.com") { return Some(CiPlatform::GitHub); }
+        if content.contains("github.com") {
+            return Some(CiPlatform::GitHub);
+        }
         if content.contains("gitlab.com") || content.contains("gitlab.") {
             return Some(CiPlatform::GitLab);
         }
     }
     // Fallback: check for workflow files
-    if std::path::Path::new(working_dir).join(".github/workflows").exists() {
+    if std::path::Path::new(working_dir)
+        .join(".github/workflows")
+        .exists()
+    {
         return Some(CiPlatform::GitHub);
     }
-    if std::path::Path::new(working_dir).join(".gitlab-ci.yml").exists() {
+    if std::path::Path::new(working_dir)
+        .join(".gitlab-ci.yml")
+        .exists()
+    {
         return Some(CiPlatform::GitLab);
     }
     None
@@ -137,8 +153,13 @@ fn parse_gh_run_list(json_str: &str) -> Vec<serde_json::Value> {
 async fn gh_list(working_dir: &str, timeout_secs: u64) -> ToolOutput {
     match run_cmd(
         "gh",
-        &["run", "list", "--limit=10", "--json",
-          "databaseId,name,status,conclusion,headBranch,event,createdAt"],
+        &[
+            "run",
+            "list",
+            "--limit=10",
+            "--json",
+            "databaseId,name,status,conclusion,headBranch,event,createdAt",
+        ],
         working_dir,
         timeout_secs,
     )
@@ -182,10 +203,23 @@ async fn gh_list(working_dir: &str, timeout_secs: u64) -> ToolOutput {
 async fn gh_show(run_id: Option<&str>, working_dir: &str, timeout_secs: u64) -> ToolOutput {
     // Fetch logs for a run. If no run_id, use the most recent run.
     let logs_result = if let Some(id) = run_id {
-        run_cmd("gh", &["run", "view", id, "--log"], working_dir, timeout_secs).await
+        run_cmd(
+            "gh",
+            &["run", "view", id, "--log"],
+            working_dir,
+            timeout_secs,
+        )
+        .await
     } else {
         // Get most recent run ID first.
-        match run_cmd("gh", &["run", "list", "--limit=1", "--json", "databaseId"], working_dir, timeout_secs).await {
+        match run_cmd(
+            "gh",
+            &["run", "list", "--limit=1", "--json", "databaseId"],
+            working_dir,
+            timeout_secs,
+        )
+        .await
+        {
             Ok((stdout, _, 0)) => {
                 let id = serde_json::from_str::<serde_json::Value>(&stdout)
                     .ok()
@@ -193,13 +227,23 @@ async fn gh_show(run_id: Option<&str>, working_dir: &str, timeout_secs: u64) -> 
                     .and_then(|r| r["databaseId"].as_i64())
                     .map(|n| n.to_string());
                 match id {
-                    Some(ref run_id) => run_cmd("gh", &["run", "view", run_id, "--log"], working_dir, timeout_secs).await,
-                    None => return ToolOutput {
-                        tool_use_id: "ci_logs".into(),
-                        content: "No recent GitHub Actions runs found.".into(),
-                        is_error: false,
-                        metadata: None,
-                    },
+                    Some(ref run_id) => {
+                        run_cmd(
+                            "gh",
+                            &["run", "view", run_id, "--log"],
+                            working_dir,
+                            timeout_secs,
+                        )
+                        .await
+                    }
+                    None => {
+                        return ToolOutput {
+                            tool_use_id: "ci_logs".into(),
+                            content: "No recent GitHub Actions runs found.".into(),
+                            is_error: false,
+                            metadata: None,
+                        }
+                    }
                 }
             }
             Ok((_, stderr, code)) => {
@@ -210,12 +254,14 @@ async fn gh_show(run_id: Option<&str>, working_dir: &str, timeout_secs: u64) -> 
                     metadata: None,
                 };
             }
-            Err(e) => return ToolOutput {
-                tool_use_id: "ci_logs".into(),
-                content: format!("gh error: {e}"),
-                is_error: true,
-                metadata: None,
-            },
+            Err(e) => {
+                return ToolOutput {
+                    tool_use_id: "ci_logs".into(),
+                    content: format!("gh error: {e}"),
+                    is_error: true,
+                    metadata: None,
+                }
+            }
         }
     };
 
@@ -224,7 +270,9 @@ async fn gh_show(run_id: Option<&str>, working_dir: &str, timeout_secs: u64) -> 
             tool_use_id: "ci_logs".into(),
             content: truncate_log(&stdout),
             is_error: false,
-            metadata: Some(json!({ "platform": "github", "run_id": run_id, "log_bytes": stdout.len() })),
+            metadata: Some(
+                json!({ "platform": "github", "run_id": run_id, "log_bytes": stdout.len() }),
+            ),
         },
         Ok((_, stderr, code)) => ToolOutput {
             tool_use_id: "ci_logs".into(),
@@ -244,8 +292,13 @@ async fn gh_show(run_id: Option<&str>, working_dir: &str, timeout_secs: u64) -> 
 async fn gh_status(working_dir: &str, timeout_secs: u64) -> ToolOutput {
     match run_cmd(
         "gh",
-        &["run", "list", "--limit=5", "--json",
-          "databaseId,name,conclusion,headBranch,createdAt"],
+        &[
+            "run",
+            "list",
+            "--limit=5",
+            "--json",
+            "databaseId,name,conclusion,headBranch,createdAt",
+        ],
         working_dir,
         timeout_secs,
     )
@@ -253,14 +306,17 @@ async fn gh_status(working_dir: &str, timeout_secs: u64) -> ToolOutput {
     {
         Ok((stdout, _, 0)) => {
             let runs = parse_gh_run_list(&stdout);
-            let failed: usize = runs.iter()
-                .filter(|r| r["conclusion"].as_str().map_or(false, |c| c == "failure"))
+            let failed: usize = runs
+                .iter()
+                .filter(|r| r["conclusion"].as_str() == Some("failure"))
                 .count();
-            let success: usize = runs.iter()
-                .filter(|r| r["conclusion"].as_str().map_or(false, |c| c == "success"))
+            let success: usize = runs
+                .iter()
+                .filter(|r| r["conclusion"].as_str() == Some("success"))
                 .count();
-            let in_progress: usize = runs.iter()
-                .filter(|r| r["status"].as_str().map_or(false, |s| s == "in_progress"))
+            let in_progress: usize = runs
+                .iter()
+                .filter(|r| r["status"].as_str() == Some("in_progress"))
                 .count();
 
             let lines = runs
@@ -320,7 +376,9 @@ async fn glab_list(working_dir: &str, timeout_secs: u64) -> ToolOutput {
         },
         Err(e) => ToolOutput {
             tool_use_id: "ci_logs".into(),
-            content: format!("GitLab CLI error: {e}\nInstall glab: https://gitlab.com/gitlab-org/cli"),
+            content: format!(
+                "GitLab CLI error: {e}\nInstall glab: https://gitlab.com/gitlab-org/cli"
+            ),
             is_error: true,
             metadata: None,
         },
@@ -376,7 +434,9 @@ async fn glab_status(working_dir: &str, timeout_secs: u64) -> ToolOutput {
 
 #[async_trait]
 impl Tool for CiLogsTool {
-    fn name(&self) -> &str { "ci_logs" }
+    fn name(&self) -> &str {
+        "ci_logs"
+    }
 
     fn description(&self) -> &str {
         "Fetch and display CI/CD pipeline logs from GitHub Actions or GitLab CI. \
@@ -387,9 +447,13 @@ impl Tool for CiLogsTool {
          Use 'run_id' to target a specific pipeline run instead of the latest."
     }
 
-    fn permission_level(&self) -> PermissionLevel { PermissionLevel::ReadOnly }
+    fn permission_level(&self) -> PermissionLevel {
+        PermissionLevel::ReadOnly
+    }
 
-    fn requires_confirmation(&self, _input: &ToolInput) -> bool { false }
+    fn requires_confirmation(&self, _input: &ToolInput) -> bool {
+        false
+    }
 
     #[tracing::instrument(skip(self), fields(tool = "ci_logs"))]
     async fn execute(&self, input: ToolInput) -> Result<ToolOutput> {
@@ -417,7 +481,8 @@ impl Tool for CiLogsTool {
                 HalconError::InvalidInput(
                     "ci_logs: could not detect CI platform. \
                      Use 'platform' argument to specify 'github' or 'gitlab', \
-                     or run from a git repository with a remote on GitHub/GitLab.".into(),
+                     or run from a git repository with a remote on GitHub/GitLab."
+                        .into(),
                 )
             })?
         };
@@ -425,11 +490,11 @@ impl Tool for CiLogsTool {
         let run_id = input.arguments.get("run_id").and_then(|v| v.as_str());
 
         let mut out = match (platform, op) {
-            (CiPlatform::GitHub, "list")   => gh_list(working_dir, self.timeout_secs).await,
-            (CiPlatform::GitHub, "show")   => gh_show(run_id, working_dir, self.timeout_secs).await,
+            (CiPlatform::GitHub, "list") => gh_list(working_dir, self.timeout_secs).await,
+            (CiPlatform::GitHub, "show") => gh_show(run_id, working_dir, self.timeout_secs).await,
             (CiPlatform::GitHub, "status") => gh_status(working_dir, self.timeout_secs).await,
-            (CiPlatform::GitLab, "list")   => glab_list(working_dir, self.timeout_secs).await,
-            (CiPlatform::GitLab, "show")   => glab_show(run_id, working_dir, self.timeout_secs).await,
+            (CiPlatform::GitLab, "list") => glab_list(working_dir, self.timeout_secs).await,
+            (CiPlatform::GitLab, "show") => glab_show(run_id, working_dir, self.timeout_secs).await,
             (CiPlatform::GitLab, "status") => glab_status(working_dir, self.timeout_secs).await,
             (_, other) => {
                 return Err(HalconError::InvalidInput(format!(
@@ -491,14 +556,20 @@ mod tests {
     fn detect_platform_github_from_workflows() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(dir.path().join(".github/workflows")).unwrap();
-        assert_eq!(detect_platform(dir.path().to_str().unwrap()), Some(CiPlatform::GitHub));
+        assert_eq!(
+            detect_platform(dir.path().to_str().unwrap()),
+            Some(CiPlatform::GitHub)
+        );
     }
 
     #[test]
     fn detect_platform_gitlab_from_ci_yml() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join(".gitlab-ci.yml"), "stages:\n  - test").unwrap();
-        assert_eq!(detect_platform(dir.path().to_str().unwrap()), Some(CiPlatform::GitLab));
+        assert_eq!(
+            detect_platform(dir.path().to_str().unwrap()),
+            Some(CiPlatform::GitLab)
+        );
     }
 
     #[test]

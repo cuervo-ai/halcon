@@ -18,44 +18,158 @@ static TOOL_ALIASES: &[(&str, &[&str])] = &[
     // file_read and read_multiple_files are the same capability (read file content into context).
     // Merging them into one canonical entry ensures plan-step matching works regardless of
     // whether the model uses the single-file or multi-file variant for a given step.
-    ("file_read",       &[
-        "read_text_file", "read_file", "readfile", "get_file_contents", "get_file", "read_content",
-        // read_multiple_files family — functionally equivalent for plan-step matching
-        "read_multiple_files", "read_multiple_files_content", "read_files", "batch_read", "read_files_batch",
-    ]),
-    ("file_write",      &["write_file", "write_text_file", "create_file", "save_file", "put_file"]),
-    ("file_edit",       &["edit_file", "update_file", "modify_file", "patch_file", "replace_in_file"]),
-    ("file_delete",     &["delete_file", "remove_file", "rm_file"]),
+    (
+        "file_read",
+        &[
+            "read_text_file",
+            "read_file",
+            "readfile",
+            "get_file_contents",
+            "get_file",
+            "read_content",
+            // read_multiple_files family — functionally equivalent for plan-step matching
+            "read_multiple_files",
+            "read_multiple_files_content",
+            "read_files",
+            "batch_read",
+            "read_files_batch",
+        ],
+    ),
+    (
+        "file_write",
+        &[
+            "write_file",
+            "write_text_file",
+            "create_file",
+            "save_file",
+            "put_file",
+        ],
+    ),
+    (
+        "file_edit",
+        &[
+            "edit_file",
+            "update_file",
+            "modify_file",
+            "patch_file",
+            "replace_in_file",
+        ],
+    ),
+    ("file_delete", &["delete_file", "remove_file", "rm_file"]),
     // ── Directory listing ──
-    ("directory_tree",  &[
-        "list_directory", "list_dir", "list_files", "read_dir", "ls", "show_directory",
-        // DeepSeek-generated non-standard variants seen in the wild:
-        "list_directory_with_sizes", "list_directory_tree", "directory_listing",
-        "show_directory_tree", "explore_directory", "browse_directory",
-    ]),
-    ("glob",            &["find_files", "search_files", "glob_pattern", "list_glob", "match_files"]),
+    (
+        "directory_tree",
+        &[
+            "list_directory",
+            "list_dir",
+            "list_files",
+            "read_dir",
+            "ls",
+            "show_directory",
+            // DeepSeek-generated non-standard variants seen in the wild:
+            "list_directory_with_sizes",
+            "list_directory_tree",
+            "directory_listing",
+            "show_directory_tree",
+            "explore_directory",
+            "browse_directory",
+        ],
+    ),
+    (
+        "glob",
+        &[
+            "find_files",
+            "search_files",
+            "glob_pattern",
+            "list_glob",
+            "match_files",
+        ],
+    ),
     // ── File inspection (token-budget read, fallback for large files) ──
-    ("file_inspect",        &["inspect_file", "read_with_budget", "file_view"]),
+    (
+        "file_inspect",
+        &["inspect_file", "read_with_budget", "file_view"],
+    ),
     // ── Search ──
-    ("grep",            &["search_text", "grep_search", "search_in_file", "search_file", "find_in_files", "semantic_grep", "code_search"]),
+    (
+        "grep",
+        &[
+            "search_text",
+            "grep_search",
+            "search_in_file",
+            "search_file",
+            "find_in_files",
+            "semantic_grep",
+            "code_search",
+        ],
+    ),
     // ── Shell execution ──
-    ("bash",            &["run_bash", "execute_bash", "shell", "run_command", "execute_command", "run_shell", "exec"]),
+    (
+        "bash",
+        &[
+            "run_bash",
+            "execute_bash",
+            "shell",
+            "run_command",
+            "execute_command",
+            "run_shell",
+            "exec",
+        ],
+    ),
     // ── Git operations ──
-    ("git_status",      &["get_git_status", "git_state", "show_git_status"]),
-    ("git_diff",        &["get_git_diff", "show_diff", "diff"]),
-    ("git_log",         &["get_git_log", "show_log", "git_history", "log"]),
-    ("git_commit",      &["do_git_commit", "commit_changes", "commit"]),
-    ("git_add",         &["stage_changes", "git_stage", "add_to_staging"]),
-    ("git_branch",      &["list_branches", "show_branch", "current_branch"]),
+    (
+        "git_status",
+        &["get_git_status", "git_state", "show_git_status"],
+    ),
+    ("git_diff", &["get_git_diff", "show_diff", "diff"]),
+    (
+        "git_log",
+        &["get_git_log", "show_log", "git_history", "log"],
+    ),
+    ("git_commit", &["do_git_commit", "commit_changes", "commit"]),
+    ("git_add", &["stage_changes", "git_stage", "add_to_staging"]),
+    (
+        "git_branch",
+        &["list_branches", "show_branch", "current_branch"],
+    ),
     // ── Web ──
-    ("web_search",      &["search_web", "search_internet", "web_query", "internet_search"]),
-    ("web_fetch",       &["fetch_url", "get_url", "http_get", "fetch_page", "fetch"]),
+    (
+        "web_search",
+        &[
+            "search_web",
+            "search_internet",
+            "web_query",
+            "internet_search",
+        ],
+    ),
+    (
+        "web_fetch",
+        &["fetch_url", "get_url", "http_get", "fetch_page", "fetch"],
+    ),
     // ── Native search (local index) ──
-    ("native_search",   &["local_search", "index_search", "document_search", "search_index", "search_local"]),
-    ("native_crawl",    &["crawl_url", "index_url", "crawl_page", "crawl_website"]),
-    ("native_index_query", &["index_stats", "search_stats", "index_query"]),
+    (
+        "native_search",
+        &[
+            "local_search",
+            "index_search",
+            "document_search",
+            "search_index",
+            "search_local",
+        ],
+    ),
+    (
+        "native_crawl",
+        &["crawl_url", "index_url", "crawl_page", "crawl_website"],
+    ),
+    (
+        "native_index_query",
+        &["index_stats", "search_stats", "index_query"],
+    ),
     // ── Tasks ──
-    ("task_track",      &["track_task", "create_task", "add_task", "new_task"]),
+    (
+        "task_track",
+        &["track_task", "create_task", "add_task", "new_task"],
+    ),
 ];
 
 /// Resolve a tool name to its canonical (halcon-native) form.

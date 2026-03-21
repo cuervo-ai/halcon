@@ -26,11 +26,11 @@ pub struct DecisionThresholds {
 impl Default for DecisionThresholds {
     fn default() -> Self {
         Self {
-            min_delegation_success_rate: 0.70,    // 70% success
-            min_delegation_trigger_rate: 0.05,    // 5% of plans
-            min_plan_success_rate: 0.75,          // 75% success
-            max_ucb1_agreement_for_value: 0.95,   // <95% agreement = useful
-            min_sample_size: 20,                   // At least 20 sessions
+            min_delegation_success_rate: 0.70,  // 70% success
+            min_delegation_trigger_rate: 0.05,  // 5% of plans
+            min_plan_success_rate: 0.75,        // 75% success
+            max_ucb1_agreement_for_value: 0.95, // <95% agreement = useful
+            min_sample_size: 20,                // At least 20 sessions
         }
     }
 }
@@ -61,10 +61,7 @@ pub struct IntegrationDecision {
 
 impl IntegrationDecision {
     /// Make integration decision based on baseline data
-    pub fn from_baselines(
-        stats: &AggregatedStats,
-        thresholds: &DecisionThresholds,
-    ) -> Self {
+    pub fn from_baselines(stats: &AggregatedStats, thresholds: &DecisionThresholds) -> Self {
         let sample_size = stats.sample_count;
 
         // Confidence based on sample size
@@ -104,7 +101,8 @@ impl IntegrationDecision {
             "⏸ DEFER: No parallel workload metrics — DAG scheduling premature".to_string();
 
         // Decision 3: Orchestrator enhancements
-        let keep_orchestrator = stats.avg_delegation_success_rate >= thresholds.min_delegation_success_rate
+        let keep_orchestrator = stats.avg_delegation_success_rate
+            >= thresholds.min_delegation_success_rate
             && stats.avg_delegation_trigger_rate >= thresholds.min_delegation_trigger_rate
             && sample_size >= thresholds.min_sample_size;
 
@@ -139,7 +137,7 @@ impl IntegrationDecision {
             integrate_task_scheduler: integrate_scheduler,
             task_scheduler_rationale: scheduler_rationale,
             keep_orchestrator_enhancements: keep_orchestrator,
-            orchestrator_rationale: orchestrator_rationale,
+            orchestrator_rationale,
             confidence,
             sample_size,
             timestamp: std::time::SystemTime::now()
@@ -191,16 +189,24 @@ RECOMMENDATIONS:
 "#,
             self.sample_size,
             self.confidence * 100.0,
-
-            if self.integrate_reasoning_engine { "INTEGRATE" } else { "SKIP/DEFER" },
+            if self.integrate_reasoning_engine {
+                "INTEGRATE"
+            } else {
+                "SKIP/DEFER"
+            },
             self.reasoning_engine_rationale,
-
-            if self.integrate_task_scheduler { "INTEGRATE" } else { "SKIP/DEFER" },
+            if self.integrate_task_scheduler {
+                "INTEGRATE"
+            } else {
+                "SKIP/DEFER"
+            },
             self.task_scheduler_rationale,
-
-            if self.keep_orchestrator_enhancements { "KEEP" } else { "REMOVE" },
+            if self.keep_orchestrator_enhancements {
+                "KEEP"
+            } else {
+                "REMOVE"
+            },
             self.orchestrator_rationale,
-
             self.generate_recommendations()
         )
     }
@@ -216,12 +222,16 @@ RECOMMENDATIONS:
         }
 
         if self.integrate_reasoning_engine {
-            recs.push("• Proceed to Phase 3.1: Integrate ReasoningEngine in shadow mode".to_string());
+            recs.push(
+                "• Proceed to Phase 3.1: Integrate ReasoningEngine in shadow mode".to_string(),
+            );
             recs.push("• Monitor actual vs predicted strategy effectiveness".to_string());
         }
 
         if !self.keep_orchestrator_enhancements {
-            recs.push("• ⚠ Consider simplifying orchestrator or improving delegation logic".to_string());
+            recs.push(
+                "• ⚠ Consider simplifying orchestrator or improving delegation logic".to_string(),
+            );
         }
 
         if recs.is_empty() {

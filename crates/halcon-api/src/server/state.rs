@@ -107,11 +107,20 @@ impl AppState {
         };
 
         // Step 1: Collect session metadata + Arc<Mutex<history>> without holding DashMap locks.
-        let entries: Vec<(crate::types::chat::ChatSession, std::sync::Arc<tokio::sync::Mutex<Vec<(String, String)>>>)> =
-            self.active_chat_sessions
-                .iter()
-                .map(|e| (e.value().session.clone(), std::sync::Arc::clone(&e.value().history)))
-                .collect();
+        type ChatEntry = (
+            crate::types::chat::ChatSession,
+            std::sync::Arc<tokio::sync::Mutex<Vec<(String, String)>>>,
+        );
+        let entries: Vec<ChatEntry> = self
+            .active_chat_sessions
+            .iter()
+            .map(|e| {
+                (
+                    e.value().session.clone(),
+                    std::sync::Arc::clone(&e.value().history),
+                )
+            })
+            .collect();
 
         // Step 2: Async-lock each history Arc (DashMap refs are dropped).
         let mut snapshots: Vec<PersistableSession> = Vec::with_capacity(entries.len());
@@ -155,7 +164,7 @@ impl AppState {
                     Ok(snapshots) => {
                         let count = snapshots.len();
                         for ps in snapshots {
-                            let (mut handle, _cancel_rx) = ChatSessionHandle::new(ps.session);
+                            let (handle, _cancel_rx) = ChatSessionHandle::new(ps.session);
                             // Restore conversation history.
                             {
                                 let mut h = handle.history.lock().await;
@@ -165,7 +174,9 @@ impl AppState {
                         }
                         tracing::info!(count, "restored chat sessions from disk");
                     }
-                    Err(e) => tracing::warn!(error = %e, path = ?path, "failed to parse chat sessions file — starting fresh"),
+                    Err(e) => {
+                        tracing::warn!(error = %e, path = ?path, "failed to parse chat sessions file — starting fresh")
+                    }
                 }
             }
             Err(e) => tracing::warn!(error = %e, "failed to read chat sessions file"),

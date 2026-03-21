@@ -97,7 +97,11 @@ impl HybridRetriever {
             .collect();
 
         // Sort by score descending, take top_k.
-        results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        results.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         results.truncate(top_k);
 
         Ok(results)
@@ -166,7 +170,10 @@ mod tests {
     #[test]
     fn temporal_decay_zero_age() {
         let decay = temporal_decay(0.0, 30.0);
-        assert!((decay - 1.0).abs() < 0.001, "zero age should have decay 1.0, got {decay}");
+        assert!(
+            (decay - 1.0).abs() < 0.001,
+            "zero age should have decay 1.0, got {decay}"
+        );
     }
 
     #[test]
@@ -257,7 +264,10 @@ mod tests {
         let retriever = HybridRetriever::new(db)
             .with_decay_half_life(30.0)
             .with_rrf_k(60.0);
-        let results = retriever.retrieve("database optimization", 10).await.unwrap();
+        let results = retriever
+            .retrieve("database optimization", 10)
+            .await
+            .unwrap();
 
         assert_eq!(results.len(), 2);
         // The recent entry should score higher due to temporal decay.

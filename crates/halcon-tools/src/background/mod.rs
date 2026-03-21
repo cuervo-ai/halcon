@@ -127,7 +127,13 @@ impl ProcessRegistry {
         let procs = self.processes.lock().unwrap();
         procs
             .values()
-            .map(|p| (p.job_id.clone(), p.finished, p.started_at.elapsed().as_secs()))
+            .map(|p| {
+                (
+                    p.job_id.clone(),
+                    p.finished,
+                    p.started_at.elapsed().as_secs(),
+                )
+            })
             .collect()
     }
 

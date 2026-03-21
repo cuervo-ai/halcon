@@ -1,10 +1,9 @@
 //! Inverted index with FTS5 (BM25 ranking via SQLite).
 
 use crate::error::{Result, SearchError};
-use crate::types::{Document, DocumentId};
 
-use std::sync::Arc;
 use halcon_storage::Database;
+use std::sync::Arc;
 
 /// Inverted index wrapper over SQLite FTS5.
 pub struct InvertedIndex {
@@ -50,7 +49,11 @@ impl InvertedIndex {
         .map_err(|e| SearchError::Database(rusqlite::Error::ToSqlConversionFailure(Box::new(e))))?
         .map_err(SearchError::Database)?;
 
-        tracing::debug!("FTS5 query '{}' returned {} results", query_for_log, results.len());
+        tracing::debug!(
+            "FTS5 query '{}' returned {} results",
+            query_for_log,
+            results.len()
+        );
 
         Ok(results)
     }
@@ -62,11 +65,9 @@ impl InvertedIndex {
 
         let count = tokio::task::spawn_blocking(move || {
             db.with_connection(|conn| {
-                conn.query_row(
-                    "SELECT COUNT(*) FROM search_fts",
-                    [],
-                    |row| row.get::<_, i64>(0),
-                )
+                conn.query_row("SELECT COUNT(*) FROM search_fts", [], |row| {
+                    row.get::<_, i64>(0)
+                })
             })
         })
         .await

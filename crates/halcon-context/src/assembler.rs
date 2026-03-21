@@ -405,13 +405,15 @@ mod tests {
         let text = "The quick brown fox jumps over the lazy dog.";
         let base = estimate_tokens(text);
         let anthropic = estimate_tokens_for_provider(text, "anthropic");
-        assert_eq!(base, anthropic, "anthropic uses exact cl100k — no correction");
+        assert_eq!(
+            base, anthropic,
+            "anthropic uses exact cl100k — no correction"
+        );
     }
 
     #[test]
     fn estimate_tokens_for_provider_deepseek_slightly_less() {
-        let text = "The quick brown fox jumps over the lazy dog. "
-            .repeat(20);
+        let text = "The quick brown fox jumps over the lazy dog. ".repeat(20);
         let anthropic = estimate_tokens_for_provider(&text, "anthropic");
         let deepseek = estimate_tokens_for_provider(&text, "deepseek");
         // deepseek applies −4 % correction → must be ≤ anthropic

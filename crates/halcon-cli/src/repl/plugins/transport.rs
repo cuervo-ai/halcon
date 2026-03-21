@@ -63,7 +63,10 @@ pub enum TransportHandle {
     /// Spawn a subprocess per call; communicate via stdio JSON-RPC.
     Stdio { command: String, args: Vec<String> },
     /// Send JSON-RPC POST requests to a remote HTTP service.
-    Http { client: Arc<reqwest::Client>, base_url: String },
+    Http {
+        client: Arc<reqwest::Client>,
+        base_url: String,
+    },
     /// In-process bridge — returns a synthetic success (test/demo).
     Local,
 }
@@ -93,7 +96,9 @@ pub struct PluginTransportRuntime {
 impl PluginTransportRuntime {
     /// Create an empty runtime (no plugins registered yet).
     pub fn new() -> Self {
-        Self { handles: HashMap::new() }
+        Self {
+            handles: HashMap::new(),
+        }
     }
 
     /// Register a transport handle for a plugin.
@@ -151,9 +156,10 @@ impl PluginTransportRuntime {
     ) -> Result<PluginInvokeResult, String> {
         match handle {
             TransportHandle::Local => Self::invoke_local(tool_name, args).await,
-            TransportHandle::Stdio { command, args: cmd_args } => {
-                Self::invoke_stdio(&command, &cmd_args, tool_name, args).await
-            }
+            TransportHandle::Stdio {
+                command,
+                args: cmd_args,
+            } => Self::invoke_stdio(&command, &cmd_args, tool_name, args).await,
             TransportHandle::Http { client, base_url } => {
                 Self::invoke_http(&client, &base_url, tool_name, args).await
             }
@@ -185,17 +191,19 @@ impl PluginTransportRuntime {
         tool_name: &str,
         args: serde_json::Value,
     ) -> Result<PluginInvokeResult, String> {
-        use tokio::io::AsyncWriteExt;
         use tokio::io::AsyncBufReadExt;
+        use tokio::io::AsyncWriteExt;
 
         let rpc = JsonRpcRequest {
             jsonrpc: "2.0",
             id: 1,
             method: "tool/invoke",
-            params: JsonRpcParams { tool: tool_name.to_string(), arguments: args },
+            params: JsonRpcParams {
+                tool: tool_name.to_string(),
+                arguments: args,
+            },
         };
-        let payload = serde_json::to_string(&rpc)
-            .map_err(|e| format!("serialize RPC: {e}"))?;
+        let payload = serde_json::to_string(&rpc).map_err(|e| format!("serialize RPC: {e}"))?;
 
         let mut child = tokio::process::Command::new(command)
             .args(cmd_args)
@@ -210,17 +218,23 @@ impl PluginTransportRuntime {
         if let Some(stdin) = child.stdin.take() {
             let mut stdin = stdin;
             let line = format!("{payload}\n");
-            stdin.write_all(line.as_bytes()).await
+            stdin
+                .write_all(line.as_bytes())
+                .await
                 .map_err(|e| format!("write to plugin stdin: {e}"))?;
             drop(stdin);
         }
 
         // Read one line from stdout
-        let stdout = child.stdout.take()
+        let stdout = child
+            .stdout
+            .take()
             .ok_or_else(|| "no stdout from plugin process".to_string())?;
         let mut reader = tokio::io::BufReader::new(stdout);
         let mut line = String::new();
-        reader.read_line(&mut line).await
+        reader
+            .read_line(&mut line)
+            .await
             .map_err(|e| format!("read plugin stdout: {e}"))?;
 
         // Wait for child to exit (non-blocking, best effort)
@@ -245,7 +259,10 @@ impl PluginTransportRuntime {
             jsonrpc: "2.0",
             id: 1,
             method: "tool/invoke",
-            params: JsonRpcParams { tool: tool_name.to_string(), arguments: args },
+            params: JsonRpcParams {
+                tool: tool_name.to_string(),
+                arguments: args,
+            },
         };
 
         let response = client
@@ -259,7 +276,9 @@ impl PluginTransportRuntime {
             return Err(format!("HTTP plugin returned status {}", response.status()));
         }
 
-        let resp: JsonRpcResponse = response.json().await
+        let resp: JsonRpcResponse = response
+            .json()
+            .await
             .map_err(|e| format!("parse HTTP plugin response: {e}"))?;
 
         Self::extract_result(resp)
@@ -275,7 +294,9 @@ impl PluginTransportRuntime {
                 latency_ms: 0,
             });
         }
-        let result = resp.result.ok_or_else(|| "plugin returned neither result nor error".to_string())?;
+        let result = resp
+            .result
+            .ok_or_else(|| "plugin returned neither result nor error".to_string())?;
         Ok(PluginInvokeResult {
             content: result.content.unwrap_or_default(),
             is_error: result.is_error,
@@ -308,7 +329,12 @@ mod tests {
     async fn local_transport_returns_ok() {
         let rt = make_runtime_with_local("my-plugin");
         let result = rt
-            .invoke("my-plugin", "my_tool", serde_json::json!({"key": "value"}), 5000)
+            .invoke(
+                "my-plugin",
+                "my_tool",
+                serde_json::json!({"key": "value"}),
+                5000,
+            )
             .await
             .unwrap();
         assert!(!result.is_error);
@@ -351,7 +377,9 @@ mod tests {
             },
         );
         // 3000ms timeout — well above the 1000ms minimum clamp and stable under parallel load.
-        let result = rt.invoke("hang-plugin", "tool", serde_json::json!({}), 3000).await;
+        let result = rt
+            .invoke("hang-plugin", "tool", serde_json::json!({}), 3000)
+            .await;
         assert!(result.is_err(), "Expected timeout error");
         assert!(
             result.unwrap_err().contains("timed out"),
@@ -364,8 +392,14 @@ mod tests {
         let mut rt = PluginTransportRuntime::new();
         rt.register("plugin-a".to_string(), TransportHandle::Local);
         rt.register("plugin-b".to_string(), TransportHandle::Local);
-        let r1 = rt.invoke("plugin-a", "tool_a", serde_json::json!({}), 5000).await.unwrap();
-        let r2 = rt.invoke("plugin-b", "tool_b", serde_json::json!({}), 5000).await.unwrap();
+        let r1 = rt
+            .invoke("plugin-a", "tool_a", serde_json::json!({}), 5000)
+            .await
+            .unwrap();
+        let r2 = rt
+            .invoke("plugin-b", "tool_b", serde_json::json!({}), 5000)
+            .await
+            .unwrap();
         assert!(!r1.is_error);
         assert!(!r2.is_error);
     }
@@ -373,7 +407,10 @@ mod tests {
     #[tokio::test]
     async fn local_transport_zero_tokens_and_cost() {
         let rt = make_runtime_with_local("test");
-        let result = rt.invoke("test", "tool", serde_json::json!({}), 5000).await.unwrap();
+        let result = rt
+            .invoke("test", "tool", serde_json::json!({}), 5000)
+            .await
+            .unwrap();
         assert_eq!(result.tokens_used, 0);
         assert!((result.cost_usd - 0.0).abs() < 1e-9);
     }
@@ -388,7 +425,9 @@ mod tests {
                 args: vec![],
             },
         );
-        let result = rt.invoke("bad-plugin", "tool", serde_json::json!({}), 2000).await;
+        let result = rt
+            .invoke("bad-plugin", "tool", serde_json::json!({}), 2000)
+            .await;
         assert!(result.is_err());
     }
 
@@ -406,7 +445,10 @@ mod tests {
             .await
             .unwrap();
         // latency_ms is set after the await — should be >= 0 (usually 0 for local)
-        assert!(result.latency_ms < 1000, "latency_ms should be low for local transport");
+        assert!(
+            result.latency_ms < 1000,
+            "latency_ms should be low for local transport"
+        );
     }
 
     #[tokio::test]

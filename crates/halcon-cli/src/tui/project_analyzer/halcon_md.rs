@@ -25,22 +25,56 @@ pub fn generate(ctx: &ProjectContext) -> String {
 
     // ── Header ────────────────────────────────────────────────────────────────
     md.push_str(&format!("# HALCON — {name}\n"));
-    md.push_str(&format!("<!-- Generado por `halcon /init` · {today} -->\n\n"));
+    md.push_str(&format!(
+        "<!-- Generado por `halcon /init` · {today} -->\n\n"
+    ));
 
     // ── Score Badges ──────────────────────────────────────────────────────────
     let score = ctx.health_score;
-    let score_label = if score >= 80 { "BUENA" } else if score >= 60 { "MODERADA" } else { "NECESITA ATENCIÓN" };
-    let score_icon = if score >= 80 { "◈" } else if score >= 60 { "◇" } else { "⚐" };
-    md.push_str(&format!("> **{score_icon} Salud del proyecto: {score}/100** — {score_label}  \n"));
+    let score_label = if score >= 80 {
+        "BUENA"
+    } else if score >= 60 {
+        "MODERADA"
+    } else {
+        "NECESITA ATENCIÓN"
+    };
+    let score_icon = if score >= 80 {
+        "◈"
+    } else if score >= 60 {
+        "◇"
+    } else {
+        "⚐"
+    };
+    md.push_str(&format!(
+        "> **{score_icon} Salud del proyecto: {score}/100** — {score_label}  \n"
+    ));
 
     // Agent Readiness Score (Phase 107)
     if ctx.agent_readiness_score > 0 || ctx.environment_compatibility_score > 0 {
         let ar = ctx.agent_readiness_score;
         let ec = ctx.environment_compatibility_score;
-        let ar_label = if ar >= 80 { "ÓPTIMO" } else if ar >= 60 { "FUNCIONAL" } else if ar >= 40 { "BÁSICO" } else { "LIMITADO" };
-        let ec_label = if ec >= 80 { "ÓPTIMO" } else if ec >= 60 { "COMPATIBLE" } else if ec >= 40 { "PARCIAL" } else { "LIMITADO" };
+        let ar_label = if ar >= 80 {
+            "ÓPTIMO"
+        } else if ar >= 60 {
+            "FUNCIONAL"
+        } else if ar >= 40 {
+            "BÁSICO"
+        } else {
+            "LIMITADO"
+        };
+        let ec_label = if ec >= 80 {
+            "ÓPTIMO"
+        } else if ec >= 60 {
+            "COMPATIBLE"
+        } else if ec >= 40 {
+            "PARCIAL"
+        } else {
+            "LIMITADO"
+        };
         md.push_str(&format!("> **◈ Agente listo: {ar}/100** — {ar_label}  \n"));
-        md.push_str(&format!("> **◈ Entorno compatible: {ec}/100** — {ec_label}\n\n"));
+        md.push_str(&format!(
+            "> **◈ Entorno compatible: {ec}/100** — {ec_label}\n\n"
+        ));
     } else {
         md.push('\n');
     }
@@ -77,7 +111,13 @@ pub fn generate(ctx: &ProjectContext) -> String {
         md.push_str(&format!("- **Crates/Paquetes**: {}\n", ctx.members.len()));
     }
     if let Some(c) = ctx.complexity_score {
-        let label = if c < 30 { "Baja" } else if c < 60 { "Media" } else { "Alta" };
+        let label = if c < 30 {
+            "Baja"
+        } else if c < 60 {
+            "Media"
+        } else {
+            "Alta"
+        };
         md.push_str(&format!("- **Complejidad estimada**: {label} ({c}/100)\n"));
     }
     md.push('\n');
@@ -94,7 +134,10 @@ pub fn generate(ctx: &ProjectContext) -> String {
         md.push_str("- ✓ **Containers**: Dockerfile / docker-compose detectado\n");
     }
     if ctx.has_tests {
-        let cov_str = ctx.test_coverage_est.map(|c| format!(" (~{c}% cobertura estimada)")).unwrap_or_default();
+        let cov_str = ctx
+            .test_coverage_est
+            .map(|c| format!(" (~{c}% cobertura estimada)"))
+            .unwrap_or_default();
         md.push_str(&format!("- ✓ **Tests**: Detectados{cov_str}\n"));
     } else {
         md.push_str("- ✗ **Tests**: No detectados\n");
@@ -131,11 +174,24 @@ pub fn generate(ctx: &ProjectContext) -> String {
             md.push_str(&format!("- **Velocidad**: {v:.1} commits/semana\n"));
         }
         if let Some(bf) = ctx.bus_factor {
-            let bf_label = if bf >= 3 { "✓ bueno" } else if bf >= 2 { "◇ moderado" } else { "⚐ riesgo" };
-            md.push_str(&format!("- **Bus factor**: {bf} contribuidores ({bf_label})\n"));
+            let bf_label = if bf >= 3 {
+                "✓ bueno"
+            } else if bf >= 2 {
+                "◇ moderado"
+            } else {
+                "⚐ riesgo"
+            };
+            md.push_str(&format!(
+                "- **Bus factor**: {bf} contribuidores ({bf_label})\n"
+            ));
         }
         if !ctx.contributors.is_empty() {
-            let top3: Vec<&str> = ctx.contributors.iter().take(3).map(|s| s.as_str()).collect();
+            let top3: Vec<&str> = ctx
+                .contributors
+                .iter()
+                .take(3)
+                .map(|s| s.as_str())
+                .collect();
             md.push_str(&format!("- **Top contribuidores**: {}\n", top3.join(", ")));
         }
         md.push('\n');
@@ -221,10 +277,18 @@ pub fn generate(ctx: &ProjectContext) -> String {
         }
         // Infra tools
         let mut infra = vec![];
-        if ctx.tool_has_kubectl { infra.push("kubectl"); }
-        if ctx.tool_has_helm    { infra.push("helm"); }
-        if ctx.tool_has_terraform { infra.push("terraform"); }
-        if ctx.tool_has_ansible { infra.push("ansible"); }
+        if ctx.tool_has_kubectl {
+            infra.push("kubectl");
+        }
+        if ctx.tool_has_helm {
+            infra.push("helm");
+        }
+        if ctx.tool_has_terraform {
+            infra.push("terraform");
+        }
+        if ctx.tool_has_ansible {
+            infra.push("ansible");
+        }
         if !infra.is_empty() {
             md.push_str(&format!("- **Infra tools**: {}\n", infra.join(", ")));
         }
@@ -244,7 +308,10 @@ pub fn generate(ctx: &ProjectContext) -> String {
             md.push_str(&format!("- **Archivo activo**: {af}\n"));
         }
         if ctx.ide_lsp_connected {
-            let port = ctx.ide_lsp_port.map(|p| format!(" (puerto {p})")).unwrap_or_default();
+            let port = ctx
+                .ide_lsp_port
+                .map(|p| format!(" (puerto {p})"))
+                .unwrap_or_default();
             md.push_str(&format!("- ✓ **LSP / Dev Gateway**: Conectado{port}\n"));
         } else {
             md.push_str("- ○ **LSP / Dev Gateway**: No detectado\n");
@@ -275,31 +342,47 @@ pub fn generate(ctx: &ProjectContext) -> String {
             md.push_str(&format!("- **Modelo**: `{model}` (tier: {tier})\n"));
         }
         if !ctx.agent_mcp_servers.is_empty() {
-            md.push_str(&format!("- **MCP Servers**: {} activos — {}\n",
+            md.push_str(&format!(
+                "- **MCP Servers**: {} activos — {}\n",
                 ctx.agent_mcp_servers.len(),
-                ctx.agent_mcp_servers.iter().take(5).cloned().collect::<Vec<_>>().join(", ")));
+                ctx.agent_mcp_servers
+                    .iter()
+                    .take(5)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
         } else {
             md.push_str("- **MCP Servers**: Ninguno configurado\n");
         }
         if ctx.agent_plugins_loaded > 0 {
-            md.push_str(&format!("- ✓ **Plugins**: {} cargados\n", ctx.agent_plugins_loaded));
+            md.push_str(&format!(
+                "- ✓ **Plugins**: {} cargados\n",
+                ctx.agent_plugins_loaded
+            ));
         }
         // Feature flags
         let flags: Vec<&str> = [
             (ctx.agent_reasoning_enabled, "Reasoning"),
-            (ctx.agent_orchestration_on,  "Orchestration"),
-            (ctx.agent_multimodal_on,     "Multimodal"),
-            (ctx.agent_plugin_system_on,  "Plugins"),
-            (ctx.agent_hicon_active,      "HICON"),
+            (ctx.agent_orchestration_on, "Orchestration"),
+            (ctx.agent_multimodal_on, "Multimodal"),
+            (ctx.agent_plugin_system_on, "Plugins"),
+            (ctx.agent_hicon_active, "HICON"),
         ]
         .iter()
         .filter_map(|(on, name)| if *on { Some(*name) } else { None })
         .collect();
         if !flags.is_empty() {
-            md.push_str(&format!("- **Subsistemas activos**: {}\n", flags.join(", ")));
+            md.push_str(&format!(
+                "- **Subsistemas activos**: {}\n",
+                flags.join(", ")
+            ));
         }
         if !ctx.agent_tools_available.is_empty() {
-            md.push_str(&format!("- **Tools disponibles**: {} herramientas\n", ctx.agent_tools_available.len()));
+            md.push_str(&format!(
+                "- **Tools disponibles**: {} herramientas\n",
+                ctx.agent_tools_available.len()
+            ));
         }
         md.push('\n');
     }
@@ -313,14 +396,20 @@ pub fn generate(ctx: &ProjectContext) -> String {
         md.push_str("## Perfil de Runtime\n");
         let components: Vec<&str> = [
             (ctx.runtime_model_router_active, "ModelRouter"),
-            (ctx.runtime_convergence_controller_on, "ConvergenceController"),
+            (
+                ctx.runtime_convergence_controller_on,
+                "ConvergenceController",
+            ),
             (ctx.runtime_intent_scorer_on, "IntentScorer"),
         ]
         .iter()
         .filter_map(|(on, name)| if *on { Some(*name) } else { None })
         .collect();
         if !components.is_empty() {
-            md.push_str(&format!("- **Componentes activos**: {}\n", components.join(", ")));
+            md.push_str(&format!(
+                "- **Componentes activos**: {}\n",
+                components.join(", ")
+            ));
         }
         if let Some(budget) = ctx.runtime_token_budget {
             md.push_str(&format!("- **Token budget**: {budget}\n"));
@@ -364,16 +453,23 @@ pub fn generate(ctx: &ProjectContext) -> String {
     // ── Language Intelligence (Phase 110-112) ────────────────────────────────
     if !ctx.primary_language.is_empty() {
         md.push_str("## Inteligencia de Lenguajes\n");
-        md.push_str(&format!("- **Lenguaje primario**: {}\n", ctx.primary_language));
+        md.push_str(&format!(
+            "- **Lenguaje primario**: {}\n",
+            ctx.primary_language
+        ));
         if !ctx.secondary_languages.is_empty() {
-            md.push_str(&format!("- **Lenguajes secundarios**: {}\n",
-                ctx.secondary_languages.join(", ")));
+            md.push_str(&format!(
+                "- **Lenguajes secundarios**: {}\n",
+                ctx.secondary_languages.join(", ")
+            ));
         }
         if ctx.is_polyglot {
             md.push_str("- ◈ **Repositorio poliglota**: múltiples lenguajes de producción\n");
         }
         if !ctx.language_breakdown.is_empty() {
-            let breakdown: Vec<String> = ctx.language_breakdown.iter()
+            let breakdown: Vec<String> = ctx
+                .language_breakdown
+                .iter()
                 .map(|(l, n)| format!("{l} ({n})"))
                 .collect();
             md.push_str(&format!("- **Distribución**: {}\n", breakdown.join(", ")));
@@ -393,11 +489,17 @@ pub fn generate(ctx: &ProjectContext) -> String {
         // Monorepo
         if ctx.is_monorepo {
             let tool = ctx.monorepo_tool.as_deref().unwrap_or("monorepo");
-            md.push_str(&format!("- **Monorepo**: {tool} · {} sub-proyectos\n",
-                ctx.sub_project_count));
+            md.push_str(&format!(
+                "- **Monorepo**: {tool} · {} sub-proyectos\n",
+                ctx.sub_project_count
+            ));
             if !ctx.sub_projects.is_empty() {
-                let shown: Vec<&str> = ctx.sub_projects.iter()
-                    .take(6).map(|s| s.as_str()).collect();
+                let shown: Vec<&str> = ctx
+                    .sub_projects
+                    .iter()
+                    .take(6)
+                    .map(|s| s.as_str())
+                    .collect();
                 md.push_str(&format!("  - Sub-proyectos: {}\n", shown.join(", ")));
             }
         }
@@ -410,11 +512,16 @@ pub fn generate(ctx: &ProjectContext) -> String {
                 "Enterprise" => "> 50 000 archivos",
                 _ => "",
             };
-            md.push_str(&format!("- **Escala**: {} ({}) · {} archivos escaneados\n",
-                ctx.project_scale, scale_desc, ctx.total_file_count));
+            md.push_str(&format!(
+                "- **Escala**: {} ({}) · {} archivos escaneados\n",
+                ctx.project_scale, scale_desc, ctx.total_file_count
+            ));
         }
         if ctx.estimated_loc > 0 {
-            md.push_str(&format!("- **LOC estimadas**: ~{} líneas\n", ctx.estimated_loc));
+            md.push_str(&format!(
+                "- **LOC estimadas**: ~{} líneas\n",
+                ctx.estimated_loc
+            ));
         }
         md.push('\n');
     }
@@ -429,15 +536,22 @@ pub fn generate(ctx: &ProjectContext) -> String {
     if has_dist {
         md.push_str("## Arquitectura Distribuida\n");
         if !ctx.architecture_patterns.is_empty() {
-            md.push_str(&format!("- **Patrones**: {}\n",
-                ctx.architecture_patterns.join(", ")));
+            md.push_str(&format!(
+                "- **Patrones**: {}\n",
+                ctx.architecture_patterns.join(", ")
+            ));
         }
         if ctx.distributed_services_count > 0 {
-            md.push_str(&format!("- **Servicios detectados**: {}\n",
-                ctx.distributed_services_count));
+            md.push_str(&format!(
+                "- **Servicios detectados**: {}\n",
+                ctx.distributed_services_count
+            ));
         }
         if ctx.has_message_broker {
-            let broker = ctx.message_broker_type.as_deref().unwrap_or("Message Broker");
+            let broker = ctx
+                .message_broker_type
+                .as_deref()
+                .unwrap_or("Message Broker");
             md.push_str(&format!("- ✓ **Message Broker**: {broker}\n"));
         }
         if ctx.has_service_mesh {
@@ -462,22 +576,44 @@ pub fn generate(ctx: &ProjectContext) -> String {
         md.push_str("| Métrica | Puntuación | Nivel |\n");
         md.push_str("|---|---|---|\n");
         let score_row = |label: &str, s: u8| -> String {
-            let level = if s >= 80 { "◈ Alto" } else if s >= 60 { "◇ Medio" } else { "⚐ Bajo" };
+            let level = if s >= 80 {
+                "◈ Alto"
+            } else if s >= 60 {
+                "◇ Medio"
+            } else {
+                "⚐ Bajo"
+            };
             format!("| {label} | {s}/100 | {level} |\n")
         };
         md.push_str(&score_row("Salud del Proyecto", ctx.health_score));
         md.push_str(&score_row("Listo para Agente", ctx.agent_readiness_score));
-        md.push_str(&score_row("Compatibilidad Entorno", ctx.environment_compatibility_score));
-        md.push_str(&score_row("Calidad de Arquitectura", ctx.architecture_quality_score));
+        md.push_str(&score_row(
+            "Compatibilidad Entorno",
+            ctx.environment_compatibility_score,
+        ));
+        md.push_str(&score_row(
+            "Calidad de Arquitectura",
+            ctx.architecture_quality_score,
+        ));
         md.push_str(&score_row("Escalabilidad", ctx.scalability_score));
         md.push_str(&score_row("Mantenibilidad", ctx.maintainability_score));
-        let debt_level = if ctx.technical_debt_score <= 20 { "◈ Bajo" }
-            else if ctx.technical_debt_score <= 50 { "◇ Moderado" } else { "⚐ Alto" };
-        md.push_str(&format!("| Deuda Técnica | {}/100 | {debt_level} |\n",
-            ctx.technical_debt_score));
+        let debt_level = if ctx.technical_debt_score <= 20 {
+            "◈ Bajo"
+        } else if ctx.technical_debt_score <= 50 {
+            "◇ Moderado"
+        } else {
+            "⚐ Alto"
+        };
+        md.push_str(&format!(
+            "| Deuda Técnica | {}/100 | {debt_level} |\n",
+            ctx.technical_debt_score
+        ));
         md.push_str(&score_row("Developer Experience", ctx.dev_ex_score));
         md.push_str(&score_row("Preparación IA", ctx.ai_readiness_score));
-        md.push_str(&score_row("Madurez Distribuida", ctx.distributed_maturity_score));
+        md.push_str(&score_row(
+            "Madurez Distribuida",
+            ctx.distributed_maturity_score,
+        ));
         md.push('\n');
     }
 
@@ -492,56 +628,114 @@ pub fn generate(ctx: &ProjectContext) -> String {
             format!("| {cap} | {icon} | {status} | {risk} |\n")
         };
 
-        md.push_str(&row("Tests",
+        md.push_str(&row(
+            "Tests",
             ctx.has_tests,
             if ctx.has_tests {
-                ctx.test_coverage_est.map(|c| {
-                    if c >= 80 { "Cobertura alta" } else if c >= 50 { "Cobertura media" } else { "Cobertura baja" }
-                }).unwrap_or("Detectados")
-            } else { "No detectados" },
-            if ctx.has_tests { "Bajo" } else { "Alto" }
+                ctx.test_coverage_est
+                    .map(|c| {
+                        if c >= 80 {
+                            "Cobertura alta"
+                        } else if c >= 50 {
+                            "Cobertura media"
+                        } else {
+                            "Cobertura baja"
+                        }
+                    })
+                    .unwrap_or("Detectados")
+            } else {
+                "No detectados"
+            },
+            if ctx.has_tests { "Bajo" } else { "Alto" },
         ));
 
-        md.push_str(&row("CI/CD",
+        md.push_str(&row(
+            "CI/CD",
             ctx.has_ci,
             ctx.ci_system.as_deref().unwrap_or("No configurado"),
-            if ctx.has_ci { "Bajo" } else { "Alto" }
+            if ctx.has_ci { "Bajo" } else { "Alto" },
         ));
 
-        md.push_str(&row("Containers",
+        md.push_str(&row(
+            "Containers",
             ctx.has_docker,
-            if ctx.has_docker { "Dockerfile detectado" } else { "Sin containerización" },
-            if ctx.has_docker { "Bajo" } else { "Medio" }
+            if ctx.has_docker {
+                "Dockerfile detectado"
+            } else {
+                "Sin containerización"
+            },
+            if ctx.has_docker { "Bajo" } else { "Medio" },
         ));
 
-        md.push_str(&row("Security Policy",
+        md.push_str(&row(
+            "Security Policy",
             ctx.has_security_policy,
-            if ctx.has_security_policy { "SECURITY.md presente" } else { "Sin política" },
-            if ctx.has_security_policy { "Bajo" } else { "Medio" }
+            if ctx.has_security_policy {
+                "SECURITY.md presente"
+            } else {
+                "Sin política"
+            },
+            if ctx.has_security_policy {
+                "Bajo"
+            } else {
+                "Medio"
+            },
         ));
 
-        md.push_str(&row("Dep Auditing",
+        md.push_str(&row(
+            "Dep Auditing",
             ctx.has_audit_config,
-            if ctx.has_audit_config { "deny.toml / .snyk" } else { "Sin auditoría" },
-            if ctx.has_audit_config { "Bajo" } else { "Medio" }
+            if ctx.has_audit_config {
+                "deny.toml / .snyk"
+            } else {
+                "Sin auditoría"
+            },
+            if ctx.has_audit_config {
+                "Bajo"
+            } else {
+                "Medio"
+            },
         ));
 
-        md.push_str(&row("Observability",
+        md.push_str(&row(
+            "Observability",
             ctx.has_observability_stack,
-            if ctx.has_observability_stack { "Prometheus/OTEL detectado" } else { "Sin observability" },
-            if ctx.has_observability_stack { "Bajo" } else { if ctx.distributed_services_count >= 2 { "Alto" } else { "Bajo" } }
+            if ctx.has_observability_stack {
+                "Prometheus/OTEL detectado"
+            } else {
+                "Sin observability"
+            },
+            if ctx.has_observability_stack {
+                "Bajo"
+            } else if ctx.distributed_services_count >= 2 {
+                "Alto"
+            } else {
+                "Bajo"
+            },
         ));
 
-        md.push_str(&row("Message Broker",
+        md.push_str(&row(
+            "Message Broker",
             ctx.has_message_broker,
             ctx.message_broker_type.as_deref().unwrap_or("No detectado"),
-            "Bajo"
+            "Bajo",
         ));
 
-        md.push_str(&row("Service Mesh",
+        md.push_str(&row(
+            "Service Mesh",
             ctx.has_service_mesh,
-            if ctx.has_service_mesh { "Detectado" } else { "Sin mesh" },
-            if ctx.has_service_mesh { "Bajo" } else { if ctx.distributed_services_count >= 3 { "Medio" } else { "Bajo" } }
+            if ctx.has_service_mesh {
+                "Detectado"
+            } else {
+                "Sin mesh"
+            },
+            if ctx.has_service_mesh {
+                "Bajo"
+            } else if ctx.distributed_services_count >= 3 {
+                "Medio"
+            } else {
+                "Bajo"
+            },
         ));
 
         md.push('\n');
@@ -560,7 +754,9 @@ pub fn generate(ctx: &ProjectContext) -> String {
             let flags_str = ctx.suggested_agent_flags.join(" ");
             md.push_str(&format!("```bash\nhalcon chat {flags_str}\n```\n\n"));
         } else if ctx.use_fast_mode {
-            md.push_str("```bash\nhalcon chat  # Modo estándar — proyecto pequeño y simple\n```\n\n");
+            md.push_str(
+                "```bash\nhalcon chat  # Modo estándar — proyecto pequeño y simple\n```\n\n",
+            );
         }
         if let Some(ref tier) = ctx.suggested_model_tier {
             let tier_desc = match tier.as_str() {
@@ -569,7 +765,10 @@ pub fn generate(ctx: &ProjectContext) -> String {
                 "fast" => "Haiku / GPT-4o-mini — respuesta rápida, proyecto simple",
                 _ => tier.as_str(),
             };
-            md.push_str(&format!("- **Modelo sugerido**: {} ({})\n", tier, tier_desc));
+            md.push_str(&format!(
+                "- **Modelo sugerido**: {} ({})\n",
+                tier, tier_desc
+            ));
         }
         if let Some(ref strat) = ctx.suggested_planning_strategy {
             md.push_str(&format!("- **Estrategia de planning**: {strat}\n"));
@@ -604,7 +803,9 @@ pub fn generate(ctx: &ProjectContext) -> String {
     // ── Optimization Opportunities (Phase 107) ─────────────────────────────────
     let mut opts: Vec<String> = Vec::new();
     if ctx.agent_mcp_servers.is_empty() {
-        opts.push("Configurar MCP servers en `~/.halcon/.mcp.json` para capacidades extendidas".into());
+        opts.push(
+            "Configurar MCP servers en `~/.halcon/.mcp.json` para capacidades extendidas".into(),
+        );
     }
     if !ctx.agent_reasoning_enabled {
         opts.push("Activar ReasoningEngine con `halcon chat --full` para tareas complejas".into());
@@ -655,7 +856,9 @@ pub fn generate(ctx: &ProjectContext) -> String {
             md.push_str("### Comandos clave\n");
             md.push_str("```bash\n");
             md.push_str(&format!("cargo build --release -p {name}  # Release\n"));
-            md.push_str(&format!("cargo test -p {name} --lib        # Tests unitarios\n"));
+            md.push_str(&format!(
+                "cargo test -p {name} --lib        # Tests unitarios\n"
+            ));
             md.push_str("cargo clippy --workspace -- -D warnings    # Linting\n");
             md.push_str("cargo fmt --all                            # Formateo\n");
             if ctx.has_audit_config {
@@ -703,8 +906,10 @@ pub fn generate(ctx: &ProjectContext) -> String {
     md.push_str(&format!("*Generado por `halcon /init` · {today}*  \n"));
     if ctx.analysis_duration_ms > 0 {
         let dur_s = ctx.analysis_duration_ms as f64 / 1000.0;
-        md.push_str(&format!("*Análisis: {dur_s:.1}s · {} archivos · {} herramientas*\n",
-            ctx.files_scanned, ctx.tools_run));
+        md.push_str(&format!(
+            "*Análisis: {dur_s:.1}s · {} archivos · {} herramientas*\n",
+            ctx.files_scanned, ctx.tools_run
+        ));
         if ctx.cache_hit {
             md.push_str("*Resultado desde caché (< 24h)*\n");
         }
@@ -785,21 +990,28 @@ mod tests {
         ctx.health_issues = vec!["No CI detected".to_string()];
         ctx.health_recommendations = vec!["Add GitHub Actions".to_string()];
         let md = generate(&ctx);
-        assert!(md.contains("Riesgos Detectados"), "Should have risks section");
-        assert!(md.contains("Recomendaciones"), "Should have recommendations section");
-        assert!(md.contains("Add GitHub Actions"), "Should include specific recommendation");
+        assert!(
+            md.contains("Riesgos Detectados"),
+            "Should have risks section"
+        );
+        assert!(
+            md.contains("Recomendaciones"),
+            "Should have recommendations section"
+        );
+        assert!(
+            md.contains("Add GitHub Actions"),
+            "Should include specific recommendation"
+        );
     }
 
     #[test]
     fn generate_includes_workspace_members() {
         let mut ctx = make_ctx("monorepo");
-        ctx.members = vec![
-            super::super::tools::WorkspaceMember {
-                name: "core".to_string(),
-                path: "crates/core".to_string(),
-                description: Some("Core library".to_string()),
-            },
-        ];
+        ctx.members = vec![super::super::tools::WorkspaceMember {
+            name: "core".to_string(),
+            path: "crates/core".to_string(),
+            description: Some("Core library".to_string()),
+        }];
         let md = generate(&ctx);
         assert!(md.contains("crates/core"), "Should list workspace members");
     }
@@ -813,7 +1025,10 @@ mod tests {
         ctx.environment_compatibility_score = 72;
         let md = generate(&ctx);
         assert!(md.contains("85/100"), "Should show agent readiness score");
-        assert!(md.contains("72/100"), "Should show environment compatibility score");
+        assert!(
+            md.contains("72/100"),
+            "Should show environment compatibility score"
+        );
         assert!(md.contains("ÓPTIMO"), "85/100 should be ÓPTIMO");
     }
 
@@ -825,7 +1040,10 @@ mod tests {
         ctx.sys_ram_mb = 16384;
         ctx.sys_gpu_available = true;
         let md = generate(&ctx);
-        assert!(md.contains("Entorno de Ejecución"), "Should have env section");
+        assert!(
+            md.contains("Entorno de Ejecución"),
+            "Should have env section"
+        );
         assert!(md.contains("Linux aarch64"), "Should show OS");
         assert!(md.contains("8 cores"), "Should show CPU cores");
         assert!(md.contains("16.0 GB"), "Should show RAM in GB");
@@ -836,7 +1054,10 @@ mod tests {
     fn generate_skips_environment_section_when_empty() {
         let ctx = make_ctx("test");
         let md = generate(&ctx);
-        assert!(!md.contains("Entorno de Ejecución"), "Should not show env section when empty");
+        assert!(
+            !md.contains("Entorno de Ejecución"),
+            "Should not show env section when empty"
+        );
     }
 
     #[test]
@@ -846,7 +1067,10 @@ mod tests {
         ctx.tool_rust_version = Some("1.83.0".to_string());
         ctx.tool_has_kubectl = true;
         let md = generate(&ctx);
-        assert!(md.contains("Herramientas del Sistema"), "Should have tools section");
+        assert!(
+            md.contains("Herramientas del Sistema"),
+            "Should have tools section"
+        );
         assert!(md.contains("2.43.0"), "Should show git version");
         assert!(md.contains("1.83.0"), "Should show rust version");
         assert!(md.contains("kubectl"), "Should list infra tools");
@@ -861,7 +1085,10 @@ mod tests {
         ctx.agent_reasoning_enabled = true;
         ctx.agent_orchestration_on = true;
         let md = generate(&ctx);
-        assert!(md.contains("Capacidades del Agente"), "Should have capabilities section");
+        assert!(
+            md.contains("Capacidades del Agente"),
+            "Should have capabilities section"
+        );
         assert!(md.contains("claude-sonnet-4-6"), "Should show model name");
         assert!(md.contains("tier-2"), "Should show model tier");
         assert!(md.contains("2 activos"), "Should show MCP server count");
@@ -874,7 +1101,10 @@ mod tests {
         let mut ctx = make_ctx("test");
         ctx.agent_model_name = Some("test-model".to_string());
         let md = generate(&ctx);
-        assert!(md.contains("Ninguno configurado"), "Should note no MCP servers");
+        assert!(
+            md.contains("Ninguno configurado"),
+            "Should note no MCP servers"
+        );
     }
 
     #[test]
@@ -896,9 +1126,15 @@ mod tests {
         ctx.runtime_convergence_controller_on = true;
         ctx.runtime_token_budget = Some(200_000);
         let md = generate(&ctx);
-        assert!(md.contains("Perfil de Runtime"), "Should have runtime section");
+        assert!(
+            md.contains("Perfil de Runtime"),
+            "Should have runtime section"
+        );
         assert!(md.contains("ModelRouter"), "Should list active component");
-        assert!(md.contains("ConvergenceController"), "Should list convergence");
+        assert!(
+            md.contains("ConvergenceController"),
+            "Should list convergence"
+        );
     }
 
     #[test]
@@ -908,8 +1144,14 @@ mod tests {
         ctx.agent_orchestration_on = false;
         ctx.has_ci = false;
         let md = generate(&ctx);
-        assert!(md.contains("Oportunidades de Optimización"), "Should have optimization section");
-        assert!(md.contains("ReasoningEngine"), "Should suggest enabling reasoning");
+        assert!(
+            md.contains("Oportunidades de Optimización"),
+            "Should have optimization section"
+        );
+        assert!(
+            md.contains("ReasoningEngine"),
+            "Should suggest enabling reasoning"
+        );
     }
 
     #[test]
@@ -920,7 +1162,10 @@ mod tests {
         ctx.sys_os = "Linux x86_64".to_string();
         let md = generate(&ctx);
         assert!(md.contains("WSL"), "Should note WSL environment");
-        assert!(md.contains("Container"), "Should note container environment");
+        assert!(
+            md.contains("Container"),
+            "Should note container environment"
+        );
     }
 
     #[test]
@@ -941,7 +1186,10 @@ mod tests {
         ctx.agent_hicon_active = true;
         ctx.agent_model_name = Some("test".to_string()); // trigger section
         let md = generate(&ctx);
-        assert!(md.contains("HICON"), "Should show HICON as active subsystem");
+        assert!(
+            md.contains("HICON"),
+            "Should show HICON as active subsystem"
+        );
     }
 
     // ── Phase 110-112: Language Intelligence tests ─────────────────────────────
@@ -951,7 +1199,10 @@ mod tests {
         let mut ctx = make_ctx("test");
         ctx.primary_language = "Rust".to_string();
         let md = generate(&ctx);
-        assert!(md.contains("Inteligencia de Lenguajes"), "Should have language section");
+        assert!(
+            md.contains("Inteligencia de Lenguajes"),
+            "Should have language section"
+        );
         assert!(md.contains("Rust"), "Should show primary language");
     }
 
@@ -960,7 +1211,10 @@ mod tests {
         let ctx = make_ctx("test");
         // make_ctx does not set primary_language — it remains ""
         let md = generate(&ctx);
-        assert!(!md.contains("Inteligencia de Lenguajes"), "Should skip language section when no data");
+        assert!(
+            !md.contains("Inteligencia de Lenguajes"),
+            "Should skip language section when no data"
+        );
     }
 
     #[test]
@@ -977,7 +1231,10 @@ mod tests {
         let md = generate(&ctx);
         assert!(md.contains("poliglota"), "Should show polyglot flag");
         assert!(md.contains("Rust"), "Should show secondary languages");
-        assert!(md.contains("TypeScript (120)"), "Should show language breakdown");
+        assert!(
+            md.contains("TypeScript (120)"),
+            "Should show language breakdown"
+        );
     }
 
     #[test]
@@ -1016,8 +1273,14 @@ mod tests {
         ctx.architecture_patterns = vec!["Microservices".to_string(), "Event-Driven".to_string()];
         ctx.distributed_services_count = 4;
         let md = generate(&ctx);
-        assert!(md.contains("Arquitectura Distribuida"), "Should have distributed section");
-        assert!(md.contains("Microservices"), "Should show architecture patterns");
+        assert!(
+            md.contains("Arquitectura Distribuida"),
+            "Should have distributed section"
+        );
+        assert!(
+            md.contains("Microservices"),
+            "Should show architecture patterns"
+        );
         assert!(md.contains("4"), "Should show service count");
     }
 
@@ -1025,7 +1288,10 @@ mod tests {
     fn generate_skips_distributed_section_when_no_patterns() {
         let ctx = make_ctx("test");
         let md = generate(&ctx);
-        assert!(!md.contains("Arquitectura Distribuida"), "Should skip distributed section when no data");
+        assert!(
+            !md.contains("Arquitectura Distribuida"),
+            "Should skip distributed section when no data"
+        );
     }
 
     #[test]
@@ -1063,11 +1329,20 @@ mod tests {
         ctx.ai_readiness_score = 55;
         ctx.distributed_maturity_score = 40;
         let md = generate(&ctx);
-        assert!(md.contains("Dashboard de Calidad"), "Should have quality dashboard");
+        assert!(
+            md.contains("Dashboard de Calidad"),
+            "Should have quality dashboard"
+        );
         assert!(md.contains("10 Métricas"), "Should say 10 metrics");
-        assert!(md.contains("78/100"), "Should show architecture quality score");
+        assert!(
+            md.contains("78/100"),
+            "Should show architecture quality score"
+        );
         assert!(md.contains("82/100"), "Should show maintainability score");
-        assert!(md.contains("Deuda Técnica"), "Should have technical debt row");
+        assert!(
+            md.contains("Deuda Técnica"),
+            "Should have technical debt row"
+        );
     }
 
     #[test]
@@ -1080,15 +1355,18 @@ mod tests {
         ctx.maintainability_score = 0;
         ctx.ai_readiness_score = 0;
         let md = generate(&ctx);
-        assert!(!md.contains("Dashboard de Calidad"), "Should skip dashboard when no advanced scores");
+        assert!(
+            !md.contains("Dashboard de Calidad"),
+            "Should skip dashboard when no advanced scores"
+        );
     }
 
     #[test]
     fn dashboard_shows_correct_level_labels() {
         let mut ctx = make_ctx("test");
         ctx.architecture_quality_score = 85; // ◈ Alto
-        ctx.scalability_score = 65;          // ◇ Medio
-        ctx.maintainability_score = 40;      // ⚐ Bajo
+        ctx.scalability_score = 65; // ◇ Medio
+        ctx.maintainability_score = 40; // ⚐ Bajo
         let md = generate(&ctx);
         assert!(md.contains("◈ Alto"), "85 should be Alto");
         assert!(md.contains("◇ Medio"), "65 should be Medio");
@@ -1102,11 +1380,17 @@ mod tests {
         let mut ctx = make_ctx("test");
         // make_ctx has has_tests=true, has_ci=true
         let md = generate(&ctx);
-        assert!(md.contains("Matriz de Capacidades"), "Should have capability matrix");
+        assert!(
+            md.contains("Matriz de Capacidades"),
+            "Should have capability matrix"
+        );
         assert!(md.contains("CI/CD"), "Should have CI/CD row");
         assert!(md.contains("Tests"), "Should have Tests row");
         assert!(md.contains("Containers"), "Should have Containers row");
-        assert!(md.contains("Observability"), "Should have Observability row");
+        assert!(
+            md.contains("Observability"),
+            "Should have Observability row"
+        );
     }
 
     #[test]
@@ -1118,7 +1402,10 @@ mod tests {
         // When distributed_services_count >= 2 and no observability → Alto risk
         assert!(md.contains("Observability"), "Observability row present");
         // The risk column should show "Alto" for this combination
-        assert!(md.contains("Alto"), "Should show Alto risk for distributed without observability");
+        assert!(
+            md.contains("Alto"),
+            "Should show Alto risk for distributed without observability"
+        );
     }
 
     #[test]
@@ -1127,8 +1414,14 @@ mod tests {
         ctx.has_message_broker = true;
         ctx.message_broker_type = Some("RabbitMQ".to_string());
         let md = generate(&ctx);
-        assert!(md.contains("Message Broker"), "Should have Message Broker row");
-        assert!(md.contains("RabbitMQ"), "Should show broker type in capability matrix");
+        assert!(
+            md.contains("Message Broker"),
+            "Should have Message Broker row"
+        );
+        assert!(
+            md.contains("RabbitMQ"),
+            "Should show broker type in capability matrix"
+        );
     }
 
     // ── Phase 119: Auto-Mode Suggestion tests ──────────────────────────────────
@@ -1139,10 +1432,17 @@ mod tests {
         ctx.suggested_agent_flags = vec!["--full".to_string(), "--expert".to_string()];
         ctx.suggested_model_tier = Some("premium".to_string());
         ctx.suggested_planning_strategy = Some("adaptive".to_string());
-        ctx.agent_mode_rationale = Some("Enterprise project with distributed architecture".to_string());
+        ctx.agent_mode_rationale =
+            Some("Enterprise project with distributed architecture".to_string());
         let md = generate(&ctx);
-        assert!(md.contains("Configuración de Agente Sugerida"), "Should have auto-mode section");
-        assert!(md.contains("--full --expert"), "Should show suggested flags");
+        assert!(
+            md.contains("Configuración de Agente Sugerida"),
+            "Should have auto-mode section"
+        );
+        assert!(
+            md.contains("--full --expert"),
+            "Should show suggested flags"
+        );
         assert!(md.contains("halcon chat"), "Should show halcon command");
         assert!(md.contains("premium"), "Should show model tier");
         assert!(md.contains("adaptive"), "Should show planning strategy");
@@ -1154,7 +1454,10 @@ mod tests {
         let ctx = make_ctx("test");
         // No suggested_agent_flags, no model tier, no rationale
         let md = generate(&ctx);
-        assert!(!md.contains("Configuración de Agente Sugerida"), "Should skip auto-mode section");
+        assert!(
+            !md.contains("Configuración de Agente Sugerida"),
+            "Should skip auto-mode section"
+        );
     }
 
     #[test]
@@ -1164,8 +1467,14 @@ mod tests {
         ctx.activate_reasoning_deep = true;
         ctx.activate_multimodal_for_init = true;
         let md = generate(&ctx);
-        assert!(md.contains("Reasoning profundo"), "Should note deep reasoning recommendation");
-        assert!(md.contains("multimodal"), "Should note multimodal recommendation");
+        assert!(
+            md.contains("Reasoning profundo"),
+            "Should note deep reasoning recommendation"
+        );
+        assert!(
+            md.contains("multimodal"),
+            "Should note multimodal recommendation"
+        );
     }
 
     #[test]
@@ -1174,8 +1483,14 @@ mod tests {
         ctx.use_fast_mode = true;
         // No flags set — triggers the fast-mode fallback message
         let md = generate(&ctx);
-        assert!(md.contains("Configuración de Agente Sugerida"), "Should show section for fast mode");
-        assert!(md.contains("Modo estándar"), "Should mention standard mode for small project");
+        assert!(
+            md.contains("Configuración de Agente Sugerida"),
+            "Should show section for fast mode"
+        );
+        assert!(
+            md.contains("Modo estándar"),
+            "Should mention standard mode for small project"
+        );
     }
 
     #[test]
@@ -1190,8 +1505,10 @@ mod tests {
             ctx.suggested_model_tier = Some(tier.to_string());
             ctx.suggested_agent_flags = vec!["--full".to_string()]; // trigger section
             let md = generate(&ctx);
-            assert!(md.contains(expected_keyword),
-                "Tier '{tier}' should mention '{expected_keyword}' in description");
+            assert!(
+                md.contains(expected_keyword),
+                "Tier '{tier}' should mention '{expected_keyword}' in description"
+            );
         }
     }
 }

@@ -295,10 +295,7 @@ mod tests {
                 r#"{{"id":"chatcmpl-abc","choices":[{{"index":0,"delta":{{}},"finish_reason":"{reason}"}}]}}"#,
             );
             let chunk: OpenAISseChunk = serde_json::from_str(&json).unwrap();
-            assert_eq!(
-                chunk.choices[0].finish_reason.as_deref(),
-                Some(expected)
-            );
+            assert_eq!(chunk.choices[0].finish_reason.as_deref(), Some(expected));
         }
     }
 

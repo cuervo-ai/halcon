@@ -20,7 +20,10 @@ pub enum CapabilitySource {
     /// Tool found in the session's ToolRegistry — use existing pipeline.
     BuiltinTool { name: String },
     /// Tool routed to a registered plugin (registry pre/post invoke hooks apply).
-    PluginTool { plugin_id: String, tool_name: String },
+    PluginTool {
+        plugin_id: String,
+        tool_name: String,
+    },
     /// Tool routed to an MCP server (`tool_name` had the form "server::tool").
     McpTool { server: String, tool_name: String },
     /// No executable tool — the agent should synthesize a direct text answer.
@@ -64,7 +67,9 @@ impl CapabilityResolver {
         // ── Level 1: Built-in tool (exact match) ──────────────────────────────
         if builtin_names.iter().any(|n| n == tool_name) {
             return ResolvedCapability {
-                source: CapabilitySource::BuiltinTool { name: tool_name.to_string() },
+                source: CapabilitySource::BuiltinTool {
+                    name: tool_name.to_string(),
+                },
                 risk_tier: RiskTier::Low,
                 budget_tokens_estimate: 0,
                 requires_confirmation: false,
@@ -135,8 +140,8 @@ impl CapabilityResolver {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::capability_index::CapabilityIndex;
+    use super::*;
     use crate::repl::plugins::manifest::{PluginManifest, ToolCapabilityDescriptor};
 
     fn empty_resolver() -> CapabilityResolver {
@@ -144,16 +149,19 @@ mod tests {
     }
 
     fn resolver_with_plugin() -> CapabilityResolver {
-        let manifest = PluginManifest::new_local("git-plugin", "Git Plugin", "1.0.0", vec![
-            ToolCapabilityDescriptor {
+        let manifest = PluginManifest::new_local(
+            "git-plugin",
+            "Git Plugin",
+            "1.0.0",
+            vec![ToolCapabilityDescriptor {
                 name: "git_search".into(),
                 description: "Search git history for commits and changes".into(),
                 risk_tier: RiskTier::Low,
                 idempotent: true,
                 permission_level: halcon_core::types::PermissionLevel::ReadOnly,
                 budget_tokens_per_call: 200,
-            },
-        ]);
+            }],
+        );
         let plugins = vec![("git-plugin".into(), &manifest)];
         let index = CapabilityIndex::build(&plugins);
         CapabilityResolver::new(index)
@@ -164,7 +172,9 @@ mod tests {
         let resolver = empty_resolver();
         let builtins = vec!["file_read".to_string(), "bash".to_string()];
         let result = resolver.resolve("file_read", &builtins);
-        assert!(matches!(result.source, CapabilitySource::BuiltinTool { name } if name == "file_read"));
+        assert!(
+            matches!(result.source, CapabilitySource::BuiltinTool { name } if name == "file_read")
+        );
     }
 
     #[test]
@@ -200,7 +210,10 @@ mod tests {
         let builtins = vec!["git_search".to_string()];
         let result = resolver.resolve("git_search", &builtins);
         // Builtin should win (Level 1 before Level 2)
-        assert!(matches!(result.source, CapabilitySource::BuiltinTool { .. }));
+        assert!(matches!(
+            result.source,
+            CapabilitySource::BuiltinTool { .. }
+        ));
     }
 
     #[test]

@@ -71,13 +71,19 @@ pub fn list(working_dir: &str, verbose: bool) -> Result<()> {
 ///
 /// Exits with status 1 if any hard errors are found.
 pub fn validate(working_dir: &str, paths: &[PathBuf]) -> Result<()> {
-    use crate::repl::agent_registry::{AgentScope, validator::Diagnostic};
     use crate::repl::agent_registry::loader::{load_agent_file, load_scope};
+    use crate::repl::agent_registry::{validator::Diagnostic, AgentScope};
 
     let defs = if paths.is_empty() {
         let mut all = Vec::new();
-        all.extend(load_scope(AgentScope::Project, std::path::Path::new(working_dir)));
-        all.extend(load_scope(AgentScope::User, std::path::Path::new(working_dir)));
+        all.extend(load_scope(
+            AgentScope::Project,
+            std::path::Path::new(working_dir),
+        ));
+        all.extend(load_scope(
+            AgentScope::User,
+            std::path::Path::new(working_dir),
+        ));
         all
     } else {
         paths
@@ -91,9 +97,8 @@ pub fn validate(working_dir: &str, paths: &[PathBuf]) -> Result<()> {
         return Ok(());
     }
 
-    let skills = crate::repl::agent_registry::skills::load_all_skills(
-        std::path::Path::new(working_dir),
-    );
+    let skills =
+        crate::repl::agent_registry::skills::load_all_skills(std::path::Path::new(working_dir));
     let known_skills: std::collections::HashSet<String> = skills.keys().cloned().collect();
 
     let mut total_errors = 0;

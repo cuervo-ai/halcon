@@ -52,7 +52,10 @@ impl StructuredTaskStatus {
     }
 
     /// Attempt a state transition. Returns `Err` if the transition is invalid.
-    pub fn transition_to(self, target: StructuredTaskStatus) -> Result<StructuredTaskStatus, String> {
+    pub fn transition_to(
+        self,
+        target: StructuredTaskStatus,
+    ) -> Result<StructuredTaskStatus, String> {
         match (self, target) {
             // Pending → Ready | Blocked | Cancelled
             (Self::Pending, Self::Ready)
@@ -84,9 +87,9 @@ impl StructuredTaskStatus {
             (Self::Failed, Self::Retrying) => Ok(target),
 
             // Terminal → anything is invalid
-            (from, to) if from.is_terminal() => {
-                Err(format!("cannot transition from terminal state {from:?} to {to:?}"))
-            }
+            (from, to) if from.is_terminal() => Err(format!(
+                "cannot transition from terminal state {from:?} to {to:?}"
+            )),
             (from, to) => Err(format!("invalid transition from {from:?} to {to:?}")),
         }
     }
@@ -487,9 +490,13 @@ mod tests {
             StructuredTaskStatus::Skipped,
             StructuredTaskStatus::Cancelled,
         ] {
-            assert!(terminal.transition_to(StructuredTaskStatus::Running).is_err());
+            assert!(terminal
+                .transition_to(StructuredTaskStatus::Running)
+                .is_err());
             assert!(terminal.transition_to(StructuredTaskStatus::Ready).is_err());
-            assert!(terminal.transition_to(StructuredTaskStatus::Pending).is_err());
+            assert!(terminal
+                .transition_to(StructuredTaskStatus::Pending)
+                .is_err());
         }
     }
 

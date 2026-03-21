@@ -24,6 +24,7 @@ impl HttpProbeTool {
         Self
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn probe_url(
         url: &str,
         method: &str,
@@ -49,7 +50,7 @@ impl HttpProbeTool {
                     error: Some(format!("Client build error: {e}")),
                     headers: vec![],
                     body_preview: None,
-                    redirects: 0,
+                    _redirects: 0,
                 }
             }
         };
@@ -69,7 +70,7 @@ impl HttpProbeTool {
                     error: Some(format!("Unsupported method: {m}")),
                     headers: vec![],
                     body_preview: None,
-                    redirects: 0,
+                    _redirects: 0,
                 }
             }
         };
@@ -92,12 +93,7 @@ impl HttpProbeTool {
                 let resp_headers: Vec<(String, String)> = if show_headers {
                     resp.headers()
                         .iter()
-                        .map(|(k, v)| {
-                            (
-                                k.to_string(),
-                                v.to_str().unwrap_or("<binary>").to_string(),
-                            )
-                        })
+                        .map(|(k, v)| (k.to_string(), v.to_str().unwrap_or("<binary>").to_string()))
                         .take(40)
                         .collect()
                 } else {
@@ -132,7 +128,7 @@ impl HttpProbeTool {
                     error: None,
                     headers: resp_headers,
                     body_preview,
-                    redirects: 0,
+                    _redirects: 0,
                 }
             }
             Err(e) => {
@@ -152,7 +148,7 @@ impl HttpProbeTool {
                     error: Some(msg),
                     headers: vec![],
                     body_preview: None,
-                    redirects: 0,
+                    _redirects: 0,
                 }
             }
         }
@@ -209,7 +205,7 @@ struct ProbeResult {
     error: Option<String>,
     headers: Vec<(String, String)>,
     body_preview: Option<String>,
-    redirects: u32,
+    _redirects: u32,
 }
 
 impl Default for HttpProbeTool {
@@ -282,7 +278,10 @@ impl Tool for HttpProbeTool {
         PermissionLevel::ReadOnly
     }
 
-    async fn execute(&self, input: ToolInput) -> Result<ToolOutput, halcon_core::error::HalconError> {
+    async fn execute(
+        &self,
+        input: ToolInput,
+    ) -> Result<ToolOutput, halcon_core::error::HalconError> {
         let args = &input.arguments;
 
         // Collect URLs
@@ -364,13 +363,16 @@ impl Tool for HttpProbeTool {
                     error: Some(format!("Join error: {e}")),
                     headers: vec![],
                     body_preview: None,
-                    redirects: 0,
+                    _redirects: 0,
                 }),
             }
         }
 
         // Summary
-        let ok_count = results.iter().filter(|r| r.status.map(|s| s < 400).unwrap_or(false)).count();
+        let ok_count = results
+            .iter()
+            .filter(|r| r.status.map(|s| s < 400).unwrap_or(false))
+            .count();
         let err_count = results.len() - ok_count;
         let avg_latency = if results.is_empty() {
             0
@@ -457,7 +459,7 @@ mod tests {
             error: None,
             headers: vec![("content-type".into(), "text/html".into())],
             body_preview: None,
-            redirects: 0,
+            _redirects: 0,
         };
         let s = HttpProbeTool::format_result(&r);
         assert!(s.contains("200"));
@@ -474,7 +476,7 @@ mod tests {
             error: Some("Connection refused".into()),
             headers: vec![],
             body_preview: None,
-            redirects: 0,
+            _redirects: 0,
         };
         let s = HttpProbeTool::format_result(&r);
         assert!(s.contains("ERR"));
@@ -515,7 +517,11 @@ mod tests {
             .unwrap();
         // Should succeed (no panic), but error reported in content
         assert!(!out.is_error); // tool-level is_error=false; error in content
-        assert!(out.content.contains("ERR") || out.content.contains("error") || out.content.contains("💥"));
+        assert!(
+            out.content.contains("ERR")
+                || out.content.contains("error")
+                || out.content.contains("💥")
+        );
     }
 
     #[test]

@@ -99,14 +99,21 @@ impl AgentBridgeImpl {
         registry: Arc<halcon_providers::ProviderRegistry>,
         tool_registry: Arc<halcon_tools::ToolRegistry>,
     ) -> Self {
-        Self { registry, tool_registry }
+        Self {
+            registry,
+            tool_registry,
+        }
     }
 
-    pub fn from_env() -> Self { Self::new() }
+    pub fn from_env() -> Self {
+        Self::new()
+    }
 }
 
 impl Default for AgentBridgeImpl {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // AgentExecutor is ?Send because run_agent_loop holds EnteredSpan (!Send) across awaits.
@@ -127,13 +134,25 @@ impl AgentExecutor for AgentBridgeImpl {
         let perm_awaiter: crate::render::sink::PermissionAwaiter = Arc::new({
             let ph = ph_clone.clone();
             let sid = session_id;
-            move |tool_name: &str, args: &serde_json::Value, risk_level: &str, deadline_secs: u64, reply_tx: tokio::sync::mpsc::UnboundedSender<PermissionDecision>| {
+            move |tool_name: &str,
+                  args: &serde_json::Value,
+                  risk_level: &str,
+                  deadline_secs: u64,
+                  reply_tx: tokio::sync::mpsc::UnboundedSender<PermissionDecision>| {
                 let request = PermissionRequest {
                     request_id: Uuid::new_v4(),
                     session_id: sid,
                     tool_name: tool_name.to_string(),
                     risk_level: risk_level.to_string(),
-                    args_preview: args.as_object().map(|o| o.iter().take(5).map(|(k, v)| (k.clone(), v.to_string())).collect()).unwrap_or_default(),
+                    args_preview: args
+                        .as_object()
+                        .map(|o| {
+                            o.iter()
+                                .take(5)
+                                .map(|(k, v)| (k.clone(), v.to_string()))
+                                .collect()
+                        })
+                        .unwrap_or_default(),
                     description: format!("Tool {} requires {} permission", tool_name, risk_level),
                     deadline_secs,
                 };
@@ -150,9 +169,16 @@ impl AgentExecutor for AgentBridgeImpl {
                 });
             }
         });
-        let bridge_sink = BridgeSink::new(emitter.clone())
-            .with_permission_awaiter(perm_awaiter, perm_reply_tx);
-        if cancellation.is_cancelled() { emitter.emit(AgentStreamEvent::TurnFailed { error_code: "cancelled".to_string(), message: "Execution cancelled by user".to_string(), recoverable: true }); return Err(AgentBridgeError::CancelledByUser); }
+        let bridge_sink =
+            BridgeSink::new(emitter.clone()).with_permission_awaiter(perm_awaiter, perm_reply_tx);
+        if cancellation.is_cancelled() {
+            emitter.emit(AgentStreamEvent::TurnFailed {
+                error_code: "cancelled".to_string(),
+                message: "Execution cancelled by user".to_string(),
+                recoverable: true,
+            });
+            return Err(AgentBridgeError::CancelledByUser);
+        }
         let result = tokio::select! {
             r = self.run_turn(context, bridge_sink, permission_handler) => r,
             _ = cancellation.cancelled() => {
@@ -196,8 +222,8 @@ impl AgentBridgeImpl {
     ) -> Result<TurnResult, AgentBridgeError> {
         use halcon_core::types::{
             AgentLimits, ChatMessage, MessageContent, ModelRequest, OrchestratorConfig,
-            Phase14Context, PlanningConfig, ResilienceConfig, Role, RoutingConfig,
-            SecurityConfig, Session,
+            Phase14Context, PlanningConfig, ResilienceConfig, Role, RoutingConfig, SecurityConfig,
+            Session,
         };
         use halcon_core::EventSender;
 
@@ -245,14 +271,21 @@ impl AgentBridgeImpl {
 
         // Build messages: prepend conversation history then append current user message.
         use super::types::TurnRole;
-        let mut messages: Vec<ChatMessage> = context.history.iter().map(|m| {
-            let role = match m.role {
-                TurnRole::User => Role::User,
-                TurnRole::Assistant => Role::Assistant,
-                TurnRole::System => Role::System,
-            };
-            ChatMessage { role, content: MessageContent::Text(m.content.clone()) }
-        }).collect();
+        let mut messages: Vec<ChatMessage> = context
+            .history
+            .iter()
+            .map(|m| {
+                let role = match m.role {
+                    TurnRole::User => Role::User,
+                    TurnRole::Assistant => Role::Assistant,
+                    TurnRole::System => Role::System,
+                };
+                ChatMessage {
+                    role,
+                    content: MessageContent::Text(m.content.clone()),
+                }
+            })
+            .collect();
 
         // Build the user message content — include image content blocks when present.
         let user_content = if context.media_attachments.is_empty() {
@@ -265,10 +298,10 @@ impl AgentBridgeImpl {
             for att in &context.media_attachments {
                 if att.is_vision_image() {
                     let media_type = match att.content_type.as_str() {
-                        "image/png"  => ImageMediaType::Png,
+                        "image/png" => ImageMediaType::Png,
                         "image/webp" => ImageMediaType::Webp,
-                        "image/gif"  => ImageMediaType::Gif,
-                        _            => ImageMediaType::Jpeg, // jpeg default
+                        "image/gif" => ImageMediaType::Gif,
+                        _ => ImageMediaType::Jpeg, // jpeg default
                     };
                     blocks.push(ContentBlock::Image {
                         source: ImageSource::Base64 {
@@ -284,14 +317,19 @@ impl AgentBridgeImpl {
                     };
                     let lang = lang_from_filename(&att.filename);
                     blocks.push(ContentBlock::Text {
-                        text: format!("**Attached file: {}**\n```{}\n{}\n```", att.filename, lang, decoded_text),
+                        text: format!(
+                            "**Attached file: {}**\n```{}\n{}\n```",
+                            att.filename, lang, decoded_text
+                        ),
                     });
                 }
             }
 
             // Append the user's text message as the final block.
             if !context.user_message.is_empty() {
-                blocks.push(ContentBlock::Text { text: context.user_message.clone() });
+                blocks.push(ContentBlock::Text {
+                    text: context.user_message.clone(),
+                });
             }
 
             MessageContent::Blocks(blocks)
@@ -411,7 +449,9 @@ impl CoreChatExecutor for AgentBridgeImpl {
             while let Some(event) = bridge_rx.recv().await {
                 let opt = translate_stream_event(session_id, event, &mut sequence);
                 if let Some(ev) = opt {
-                    if et.send(ev).is_err() { break; }
+                    if et.send(ev).is_err() {
+                        break;
+                    }
                 }
             }
         });
@@ -421,19 +461,29 @@ impl CoreChatExecutor for AgentBridgeImpl {
         let ct = cancellation.clone();
         tokio::spawn(async move {
             loop {
-                if cancel_rx.changed().await.is_err() { break; }
-                if *cancel_rx.borrow() { ct.cancel(); break; }
+                if cancel_rx.changed().await.is_err() {
+                    break;
+                }
+                if *cancel_rx.borrow() {
+                    ct.cancel();
+                    break;
+                }
             }
         });
 
         // Permission routing: perm_decision_rx → per-request oneshot senders.
-        let perm_map: Arc<dashmap::DashMap<Uuid, tokio::sync::oneshot::Sender<PermissionDecision>>> =
-            Arc::new(dashmap::DashMap::new());
+        let perm_map: Arc<
+            dashmap::DashMap<Uuid, tokio::sync::oneshot::Sender<PermissionDecision>>,
+        > = Arc::new(dashmap::DashMap::new());
         let perm_map_clone = perm_map.clone();
         tokio::spawn(async move {
             while let Some((request_id, approved)) = perm_decision_rx.recv().await {
                 if let Some((_, tx)) = perm_map_clone.remove(&request_id) {
-                    let decision = if approved { PermissionDecision::Allowed } else { PermissionDecision::Denied };
+                    let decision = if approved {
+                        PermissionDecision::Allowed
+                    } else {
+                        PermissionDecision::Denied
+                    };
                     let _ = tx.send(decision);
                 }
             }
@@ -445,15 +495,19 @@ impl CoreChatExecutor for AgentBridgeImpl {
             user_message: input.user_message,
             model: input.model,
             provider: input.provider,
-            history: input.history.into_iter().map(|h| super::types::TurnMessage {
-                role: match h.role.as_str() {
-                    "assistant" => super::types::TurnRole::Assistant,
-                    "system" => super::types::TurnRole::System,
-                    _ => super::types::TurnRole::User,
-                },
-                content: h.content,
-                created_at: chrono::Utc::now(),
-            }).collect(),
+            history: input
+                .history
+                .into_iter()
+                .map(|h| super::types::TurnMessage {
+                    role: match h.role.as_str() {
+                        "assistant" => super::types::TurnRole::Assistant,
+                        "system" => super::types::TurnRole::System,
+                        _ => super::types::TurnRole::User,
+                    },
+                    content: h.content,
+                    created_at: chrono::Utc::now(),
+                })
+                .collect(),
             working_directory: input.working_directory,
             orchestrate: input.orchestrate,
             expert: input.expert,
@@ -479,23 +533,32 @@ impl CoreChatExecutor for AgentBridgeImpl {
         // run_agent_loop is !Send (tracing EnteredSpan), so it cannot run on
         // the multi-threaded main runtime's thread pool. LocalSet::block_on
         // allows !Send futures on a single thread.
-        let (result_tx, result_rx) = tokio::sync::oneshot::channel::<Result<TurnResult, AgentBridgeError>>();
+        let (result_tx, result_rx) =
+            tokio::sync::oneshot::channel::<Result<TurnResult, AgentBridgeError>>();
         std::thread::spawn(move || {
             let rt = tokio::runtime::Builder::new_current_thread()
                 .enable_all()
                 .build()
                 .expect("halcon: failed to build agent runtime");
-            let bridge = AgentBridgeImpl { registry, tool_registry };
+            let bridge = AgentBridgeImpl {
+                registry,
+                tool_registry,
+            };
             let local = tokio::task::LocalSet::new();
             let result = local.block_on(&rt, async move {
-                bridge.execute_turn(turn_context, bridge_emitter, perm_handler, cancellation).await
+                bridge
+                    .execute_turn(turn_context, bridge_emitter, perm_handler, cancellation)
+                    .await
             });
             let _ = result_tx.send(result);
         });
 
         // Wait for the agent thread to complete.
-        let result = result_rx.await
-            .unwrap_or_else(|_| Err(AgentBridgeError::ExecutionFailed("agent thread died unexpectedly".to_string())));
+        let result = result_rx.await.unwrap_or_else(|_| {
+            Err(AgentBridgeError::ExecutionFailed(
+                "agent thread died unexpectedly".to_string(),
+            ))
+        });
 
         // Wait for the event translator to drain.
         let _ = translator_task.await;
@@ -534,37 +597,85 @@ fn translate_stream_event(
     let _ = session_id; // reserved for per-session filtering
     match event {
         AgentStreamEvent::OutputToken { token, .. } => {
-            let ev = ChatExecutionEvent::Token { text: token, is_thinking: false, sequence_num: *sequence };
+            let ev = ChatExecutionEvent::Token {
+                text: token,
+                is_thinking: false,
+                sequence_num: *sequence,
+            };
             *sequence += 1;
             Some(ev)
         }
         AgentStreamEvent::ThinkingToken { token } => {
-            let ev = ChatExecutionEvent::Token { text: token, is_thinking: true, sequence_num: *sequence };
+            let ev = ChatExecutionEvent::Token {
+                text: token,
+                is_thinking: true,
+                sequence_num: *sequence,
+            };
             *sequence += 1;
             Some(ev)
         }
-        AgentStreamEvent::ThinkingProgressUpdate { chars_so_far, elapsed_secs } => {
-            Some(ChatExecutionEvent::ThinkingProgress { chars_so_far, elapsed_secs })
-        }
-        AgentStreamEvent::ToolStarted { name, risk_level, .. } => {
-            Some(ChatExecutionEvent::ToolStarted { name, risk_level })
-        }
-        AgentStreamEvent::ToolCompleted { name, duration_ms, success } => {
-            Some(ChatExecutionEvent::ToolCompleted { name, duration_ms, success })
-        }
-        AgentStreamEvent::PermissionRequested { request_id, tool_name, risk_level, args_preview, description, deadline_secs } => {
-            Some(ChatExecutionEvent::PermissionRequired { request_id, tool_name, risk_level, description, deadline_secs, args_preview })
-        }
+        AgentStreamEvent::ThinkingProgressUpdate {
+            chars_so_far,
+            elapsed_secs,
+        } => Some(ChatExecutionEvent::ThinkingProgress {
+            chars_so_far,
+            elapsed_secs,
+        }),
+        AgentStreamEvent::ToolStarted {
+            name, risk_level, ..
+        } => Some(ChatExecutionEvent::ToolStarted { name, risk_level }),
+        AgentStreamEvent::ToolCompleted {
+            name,
+            duration_ms,
+            success,
+        } => Some(ChatExecutionEvent::ToolCompleted {
+            name,
+            duration_ms,
+            success,
+        }),
+        AgentStreamEvent::PermissionRequested {
+            request_id,
+            tool_name,
+            risk_level,
+            args_preview,
+            description,
+            deadline_secs,
+        } => Some(ChatExecutionEvent::PermissionRequired {
+            request_id,
+            tool_name,
+            risk_level,
+            description,
+            deadline_secs,
+            args_preview,
+        }),
         AgentStreamEvent::PermissionExpired { request_id, .. } => {
             // B1: Forward expiry so the API layer can broadcast PermissionExpired to WS clients.
             Some(ChatExecutionEvent::PermissionExpired { request_id })
         }
-        AgentStreamEvent::SubAgentStarted { sub_agent_id, task_description, wave, allowed_tools } => {
-            Some(ChatExecutionEvent::SubAgentStarted { id: sub_agent_id, description: task_description, wave, allowed_tools })
-        }
-        AgentStreamEvent::SubAgentCompleted { sub_agent_id, success, summary, tools_used, duration_ms } => {
-            Some(ChatExecutionEvent::SubAgentCompleted { id: sub_agent_id, success, summary, tools_used, duration_ms })
-        }
+        AgentStreamEvent::SubAgentStarted {
+            sub_agent_id,
+            task_description,
+            wave,
+            allowed_tools,
+        } => Some(ChatExecutionEvent::SubAgentStarted {
+            id: sub_agent_id,
+            description: task_description,
+            wave,
+            allowed_tools,
+        }),
+        AgentStreamEvent::SubAgentCompleted {
+            sub_agent_id,
+            success,
+            summary,
+            tools_used,
+            duration_ms,
+        } => Some(ChatExecutionEvent::SubAgentCompleted {
+            id: sub_agent_id,
+            success,
+            summary,
+            tools_used,
+            duration_ms,
+        }),
         AgentStreamEvent::TurnCompleted { .. } | AgentStreamEvent::TurnFailed { .. } => None,
         _ => None,
     }
@@ -623,7 +734,9 @@ pub struct ChannelEmitter {
 }
 
 impl ChannelEmitter {
-    pub fn new(tx: mpsc::UnboundedSender<AgentStreamEvent>) -> Self { Self { tx } }
+    pub fn new(tx: mpsc::UnboundedSender<AgentStreamEvent>) -> Self {
+        Self { tx }
+    }
 }
 
 impl StreamEmitter for ChannelEmitter {
@@ -632,7 +745,9 @@ impl StreamEmitter for ChannelEmitter {
             warn!("StreamEmitter: downstream channel closed, event dropped");
         }
     }
-    fn is_connected(&self) -> bool { !self.tx.is_closed() }
+    fn is_connected(&self) -> bool {
+        !self.tx.is_closed()
+    }
 }
 
 pub struct AutoApprovePermissionHandler;
@@ -717,7 +832,7 @@ fn lang_from_filename(filename: &str) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent_bridge::types::{TurnMessage, TurnRole, PermissionDecisionKind};
+    use crate::agent_bridge::types::{PermissionDecisionKind, TurnMessage, TurnRole};
     use chrono::Utc;
 
     /// Build an AgentBridgeImpl backed by EchoProvider (no real LLM calls).
@@ -752,7 +867,9 @@ mod tests {
         let emitter = Arc::new(ChannelEmitter::new(tx));
         let perm_handler = Arc::new(AutoApprovePermissionHandler);
         let cancellation = CancellationToken::new();
-        let result = bridge.execute_turn(make_context(), emitter, perm_handler, cancellation).await;
+        let result = bridge
+            .execute_turn(make_context(), emitter, perm_handler, cancellation)
+            .await;
         assert!(result.is_ok());
     }
 
@@ -764,7 +881,9 @@ mod tests {
         let perm_handler = Arc::new(AutoApprovePermissionHandler);
         let cancellation = CancellationToken::new();
         cancellation.cancel();
-        let result = bridge.execute_turn(make_context(), emitter, perm_handler, cancellation).await;
+        let result = bridge
+            .execute_turn(make_context(), emitter, perm_handler, cancellation)
+            .await;
         assert!(matches!(result, Err(AgentBridgeError::CancelledByUser)));
     }
 
@@ -775,7 +894,9 @@ mod tests {
         let emitter = Arc::new(ChannelEmitter::new(tx));
         let perm_handler = Arc::new(AutoApprovePermissionHandler);
         let cancellation = CancellationToken::new();
-        let _ = bridge.execute_turn(make_context(), emitter, perm_handler, cancellation).await;
+        let _ = bridge
+            .execute_turn(make_context(), emitter, perm_handler, cancellation)
+            .await;
         let mut found_completed = false;
         while let Ok(event) = rx.try_recv() {
             if matches!(event, AgentStreamEvent::TurnCompleted { .. }) {
@@ -787,13 +908,23 @@ mod tests {
 
     #[test]
     fn test_permission_decision_kind() {
-        assert_ne!(PermissionDecisionKind::Approved, PermissionDecisionKind::Rejected);
-        assert_ne!(PermissionDecisionKind::Approved, PermissionDecisionKind::TimedOut);
+        assert_ne!(
+            PermissionDecisionKind::Approved,
+            PermissionDecisionKind::Rejected
+        );
+        assert_ne!(
+            PermissionDecisionKind::Approved,
+            PermissionDecisionKind::TimedOut
+        );
     }
 
     #[test]
     fn test_chat_token_usage_total() {
-        let usage = ChatTokenUsage { input: 100, output: 200, thinking: 50 };
+        let usage = ChatTokenUsage {
+            input: 100,
+            output: 200,
+            thinking: 50,
+        };
         assert_eq!(usage.total(), 350);
     }
 

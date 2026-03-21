@@ -27,7 +27,7 @@ impl SqlQueryTool {
         Self
     }
 
-/// Find SQLite database files in a directory.
+    /// Find SQLite database files in a directory.
     fn find_db_files(dir: &Path) -> Vec<PathBuf> {
         let extensions = ["db", "sqlite", "sqlite3", "db3"];
         let skip_dirs = [".git", "target", "node_modules", ".venv"];
@@ -72,9 +72,7 @@ impl SqlQueryTool {
         conn.execute_batch("PRAGMA busy_timeout=5000;")
             .map_err(|e| format!("PRAGMA failed: {}", e))?;
 
-        let mut stmt = conn
-            .prepare(sql)
-            .map_err(|e| format!("SQL error: {}", e))?;
+        let mut stmt = conn.prepare(sql).map_err(|e| format!("SQL error: {}", e))?;
 
         let col_count = stmt.column_count();
         let col_names: Vec<String> = (0..col_count)
@@ -84,9 +82,7 @@ impl SqlQueryTool {
         let mut rows: Vec<Vec<String>> = Vec::new();
         let mut truncated = false;
 
-        let mut query_rows = stmt
-            .query([])
-            .map_err(|e| format!("Query error: {}", e))?;
+        let mut query_rows = stmt.query([]).map_err(|e| format!("Query error: {}", e))?;
 
         while let Some(row) = query_rows.next().map_err(|e| format!("Row error: {}", e))? {
             if rows.len() >= MAX_ROWS {
@@ -94,24 +90,22 @@ impl SqlQueryTool {
                 break;
             }
             let cells: Vec<String> = (0..col_count)
-                .map(|i| {
-                    match row.get_ref(i) {
-                        Ok(rusqlite::types::ValueRef::Null) => "NULL".to_string(),
-                        Ok(rusqlite::types::ValueRef::Integer(n)) => n.to_string(),
-                        Ok(rusqlite::types::ValueRef::Real(f)) => format!("{:.6}", f),
-                        Ok(rusqlite::types::ValueRef::Text(t)) => {
-                            let s = String::from_utf8_lossy(t).to_string();
-                            if s.len() > MAX_CELL_WIDTH {
-                                format!("{}...", &s[..MAX_CELL_WIDTH])
-                            } else {
-                                s
-                            }
+                .map(|i| match row.get_ref(i) {
+                    Ok(rusqlite::types::ValueRef::Null) => "NULL".to_string(),
+                    Ok(rusqlite::types::ValueRef::Integer(n)) => n.to_string(),
+                    Ok(rusqlite::types::ValueRef::Real(f)) => format!("{:.6}", f),
+                    Ok(rusqlite::types::ValueRef::Text(t)) => {
+                        let s = String::from_utf8_lossy(t).to_string();
+                        if s.len() > MAX_CELL_WIDTH {
+                            format!("{}...", &s[..MAX_CELL_WIDTH])
+                        } else {
+                            s
                         }
-                        Ok(rusqlite::types::ValueRef::Blob(b)) => {
-                            format!("<BLOB {} bytes>", b.len())
-                        }
-                        Err(e) => format!("<error: {}>", e),
                     }
+                    Ok(rusqlite::types::ValueRef::Blob(b)) => {
+                        format!("<BLOB {} bytes>", b.len())
+                    }
+                    Err(e) => format!("<error: {}>", e),
                 })
                 .collect();
             rows.push(cells);
@@ -143,7 +137,11 @@ impl SqlQueryTool {
         // Cap column widths
         let widths: Vec<usize> = widths.iter().map(|&w| w.min(MAX_CELL_WIDTH)).collect();
 
-        let sep: String = widths.iter().map(|&w| "-".repeat(w + 2)).collect::<Vec<_>>().join("+");
+        let sep: String = widths
+            .iter()
+            .map(|&w| "-".repeat(w + 2))
+            .collect::<Vec<_>>()
+            .join("+");
         let sep = format!("+{}+", sep);
 
         let mut out = String::new();
@@ -151,8 +149,17 @@ impl SqlQueryTool {
         out.push('\n');
 
         // Header
-        let header: String = result.columns.iter().enumerate()
-            .map(|(i, c)| format!(" {:width$} ", c, width = widths.get(i).copied().unwrap_or(10)))
+        let header: String = result
+            .columns
+            .iter()
+            .enumerate()
+            .map(|(i, c)| {
+                format!(
+                    " {:width$} ",
+                    c,
+                    width = widths.get(i).copied().unwrap_or(10)
+                )
+            })
             .collect::<Vec<_>>()
             .join("|");
         out.push_str(&format!("|{}|\n", header));
@@ -161,10 +168,16 @@ impl SqlQueryTool {
 
         // Rows
         for row in &result.rows {
-            let line: String = row.iter().enumerate()
+            let line: String = row
+                .iter()
+                .enumerate()
                 .map(|(i, cell)| {
                     let w = widths.get(i).copied().unwrap_or(10);
-                    let truncated = if cell.len() > w { &cell[..w] } else { cell.as_str() };
+                    let truncated = if cell.len() > w {
+                        &cell[..w]
+                    } else {
+                        cell.as_str()
+                    };
                     format!(" {:width$} ", truncated, width = w)
                 })
                 .collect::<Vec<_>>()
@@ -230,7 +243,10 @@ impl Tool for SqlQueryTool {
         PermissionLevel::ReadOnly
     }
 
-    async fn execute(&self, input: ToolInput) -> Result<ToolOutput, halcon_core::error::HalconError> {
+    async fn execute(
+        &self,
+        input: ToolInput,
+    ) -> Result<ToolOutput, halcon_core::error::HalconError> {
         let args = &input.arguments;
         let working_dir = PathBuf::from(&input.working_directory);
 
@@ -242,13 +258,22 @@ impl Tool for SqlQueryTool {
             if dbs.is_empty() {
                 return Ok(ToolOutput {
                     tool_use_id: input.tool_use_id,
-                    content: format!("No SQLite database files found in {}", working_dir.display()),
+                    content: format!(
+                        "No SQLite database files found in {}",
+                        working_dir.display()
+                    ),
                     is_error: false,
                     metadata: None,
                 });
             }
-            let list: Vec<String> = dbs.iter()
-                .map(|p| p.strip_prefix(&working_dir).unwrap_or(p).to_string_lossy().to_string())
+            let list: Vec<String> = dbs
+                .iter()
+                .map(|p| {
+                    p.strip_prefix(&working_dir)
+                        .unwrap_or(p)
+                        .to_string_lossy()
+                        .to_string()
+                })
                 .collect();
             return Ok(ToolOutput {
                 tool_use_id: input.tool_use_id,
@@ -261,7 +286,11 @@ impl Tool for SqlQueryTool {
         let db_path = match args["database"].as_str() {
             Some(p) => {
                 let p = Path::new(p);
-                if p.is_absolute() { p.to_path_buf() } else { working_dir.join(p) }
+                if p.is_absolute() {
+                    p.to_path_buf()
+                } else {
+                    working_dir.join(p)
+                }
             }
             None => {
                 return Ok(ToolOutput {
@@ -341,7 +370,11 @@ impl Tool for SqlQueryTool {
                     &sql[..sql.len().min(100)],
                     db_path.display(),
                     row_count,
-                    if truncated { format!(" (truncated, showing first {})", MAX_ROWS) } else { String::new() },
+                    if truncated {
+                        format!(" (truncated, showing first {})", MAX_ROWS)
+                    } else {
+                        String::new()
+                    },
                     table
                 );
 
@@ -387,7 +420,8 @@ mod tests {
     fn execute_query_sync_basic() {
         let dir = TempDir::new().unwrap();
         let db_path = create_test_db(dir.path());
-        let result = SqlQueryTool::execute_query_sync(&db_path, "SELECT * FROM users ORDER BY id").unwrap();
+        let result =
+            SqlQueryTool::execute_query_sync(&db_path, "SELECT * FROM users ORDER BY id").unwrap();
         assert_eq!(result.columns, vec!["id", "name", "age"]);
         assert_eq!(result.rows.len(), 3);
         assert_eq!(result.rows[0][1], "Alice");
@@ -397,7 +431,9 @@ mod tests {
     fn execute_query_sync_empty_result() {
         let dir = TempDir::new().unwrap();
         let db_path = create_test_db(dir.path());
-        let result = SqlQueryTool::execute_query_sync(&db_path, "SELECT * FROM users WHERE age > 100").unwrap();
+        let result =
+            SqlQueryTool::execute_query_sync(&db_path, "SELECT * FROM users WHERE age > 100")
+                .unwrap();
         assert!(result.rows.is_empty());
     }
 
@@ -434,11 +470,14 @@ mod tests {
         let dir = TempDir::new().unwrap();
         create_test_db(dir.path());
         let tool = SqlQueryTool::new();
-        let out = tool.execute(ToolInput {
-            tool_use_id: "t1".into(),
-            arguments: json!({ "action": "list_dbs" }),
-            working_directory: dir.path().to_str().unwrap().to_string(),
-        }).await.unwrap();
+        let out = tool
+            .execute(ToolInput {
+                tool_use_id: "t1".into(),
+                arguments: json!({ "action": "list_dbs" }),
+                working_directory: dir.path().to_str().unwrap().to_string(),
+            })
+            .await
+            .unwrap();
         assert!(!out.is_error);
         assert!(out.content.contains("test.db"));
     }
@@ -448,11 +487,14 @@ mod tests {
         let dir = TempDir::new().unwrap();
         create_test_db(dir.path());
         let tool = SqlQueryTool::new();
-        let out = tool.execute(ToolInput {
-            tool_use_id: "t1".into(),
-            arguments: json!({ "database": "test.db", "action": "tables" }),
-            working_directory: dir.path().to_str().unwrap().to_string(),
-        }).await.unwrap();
+        let out = tool
+            .execute(ToolInput {
+                tool_use_id: "t1".into(),
+                arguments: json!({ "database": "test.db", "action": "tables" }),
+                working_directory: dir.path().to_str().unwrap().to_string(),
+            })
+            .await
+            .unwrap();
         assert!(!out.is_error, "error: {}", out.content);
         assert!(out.content.contains("users"), "content: {}", out.content);
     }
@@ -462,16 +504,23 @@ mod tests {
         let dir = TempDir::new().unwrap();
         create_test_db(dir.path());
         let tool = SqlQueryTool::new();
-        let out = tool.execute(ToolInput {
-            tool_use_id: "t1".into(),
-            arguments: json!({
-                "database": "test.db",
-                "query": "SELECT name FROM users WHERE age > 28 ORDER BY name"
-            }),
-            working_directory: dir.path().to_str().unwrap().to_string(),
-        }).await.unwrap();
+        let out = tool
+            .execute(ToolInput {
+                tool_use_id: "t1".into(),
+                arguments: json!({
+                    "database": "test.db",
+                    "query": "SELECT name FROM users WHERE age > 28 ORDER BY name"
+                }),
+                working_directory: dir.path().to_str().unwrap().to_string(),
+            })
+            .await
+            .unwrap();
         assert!(!out.is_error, "error: {}", out.content);
-        assert!(out.content.contains("Alice") || out.content.contains("Carol"), "content: {}", out.content);
+        assert!(
+            out.content.contains("Alice") || out.content.contains("Carol"),
+            "content: {}",
+            out.content
+        );
     }
 
     #[tokio::test]
@@ -479,14 +528,17 @@ mod tests {
         let dir = TempDir::new().unwrap();
         create_test_db(dir.path());
         let tool = SqlQueryTool::new();
-        let out = tool.execute(ToolInput {
-            tool_use_id: "t1".into(),
-            arguments: json!({
-                "database": "test.db",
-                "query": "DELETE FROM users"
-            }),
-            working_directory: dir.path().to_str().unwrap().to_string(),
-        }).await.unwrap();
+        let out = tool
+            .execute(ToolInput {
+                tool_use_id: "t1".into(),
+                arguments: json!({
+                    "database": "test.db",
+                    "query": "DELETE FROM users"
+                }),
+                working_directory: dir.path().to_str().unwrap().to_string(),
+            })
+            .await
+            .unwrap();
         assert!(out.is_error);
         // "readonly" = SQLite's own error message (SQLITE_OPEN_READ_ONLY enforcement).
         // "rejected" = old heuristic message (kept for test compatibility, no longer emitted).
@@ -495,7 +547,8 @@ mod tests {
             out.content.contains("rejected")
                 || out.content.contains("read-only")
                 || out.content.contains("readonly"),
-            "expected write rejection but got: {:?}", out.content
+            "expected write rejection but got: {:?}",
+            out.content
         );
     }
 

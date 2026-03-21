@@ -21,7 +21,10 @@ impl TaskScheduler {
     }
 
     /// Get the next wave of ready tasks (up to max_concurrent).
-    pub fn next_wave<'a>(&self, backlog: &'a TaskBacklog) -> Vec<&'a halcon_core::types::StructuredTask> {
+    pub fn next_wave<'a>(
+        &self,
+        backlog: &'a TaskBacklog,
+    ) -> Vec<&'a halcon_core::types::StructuredTask> {
         backlog.ready_wave(self.max_concurrent)
     }
 
@@ -107,7 +110,9 @@ mod tests {
         let scheduler = TaskScheduler::new(3);
         let mut backlog = TaskBacklog::new();
         for i in 0..5 {
-            backlog.add_task(make_task(&format!("T{i}"), i as u32)).unwrap();
+            backlog
+                .add_task(make_task(&format!("T{i}"), i as u32))
+                .unwrap();
         }
 
         let wave = scheduler.next_wave(&backlog);
@@ -167,7 +172,9 @@ mod tests {
         backlog.add_task(task).unwrap();
         assert!(TaskScheduler::has_work(&backlog));
 
-        backlog.transition(id, StructuredTaskStatus::Running).unwrap();
+        backlog
+            .transition(id, StructuredTaskStatus::Running)
+            .unwrap();
         assert!(!TaskScheduler::has_work(&backlog)); // Running is not actionable.
 
         backlog.complete_task(id, None, Vec::new()).unwrap();

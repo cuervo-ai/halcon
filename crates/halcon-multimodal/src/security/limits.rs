@@ -18,10 +18,10 @@ pub struct SecurityLimits {
 impl Default for SecurityLimits {
     fn default() -> Self {
         Self {
-            max_file_bytes:   20 * 1024 * 1024,
+            max_file_bytes: 20 * 1024 * 1024,
             max_image_pixels: 8192 * 8192,
-            max_audio_secs:   300,
-            max_video_secs:   60,
+            max_audio_secs: 300,
+            max_video_secs: 60,
         }
     }
 }
@@ -29,7 +29,10 @@ impl Default for SecurityLimits {
 impl SecurityLimits {
     pub fn check_file_size(&self, size: u64) -> Result<()> {
         if size > self.max_file_bytes {
-            return Err(MultimodalError::FileTooLarge { size, limit: self.max_file_bytes });
+            return Err(MultimodalError::FileTooLarge {
+                size,
+                limit: self.max_file_bytes,
+            });
         }
         Ok(())
     }

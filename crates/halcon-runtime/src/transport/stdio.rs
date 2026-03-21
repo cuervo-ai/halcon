@@ -25,11 +25,7 @@ pub struct StdioProcessTransport {
 
 impl StdioProcessTransport {
     /// Spawn a child process and wrap it in a transport.
-    pub fn spawn(
-        command: &str,
-        args: &[String],
-        env: &HashMap<String, String>,
-    ) -> Result<Self> {
+    pub fn spawn(command: &str, args: &[String], env: &HashMap<String, String>) -> Result<Self> {
         let mut cmd = Command::new(command);
         cmd.args(args)
             .envs(env)
@@ -127,8 +123,7 @@ mod tests {
 
     #[tokio::test]
     async fn spawn_bad_command() {
-        let result =
-            StdioProcessTransport::spawn("no_such_binary_xyz_123", &[], &HashMap::new());
+        let result = StdioProcessTransport::spawn("no_such_binary_xyz_123", &[], &HashMap::new());
         assert!(result.is_err());
     }
 

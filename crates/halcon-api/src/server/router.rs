@@ -3,7 +3,7 @@ use axum::{
     http::StatusCode,
     middleware::{self, Next},
     response::Response,
-    routing::{delete, get, patch, post},
+    routing::{delete, get, post},
     Router,
 };
 use tower_http::cors::{AllowOrigin, CorsLayer};
@@ -20,10 +20,7 @@ use super::ws::ws_handler;
 /// (before RBAC JWT claims are available). The env var is checked at request time,
 /// not at server startup, so operators can rotate the key without restarting.
 /// Matches the Stripe/Linear pattern for admin API keys.
-async fn admin_auth_middleware(
-    request: Request,
-    next: Next,
-) -> Result<Response, StatusCode> {
+async fn admin_auth_middleware(request: Request, next: Next) -> Result<Response, StatusCode> {
     let expected = std::env::var("HALCON_ADMIN_API_KEY").unwrap_or_default();
     if expected.is_empty() {
         // No admin key configured → reject all admin requests for safety.
@@ -79,11 +76,28 @@ pub fn build_router(state: AppState) -> Router {
             get(handlers::config::get_config).put(handlers::config::update_config),
         )
         // Chat endpoints
-        .route("/chat/sessions", get(handlers::chat::list_sessions).post(handlers::chat::create_session))
-        .route("/chat/sessions/:id", get(handlers::chat::get_session).delete(handlers::chat::delete_session).patch(handlers::chat::update_session))
-        .route("/chat/sessions/:id/messages", get(handlers::chat::list_messages).post(handlers::chat::submit_message))
-        .route("/chat/sessions/:id/active", delete(handlers::chat::cancel_active))
-        .route("/chat/sessions/:id/permissions/:req_id", post(handlers::chat::resolve_permission));
+        .route(
+            "/chat/sessions",
+            get(handlers::chat::list_sessions).post(handlers::chat::create_session),
+        )
+        .route(
+            "/chat/sessions/:id",
+            get(handlers::chat::get_session)
+                .delete(handlers::chat::delete_session)
+                .patch(handlers::chat::update_session),
+        )
+        .route(
+            "/chat/sessions/:id/messages",
+            get(handlers::chat::list_messages).post(handlers::chat::submit_message),
+        )
+        .route(
+            "/chat/sessions/:id/active",
+            delete(handlers::chat::cancel_active),
+        )
+        .route(
+            "/chat/sessions/:id/permissions/:req_id",
+            post(handlers::chat::resolve_permission),
+        );
 
     // Admin routes require the HALCON_ADMIN_API_KEY env var (bootstrap admin auth).
     // Mounted separately from the main API so the auth middleware is never accidentally
@@ -106,7 +120,10 @@ pub fn build_router(state: AppState) -> Router {
     let protected = Router::new()
         .nest("/api/v1", api_routes)
         .route("/ws/events", get(ws_handler))
-        .layer(middleware::from_fn_with_state(state.clone(), auth_middleware));
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth_middleware,
+        ));
 
     Router::new()
         // Health check is explicitly PUBLIC — no auth, no state required.

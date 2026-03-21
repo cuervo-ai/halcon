@@ -127,10 +127,7 @@ pub fn compute_health_score(metrics: &halcon_storage::ProviderWindowedMetrics) -
     let availability = 1.0 - metrics.timeout_rate;
     let consistency = success_rate;
 
-    let raw = reliability * 30.0
-        + latency_score * 25.0
-        + availability * 25.0
-        + consistency * 20.0;
+    let raw = reliability * 30.0 + latency_score * 25.0 + availability * 25.0 + consistency * 20.0;
 
     // raw is in [0, 100] since each component is [0,1] and weights sum to 100.
     (raw.round() as u32).min(100)
@@ -139,15 +136,21 @@ pub fn compute_health_score(metrics: &halcon_storage::ProviderWindowedMetrics) -
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
     use chrono::Utc;
     use halcon_storage::{Database, InvocationMetric};
+    use std::sync::Arc;
 
     fn test_async_db() -> AsyncDatabase {
         AsyncDatabase::new(Arc::new(Database::open_in_memory().unwrap()))
     }
 
-    fn insert_metric(db: &halcon_storage::Database, provider: &str, success: bool, latency_ms: u64, stop_reason: &str) {
+    fn insert_metric(
+        db: &halcon_storage::Database,
+        provider: &str,
+        success: bool,
+        latency_ms: u64,
+        stop_reason: &str,
+    ) {
         db.insert_metric(&InvocationMetric {
             provider: provider.to_string(),
             model: "test-model".to_string(),
@@ -216,7 +219,11 @@ mod tests {
         // Reliability+availability+consistency are perfect (75 points max).
         // Latency drags it down: 1/(1+10000/2000) = 1/6 ≈ 0.167 → 0.167 * 25 ≈ 4.
         // Total ≈ 79 → Degraded.
-        assert!(report.score < 85, "score={} should be < 85 (slow penalty)", report.score);
+        assert!(
+            report.score < 85,
+            "score={} should be < 85 (slow penalty)",
+            report.score
+        );
     }
 
     #[tokio::test]
@@ -234,7 +241,11 @@ mod tests {
         let report = scorer.assess("timing_out").await;
 
         assert_eq!(report.timeout_rate, 0.5);
-        assert!(report.score <= 50, "score={} should be <= 50 (timeouts)", report.score);
+        assert!(
+            report.score <= 50,
+            "score={} should be <= 50 (timeouts)",
+            report.score
+        );
     }
 
     #[tokio::test]
@@ -272,7 +283,10 @@ mod tests {
             timeout_rate: 0.0,
         };
         let score = compute_health_score(&perfect);
-        assert!(score >= 90, "perfect provider should score >= 90, got {score}");
+        assert!(
+            score >= 90,
+            "perfect provider should score >= 90, got {score}"
+        );
 
         // Terrible provider: 100% errors, 100% timeouts.
         let terrible = ProviderWindowedMetrics {

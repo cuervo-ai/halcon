@@ -67,7 +67,11 @@ pub fn translate_ws_event(event: WsServerEvent) -> BackendMessage {
             deadline_secs,
         },
 
-        WsServerEvent::ChatSessionCreated { session_id, model, provider } => {
+        WsServerEvent::ChatSessionCreated {
+            session_id,
+            model,
+            provider,
+        } => {
             use halcon_api::types::chat::{ChatSession, ChatSessionStatus};
             BackendMessage::ChatSessionCreated(ChatSession {
                 id: session_id,
@@ -129,9 +133,14 @@ pub fn translate_ws_event(event: WsServerEvent) -> BackendMessage {
 
         // B1: Permission timeout — surface as a typed message so the UI can
         // dismiss the pending modal deterministically without relying on silence.
-        WsServerEvent::PermissionExpired { session_id, request_id, .. } => {
-            BackendMessage::ChatPermissionExpired { session_id, request_id }
-        }
+        WsServerEvent::PermissionExpired {
+            session_id,
+            request_id,
+            ..
+        } => BackendMessage::ChatPermissionExpired {
+            session_id,
+            request_id,
+        },
 
         // Everything else goes to the generic event buffer.
         other => BackendMessage::Event(other),
@@ -141,8 +150,8 @@ pub fn translate_ws_event(event: WsServerEvent) -> BackendMessage {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use uuid::Uuid;
     use halcon_api::types::ws::WsServerEvent;
+    use uuid::Uuid;
 
     /// C4: ConversationCompleted carries total_duration_ms into ChatTurnCompleted.
     #[test]
@@ -153,13 +162,20 @@ mod tests {
             assistant_message_id: Uuid::new_v4(),
             stop_reason: "end_turn".to_string(),
             usage: halcon_api::types::chat::ChatTokenUsage {
-                input: 10, output: 20, thinking: 0, total: 30,
+                input: 10,
+                output: 20,
+                thinking: 0,
+                total: 30,
             },
             total_duration_ms: 3_750,
         };
         let msg = translate_ws_event(event);
         match msg {
-            BackendMessage::ChatTurnCompleted { session_id, total_duration_ms, .. } => {
+            BackendMessage::ChatTurnCompleted {
+                session_id,
+                total_duration_ms,
+                ..
+            } => {
                 assert_eq!(session_id, sid);
                 assert_eq!(total_duration_ms, 3_750);
             }
@@ -200,7 +216,10 @@ mod tests {
         };
         let msg = translate_ws_event(event);
         match msg {
-            BackendMessage::ChatPermissionExpired { session_id, request_id } => {
+            BackendMessage::ChatPermissionExpired {
+                session_id,
+                request_id,
+            } => {
                 assert_eq!(session_id, sid);
                 assert_eq!(request_id, rid);
             }
@@ -229,7 +248,12 @@ mod tests {
         };
         let msg = translate_ws_event(event);
         match msg {
-            BackendMessage::MediaAnalysisProgress { session_id, index, total, filename } => {
+            BackendMessage::MediaAnalysisProgress {
+                session_id,
+                index,
+                total,
+                filename,
+            } => {
                 assert_eq!(session_id, sid);
                 assert_eq!(index, 1);
                 assert_eq!(total, 3);

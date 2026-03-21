@@ -31,9 +31,9 @@
 //! - Constitutional constraint: BoundaryDecision routing mode is always a floor
 //!   (cannot be downgraded by IntentScorer, only upgraded)
 
+use super::policy_store::PolicyStore;
 use super::sla_router::RoutingMode;
 use super::BoundaryDecision;
-use super::policy_store::PolicyStore;
 use crate::repl::domain::intent_scorer::IntentProfile;
 
 // ── ResolvedIntent ────────────────────────────────────────────────────────────
@@ -182,7 +182,7 @@ impl IntentPipeline {
         let low_thresh = store.intent_low_confidence();
 
         // ── Step 1: Routing mode (constitutional floor) ───────────────────
-        let intent_mode = Self::mode_from_intent(&intent, store);
+        let intent_mode = Self::mode_from_intent(intent, store);
         let (routing_mode, routing_mode_source) = if intent_mode > boundary.routing.mode {
             // IntentScorer suggests a deeper mode — upgrade.
             (intent_mode, RoutingModeSource::IntentScorerUpgrade)
@@ -208,24 +208,22 @@ impl IntentPipeline {
         } else {
             // Blend: linearly interpolate based on confidence position in [low, high].
             let weight = (confidence - low_thresh) / (high_thresh - low_thresh);
-            let blended = (boundary_rounds as f32 * (1.0 - weight)
-                + intent_rounds as f32 * weight)
+            let blended = (boundary_rounds as f32 * (1.0 - weight) + intent_rounds as f32 * weight)
                 .ceil() as u32;
             let r = blended.max(boundary_rounds).max(sla_floor); // never below either floor
             (r, MaxRoundsSource::Blended)
         };
 
         // Apply user config as ceiling.
-        let (effective_max_rounds, max_rounds_source) = if user_config_max_rounds > 0
-            && blended_rounds > user_config_max_rounds as u32
-        {
-            (user_config_max_rounds as u32, MaxRoundsSource::UserConfig)
-        } else {
-            (blended_rounds, max_rounds_source)
-        };
+        let (effective_max_rounds, max_rounds_source) =
+            if user_config_max_rounds > 0 && blended_rounds > user_config_max_rounds as u32 {
+                (user_config_max_rounds as u32, MaxRoundsSource::UserConfig)
+            } else {
+                (blended_rounds, max_rounds_source)
+            };
 
         // ── Step 3: max_plan_depth (take the higher recommendation) ───────
-        let intent_depth = Self::depth_from_intent(&intent);
+        let intent_depth = Self::depth_from_intent(intent);
         let max_plan_depth = boundary.recommended_plan_depth.max(intent_depth);
 
         // ── Step 4: orchestration (OR of both) ───────────────────────────
@@ -236,16 +234,17 @@ impl IntentPipeline {
             );
 
         let rationale = match (max_rounds_source, routing_mode_source) {
-            (MaxRoundsSource::IntentScorer, RoutingModeSource::BoundaryDecision) =>
-                "IntentScorer rounds (high confidence), BoundaryDecision mode",
-            (MaxRoundsSource::IntentScorer, RoutingModeSource::IntentScorerUpgrade) =>
-                "IntentScorer rounds + mode upgrade (high confidence)",
-            (MaxRoundsSource::BoundaryDecision, _) =>
-                "BoundaryDecision rounds (low confidence)",
-            (MaxRoundsSource::Blended, _) =>
-                "confidence-weighted blend of IntentScorer and BoundaryDecision",
-            (MaxRoundsSource::UserConfig, _) =>
-                "user config ceiling applied",
+            (MaxRoundsSource::IntentScorer, RoutingModeSource::BoundaryDecision) => {
+                "IntentScorer rounds (high confidence), BoundaryDecision mode"
+            }
+            (MaxRoundsSource::IntentScorer, RoutingModeSource::IntentScorerUpgrade) => {
+                "IntentScorer rounds + mode upgrade (high confidence)"
+            }
+            (MaxRoundsSource::BoundaryDecision, _) => "BoundaryDecision rounds (low confidence)",
+            (MaxRoundsSource::Blended, _) => {
+                "confidence-weighted blend of IntentScorer and BoundaryDecision"
+            }
+            (MaxRoundsSource::UserConfig, _) => "user config ceiling applied",
         };
 
         ResolvedIntent {
@@ -270,9 +269,7 @@ impl IntentPipeline {
             (TaskScope::SingleArtifact, ReasoningDepth::None | ReasoningDepth::Light) => {
                 RoutingMode::Quick
             }
-            (TaskScope::SingleArtifact, _) | (TaskScope::LocalContext, _) => {
-                RoutingMode::Extended
-            }
+            (TaskScope::SingleArtifact, _) | (TaskScope::LocalContext, _) => RoutingMode::Extended,
             (TaskScope::ProjectWide | TaskScope::SystemWide, _) => RoutingMode::DeepAnalysis,
         }
     }
@@ -293,9 +290,9 @@ impl IntentPipeline {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use super::super::BoundaryDecisionEngine;
     use super::super::policy_store::PolicyStore;
+    use super::super::BoundaryDecisionEngine;
+    use super::*;
     use crate::repl::domain::intent_scorer::IntentScorer;
 
     fn resolve(query: &str, user_max: usize) -> ResolvedIntent {
@@ -312,8 +309,11 @@ mod tests {
         // IntentScorer might say Extended (single artifact).
         // Result must be DeepAnalysis (boundary floor holds).
         let r = resolve("find security vulnerabilities owasp pentest", 100);
-        assert_eq!(r.routing_mode, RoutingMode::DeepAnalysis,
-            "Security query boundary floor must hold");
+        assert_eq!(
+            r.routing_mode,
+            RoutingMode::DeepAnalysis,
+            "Security query boundary floor must hold"
+        );
     }
 
     // ── Core invariant: effective_max_rounds >= boundary recommended_max_rounds ─
@@ -330,9 +330,12 @@ mod tests {
             let boundary = BoundaryDecisionEngine::evaluate(q, 10);
             let boundary_rounds = boundary.recommended_max_rounds;
             let r = IntentPipeline::resolve(&intent, &boundary, 100, &PolicyStore::default_store());
-            assert!(r.effective_max_rounds >= boundary_rounds,
+            assert!(
+                r.effective_max_rounds >= boundary_rounds,
                 "Query '{q}': effective={} < boundary={}",
-                r.effective_max_rounds, boundary_rounds);
+                r.effective_max_rounds,
+                boundary_rounds
+            );
         }
     }
 
@@ -341,8 +344,14 @@ mod tests {
     #[test]
     fn user_config_max_rounds_acts_as_ceiling() {
         // Deep query → would suggest 20 rounds.
-        let r = resolve("analyze the microservice architecture security vulnerabilities", 5);
-        assert_eq!(r.effective_max_rounds, 5, "User config ceiling must be enforced");
+        let r = resolve(
+            "analyze the microservice architecture security vulnerabilities",
+            5,
+        );
+        assert_eq!(
+            r.effective_max_rounds, 5,
+            "User config ceiling must be enforced"
+        );
         assert_eq!(r.max_rounds_source, MaxRoundsSource::UserConfig);
     }
 
@@ -363,16 +372,20 @@ mod tests {
             100,
         );
         assert_eq!(r.routing_mode, RoutingMode::DeepAnalysis);
-        assert!(r.effective_max_rounds >= 15,
+        assert!(
+            r.effective_max_rounds >= 15,
             "Deep security+arch query should get >= 15 rounds, got {}",
-            r.effective_max_rounds);
+            r.effective_max_rounds
+        );
     }
 
     #[test]
     fn simple_question_routes_quick() {
         let r = resolve("what is a Rust trait", 100);
-        assert!(r.routing_mode <= RoutingMode::Extended,
-            "Simple informational query should not route to DeepAnalysis");
+        assert!(
+            r.routing_mode <= RoutingMode::Extended,
+            "Simple informational query should not route to DeepAnalysis"
+        );
     }
 
     // ── Backward compat accessors ─────────────────────────────────────────
@@ -405,9 +418,13 @@ mod tests {
         let r = resolve("fix the auth module", 100);
         let store = PolicyStore::default_store();
         let sla_floor = store.sla_params(r.routing_mode).max_rounds;
-        assert!(r.effective_max_rounds >= sla_floor,
+        assert!(
+            r.effective_max_rounds >= sla_floor,
             "effective_max_rounds {} must be >= SLA floor {} for mode {:?}",
-            r.effective_max_rounds, sla_floor, r.routing_mode);
+            r.effective_max_rounds,
+            sla_floor,
+            r.routing_mode
+        );
     }
 
     // ── Orchestration ─────────────────────────────────────────────────────

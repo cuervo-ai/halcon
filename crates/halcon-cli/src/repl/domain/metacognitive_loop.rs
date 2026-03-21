@@ -4,8 +4,6 @@
 //! integration monitoring. Uses IIT (Integrated Information Theory) Φ metric to
 //! measure coherence quality.
 
-use super::super::anomaly_detector::{AgentAnomaly, AnomalySeverity};
-use super::self_corrector::CorrectionStats;
 use std::collections::HashMap;
 
 /// Metacognitive cycle phase.
@@ -331,9 +329,8 @@ impl MetacognitiveLoop {
         let mut patterns = Vec::new();
 
         // Pattern: All components have low health
-        let avg_health: f64 = self.observations.iter()
-            .map(|obs| obs.health)
-            .sum::<f64>() / self.observations.len() as f64;
+        let avg_health: f64 = self.observations.iter().map(|obs| obs.health).sum::<f64>()
+            / self.observations.len() as f64;
 
         if avg_health < 0.5 {
             patterns.push("System-wide low health".to_string());
@@ -368,10 +365,14 @@ impl MetacognitiveLoop {
         let avg_health: f64 = health.values().sum::<f64>() / health.len() as f64;
 
         let interaction_strength = if !self.interaction_matrix.is_empty() {
-            let total: f64 = self.interaction_matrix.values()
+            let total: f64 = self
+                .interaction_matrix
+                .values()
                 .flat_map(|inner| inner.values())
                 .sum();
-            let count = self.interaction_matrix.values()
+            let count = self
+                .interaction_matrix
+                .values()
                 .map(|inner| inner.len())
                 .sum::<usize>() as f64;
             if count > 0.0 {
@@ -407,9 +408,11 @@ impl MetacognitiveLoop {
         }
 
         let mean = all_metric_values.iter().sum::<f64>() / all_metric_values.len() as f64;
-        let variance = all_metric_values.iter()
+        let variance = all_metric_values
+            .iter()
             .map(|v| (v - mean).powi(2))
-            .sum::<f64>() / all_metric_values.len() as f64;
+            .sum::<f64>()
+            / all_metric_values.len() as f64;
 
         // Normalize variance to [0, 1] range (use sigmoid)
         let normalized = 1.0 - (-variance).exp();
@@ -425,9 +428,10 @@ impl MetacognitiveLoop {
                 let comp_j = self.observations[j].component;
 
                 // Increase interaction strength
-                let current = self.interaction_matrix
+                let current = self
+                    .interaction_matrix
                     .entry(comp_i)
-                    .or_insert_with(HashMap::new)
+                    .or_default()
                     .entry(comp_j)
                     .or_insert(0.5);
 
@@ -608,9 +612,10 @@ mod tests {
         let plan = loop_.adapt(&analysis);
 
         assert!(!plan.adjustments.is_empty());
-        assert!(plan.adjustments.iter().any(|adj|
-            matches!(adj.action, AdjustmentAction::IncreaseMonitoring)
-        ));
+        assert!(plan
+            .adjustments
+            .iter()
+            .any(|adj| matches!(adj.action, AdjustmentAction::IncreaseMonitoring)));
     }
 
     #[test]
@@ -703,7 +708,9 @@ mod tests {
         }
 
         let patterns = loop_.detect_patterns();
-        assert!(patterns.iter().any(|p| p.contains("System-wide low health")));
+        assert!(patterns
+            .iter()
+            .any(|p| p.contains("System-wide low health")));
     }
 
     #[test]
@@ -721,6 +728,8 @@ mod tests {
         }
 
         let patterns = loop_.detect_patterns();
-        assert!(patterns.iter().any(|p| p.contains("ResourcePredictor consistently failing")));
+        assert!(patterns
+            .iter()
+            .any(|p| p.contains("ResourcePredictor consistently failing")));
     }
 }

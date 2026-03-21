@@ -623,9 +623,10 @@ pub struct PolicyConfig {
     ///
     /// Overridden by `HALCON_EMBEDDING_MODEL` env var.
     /// Recommended models:
-    ///   - `nomic-embed-text`  (768-dim, multilingual, default)
-    ///   - `mxbai-embed-large` (1024-dim, high-quality EN)
-    ///   - `paraphrase-multilingual-minilm` (384-dim, drop-in for DIMS=384)
+    ///  - `nomic-embed-text`  (768-dim, multilingual, default)
+    ///  - `mxbai-embed-large` (1024-dim, high-quality EN)
+    ///  - `paraphrase-multilingual-minilm` (384-dim, drop-in for DIMS=384)
+    ///
     /// Default: `nomic-embed-text`.
     #[serde(default = "default_embedding_model")]
     pub embedding_model: String,
@@ -665,7 +666,8 @@ impl Default for PolicyConfig {
             mini_critic_interval: default_mini_critic_interval(),
             mini_critic_budget_fraction: default_mini_critic_budget_fraction(),
             mini_critic_synthesis_budget_fraction: default_mini_critic_synthesis_budget_fraction(),
-            mini_critic_synthesis_progress_threshold: default_mini_critic_synthesis_progress_threshold(),
+            mini_critic_synthesis_progress_threshold:
+                default_mini_critic_synthesis_progress_threshold(),
             mini_critic_progress_threshold: default_mini_critic_progress_threshold(),
             mini_critic_recent_threshold: default_mini_critic_recent_threshold(),
             k5_2_tool_output_max_chars: default_k5_2_tool_output_max_chars(),
@@ -776,145 +778,369 @@ impl Default for PolicyConfig {
 
 // ── Default value functions (used by serde) ──────────────────────────────────
 
-fn default_success_threshold() -> f64 { 0.60 }
-fn default_critic_unavailable_penalty() -> f64 { 0.15 }
-fn default_halt_confidence_threshold() -> f32 { 0.80 }
-fn default_critic_timeout_secs() -> u64 { 45 }
-fn default_excerpt_len() -> usize { 1500 }
-fn default_min_retry_confidence() -> f32 { 0.40 }
-fn default_min_evidence_bytes() -> usize { 30 }
-fn default_min_synthesis_coverage() -> f64 { 0.30 }
-fn default_synthesis_max_tokens() -> u32 { 4096 }
-fn default_hide_threshold() -> f64 { 0.15 }
-fn default_deprioritize_threshold() -> f64 { 0.40 }
-fn default_min_calls_for_filtering() -> u32 { 3 }
-fn default_max_replan_attempts() -> u32 { 2 }
-fn default_temperature_step() -> f32 { 0.1 }
-fn default_max_temperature() -> f32 { 1.0 }
-fn default_tool_failure_threshold() -> u32 { 2 }
-fn default_w_stop() -> f64 { 0.25 }
-fn default_w_trajectory() -> f64 { 0.30 }
-fn default_w_critic() -> f64 { 0.25 }
-fn default_w_coherence_reward() -> f64 { 0.20 }
-fn default_w_progress_round() -> f64 { 0.45 }
-fn default_w_efficiency_round() -> f64 { 0.30 }
-fn default_w_coherence_round() -> f64 { 0.10 }
-fn default_w_token_round() -> f64 { 0.15 }
-fn default_output_headroom_tokens() -> u32 { 5000 }
-fn default_compaction_timeout_secs() -> u64 { 15 }
-fn default_growth_threshold() -> f64 { 1.3 }
-fn default_growth_consecutive_trigger() -> u32 { 2 }
-fn default_mini_critic_interval() -> usize { 3 }
-fn default_mini_critic_budget_fraction() -> f64 { 0.50 }
-fn default_mini_critic_synthesis_budget_fraction() -> f64 { 0.80 }
-fn default_mini_critic_synthesis_progress_threshold() -> f64 { 0.80 }
-fn default_mini_critic_progress_threshold() -> f64 { 0.30 }
-fn default_mini_critic_recent_threshold() -> f32 { 0.40 }
-fn default_k5_2_tool_output_max_chars() -> usize { 2000 }
-fn default_k5_2_message_retain_ratio() -> f32 { 0.60 }
-fn default_per_call_critic_timeout_secs() -> u64 { 22 }
-fn default_oscillation_window() -> usize { 8 }
-fn default_loop_guard_min_synthesis() -> usize { 3 }
-fn default_loop_guard_min_force() -> usize { 5 }
-fn default_sub_agent_max_timeout_secs() -> u64 { 300 }
-fn default_early_convergence_threshold() -> f32 { 0.80 }
-fn default_replan_score_threshold() -> f32 { 0.15 }
-fn default_drift_threshold() -> f32 { 0.70 }
-fn default_model_quality_gate() -> f64 { 0.35 }
+fn default_success_threshold() -> f64 {
+    0.60
+}
+fn default_critic_unavailable_penalty() -> f64 {
+    0.15
+}
+fn default_halt_confidence_threshold() -> f32 {
+    0.80
+}
+fn default_critic_timeout_secs() -> u64 {
+    45
+}
+fn default_excerpt_len() -> usize {
+    1500
+}
+fn default_min_retry_confidence() -> f32 {
+    0.40
+}
+fn default_min_evidence_bytes() -> usize {
+    30
+}
+fn default_min_synthesis_coverage() -> f64 {
+    0.30
+}
+fn default_synthesis_max_tokens() -> u32 {
+    4096
+}
+fn default_hide_threshold() -> f64 {
+    0.15
+}
+fn default_deprioritize_threshold() -> f64 {
+    0.40
+}
+fn default_min_calls_for_filtering() -> u32 {
+    3
+}
+fn default_max_replan_attempts() -> u32 {
+    2
+}
+fn default_temperature_step() -> f32 {
+    0.1
+}
+fn default_max_temperature() -> f32 {
+    1.0
+}
+fn default_tool_failure_threshold() -> u32 {
+    2
+}
+fn default_w_stop() -> f64 {
+    0.25
+}
+fn default_w_trajectory() -> f64 {
+    0.30
+}
+fn default_w_critic() -> f64 {
+    0.25
+}
+fn default_w_coherence_reward() -> f64 {
+    0.20
+}
+fn default_w_progress_round() -> f64 {
+    0.45
+}
+fn default_w_efficiency_round() -> f64 {
+    0.30
+}
+fn default_w_coherence_round() -> f64 {
+    0.10
+}
+fn default_w_token_round() -> f64 {
+    0.15
+}
+fn default_output_headroom_tokens() -> u32 {
+    5000
+}
+fn default_compaction_timeout_secs() -> u64 {
+    15
+}
+fn default_growth_threshold() -> f64 {
+    1.3
+}
+fn default_growth_consecutive_trigger() -> u32 {
+    2
+}
+fn default_mini_critic_interval() -> usize {
+    3
+}
+fn default_mini_critic_budget_fraction() -> f64 {
+    0.50
+}
+fn default_mini_critic_synthesis_budget_fraction() -> f64 {
+    0.80
+}
+fn default_mini_critic_synthesis_progress_threshold() -> f64 {
+    0.80
+}
+fn default_mini_critic_progress_threshold() -> f64 {
+    0.30
+}
+fn default_mini_critic_recent_threshold() -> f32 {
+    0.40
+}
+fn default_k5_2_tool_output_max_chars() -> usize {
+    2000
+}
+fn default_k5_2_message_retain_ratio() -> f32 {
+    0.60
+}
+fn default_per_call_critic_timeout_secs() -> u64 {
+    22
+}
+fn default_oscillation_window() -> usize {
+    8
+}
+fn default_loop_guard_min_synthesis() -> usize {
+    3
+}
+fn default_loop_guard_min_force() -> usize {
+    5
+}
+fn default_sub_agent_max_timeout_secs() -> u64 {
+    300
+}
+fn default_early_convergence_threshold() -> f32 {
+    0.80
+}
+fn default_replan_score_threshold() -> f32 {
+    0.15
+}
+fn default_drift_threshold() -> f32 {
+    0.70
+}
+fn default_model_quality_gate() -> f64 {
+    0.35
+}
 
 // ── Phase 3 defaults ──────────────────────────────────────────────────────────
 // P3.1: Mid-loop strategy mutation
-fn default_strategy_force_synthesis_sla() -> f64 { 0.85 }
-fn default_strategy_min_evidence_for_synthesis() -> f64 { 0.30 }
-fn default_strategy_collapse_min_progress() -> f32 { 0.50 }
-fn default_strategy_drift_threshold() -> f32 { 0.50 }
-fn default_strategy_failure_cluster_threshold() -> f32 { 0.50 }
+fn default_strategy_force_synthesis_sla() -> f64 {
+    0.85
+}
+fn default_strategy_min_evidence_for_synthesis() -> f64 {
+    0.30
+}
+fn default_strategy_collapse_min_progress() -> f32 {
+    0.50
+}
+fn default_strategy_drift_threshold() -> f32 {
+    0.50
+}
+fn default_strategy_failure_cluster_threshold() -> f32 {
+    0.50
+}
 // P3.2: Capability validation
-fn default_capability_auto_skip() -> bool { true }
+fn default_capability_auto_skip() -> bool {
+    true
+}
 // P3.3: Semantic cycle detection
-fn default_semantic_cycle_window() -> usize { 6 }
-fn default_cycle_synonym_overlap_threshold() -> f64 { 0.60 }
-fn default_cycle_replan_boost_threshold() -> f32 { 0.50 }
-fn default_cycle_medium_threshold() -> usize { 3 }
-fn default_cycle_high_threshold() -> usize { 4 }
+fn default_semantic_cycle_window() -> usize {
+    6
+}
+fn default_cycle_synonym_overlap_threshold() -> f64 {
+    0.60
+}
+fn default_cycle_replan_boost_threshold() -> f32 {
+    0.50
+}
+fn default_cycle_medium_threshold() -> usize {
+    3
+}
+fn default_cycle_high_threshold() -> usize {
+    4
+}
 // P3.4: Mid-loop critic checkpoints
-fn default_mid_critic_interval() -> usize { 3 }
-fn default_progress_deficit_threshold() -> f64 { 0.25 }
-fn default_objective_drift_threshold() -> f64 { 0.40 }
-fn default_evidence_rate_decline_ratio() -> f64 { 0.50 }
+fn default_mid_critic_interval() -> usize {
+    3
+}
+fn default_progress_deficit_threshold() -> f64 {
+    0.25
+}
+fn default_objective_drift_threshold() -> f64 {
+    0.40
+}
+fn default_evidence_rate_decline_ratio() -> f64 {
+    0.50
+}
 // P3.5: Complexity feedback loop
-fn default_complexity_min_rounds() -> usize { 3 }
-fn default_complexity_upgrade_ratio() -> f64 { 1.5 }
-fn default_complexity_confidence_threshold() -> f64 { 0.70 }
+fn default_complexity_min_rounds() -> usize {
+    3
+}
+fn default_complexity_upgrade_ratio() -> f64 {
+    1.5
+}
+fn default_complexity_confidence_threshold() -> f64 {
+    0.70
+}
 // P3.6: Convergence utility function
-fn default_utility_synthesis_threshold() -> f64 { 0.35 }
-fn default_utility_marginal_threshold() -> f64 { 0.05 }
-fn default_utility_w_evidence() -> f64 { 0.25 }
-fn default_utility_w_coherence() -> f64 { 0.15 }
-fn default_utility_w_pressure() -> f64 { 0.20 }
-fn default_utility_w_cost() -> f64 { 0.15 }
-fn default_utility_w_drift() -> f64 { 0.10 }
-fn default_utility_w_progress() -> f64 { 0.15 }
+fn default_utility_synthesis_threshold() -> f64 {
+    0.35
+}
+fn default_utility_marginal_threshold() -> f64 {
+    0.05
+}
+fn default_utility_w_evidence() -> f64 {
+    0.25
+}
+fn default_utility_w_coherence() -> f64 {
+    0.15
+}
+fn default_utility_w_pressure() -> f64 {
+    0.20
+}
+fn default_utility_w_cost() -> f64 {
+    0.15
+}
+fn default_utility_w_drift() -> f64 {
+    0.10
+}
+fn default_utility_w_progress() -> f64 {
+    0.15
+}
 // P4.1: System invariants
-fn default_max_drift_bound() -> f32 { 5.0 }
+fn default_max_drift_bound() -> f32 {
+    5.0
+}
 // P4.5: Bounded adaptation
-fn default_max_structural_replans() -> u32 { 4 }
-fn default_max_sensitivity_shift() -> f64 { 0.50 }
-fn default_max_strategy_mutations() -> u32 { 6 }
-fn default_max_model_downgrades() -> u32 { 2 }
+fn default_max_structural_replans() -> u32 {
+    4
+}
+fn default_max_sensitivity_shift() -> f64 {
+    0.50
+}
+fn default_max_strategy_mutations() -> u32 {
+    6
+}
+fn default_max_model_downgrades() -> u32 {
+    2
+}
 // P5.2: Problem classification
-fn default_classification_min_rounds() -> usize { 2 }
-fn default_reclassification_shift_threshold() -> f64 { 0.30 }
-fn default_oscillation_variance_threshold() -> f64 { 0.04 }
+fn default_classification_min_rounds() -> usize {
+    2
+}
+fn default_reclassification_shift_threshold() -> f64 {
+    0.30
+}
+fn default_oscillation_variance_threshold() -> f64 {
+    0.04
+}
 // P5.1: Session retrospective
-fn default_wasted_round_threshold() -> f64 { 0.10 }
+fn default_wasted_round_threshold() -> f64 {
+    0.10
+}
 // P5.3: Adaptive strategy weighting
-fn default_max_weight_shift_per_round() -> f64 { 0.05 }
+fn default_max_weight_shift_per_round() -> f64 {
+    0.05
+}
 // P5.4: Convergence estimator
-fn default_forecast_min_rounds() -> usize { 3 }
-fn default_forecast_low_probability_threshold() -> f64 { 0.20 }
+fn default_forecast_min_rounds() -> usize {
+    3
+}
+fn default_forecast_low_probability_threshold() -> f64 {
+    0.20
+}
 // P5.5: Strategic initialization
-fn default_strategic_init_enabled() -> bool { true }
+fn default_strategic_init_enabled() -> bool {
+    true
+}
 // Step 8.1/10: Capability gate token estimation + graph cost propagation
-fn default_avg_input_tokens_per_step() -> usize { 300 }
-fn default_tool_cost_multiplier() -> usize { 2 }
+fn default_avg_input_tokens_per_step() -> usize {
+    300
+}
+fn default_tool_cost_multiplier() -> usize {
+    2
+}
 // Step 4: Convergence Budget Governor
-fn default_max_round_iterations() -> usize { 12 }
-fn default_max_token_growth_ratio() -> f64 { 3.0 }
-fn default_max_stagnation_rounds() -> usize { 3 }
-fn default_min_progress_delta() -> f32 { 0.05 }
+fn default_max_round_iterations() -> usize {
+    12
+}
+fn default_max_token_growth_ratio() -> f64 {
+    3.0
+}
+fn default_max_stagnation_rounds() -> usize {
+    3
+}
+fn default_min_progress_delta() -> f32 {
+    0.05
+}
 // Boundary Decision Engine: enabled by default (replaces legacy keyword-count routing)
-fn default_sla_fast_max_rounds() -> u32 { 4 }
-fn default_sla_fast_max_plan_depth() -> u32 { 2 }
-fn default_sla_balanced_max_rounds() -> u32 { 10 }
-fn default_sla_balanced_max_plan_depth() -> u32 { 5 }
-fn default_sla_balanced_max_retries() -> u32 { 1 }
-fn default_sla_deep_max_rounds() -> u32 { 20 }
-fn default_sla_deep_max_plan_depth() -> u32 { 10 }
-fn default_sla_deep_max_retries() -> u32 { 3 }
-fn default_intent_high_confidence_threshold() -> f32 { 0.75 }
-fn default_intent_low_confidence_threshold() -> f32 { 0.40 }
-fn default_use_intent_pipeline() -> bool { true }
-fn default_use_boundary_decision_engine() -> bool { true }
+fn default_sla_fast_max_rounds() -> u32 {
+    4
+}
+fn default_sla_fast_max_plan_depth() -> u32 {
+    2
+}
+fn default_sla_balanced_max_rounds() -> u32 {
+    10
+}
+fn default_sla_balanced_max_plan_depth() -> u32 {
+    5
+}
+fn default_sla_balanced_max_retries() -> u32 {
+    1
+}
+fn default_sla_deep_max_rounds() -> u32 {
+    20
+}
+fn default_sla_deep_max_plan_depth() -> u32 {
+    10
+}
+fn default_sla_deep_max_retries() -> u32 {
+    3
+}
+fn default_intent_high_confidence_threshold() -> f32 {
+    0.75
+}
+fn default_intent_low_confidence_threshold() -> f32 {
+    0.40
+}
+fn default_use_intent_pipeline() -> bool {
+    true
+}
+fn default_use_boundary_decision_engine() -> bool {
+    true
+}
 // HALCON.md instruction system — on by default (additive, filesystem-only, safe)
-fn default_use_halcon_md() -> bool { true }
+fn default_use_halcon_md() -> bool {
+    true
+}
 // Lifecycle hooks system — off by default (executes user scripts — security surface)
 // Enable explicitly in config: [policy] enable_hooks = true
-fn default_enable_hooks() -> bool { false }
-fn default_allow_managed_hooks_only() -> bool { false }
+fn default_enable_hooks() -> bool {
+    false
+}
+fn default_allow_managed_hooks_only() -> bool {
+    false
+}
 // Auto-memory system — on by default (additive, background write, safe)
 // Disable with: [policy] enable_auto_memory = false
-fn default_enable_auto_memory() -> bool { true }
-fn default_memory_importance_threshold() -> f32 { 0.3 }
+fn default_enable_auto_memory() -> bool {
+    true
+}
+fn default_memory_importance_threshold() -> f32 {
+    0.3
+}
 // Declarative sub-agent registry — on by default (read-only, safe)
 // Disable with: [policy] enable_agent_registry = false
-fn default_enable_agent_registry() -> bool { true }
+fn default_enable_agent_registry() -> bool {
+    true
+}
 // Semantic memory vector store — off by default (TF-IDF overhead, explicit opt-in)
-fn default_enable_semantic_memory() -> bool { false }
-fn default_semantic_memory_top_k() -> usize { 5 }
+fn default_enable_semantic_memory() -> bool {
+    false
+}
+fn default_semantic_memory_top_k() -> usize {
+    5
+}
 // Embedding engine — configurable endpoint/model for multi-provider deployments
-fn default_embedding_endpoint() -> String { "http://localhost:11434".to_string() }
-fn default_embedding_model() -> String { "nomic-embed-text".to_string() }
+fn default_embedding_endpoint() -> String {
+    "http://localhost:11434".to_string()
+}
+fn default_embedding_model() -> String {
+    "nomic-embed-text".to_string()
+}
 
 #[cfg(test)]
 mod tests {
@@ -1053,7 +1279,10 @@ mod tests {
         let json_str = serde_json::to_string(&original).expect("serialize json");
         let parsed: PolicyConfig = serde_json::from_str(&json_str).expect("deserialize json");
         assert!((parsed.success_threshold - original.success_threshold).abs() < f64::EPSILON);
-        assert_eq!(parsed.min_calls_for_filtering, original.min_calls_for_filtering);
+        assert_eq!(
+            parsed.min_calls_for_filtering,
+            original.min_calls_for_filtering
+        );
     }
 
     #[test]
@@ -1079,18 +1308,30 @@ mod tests {
     fn feature_flags_default_to_correct_values() {
         let policy = PolicyConfig::default();
         // These three are safe + high-value: enabled by default for new users
-        assert!(policy.use_halcon_md,
-            "use_halcon_md must default to true — instruction persistence is additive and safe");
-        assert!(policy.enable_auto_memory,
-            "enable_auto_memory must default to true — session learning is additive and safe");
-        assert!(policy.enable_agent_registry,
-            "enable_agent_registry must default to true — declarative agents add value immediately");
+        assert!(
+            policy.use_halcon_md,
+            "use_halcon_md must default to true — instruction persistence is additive and safe"
+        );
+        assert!(
+            policy.enable_auto_memory,
+            "enable_auto_memory must default to true — session learning is additive and safe"
+        );
+        assert!(
+            policy.enable_agent_registry,
+            "enable_agent_registry must default to true — declarative agents add value immediately"
+        );
         // These require explicit opt-in (security surface or overhead)
-        assert!(!policy.enable_hooks,
-            "enable_hooks must default to false — executes user scripts, security surface");
-        assert!(!policy.enable_semantic_memory,
-            "enable_semantic_memory must default to false — TF-IDF overhead, user opt-in");
-        assert!(!policy.use_boundary_decision_engine || policy.use_boundary_decision_engine,
-            "use_boundary_decision_engine may be true/false — just confirming field exists");
+        assert!(
+            !policy.enable_hooks,
+            "enable_hooks must default to false — executes user scripts, security surface"
+        );
+        assert!(
+            !policy.enable_semantic_memory,
+            "enable_semantic_memory must default to false — TF-IDF overhead, user opt-in"
+        );
+        assert!(
+            !policy.use_boundary_decision_engine || policy.use_boundary_decision_engine,
+            "use_boundary_decision_engine may be true/false — just confirming field exists"
+        );
     }
 }

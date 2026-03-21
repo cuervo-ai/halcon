@@ -25,8 +25,8 @@ use crate::types::chat::{
     ResolvePermissionResponse, SubmitMessageRequest, SubmitMessageResponse,
     UpdateSessionTitleRequest, UpdateSessionTitleResponse,
 };
-use halcon_core::traits::chat_executor::MediaAttachmentInline as CoreAttachment;
 use crate::types::ws::WsServerEvent;
+use halcon_core::traits::chat_executor::MediaAttachmentInline as CoreAttachment;
 
 /// POST /api/v1/chat/sessions — create a new chat session.
 pub async fn create_session(
@@ -88,10 +88,7 @@ pub async fn get_session(
 /// orphaned sub-agents and background tasks are signalled to stop immediately.
 /// Without this, a deleted session's executor would keep consuming API tokens
 /// and CPU until it naturally completed or timed out.
-pub async fn delete_session(
-    Path(id): Path<Uuid>,
-    State(state): State<AppState>,
-) -> StatusCode {
+pub async fn delete_session(Path(id): Path<Uuid>, State(state): State<AppState>) -> StatusCode {
     if let Some((_, handle)) = state.active_chat_sessions.remove(&id) {
         // Signal the running executor (and any sub-agents) to stop.
         handle.cancel();
@@ -119,11 +116,18 @@ pub async fn list_messages(
     let messages: Vec<ChatMessageEntry> = {
         let h = history_arc.lock().await;
         h.iter()
-            .map(|(role, content)| ChatMessageEntry { role: role.clone(), content: content.clone() })
+            .map(|(role, content)| ChatMessageEntry {
+                role: role.clone(),
+                content: content.clone(),
+            })
             .collect()
     };
     let total = messages.len();
-    Ok(Json(ListMessagesResponse { session_id: id, messages, total }))
+    Ok(Json(ListMessagesResponse {
+        session_id: id,
+        messages,
+        total,
+    }))
 }
 
 /// POST /api/v1/chat/sessions/:id/messages — submit a user message and start execution.
@@ -140,11 +144,13 @@ pub async fn submit_message(
     let (model, provider, history_arc) = state
         .active_chat_sessions
         .get(&id)
-        .map(|e| (
-            e.session.model.clone(),
-            e.session.provider.clone(),
-            std::sync::Arc::clone(&e.history),
-        ))
+        .map(|e| {
+            (
+                e.session.model.clone(),
+                e.session.provider.clone(),
+                std::sync::Arc::clone(&e.history),
+            )
+        })
         .ok_or(StatusCode::NOT_FOUND)?;
     // DashMap ref dropped here — safe to .await below.
 
@@ -188,7 +194,10 @@ pub async fn submit_message(
     let history: Vec<ChatHistoryMessage> = {
         let h = history_arc.lock().await;
         h.iter()
-            .map(|(role, content)| ChatHistoryMessage { role: role.clone(), content: content.clone() })
+            .map(|(role, content)| ChatHistoryMessage {
+                role: role.clone(),
+                content: content.clone(),
+            })
             .collect()
     };
 
@@ -197,7 +206,10 @@ pub async fn submit_message(
         Vec::new()
     } else {
         let file_count = attachments.len();
-        state.broadcast(WsServerEvent::MediaAnalysisStarted { session_id: id, file_count });
+        state.broadcast(WsServerEvent::MediaAnalysisStarted {
+            session_id: id,
+            file_count,
+        });
 
         let core_atts: Vec<CoreAttachment> = attachments
             .iter()
@@ -278,7 +290,12 @@ pub async fn submit_message(
         let mut received_terminal_event = false;
         while let Some(event) = event_rx.recv().await {
             // Accumulate non-thinking output tokens for history.
-            if let ChatExecutionEvent::Token { ref text, is_thinking, .. } = event {
+            if let ChatExecutionEvent::Token {
+                ref text,
+                is_thinking,
+                ..
+            } = event
+            {
                 if !is_thinking {
                     accumulated_text.push_str(text);
                 }
@@ -296,7 +313,10 @@ pub async fn submit_message(
                 let new_count = {
                     let mut h = history_arc_task.lock().await;
                     h.push(("user".to_string(), user_content_for_history.clone()));
-                    h.push(("assistant".to_string(), std::mem::take(&mut accumulated_text)));
+                    h.push((
+                        "assistant".to_string(),
+                        std::mem::take(&mut accumulated_text),
+                    ));
                     h.len()
                 };
                 if let Some(mut entry) = state_clone.active_chat_sessions.get_mut(&id) {
@@ -343,10 +363,7 @@ pub async fn submit_message(
 }
 
 /// DELETE /api/v1/chat/sessions/:id/active — cancel the active execution.
-pub async fn cancel_active(
-    Path(id): Path<Uuid>,
-    State(state): State<AppState>,
-) -> StatusCode {
+pub async fn cancel_active(Path(id): Path<Uuid>, State(state): State<AppState>) -> StatusCode {
     if let Some(entry) = state.active_chat_sessions.get(&id) {
         entry.value().cancel();
         state.broadcast(WsServerEvent::ExecutionFailed {
@@ -404,7 +421,10 @@ pub async fn update_session(
         entry.session.updated_at = Utc::now();
         drop(entry);
         state.persist_sessions().await;
-        Ok(Json(UpdateSessionTitleResponse { session_id: id, title: req.title }))
+        Ok(Json(UpdateSessionTitleResponse {
+            session_id: id,
+            title: req.title,
+        }))
     } else {
         Err(StatusCode::NOT_FOUND)
     }
@@ -413,33 +433,38 @@ pub async fn update_session(
 /// Translate a ChatExecutionEvent to a WsServerEvent.
 fn translate_event(session_id: Uuid, event: ChatExecutionEvent) -> Option<WsServerEvent> {
     match event {
-        ChatExecutionEvent::Token { text, is_thinking, sequence_num } => {
-            Some(WsServerEvent::ChatStreamToken {
-                session_id,
-                token: text,
-                is_thinking,
-                sequence_num,
-            })
-        }
-        ChatExecutionEvent::ThinkingProgress { chars_so_far, elapsed_secs } => {
-            Some(WsServerEvent::ThinkingProgress {
-                session_id,
-                chars_so_far,
-                elapsed_secs,
-            })
-        }
+        ChatExecutionEvent::Token {
+            text,
+            is_thinking,
+            sequence_num,
+        } => Some(WsServerEvent::ChatStreamToken {
+            session_id,
+            token: text,
+            is_thinking,
+            sequence_num,
+        }),
+        ChatExecutionEvent::ThinkingProgress {
+            chars_so_far,
+            elapsed_secs,
+        } => Some(WsServerEvent::ThinkingProgress {
+            session_id,
+            chars_so_far,
+            elapsed_secs,
+        }),
         // F1: Emit ToolExecuted only on ToolCompleted (with real duration + outcome).
         // Previously, ToolStarted emitted a synthetic event with duration_ms=0 and
         // ToolCompleted was silently discarded, giving the UI no actual timing info.
         ChatExecutionEvent::ToolStarted { .. } => None,
-        ChatExecutionEvent::ToolCompleted { name, duration_ms, success } => {
-            Some(WsServerEvent::ToolExecuted {
-                name,
-                tool_use_id: Uuid::new_v4().to_string(),
-                duration_ms,
-                success,
-            })
-        }
+        ChatExecutionEvent::ToolCompleted {
+            name,
+            duration_ms,
+            success,
+        } => Some(WsServerEvent::ToolExecuted {
+            name,
+            tool_use_id: Uuid::new_v4().to_string(),
+            duration_ms,
+            success,
+        }),
         ChatExecutionEvent::PermissionRequired {
             request_id,
             tool_name,
@@ -456,25 +481,32 @@ fn translate_event(session_id: Uuid, event: ChatExecutionEvent) -> Option<WsServ
             description,
             deadline_secs,
         }),
-        ChatExecutionEvent::SubAgentStarted { id, description, wave, allowed_tools } => {
-            Some(WsServerEvent::SubAgentStarted {
-                session_id,
-                sub_agent_id: id,
-                task_description: description,
-                wave,
-                allowed_tools,
-            })
-        }
-        ChatExecutionEvent::SubAgentCompleted { id, success, summary, tools_used, duration_ms } => {
-            Some(WsServerEvent::SubAgentCompleted {
-                session_id,
-                sub_agent_id: id,
-                success,
-                summary,
-                tools_used,
-                duration_ms,
-            })
-        }
+        ChatExecutionEvent::SubAgentStarted {
+            id,
+            description,
+            wave,
+            allowed_tools,
+        } => Some(WsServerEvent::SubAgentStarted {
+            session_id,
+            sub_agent_id: id,
+            task_description: description,
+            wave,
+            allowed_tools,
+        }),
+        ChatExecutionEvent::SubAgentCompleted {
+            id,
+            success,
+            summary,
+            tools_used,
+            duration_ms,
+        } => Some(WsServerEvent::SubAgentCompleted {
+            session_id,
+            sub_agent_id: id,
+            success,
+            summary,
+            tools_used,
+            duration_ms,
+        }),
         ChatExecutionEvent::Completed {
             assistant_message_id,
             stop_reason,
@@ -493,14 +525,16 @@ fn translate_event(session_id: Uuid, event: ChatExecutionEvent) -> Option<WsServ
             },
             total_duration_ms,
         }),
-        ChatExecutionEvent::Failed { error_code, message, recoverable } => {
-            Some(WsServerEvent::ExecutionFailed {
-                session_id,
-                error_code,
-                message,
-                recoverable,
-            })
-        }
+        ChatExecutionEvent::Failed {
+            error_code,
+            message,
+            recoverable,
+        } => Some(WsServerEvent::ExecutionFailed {
+            session_id,
+            error_code,
+            message,
+            recoverable,
+        }),
         // B1: Translate permission timeout to PermissionExpired so clients
         // can dismiss their pending modals deterministically.
         ChatExecutionEvent::PermissionExpired { request_id } => {
@@ -592,7 +626,12 @@ mod tests {
         let sid = Uuid::new_v4();
         let ws = translate_event(sid, event).unwrap();
         match ws {
-            WsServerEvent::ToolExecuted { name, duration_ms, success, .. } => {
+            WsServerEvent::ToolExecuted {
+                name,
+                duration_ms,
+                success,
+                ..
+            } => {
                 assert_eq!(name, "bash");
                 assert_eq!(duration_ms, 1234);
                 assert!(!success);
@@ -612,7 +651,11 @@ mod tests {
         let sid = Uuid::new_v4();
         let ws = translate_event(sid, event).unwrap();
         match ws {
-            WsServerEvent::ChatStreamToken { is_thinking, sequence_num, .. } => {
+            WsServerEvent::ChatStreamToken {
+                is_thinking,
+                sequence_num,
+                ..
+            } => {
                 assert!(is_thinking);
                 assert_eq!(sequence_num, 7);
             }
@@ -628,7 +671,11 @@ mod tests {
         let sid = Uuid::new_v4();
         let ws = translate_event(sid, event).unwrap();
         match ws {
-            WsServerEvent::PermissionExpired { request_id, session_id, .. } => {
+            WsServerEvent::PermissionExpired {
+                request_id,
+                session_id,
+                ..
+            } => {
                 assert_eq!(request_id, req_id);
                 assert_eq!(session_id, sid);
             }
@@ -649,7 +696,11 @@ mod tests {
         let sid = Uuid::new_v4();
         let ws = translate_event(sid, event).unwrap();
         match ws {
-            WsServerEvent::SubAgentCompleted { tools_used, duration_ms, .. } => {
+            WsServerEvent::SubAgentCompleted {
+                tools_used,
+                duration_ms,
+                ..
+            } => {
                 assert_eq!(tools_used, vec!["file_write", "bash"]);
                 assert_eq!(duration_ms, 42_000);
             }

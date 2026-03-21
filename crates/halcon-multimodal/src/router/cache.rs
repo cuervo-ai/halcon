@@ -16,13 +16,15 @@ use crate::provider::MediaAnalysis;
 /// Wraps `AsyncDatabase` for media result caching.
 #[derive(Clone)]
 pub struct MediaCache {
-    db:       Arc<AsyncDatabase>,
+    db: Arc<AsyncDatabase>,
     ttl_secs: u64,
 }
 
 impl std::fmt::Debug for MediaCache {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("MediaCache").field("ttl_secs", &self.ttl_secs).finish()
+        f.debug_struct("MediaCache")
+            .field("ttl_secs", &self.ttl_secs)
+            .finish()
     }
 }
 
@@ -43,15 +45,13 @@ impl MediaCache {
         let hash = Self::content_hash(data);
         match self.db.get_media_cache(&hash).await? {
             None => Ok(None),
-            Some(entry) => {
-                match serde_json::from_str::<MediaAnalysis>(&entry.analysis_json) {
-                    Ok(a)  => Ok(Some(a)),
-                    Err(e) => {
-                        tracing::warn!(hash = %hash, err = %e, "corrupted media cache entry");
-                        Ok(None)
-                    }
+            Some(entry) => match serde_json::from_str::<MediaAnalysis>(&entry.analysis_json) {
+                Ok(a) => Ok(Some(a)),
+                Err(e) => {
+                    tracing::warn!(hash = %hash, err = %e, "corrupted media cache entry");
+                    Ok(None)
                 }
-            }
+            },
         }
     }
 
@@ -59,22 +59,25 @@ impl MediaCache {
     pub async fn set(&self, data: &[u8], analysis: &MediaAnalysis) -> Result<()> {
         let hash = Self::content_hash(data);
         let json = serde_json::to_string(analysis)?;
-        let now  = Utc::now().to_rfc3339();
+        let now = Utc::now().to_rfc3339();
         let entry = halcon_storage::media::MediaCacheEntry {
-            content_hash:   hash,
-            modality:       analysis.modality.clone(),
-            analysis_json:  json,
-            tile_count:     1,
+            content_hash: hash,
+            modality: analysis.modality.clone(),
+            analysis_json: json,
+            tile_count: 1,
             token_estimate: analysis.token_estimate as i64,
-            created_at:     now.clone(),
-            accessed_at:    now,
+            created_at: now.clone(),
+            accessed_at: now,
         };
         self.db.store_media_cache(&entry).await.map_err(Into::into)
     }
 
     /// Evict cache entries older than the configured TTL.
     pub async fn evict_expired(&self) -> Result<usize> {
-        self.db.evict_expired_media_cache(self.ttl_secs).await.map_err(Into::into)
+        self.db
+            .evict_expired_media_cache(self.ttl_secs)
+            .await
+            .map_err(Into::into)
     }
 }
 
@@ -85,17 +88,19 @@ mod tests {
     use halcon_storage::Database;
 
     fn test_db() -> Arc<AsyncDatabase> {
-        Arc::new(AsyncDatabase::new(Arc::new(Database::open_in_memory().unwrap())))
+        Arc::new(AsyncDatabase::new(Arc::new(
+            Database::open_in_memory().unwrap(),
+        )))
     }
 
     fn fake_analysis(modality: &str) -> MediaAnalysis {
         MediaAnalysis {
-            description:    "test".into(),
-            entities:       vec![],
+            description: "test".into(),
+            entities: vec![],
             token_estimate: 100,
-            provider_name:  "test".into(),
-            is_local:       false,
-            modality:       modality.into(),
+            provider_name: "test".into(),
+            is_local: false,
+            modality: modality.into(),
         }
     }
 
@@ -108,8 +113,8 @@ mod tests {
 
     #[tokio::test]
     async fn cache_roundtrip() {
-        let cache    = MediaCache::new(test_db(), 3600);
-        let data     = b"fake image bytes";
+        let cache = MediaCache::new(test_db(), 3600);
+        let data = b"fake image bytes";
         let analysis = fake_analysis("image");
         cache.set(data, &analysis).await.unwrap();
         let loaded = cache.get(data).await.unwrap().expect("should be cached");

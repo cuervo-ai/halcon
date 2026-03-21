@@ -151,9 +151,7 @@ pub async fn consolidate(
         let boost = 0.1 * (cluster.len() as f64 - 1.0).min(3.0);
         let keeper = &entries[keeper_idx];
         let new_score = (keeper.relevance_score + boost).min(2.0);
-        let _ = db
-            .update_memory_relevance(keeper.entry_id, new_score)
-            .await;
+        let _ = db.update_memory_relevance(keeper.entry_id, new_score).await;
 
         // Delete the non-keeper entries.
         for &idx in cluster {
@@ -214,7 +212,10 @@ const AUTO_CONSOLIDATION_THRESHOLD: u32 = 20;
 pub async fn maybe_consolidate(db: &AsyncDatabase) -> Option<ConsolidationResult> {
     // Quick count check — avoid loading all reflections if not needed.
     let count = match db
-        .list_memories(Some(MemoryEntryType::Reflection), AUTO_CONSOLIDATION_THRESHOLD + 1)
+        .list_memories(
+            Some(MemoryEntryType::Reflection),
+            AUTO_CONSOLIDATION_THRESHOLD + 1,
+        )
         .await
     {
         Ok(entries) => entries.len() as u32,
@@ -254,7 +255,9 @@ mod tests {
     use uuid::Uuid;
 
     fn test_db() -> AsyncDatabase {
-        AsyncDatabase::new(Arc::new(halcon_storage::Database::open_in_memory().unwrap()))
+        AsyncDatabase::new(Arc::new(
+            halcon_storage::Database::open_in_memory().unwrap(),
+        ))
     }
 
     fn make_reflection(content: &str, relevance: f64) -> MemoryEntry {
@@ -322,7 +325,11 @@ mod tests {
             make_reflection("Docker container setup", 1.0),
         ];
         let clusters = cluster_similar(&entries, 0.4);
-        assert_eq!(clusters.len(), 3, "all entries should be in separate clusters");
+        assert_eq!(
+            clusters.len(),
+            3,
+            "all entries should be in separate clusters"
+        );
     }
 
     #[tokio::test]
@@ -391,7 +398,10 @@ mod tests {
     async fn consolidate_enforces_max_limit() {
         let db = test_db();
         for i in 0..10 {
-            let mut entry = make_reflection(&format!("Unique reflection number {i} with distinct content"), 1.0);
+            let mut entry = make_reflection(
+                &format!("Unique reflection number {i} with distinct content"),
+                1.0,
+            );
             entry.content_hash = format!("hash_max_{i}");
             db.insert_memory(&entry).await.unwrap();
         }

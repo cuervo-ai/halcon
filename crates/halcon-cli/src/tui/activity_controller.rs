@@ -379,17 +379,15 @@ impl ActivityController {
                         ("i", "inspect"),
                         ("p", "jump to plan"),
                     ],
-                    ActivityLine::CodeBlock { .. } => vec![
-                        ("Enter", "expand/collapse"),
-                        ("y", "copy"),
-                    ],
-                    ActivityLine::PlanOverview { .. } => vec![
-                        ("Enter", "view plan"),
-                        ("i", "inspect"),
-                    ],
-                    ActivityLine::UserPrompt(_) | ActivityLine::AssistantText(_) => vec![
-                        ("y", "copy"),
-                    ],
+                    ActivityLine::CodeBlock { .. } => {
+                        vec![("Enter", "expand/collapse"), ("y", "copy")]
+                    }
+                    ActivityLine::PlanOverview { .. } => {
+                        vec![("Enter", "view plan"), ("i", "inspect")]
+                    }
+                    ActivityLine::UserPrompt(_) | ActivityLine::AssistantText(_) => {
+                        vec![("y", "copy")]
+                    }
                     _ => vec![],
                 }
             } else {
@@ -544,7 +542,10 @@ mod tests {
         let key = KeyEvent::new(KeyCode::Char('i'), KeyModifiers::empty());
         let action = controller.handle_key(key, &mut nav, &model);
 
-        assert_eq!(action, ControlAction::OpenInspector(InspectTarget::ToolResult { line_idx: 1 }));
+        assert_eq!(
+            action,
+            ControlAction::OpenInspector(InspectTarget::ToolResult { line_idx: 1 })
+        );
     }
 
     #[test]

@@ -153,7 +153,13 @@ impl InputNormalizer {
         let word_count = query.split_whitespace().count();
         let language = Self::detect_language(&query);
 
-        BoundaryInput { query, word_count, language, context, continuity }
+        BoundaryInput {
+            query,
+            word_count,
+            language,
+            context,
+            continuity,
+        }
     }
 
     /// Normalize text: trim, collapse internal whitespace, Unicode cleanup.
@@ -179,7 +185,11 @@ impl InputNormalizer {
             .map(|c| {
                 // Collapse all whitespace categories (tabs, non-breaking spaces,
                 // form feeds) to regular ASCII space.
-                if c.is_whitespace() || INVISIBLE_FORMAT.contains(&c) { ' ' } else { c }
+                if c.is_whitespace() || INVISIBLE_FORMAT.contains(&c) {
+                    ' '
+                } else {
+                    c
+                }
             })
             .filter(|c| {
                 // Remove control characters except the space we just mapped.
@@ -213,30 +223,81 @@ impl InputNormalizer {
         // These markers are chosen to minimize false positives across EN/ES.
         // Spanish markers: common function words and technical terms unique to ES.
         const SPANISH_MARKERS: &[&str] = &[
-            " de ", " la ", " el ", " en ", " los ", " las ", " del ",
-            " para ", " con ", " por ", " una ", " que ",
-            "analiza", "revisar", "revisar", "identificar", "busca",
-            "arquitectura", "sistema", "módulo", "código", "seguridad",
-            "microservicio", "distribuid", "vulnerabilidad", "rendimiento",
-            "implementar", "construir", "desplegar", "arreglar",
+            " de ",
+            " la ",
+            " el ",
+            " en ",
+            " los ",
+            " las ",
+            " del ",
+            " para ",
+            " con ",
+            " por ",
+            " una ",
+            " que ",
+            "analiza",
+            "revisar",
+            "revisar",
+            "identificar",
+            "busca",
+            "arquitectura",
+            "sistema",
+            "módulo",
+            "código",
+            "seguridad",
+            "microservicio",
+            "distribuid",
+            "vulnerabilidad",
+            "rendimiento",
+            "implementar",
+            "construir",
+            "desplegar",
+            "arreglar",
         ];
         const ENGLISH_MARKERS: &[&str] = &[
-            " the ", " and ", " for ", " with ", " from ", " that ",
-            " this ", " are ", " have ", " will ", " can ", " not ",
-            "analyze", "review", "identify", "search", "find",
-            "architecture", "system", "module", "code", "security",
-            "microservice", "distributed", "vulnerability", "performance",
-            "implement", "build", "deploy", "fix", "refactor",
+            " the ",
+            " and ",
+            " for ",
+            " with ",
+            " from ",
+            " that ",
+            " this ",
+            " are ",
+            " have ",
+            " will ",
+            " can ",
+            " not ",
+            "analyze",
+            "review",
+            "identify",
+            "search",
+            "find",
+            "architecture",
+            "system",
+            "module",
+            "code",
+            "security",
+            "microservice",
+            "distributed",
+            "vulnerability",
+            "performance",
+            "implement",
+            "build",
+            "deploy",
+            "fix",
+            "refactor",
         ];
 
         let lower = normalized.to_lowercase();
         // Pad with spaces for word-boundary matching.
         let padded = format!(" {} ", lower);
 
-        let es_hits = SPANISH_MARKERS.iter()
+        let es_hits = SPANISH_MARKERS
+            .iter()
             .filter(|&&m| padded.contains(m))
             .count();
-        let en_hits = ENGLISH_MARKERS.iter()
+        let en_hits = ENGLISH_MARKERS
+            .iter()
             .filter(|&&m| padded.contains(m))
             .count();
 
@@ -303,7 +364,10 @@ mod tests {
     fn unknown_for_very_short_query() {
         let b = normalize("hello");
         // "hello" has no markers → Unknown.
-        assert!(matches!(b.language, QueryLanguage::Unknown | QueryLanguage::English));
+        assert!(matches!(
+            b.language,
+            QueryLanguage::Unknown | QueryLanguage::English
+        ));
     }
 
     #[test]

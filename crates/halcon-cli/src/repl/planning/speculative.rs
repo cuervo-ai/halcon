@@ -7,10 +7,10 @@
 use std::sync::Arc;
 use std::time::Instant;
 
+use futures::stream::BoxStream;
 use halcon_core::error::HalconError;
 use halcon_core::traits::ModelProvider;
 use halcon_core::types::{ModelChunk, ModelRequest, RoutingConfig};
-use futures::stream::BoxStream;
 
 use super::router::ModelRouter;
 
@@ -108,8 +108,9 @@ impl SpeculativeInvoker {
             String,
             bool,
         );
-        type InvokeFut =
-            std::pin::Pin<Box<dyn std::future::Future<Output = Result<InvokeOutput, HalconError>> + Send>>;
+        type InvokeFut = std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<InvokeOutput, HalconError>> + Send>,
+        >;
 
         let mut futs: Vec<InvokeFut> = Vec::new();
 
@@ -128,7 +129,11 @@ impl SpeculativeInvoker {
             let p = Arc::clone(provider);
             let fname = name.clone();
             // Adapt model: use the request model if supported, otherwise use provider's first model.
-            let fb_model = if provider.supported_models().iter().any(|m| m.id == request.model) {
+            let fb_model = if provider
+                .supported_models()
+                .iter()
+                .any(|m| m.id == request.model)
+            {
                 request.model.clone()
             } else {
                 provider

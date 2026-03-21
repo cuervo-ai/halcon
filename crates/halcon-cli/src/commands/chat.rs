@@ -452,8 +452,11 @@ fn print_exit_hooks(repl: &Repl, flags: &FeatureFlags) {
 
         // Auto-save trace to ~/.halcon/sessions/<session_id>.jsonl (only when a plan ran)
         let trace_path = if repl.last_timeline_json().is_some() {
-            let tp = dirs::home_dir()
-                .map(|h| h.join(".halcon").join("sessions").join(format!("{session_id}.jsonl")));
+            let tp = dirs::home_dir().map(|h| {
+                h.join(".halcon")
+                    .join("sessions")
+                    .join(format!("{session_id}.jsonl"))
+            });
             if let Some(ref tp) = tp {
                 let _ = std::fs::create_dir_all(tp.parent().unwrap());
                 write_trace_jsonl(repl, tp);
@@ -537,9 +540,7 @@ fn print_exit_hooks(repl: &Repl, flags: &FeatureFlags) {
                             "Running" => "▸",
                             _ => "○",
                         };
-                        eprintln!(
-                            "  │  {icon} [{idx}] {desc}",
-                        );
+                        eprintln!("  │  {icon} [{idx}] {desc}",);
                         if dur_ms > 0 || delegated != "-" {
                             eprintln!(
                                 "  │      → {status}  {:.1}s  agente: {delegated}",

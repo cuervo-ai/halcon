@@ -127,15 +127,15 @@ impl BatchScope {
     /// Check if this scope covers the given tool at the current time.
     pub fn covers(&self, tool: &str, elapsed: Duration, consumed: u32) -> bool {
         match self {
-            BatchScope::Count { tool: scope_tool, count } => {
-                tool == scope_tool && consumed < *count
-            }
-            BatchScope::Duration { tool: scope_tool, seconds } => {
-                tool == scope_tool && elapsed.as_secs() < *seconds
-            }
-            BatchScope::Pattern { pattern, .. } => {
-                Self::matches_glob(tool, pattern)
-            }
+            BatchScope::Count {
+                tool: scope_tool,
+                count,
+            } => tool == scope_tool && consumed < *count,
+            BatchScope::Duration {
+                tool: scope_tool,
+                seconds,
+            } => tool == scope_tool && elapsed.as_secs() < *seconds,
+            BatchScope::Pattern { pattern, .. } => Self::matches_glob(tool, pattern),
         }
     }
 

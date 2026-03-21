@@ -77,10 +77,12 @@ pub struct OAuthManager {
 
 impl OAuthManager {
     pub fn new(server_name: impl Into<String>, base_url: impl Into<String>) -> Self {
-        let http = Arc::new(Client::builder()
-            .timeout(Duration::from_secs(30))
-            .build()
-            .expect("reqwest client"));
+        let http = Arc::new(
+            Client::builder()
+                .timeout(Duration::from_secs(30))
+                .build()
+                .expect("reqwest client"),
+        );
         Self {
             server_name: server_name.into(),
             base_url: base_url.into(),
@@ -155,7 +157,10 @@ impl OAuthManager {
             q.append_pair("state", &state);
         }
 
-        println!("\nOpening browser for MCP authorization ({})…", self.server_name);
+        println!(
+            "\nOpening browser for MCP authorization ({})…",
+            self.server_name
+        );
         println!("If the browser does not open, visit:\n  {auth_url}\n");
         let _ = open::that(auth_url.as_str());
 
@@ -163,7 +168,8 @@ impl OAuthManager {
         let code = receive_auth_code(&state).await?;
 
         // Step 6: exchange code for tokens.
-        self.exchange_code(&metadata, &client_id, &code, &code_verifier, &redirect_uri).await
+        self.exchange_code(&metadata, &client_id, &code, &code_verifier, &redirect_uri)
+            .await
     }
 
     // ── AS Metadata Discovery ─────────────────────────────────────────────────
@@ -185,7 +191,9 @@ impl OAuthManager {
     // ── Dynamic Client Registration ───────────────────────────────────────────
 
     async fn register_client(&self, metadata: &AuthServerMetadata) -> Result<String, OAuthError> {
-        let endpoint = metadata.registration_endpoint.as_deref()
+        let endpoint = metadata
+            .registration_endpoint
+            .as_deref()
             .ok_or_else(|| OAuthError::RegistrationUnsupported)?;
 
         let body = serde_json::json!({
@@ -197,11 +205,7 @@ impl OAuthManager {
             "code_challenge_methods_supported": ["S256"],
         });
 
-        let resp = self.http
-            .post(endpoint)
-            .json(&body)
-            .send()
-            .await?;
+        let resp = self.http.post(endpoint).json(&body).send().await?;
 
         if !resp.status().is_success() {
             return Err(OAuthError::Registration(format!(
@@ -231,7 +235,8 @@ impl OAuthManager {
         params.insert("code_verifier", code_verifier);
         params.insert("client_id", client_id);
 
-        let resp = self.http
+        let resp = self
+            .http
             .post(&metadata.token_endpoint)
             .form(&params)
             .send()
@@ -239,7 +244,9 @@ impl OAuthManager {
 
         if !resp.status().is_success() {
             let body = resp.text().await.unwrap_or_default();
-            return Err(OAuthError::TokenExchange(format!("token endpoint error: {body}")));
+            return Err(OAuthError::TokenExchange(format!(
+                "token endpoint error: {body}"
+            )));
         }
 
         let tr: TokenResponse = resp.json().await?;
@@ -255,7 +262,8 @@ impl OAuthManager {
         params.insert("refresh_token", refresh_token);
         params.insert("client_id", &client_id);
 
-        let resp = self.http
+        let resp = self
+            .http
             .post(&metadata.token_endpoint)
             .form(&params)
             .send()
@@ -279,7 +287,8 @@ impl OAuthManager {
             ("client_secret", client_secret),
         ];
 
-        let resp = self.http
+        let resp = self
+            .http
             .post(&metadata.token_endpoint)
             .form(&params)
             .send()
@@ -293,18 +302,28 @@ impl OAuthManager {
 
     fn load_token(&self) -> Option<McpToken> {
         let access_token = keyring::Entry::new(KEYCHAIN_SERVICE, &self.token_key("access"))
-            .ok()?.get_password().ok()?;
+            .ok()?
+            .get_password()
+            .ok()?;
         let refresh_token = keyring::Entry::new(KEYCHAIN_SERVICE, &self.token_key("refresh"))
-            .ok()?.get_password().ok();
+            .ok()?
+            .get_password()
+            .ok();
         let expires_at = keyring::Entry::new(KEYCHAIN_SERVICE, &self.token_key("expires"))
-            .ok()?.get_password().ok()
+            .ok()?
+            .get_password()
+            .ok()
             .and_then(|s| s.parse::<u64>().ok())
             .unwrap_or(0);
 
         if access_token.is_empty() {
             None
         } else {
-            Some(McpToken { access_token, refresh_token, expires_at })
+            Some(McpToken {
+                access_token,
+                refresh_token,
+                expires_at,
+            })
         }
     }
 
@@ -440,13 +459,16 @@ struct TokenResponse {
 
 impl TokenResponse {
     fn into_token(self) -> McpToken {
-        let expires_at = self.expires_in.map(|secs| {
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap_or_default()
-                .as_secs()
-                + secs
-        }).unwrap_or(0);
+        let expires_at = self
+            .expires_in
+            .map(|secs| {
+                SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs()
+                    + secs
+            })
+            .unwrap_or(0);
 
         McpToken {
             access_token: self.access_token,
@@ -517,21 +539,30 @@ mod tests {
             refresh_token: None,
             expires_at: now + 60, // expires in 1 minute
         };
-        assert!(expiring.is_expiring(), "token expiring in 60s should be detected");
+        assert!(
+            expiring.is_expiring(),
+            "token expiring in 60s should be detected"
+        );
 
         let fresh = McpToken {
             access_token: "tok".into(),
             refresh_token: None,
             expires_at: now + 3600, // expires in 1 hour
         };
-        assert!(!fresh.is_expiring(), "token expiring in 1h should not be expiring");
+        assert!(
+            !fresh.is_expiring(),
+            "token expiring in 1h should not be expiring"
+        );
 
         let unknown = McpToken {
             access_token: "tok".into(),
             refresh_token: None,
             expires_at: 0,
         };
-        assert!(!unknown.is_expiring(), "unknown expiry should not trigger refresh");
+        assert!(
+            !unknown.is_expiring(),
+            "unknown expiry should not trigger refresh"
+        );
     }
 
     #[test]

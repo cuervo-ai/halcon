@@ -66,12 +66,14 @@ impl Tool for PortCheckTool {
             }
         };
 
-        let host = input.arguments
+        let host = input
+            .arguments
             .get("host")
             .and_then(|v| v.as_str())
             .unwrap_or("127.0.0.1");
 
-        let allow_remote = input.arguments
+        let allow_remote = input
+            .arguments
             .get("allow_remote")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
@@ -87,7 +89,8 @@ impl Tool for PortCheckTool {
             }
         }
 
-        let timeout_ms = input.arguments
+        let timeout_ms = input
+            .arguments
             .get("timeout_ms")
             .and_then(|v| v.as_u64())
             .unwrap_or(2000)
@@ -97,16 +100,16 @@ impl Tool for PortCheckTool {
         let timeout = Duration::from_millis(timeout_ms);
 
         // Attempt a TCP connection to check if something is listening
-        let connect_result = tokio::time::timeout(
-            timeout,
-            tokio::net::TcpStream::connect(&addr),
-        )
-        .await;
+        let connect_result =
+            tokio::time::timeout(timeout, tokio::net::TcpStream::connect(&addr)).await;
 
         let (status, description) = match connect_result {
             Ok(Ok(_stream)) => {
                 // Successfully connected → something is listening on this port
-                ("in_use", format!("Port {port} on {host} is IN USE — a service is listening."))
+                (
+                    "in_use",
+                    format!("Port {port} on {host} is IN USE — a service is listening."),
+                )
             }
             Ok(Err(e)) => {
                 // Connection refused or other error → port is free or host unreachable
@@ -114,7 +117,10 @@ impl Tool for PortCheckTool {
                 if err_str.contains("connection refused") {
                     ("free", format!("Port {port} on {host} is FREE (connection refused — nothing listening)."))
                 } else if err_str.contains("network unreachable") || err_str.contains("no route") {
-                    ("unreachable", format!("Port {port} on {host} is unreachable: {e}"))
+                    (
+                        "unreachable",
+                        format!("Port {port} on {host} is unreachable: {e}"),
+                    )
                 } else {
                     ("free", format!("Port {port} on {host} appears free: {e}"))
                 }
@@ -213,26 +219,41 @@ mod tests {
     async fn free_port_detected() {
         // Port 1 is almost certainly not listening and will give connection refused
         let tool = PortCheckTool::new();
-        let out = tool.execute(make_input(json!({ "port": 19977, "timeout_ms": 500 }))).await.unwrap();
+        let out = tool
+            .execute(make_input(json!({ "port": 19977, "timeout_ms": 500 })))
+            .await
+            .unwrap();
         assert!(!out.is_error);
-        let status = out.metadata.as_ref().unwrap()["status"].as_str().unwrap_or("");
+        let status = out.metadata.as_ref().unwrap()["status"]
+            .as_str()
+            .unwrap_or("");
         // Should be "free" or "timeout" — never "in_use" for a random high port
-        assert!(status == "free" || status == "timeout" || status == "unreachable",
-            "unexpected status '{status}' for unused port");
+        assert!(
+            status == "free" || status == "timeout" || status == "unreachable",
+            "unexpected status '{status}' for unused port"
+        );
     }
 
     #[tokio::test]
     async fn metadata_has_port() {
         let tool = PortCheckTool::new();
-        let out = tool.execute(make_input(json!({ "port": 19978, "timeout_ms": 300 }))).await.unwrap();
-        assert_eq!(out.metadata.as_ref().unwrap()["port"].as_u64().unwrap(), 19978);
+        let out = tool
+            .execute(make_input(json!({ "port": 19978, "timeout_ms": 300 })))
+            .await
+            .unwrap();
+        assert_eq!(
+            out.metadata.as_ref().unwrap()["port"].as_u64().unwrap(),
+            19978
+        );
     }
 
     /// Remote host rejected by default (no allow_remote).
     #[tokio::test]
     async fn remote_host_rejected_by_default() {
         let tool = PortCheckTool::new();
-        let result = tool.execute(make_input(json!({ "port": 80, "host": "192.168.1.1" }))).await;
+        let result = tool
+            .execute(make_input(json!({ "port": 80, "host": "192.168.1.1" })))
+            .await;
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
         assert!(err.contains("not a localhost address"), "err: {err}");
@@ -243,12 +264,14 @@ mod tests {
     async fn remote_host_allowed_with_flag() {
         let tool = PortCheckTool::new();
         // Use a high port on a private address — expected to be free or timeout
-        let result = tool.execute(make_input(json!({
-            "port": 19979,
-            "host": "127.0.0.1",
-            "allow_remote": true,
-            "timeout_ms": 300
-        }))).await;
+        let result = tool
+            .execute(make_input(json!({
+                "port": 19979,
+                "host": "127.0.0.1",
+                "allow_remote": true,
+                "timeout_ms": 300
+            })))
+            .await;
         // Should succeed (localhost is always allowed even with allow_remote)
         assert!(result.is_ok());
     }
@@ -258,12 +281,18 @@ mod tests {
     async fn localhost_variants_accepted() {
         let tool = PortCheckTool::new();
         for host in &["127.0.0.1", "localhost", "::1"] {
-            let result = tool.execute(make_input(json!({
-                "port": 19980,
-                "host": host,
-                "timeout_ms": 200
-            }))).await;
-            assert!(result.is_ok(), "host '{host}' should be accepted: {:?}", result);
+            let result = tool
+                .execute(make_input(json!({
+                    "port": 19980,
+                    "host": host,
+                    "timeout_ms": 200
+                })))
+                .await;
+            assert!(
+                result.is_ok(),
+                "host '{host}' should be accepted: {:?}",
+                result
+            );
         }
     }
 
@@ -272,7 +301,9 @@ mod tests {
     fn schema_has_allow_remote() {
         let tool = PortCheckTool::new();
         let schema = tool.input_schema();
-        assert!(schema["properties"]["allow_remote"].is_object(),
-            "allow_remote should be in schema properties");
+        assert!(
+            schema["properties"]["allow_remote"].is_object(),
+            "allow_remote should be in schema properties"
+        );
     }
 }

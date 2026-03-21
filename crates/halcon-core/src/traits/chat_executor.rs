@@ -87,10 +87,7 @@ pub enum ChatExecutionEvent {
         elapsed_secs: f32,
     },
     /// A tool invocation started.
-    ToolStarted {
-        name: String,
-        risk_level: String,
-    },
+    ToolStarted { name: String, risk_level: String },
     /// A tool invocation completed.
     ToolCompleted {
         name: String,
@@ -109,9 +106,7 @@ pub enum ChatExecutionEvent {
     /// A permission request timed out — the tool was automatically denied (fail-closed).
     /// B1: Allows clients to dismiss pending permission modals deterministically
     /// without relying on silence / guessing whether the timeout fired.
-    PermissionExpired {
-        request_id: Uuid,
-    },
+    PermissionExpired { request_id: Uuid },
     /// A sub-agent was spawned by the orchestrator.
     SubAgentStarted {
         id: String,

@@ -274,10 +274,7 @@ mod tests {
     fn value_allowlist_checks() {
         let constraint = ParameterConstraint::ValueAllowlist {
             field: "language".into(),
-            allowed: vec![
-                serde_json::json!("rust"),
-                serde_json::json!("python"),
-            ],
+            allowed: vec![serde_json::json!("rust"), serde_json::json!("python")],
         };
 
         assert!(constraint.check(&serde_json::json!({"language": "rust"})));

@@ -113,27 +113,44 @@ impl RiskTierClassifier {
         let mut score = 0u32;
 
         // Critical: security-sensitive files
-        if p.contains("auth") || p.contains("crypto") || p.contains("permission")
-            || p.contains("security") || p.contains("guardrail")
-            || p.contains("secret") || p.contains("password")
-            || p.ends_with(".pem") || p.ends_with(".key")
-            || p.ends_with(".env") || p.contains("credentials")
+        if p.contains("auth")
+            || p.contains("crypto")
+            || p.contains("permission")
+            || p.contains("security")
+            || p.contains("guardrail")
+            || p.contains("secret")
+            || p.contains("password")
+            || p.ends_with(".pem")
+            || p.ends_with(".key")
+            || p.ends_with(".env")
+            || p.contains("credentials")
         {
             score += 80;
         }
         // High: configuration, CI, dependency manifests (score ≥61 to reach High tier).
-        else if p.contains("cargo.toml") || p.contains("package.json")
-            || p.contains("pyproject.toml") || p.contains("go.mod")
-            || p.ends_with(".lock") || p.contains(".github/")
-            || p.contains("dockerfile") || p.contains("docker-compose")
-            || p.contains("Makefile") || p.contains(".ci")
+        else if p.contains("cargo.toml")
+            || p.contains("package.json")
+            || p.contains("pyproject.toml")
+            || p.contains("go.mod")
+            || p.ends_with(".lock")
+            || p.contains(".github/")
+            || p.contains("dockerfile")
+            || p.contains("docker-compose")
+            || p.contains("Makefile")
+            || p.contains(".ci")
         {
-            score += 65;  // ≥61 → High tier
+            score += 65; // ≥61 → High tier
         }
         // Medium: source code
-        else if p.ends_with(".rs") || p.ends_with(".py") || p.ends_with(".ts")
-            || p.ends_with(".js") || p.ends_with(".go") || p.ends_with(".java")
-            || p.ends_with(".c") || p.ends_with(".cpp") || p.ends_with(".h")
+        else if p.ends_with(".rs")
+            || p.ends_with(".py")
+            || p.ends_with(".ts")
+            || p.ends_with(".js")
+            || p.ends_with(".go")
+            || p.ends_with(".java")
+            || p.ends_with(".c")
+            || p.ends_with(".cpp")
+            || p.ends_with(".h")
         {
             score += 10;
         }
@@ -147,28 +164,56 @@ impl RiskTierClassifier {
         let mut score = 0u32;
 
         // Critical patterns — individually sufficient to reach Critical tier (≥86).
-        if lower.contains("unsafe ") { score += 90; }
-        if lower.contains("transmute") { score += 90; }
-        if lower.contains("#[no_mangle]") { score += 60; }
-        if lower.contains("extern \"c\"") { score += 55; }
-        if contains_auth_pattern(&lower) { score += 90; }
-        if contains_crypto_pattern(&lower) { score += 90; }
+        if lower.contains("unsafe ") {
+            score += 90;
+        }
+        if lower.contains("transmute") {
+            score += 90;
+        }
+        if lower.contains("#[no_mangle]") {
+            score += 60;
+        }
+        if lower.contains("extern \"c\"") {
+            score += 55;
+        }
+        if contains_auth_pattern(&lower) {
+            score += 90;
+        }
+        if contains_crypto_pattern(&lower) {
+            score += 90;
+        }
 
         // High patterns
-        if lower.contains("pub fn ") || lower.contains("pub struct ")
-            || lower.contains("pub trait ") || lower.contains("pub enum ")
+        if lower.contains("pub fn ")
+            || lower.contains("pub struct ")
+            || lower.contains("pub trait ")
+            || lower.contains("pub enum ")
         {
             score += 40;
         }
-        if lower.contains("mod ") && lower.contains("pub ") { score += 35; }
-        if lower.contains("impl ") { score += 20; }
-        if lower.contains("tokio::main") || lower.contains("#[actix") { score += 40; }
+        if lower.contains("mod ") && lower.contains("pub ") {
+            score += 35;
+        }
+        if lower.contains("impl ") {
+            score += 20;
+        }
+        if lower.contains("tokio::main") || lower.contains("#[actix") {
+            score += 40;
+        }
 
         // Medium patterns
-        if lower.contains("fn ") { score += 20; }
-        if lower.contains("if ") || lower.contains("match ") { score += 10; }
-        if lower.contains("unwrap()") || lower.contains("expect(") { score += 8; }
-        if lower.contains("panic!(") { score += 15; }
+        if lower.contains("fn ") {
+            score += 20;
+        }
+        if lower.contains("if ") || lower.contains("match ") {
+            score += 10;
+        }
+        if lower.contains("unwrap()") || lower.contains("expect(") {
+            score += 8;
+        }
+        if lower.contains("panic!(") {
+            score += 15;
+        }
 
         // Low patterns (docs/comments — reduce accumulated score)
         if is_comment_only(content) {
@@ -181,13 +226,15 @@ impl RiskTierClassifier {
     /// Score the actual diff text (added + lines only).
     fn score_diff(diff: &str) -> u32 {
         // Extract only added lines (start with '+' but not '+++').
-        let added_content: String = diff.lines()
+        let added_content: String = diff
+            .lines()
             .filter(|l| l.starts_with('+') && !l.starts_with("+++"))
             .map(|l| &l[1..])
             .collect::<Vec<_>>()
             .join("\n");
 
-        let removed_content: String = diff.lines()
+        let removed_content: String = diff
+            .lines()
             .filter(|l| l.starts_with('-') && !l.starts_with("---"))
             .map(|l| &l[1..])
             .collect::<Vec<_>>()
@@ -205,9 +252,7 @@ impl RiskTierClassifier {
         }
 
         // Hunk count multiplier: many scattered hunks = high structural change.
-        let hunk_count = diff.lines()
-            .filter(|l| l.starts_with("@@"))
-            .count() as u32;
+        let hunk_count = diff.lines().filter(|l| l.starts_with("@@")).count() as u32;
         if hunk_count >= 10 {
             score += 30;
         } else if hunk_count >= 5 {
@@ -221,18 +266,28 @@ impl RiskTierClassifier {
 // ── helpers ──────────────────────────────────────────────────────────────────
 
 fn contains_auth_pattern(lower: &str) -> bool {
-    lower.contains("authenticate") || lower.contains("authorization")
-        || lower.contains("jwt") || lower.contains("oauth")
-        || lower.contains("api_key") || lower.contains("bearer")
-        || lower.contains("session_token") || lower.contains("csrf")
+    lower.contains("authenticate")
+        || lower.contains("authorization")
+        || lower.contains("jwt")
+        || lower.contains("oauth")
+        || lower.contains("api_key")
+        || lower.contains("bearer")
+        || lower.contains("session_token")
+        || lower.contains("csrf")
 }
 
 fn contains_crypto_pattern(lower: &str) -> bool {
-    lower.contains("aes") || lower.contains("rsa") || lower.contains("sha256")
-        || lower.contains("bcrypt") || lower.contains("argon2")
-        || lower.contains("encryption") || lower.contains("decrypt")
-        || lower.contains("private_key") || lower.contains("public_key")
-        || lower.contains("openssl") || lower.contains("ring::")
+    lower.contains("aes")
+        || lower.contains("rsa")
+        || lower.contains("sha256")
+        || lower.contains("bcrypt")
+        || lower.contains("argon2")
+        || lower.contains("encryption")
+        || lower.contains("decrypt")
+        || lower.contains("private_key")
+        || lower.contains("public_key")
+        || lower.contains("openssl")
+        || lower.contains("ring::")
 }
 
 fn is_comment_only(content: &str) -> bool {

@@ -49,7 +49,11 @@ fn parse_hunks(diff: &str) -> std::result::Result<Vec<Hunk>, String> {
     let mut current: Option<Hunk> = None;
 
     for line in diff.lines() {
-        if line.starts_with("--- ") || line.starts_with("+++ ") || line.starts_with("diff ") || line.starts_with("index ") {
+        if line.starts_with("--- ")
+            || line.starts_with("+++ ")
+            || line.starts_with("diff ")
+            || line.starts_with("index ")
+        {
             continue;
         }
         if line.starts_with("@@ ") {
@@ -59,14 +63,17 @@ fn parse_hunks(diff: &str) -> std::result::Result<Vec<Hunk>, String> {
             }
             // Parse: @@ -orig_start[,orig_count] +new_start[,new_count] @@
             let orig_start = parse_hunk_header(line)?;
-            current = Some(Hunk { orig_start, lines: Vec::new() });
+            current = Some(Hunk {
+                orig_start,
+                lines: Vec::new(),
+            });
         } else if let Some(ref mut h) = current {
-            if line.starts_with('-') {
-                h.lines.push(HunkLine::Remove(line[1..].to_string()));
-            } else if line.starts_with('+') {
-                h.lines.push(HunkLine::Add(line[1..].to_string()));
-            } else if line.starts_with(' ') {
-                h.lines.push(HunkLine::Context(line[1..].to_string()));
+            if let Some(stripped) = line.strip_prefix('-') {
+                h.lines.push(HunkLine::Remove(stripped.to_string()));
+            } else if let Some(stripped) = line.strip_prefix('+') {
+                h.lines.push(HunkLine::Add(stripped.to_string()));
+            } else if let Some(stripped) = line.strip_prefix(' ') {
+                h.lines.push(HunkLine::Context(stripped.to_string()));
             } else if line == "\\ No newline at end of file" {
                 // informational — skip
             }
@@ -82,7 +89,7 @@ fn parse_hunks(diff: &str) -> std::result::Result<Vec<Hunk>, String> {
 fn parse_hunk_header(line: &str) -> std::result::Result<usize, String> {
     // Find "-N" after "@@"
     let after = line
-        .splitn(3, "@@")
+        .split("@@")
         .nth(1)
         .ok_or_else(|| format!("Malformed hunk header: {line}"))?
         .trim();
@@ -208,7 +215,9 @@ impl Tool for DiffApplyTool {
             .ok_or_else(|| HalconError::InvalidInput("diff_apply requires 'diff' string".into()))?;
 
         if diff.trim().is_empty() {
-            return Err(HalconError::InvalidInput("diff_apply: diff must not be empty".into()));
+            return Err(HalconError::InvalidInput(
+                "diff_apply: diff must not be empty".into(),
+            ));
         }
 
         const MAX_DIFF_BYTES: usize = 10 * 1024 * 1024; // 10 MB
@@ -226,9 +235,8 @@ impl Tool for DiffApplyTool {
         let original = self.fs.read_to_string(&resolved).await?;
 
         // Parse and apply the diff
-        let hunks = parse_hunks(diff).map_err(|e| {
-            HalconError::InvalidInput(format!("Failed to parse diff: {e}"))
-        })?;
+        let hunks = parse_hunks(diff)
+            .map_err(|e| HalconError::InvalidInput(format!("Failed to parse diff: {e}")))?;
 
         let hunk_count = hunks.len();
         if hunk_count == 0 {
@@ -240,12 +248,11 @@ impl Tool for DiffApplyTool {
             });
         }
 
-        let patched = apply_hunks(&original, &hunks).map_err(|e| {
-            HalconError::ToolExecutionFailed {
+        let patched =
+            apply_hunks(&original, &hunks).map_err(|e| HalconError::ToolExecutionFailed {
                 tool: "diff_apply".to_string(),
                 message: format!("Patch failed: {e}"),
-            }
-        })?;
+            })?;
 
         // Write back atomically
         self.fs.atomic_write(&resolved, patched.as_bytes()).await?;
@@ -290,7 +297,10 @@ mod tests {
     fn parse_hunk_header_basic() {
         assert_eq!(parse_hunk_header("@@ -1,5 +1,6 @@").unwrap(), 1);
         assert_eq!(parse_hunk_header("@@ -12,3 +15,4 @@").unwrap(), 12);
-        assert_eq!(parse_hunk_header("@@ -100 +100,2 @@ fn foo()").unwrap(), 100);
+        assert_eq!(
+            parse_hunk_header("@@ -100 +100,2 @@ fn foo()").unwrap(),
+            100
+        );
     }
 
     #[test]

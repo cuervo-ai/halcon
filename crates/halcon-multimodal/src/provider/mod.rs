@@ -47,21 +47,33 @@ pub struct MockMultimodalProvider;
 #[cfg(test)]
 #[async_trait]
 impl MultimodalProvider for MockMultimodalProvider {
-    fn name(&self) -> &str { "mock" }
+    fn name(&self) -> &str {
+        "mock"
+    }
 
-    fn supports_modality(&self, _modality: &str) -> bool { true }
+    fn supports_modality(&self, _modality: &str) -> bool {
+        true
+    }
 
-    async fn analyze(&self, media: &ValidatedMedia, _prompt: Option<&str>) -> Result<MediaAnalysis> {
-        let modality = if media.is_image()      { "image" }
-                       else if media.is_audio() { "audio" }
-                       else                     { "video" };
+    async fn analyze(
+        &self,
+        media: &ValidatedMedia,
+        _prompt: Option<&str>,
+    ) -> Result<MediaAnalysis> {
+        let modality = if media.is_image() {
+            "image"
+        } else if media.is_audio() {
+            "audio"
+        } else {
+            "video"
+        };
         Ok(MediaAnalysis {
-            description:   format!("Mock analysis: {} content detected", modality),
-            entities:      vec!["mock-entity".into()],
+            description: format!("Mock analysis: {} content detected", modality),
+            entities: vec!["mock-entity".into()],
             token_estimate: 10,
             provider_name: "mock".into(),
-            is_local:      true,
-            modality:      modality.into(),
+            is_local: true,
+            modality: modality.into(),
         })
     }
 }

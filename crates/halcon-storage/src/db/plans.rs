@@ -104,12 +104,7 @@ impl Database {
         conn.execute(
             "UPDATE planning_steps SET outcome = ?1, outcome_detail = ?2
              WHERE plan_id = ?3 AND step_index = ?4",
-            rusqlite::params![
-                outcome,
-                outcome_detail,
-                plan_id.to_string(),
-                step_index,
-            ],
+            rusqlite::params![outcome, outcome_detail, plan_id.to_string(), step_index,],
         )
         .map_err(|e| HalconError::DatabaseError(format!("update plan step outcome: {e}")))?;
 
@@ -209,7 +204,8 @@ mod tests {
         let plan = test_plan(plan_id);
 
         db.save_plan_steps(&session_id, &plan).unwrap();
-        db.update_plan_step_outcome(&plan_id, 0, "success", "Completed OK").unwrap();
+        db.update_plan_step_outcome(&plan_id, 0, "success", "Completed OK")
+            .unwrap();
 
         let steps = db.load_plan_steps(&plan_id.to_string()).unwrap();
         assert_eq!(steps[0].outcome.as_deref(), Some("success"));

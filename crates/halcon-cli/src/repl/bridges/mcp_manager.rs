@@ -16,9 +16,9 @@ use async_trait::async_trait;
 use halcon_core::error::{HalconError, Result as HalconResult};
 use halcon_core::traits::Tool;
 use halcon_core::types::{McpConfig, PermissionLevel, ToolInput, ToolOutput};
+use halcon_mcp::extract_text;
 use halcon_mcp::pool::{McpConnectionHealth, McpPool, McpServerDef};
 use halcon_mcp::types::McpToolDefinition;
-use halcon_mcp::extract_text;
 use halcon_tools::ToolRegistry;
 
 // ---------------------------------------------------------------------------
@@ -94,12 +94,12 @@ fn infer_permission_from_def(def: &McpToolDefinition) -> PermissionLevel {
         .collect();
 
     let write_signals = [
-        "write", "create", "update", "delete", "remove", "set", "put", "post",
-        "push", "commit", "execute", "run", "send", "modify",
+        "write", "create", "update", "delete", "remove", "set", "put", "post", "push", "commit",
+        "execute", "run", "send", "modify",
     ];
     let read_signals = [
-        "read", "get", "list", "search", "fetch", "show", "find", "query",
-        "describe", "count", "view",
+        "read", "get", "list", "search", "fetch", "show", "find", "query", "describe", "count",
+        "view",
     ];
 
     if write_signals.iter().any(|s| words.contains(s)) {
@@ -122,7 +122,8 @@ impl Tool for PoolBackedBridge {
     }
 
     fn permission_level(&self) -> PermissionLevel {
-        self.permission_override.unwrap_or_else(|| self.infer_permission())
+        self.permission_override
+            .unwrap_or_else(|| self.infer_permission())
     }
 
     async fn execute(&self, input: ToolInput) -> HalconResult<ToolOutput> {
@@ -270,13 +271,14 @@ impl McpResourceManager {
                 let tool_name = tool_def.name.clone();
 
                 // Resolve permission override from config.
-                let perm_override = server_perms
-                    .and_then(|p| p.get(&tool_name))
-                    .and_then(|s| match s.as_str() {
-                        "ReadOnly" => Some(PermissionLevel::ReadOnly),
-                        "Destructive" => Some(PermissionLevel::Destructive),
-                        _ => None,
-                    });
+                let perm_override =
+                    server_perms
+                        .and_then(|p| p.get(&tool_name))
+                        .and_then(|s| match s.as_str() {
+                            "ReadOnly" => Some(PermissionLevel::ReadOnly),
+                            "Destructive" => Some(PermissionLevel::Destructive),
+                            _ => None,
+                        });
 
                 // Native built-in tools take precedence over MCP tools with the same name.
                 // This prevents MCP servers (e.g. @modelcontextprotocol/server-filesystem)
@@ -460,7 +462,10 @@ mod tests {
         );
         let mgr = McpResourceManager::new(&config);
         let captured = mgr.tool_permissions.get("myserver").unwrap();
-        assert_eq!(captured.get("my_tool").map(|s| s.as_str()), Some("ReadOnly"));
+        assert_eq!(
+            captured.get("my_tool").map(|s| s.as_str()),
+            Some("ReadOnly")
+        );
     }
 
     // --- PoolBackedBridge permission inference ---
@@ -474,19 +479,28 @@ mod tests {
     #[test]
     fn infer_permission_write_tool() {
         let def = make_tool_def("file_create", "Create a new file");
-        assert_eq!(infer_permission_from_def(&def), PermissionLevel::Destructive);
+        assert_eq!(
+            infer_permission_from_def(&def),
+            PermissionLevel::Destructive
+        );
     }
 
     #[test]
     fn infer_permission_unknown_defaults_destructive() {
         let def = make_tool_def("custom_tool", "Does something custom");
-        assert_eq!(infer_permission_from_def(&def), PermissionLevel::Destructive);
+        assert_eq!(
+            infer_permission_from_def(&def),
+            PermissionLevel::Destructive
+        );
     }
 
     #[test]
     fn infer_permission_delete_tool() {
         let def = make_tool_def("delete_record", "Delete a database record");
-        assert_eq!(infer_permission_from_def(&def), PermissionLevel::Destructive);
+        assert_eq!(
+            infer_permission_from_def(&def),
+            PermissionLevel::Destructive
+        );
     }
 
     #[test]
@@ -498,14 +512,20 @@ mod tests {
     #[test]
     fn infer_permission_commit_is_destructive() {
         let def = make_tool_def("git_commit", "Commit staged changes");
-        assert_eq!(infer_permission_from_def(&def), PermissionLevel::Destructive);
+        assert_eq!(
+            infer_permission_from_def(&def),
+            PermissionLevel::Destructive
+        );
     }
 
     #[test]
     fn permission_override_readonly_wins_over_write_name() {
         let def = make_tool_def("delete_everything", "Delete all records");
         // Without override: Destructive.
-        assert_eq!(infer_permission_from_def(&def), PermissionLevel::Destructive);
+        assert_eq!(
+            infer_permission_from_def(&def),
+            PermissionLevel::Destructive
+        );
         // Override to ReadOnly.
         let override_perm = Some(PermissionLevel::ReadOnly);
         let result = override_perm.unwrap_or_else(|| infer_permission_from_def(&def));
@@ -534,13 +554,19 @@ mod tests {
 
     #[test]
     fn list_directory_is_always_readonly() {
-        let def = make_tool_def("list_directory", "List directory contents. Set depth to control recursion.");
+        let def = make_tool_def(
+            "list_directory",
+            "List directory contents. Set depth to control recursion.",
+        );
         assert_eq!(infer_permission_from_def(&def), PermissionLevel::ReadOnly);
     }
 
     #[test]
     fn read_multiple_files_allowlist_is_readonly() {
-        let def = make_tool_def("read_multiple_files", "Read the contents of multiple files simultaneously.");
+        let def = make_tool_def(
+            "read_multiple_files",
+            "Read the contents of multiple files simultaneously.",
+        );
         assert_eq!(infer_permission_from_def(&def), PermissionLevel::ReadOnly);
     }
 
@@ -553,23 +579,35 @@ mod tests {
         // "run" is NOT a standalone word in "Returns" → no write signal → falls to read/default
         // "Returns" → word: "Returns" ≠ "run" → no write signal
         // no read signal in words either → Destructive (safe default)
-        assert_eq!(infer_permission_from_def(&def), PermissionLevel::Destructive);
+        assert_eq!(
+            infer_permission_from_def(&def),
+            PermissionLevel::Destructive
+        );
     }
 
     #[test]
     fn set_as_standalone_word_is_write_signal() {
         // "set" as a whole word must still trigger Destructive.
         let def = make_tool_def("config_tool", "Get or set configuration values.");
-        assert_eq!(infer_permission_from_def(&def), PermissionLevel::Destructive);
+        assert_eq!(
+            infer_permission_from_def(&def),
+            PermissionLevel::Destructive
+        );
     }
 
     #[test]
     fn set_inside_structure_does_not_trigger_write_signal() {
         // "structure" contains "set" as substring — word-boundary must reject it.
-        let def = make_tool_def("schema_info", "Returns the schema structure of the database.");
+        let def = make_tool_def(
+            "schema_info",
+            "Returns the schema structure of the database.",
+        );
         // words: {schema_info, Returns, the, schema, structure, of, database}
         // no write signal as whole word; "Returns" ≠ "get" → no exact read signal either → Destructive
-        assert_eq!(infer_permission_from_def(&def), PermissionLevel::Destructive);
+        assert_eq!(
+            infer_permission_from_def(&def),
+            PermissionLevel::Destructive
+        );
     }
 
     #[test]

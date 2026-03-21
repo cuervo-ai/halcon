@@ -36,9 +36,7 @@ pub(super) async fn invoke_with_fallback(
 
     // If resilience is disabled, delegate directly to the speculative invoker.
     if !resilience.is_enabled() {
-        let result = invoker
-            .invoke(primary, request, fallback_providers)
-            .await?;
+        let result = invoker.invoke(primary, request, fallback_providers).await?;
         return Ok(InvokeAttempt {
             stream: result.stream,
             provider_name: result.provider_name,
@@ -48,8 +46,10 @@ pub(super) async fn invoke_with_fallback(
     }
 
     // Pre-filter: collect healthy providers via resilience pre_invoke.
-    let mut healthy_primary: Option<(Arc<dyn ModelProvider>, super::super::backpressure::InvokePermit)> =
-        None;
+    let mut healthy_primary: Option<(
+        Arc<dyn ModelProvider>,
+        super::super::backpressure::InvokePermit,
+    )> = None;
     let mut healthy_fallbacks: Vec<(String, Arc<dyn ModelProvider>)> = Vec::new();
 
     // Check primary.
@@ -136,7 +136,11 @@ pub(super) async fn invoke_with_fallback(
             // Retry chain: try each remaining healthy fallback sequentially.
             // Each fallback gets a request with a model it actually supports.
             for (idx, (fb_name, fb_provider)) in healthy_fallbacks.iter().enumerate() {
-                let fb_request = if fb_provider.supported_models().iter().any(|m| m.id == request.model) {
+                let fb_request = if fb_provider
+                    .supported_models()
+                    .iter()
+                    .any(|m| m.id == request.model)
+                {
                     request.clone()
                 } else if let Some(default) = fb_provider.supported_models().first() {
                     tracing::info!(
@@ -196,8 +200,8 @@ pub(crate) async fn check_control(
     ctrl_rx: &mut tokio::sync::mpsc::UnboundedReceiver<crate::tui::events::ControlEvent>,
     sink: &dyn RenderSink,
 ) -> super::ControlAction {
-    use crate::tui::events::ControlEvent;
     use super::ControlAction;
+    use crate::tui::events::ControlEvent;
     match ctrl_rx.try_recv() {
         Ok(ControlEvent::Pause) => {
             sink.info("  [paused] Press Space to resume, N to step");
@@ -218,11 +222,15 @@ pub(crate) async fn check_control(
                     }
                     Some(ControlEvent::RequestContextServers) => {
                         // Context server requests are handled by the repl loop, not the agent loop.
-                        tracing::trace!("RequestContextServers received while paused (handled by repl loop)");
+                        tracing::trace!(
+                            "RequestContextServers received while paused (handled by repl loop)"
+                        );
                     }
                     Some(ControlEvent::ResumeSession(_)) => {
                         // Session resume is handled by the repl loop, not the agent loop.
-                        tracing::trace!("ResumeSession received while paused (handled by repl loop)");
+                        tracing::trace!(
+                            "ResumeSession received while paused (handled by repl loop)"
+                        );
                     }
                     Some(ControlEvent::SwitchModel { .. }) => {
                         // Model switch is handled by the repl loop, not the agent loop.
@@ -239,7 +247,9 @@ pub(crate) async fn check_control(
         }
         Ok(ControlEvent::ApproveAction | ControlEvent::RejectAction) => {
             // Permission events are handled by the dedicated permission channel.
-            tracing::debug!("Permission event received on control channel (handled by permission channel)");
+            tracing::debug!(
+                "Permission event received on control channel (handled by permission channel)"
+            );
             ControlAction::Continue
         }
         Ok(ControlEvent::RequestContextServers) => {

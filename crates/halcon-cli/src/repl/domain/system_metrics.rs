@@ -103,9 +103,7 @@ pub struct MetricsCollector {
 impl MetricsCollector {
     /// Create a new empty collector.
     pub fn new() -> Self {
-        Self {
-            rounds: Vec::new(),
-        }
+        Self { rounds: Vec::new() }
     }
 
     /// Record a round's metrics.
@@ -130,13 +128,22 @@ impl MetricsCollector {
         let total_tokens_out: u64 = self.rounds.iter().map(|r| r.tokens_out).sum();
         let total_tool_calls: usize = self.rounds.iter().map(|r| r.tool_calls).sum();
         let total_tool_errors: usize = self.rounds.iter().map(|r| r.tool_errors).sum();
-        let total_invariant_violations: usize = self.rounds.iter().map(|r| r.invariant_violations).sum();
+        let total_invariant_violations: usize =
+            self.rounds.iter().map(|r| r.invariant_violations).sum();
         let total_cycles: usize = self.rounds.iter().map(|r| r.cycle_count).sum();
         let total_replans = self.rounds.last().map(|r| r.replan_attempts).unwrap_or(0);
         let total_duration: Duration = self.rounds.iter().map(|r| r.round_duration).sum();
-        let peak_drift = self.rounds.iter().map(|r| r.drift_score).fold(0.0f32, f32::max);
+        let peak_drift = self
+            .rounds
+            .iter()
+            .map(|r| r.drift_score)
+            .fold(0.0f32, f32::max);
         let final_utility = self.rounds.last().map(|r| r.utility_score).unwrap_or(0.5);
-        let final_evidence_coverage = self.rounds.last().map(|r| r.evidence_coverage).unwrap_or(0.0);
+        let final_evidence_coverage = self
+            .rounds
+            .last()
+            .map(|r| r.evidence_coverage)
+            .unwrap_or(0.0);
 
         SessionSummary {
             total_rounds,

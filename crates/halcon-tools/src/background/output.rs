@@ -40,9 +40,9 @@ impl Tool for BackgroundOutputTool {
     }
 
     async fn execute(&self, input: ToolInput) -> Result<ToolOutput> {
-        let job_id = input.arguments["job_id"]
-            .as_str()
-            .ok_or_else(|| HalconError::InvalidInput("background_output requires 'job_id' string".into()))?;
+        let job_id = input.arguments["job_id"].as_str().ok_or_else(|| {
+            HalconError::InvalidInput("background_output requires 'job_id' string".into())
+        })?;
 
         let Some((stdout, stderr, finished, exit_code, elapsed_secs)) =
             self.registry.get_output(job_id)

@@ -115,7 +115,8 @@ impl SpeculationMetrics {
         self.hits.fetch_add(1, Ordering::Relaxed);
         // Latency saved: we serve cached result instantly vs re-executing
         // For now, use cached_duration_ms as the baseline (what speculation took)
-        self.latency_saved_ms.fetch_add(cached_duration_ms, Ordering::Relaxed);
+        self.latency_saved_ms
+            .fetch_add(cached_duration_ms, Ordering::Relaxed);
     }
 
     /// Record a cache miss.
@@ -141,6 +142,12 @@ pub struct ToolSpeculator {
     cache: Arc<Mutex<HashMap<SpeculationKey, SpeculativeResult>>>,
     max_speculations: usize,
     metrics: Arc<SpeculationMetrics>,
+}
+
+impl Default for ToolSpeculator {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ToolSpeculator {
@@ -255,7 +262,8 @@ impl ToolSpeculator {
         match cache.get(&key).cloned() {
             Some(result) => {
                 // Cache hit: record metrics with latency saved.
-                self.metrics.record_hit(result.duration_ms, result.duration_ms);
+                self.metrics
+                    .record_hit(result.duration_ms, result.duration_ms);
                 Some(result)
             }
             None => {
@@ -368,7 +376,11 @@ pub fn predict_tool_calls(messages: &[ChatMessage]) -> Vec<PredictedToolCall> {
     }
 
     // Sort by confidence descending.
-    predictions.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap_or(std::cmp::Ordering::Equal));
+    predictions.sort_by(|a, b| {
+        b.confidence
+            .partial_cmp(&a.confidence)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
     predictions
 }
 
@@ -414,9 +426,9 @@ fn extract_file_paths(text: &str) -> Vec<String> {
     let mut paths = Vec::new();
 
     let code_extensions = [
-        ".rs", ".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".java", ".c", ".cpp", ".h",
-        ".hpp", ".swift", ".kt", ".rb", ".lua", ".zig", ".toml", ".yaml", ".yml", ".json",
-        ".md", ".txt", ".sh", ".bash", ".zsh",
+        ".rs", ".py", ".js", ".ts", ".jsx", ".tsx", ".go", ".java", ".c", ".cpp", ".h", ".hpp",
+        ".swift", ".kt", ".rb", ".lua", ".zig", ".toml", ".yaml", ".yml", ".json", ".md", ".txt",
+        ".sh", ".bash", ".zsh",
     ];
 
     for word in text.split_whitespace() {
@@ -443,7 +455,7 @@ fn extract_file_paths(text: &str) -> Vec<String> {
             || cleaned.starts_with("examples/")
             || cleaned.starts_with("scripts/")
             || cleaned.starts_with("bin/")
-            || cleaned.starts_with('/');  // absolute paths
+            || cleaned.starts_with('/'); // absolute paths
 
         if has_extension && (has_separator || starts_with_path) {
             paths.push(cleaned.to_string());
@@ -519,9 +531,10 @@ mod tests {
 
     #[test]
     fn predict_file_read_from_text() {
-        let messages = vec![
-            text_msg(Role::User, "Please check crates/halcon-cli/src/main.rs for the entry point"),
-        ];
+        let messages = vec![text_msg(
+            Role::User,
+            "Please check crates/halcon-cli/src/main.rs for the entry point",
+        )];
         let predictions = predict_tool_calls(&messages);
         assert!(!predictions.is_empty());
         assert_eq!(predictions[0].tool_name, "file_read");
@@ -544,30 +557,33 @@ mod tests {
         let predictions = predict_tool_calls(&messages);
         // src/main.rs already read — should not predict it.
         assert!(
-            predictions.iter().all(|p| p.arguments["path"] != "src/main.rs"),
+            predictions
+                .iter()
+                .all(|p| p.arguments["path"] != "src/main.rs"),
             "should not predict already-read file"
         );
     }
 
     #[test]
     fn predict_read_after_edit() {
-        let messages = vec![
-            blocks_msg(vec![ContentBlock::ToolUse {
-                id: "t1".to_string(),
-                name: "file_edit".to_string(),
-                input: json!({
-                    "path": "src/lib.rs",
-                    "old_string": "old",
-                    "new_string": "new"
-                }),
-            }]),
-        ];
+        let messages = vec![blocks_msg(vec![ContentBlock::ToolUse {
+            id: "t1".to_string(),
+            name: "file_edit".to_string(),
+            input: json!({
+                "path": "src/lib.rs",
+                "old_string": "old",
+                "new_string": "new"
+            }),
+        }])];
         let predictions = predict_tool_calls(&messages);
         assert!(!predictions.is_empty());
         let file_read_pred = predictions
             .iter()
             .find(|p| p.arguments["path"] == "src/lib.rs");
-        assert!(file_read_pred.is_some(), "should predict reading edited file");
+        assert!(
+            file_read_pred.is_some(),
+            "should predict reading edited file"
+        );
         assert!(
             file_read_pred.unwrap().confidence >= 0.7,
             "read-after-edit should have high confidence"
@@ -706,24 +722,16 @@ mod tests {
         let registry = halcon_tools::default_registry(&config);
 
         // Even if prediction includes a destructive tool, it should be filtered.
-        let messages = vec![text_msg(
-            Role::User,
-            "Run `cargo test` in src/main.rs",
-        )];
+        let messages = vec![text_msg(Role::User, "Run `cargo test` in src/main.rs")];
 
         let speculator = ToolSpeculator::new();
-        let _count = speculator
-            .speculate(&messages, &registry, "/tmp")
-            .await;
+        let _count = speculator.speculate(&messages, &registry, "/tmp").await;
 
         // Only file_read predictions should pass (not bash).
         // The file doesn't exist so speculation might fail, but no destructive tools were executed.
         let cache = speculator.cache.lock().await;
         for (key, _) in cache.iter() {
-            assert_ne!(
-                key.tool_name, "bash",
-                "should never speculate on bash"
-            );
+            assert_ne!(key.tool_name, "bash", "should never speculate on bash");
         }
     }
 

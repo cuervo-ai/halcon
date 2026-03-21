@@ -41,7 +41,6 @@ pub struct InvariantBinding {
 /// - Phase J: I-7.x (6 invariants)
 pub const INVARIANT_BINDINGS: &[InvariantBinding] = &[
     // ── Original GDEM components (from RISK_REPORT.md § 7) ──────────────────
-
     InvariantBinding {
         component: "AgentFsm",
         invariant_ids: &["I-1.1", "I-1.2", "I-1.3", "I-1.4"],
@@ -86,9 +85,7 @@ pub const INVARIANT_BINDINGS: &[InvariantBinding] = &[
         component: "StrategyArm",
         invariant_ids: &["I-3.1", "I-3.5", "I-6.8"],
     },
-
     // ── Phase J components ───────────────────────────────────────────────────
-
     InvariantBinding {
         component: "FsmFormalModel",
         invariant_ids: &["I-7.1"],
@@ -177,7 +174,8 @@ pub fn compute_invariant_coverage() -> f64 {
     if total == 0 {
         return 1.0;
     }
-    let covered = INVARIANT_BINDINGS.iter()
+    let covered = INVARIANT_BINDINGS
+        .iter()
         .filter(|b| !b.invariant_ids.is_empty())
         .count();
     covered as f64 / total as f64
@@ -185,7 +183,8 @@ pub fn compute_invariant_coverage() -> f64 {
 
 /// Return all components that have zero invariant IDs (coverage gaps).
 pub fn coverage_gaps() -> Vec<&'static str> {
-    INVARIANT_BINDINGS.iter()
+    INVARIANT_BINDINGS
+        .iter()
         .filter(|b| b.invariant_ids.is_empty())
         .map(|b| b.component)
         .collect()
@@ -214,54 +213,75 @@ mod tests {
     fn invariant_coverage_is_100_percent() {
         // I-7.6 core assertion
         let coverage = compute_invariant_coverage();
-        assert_eq!(coverage, 1.0,
-            "Invariant coverage must be 100%. Gaps: {:?}", coverage_gaps());
+        assert_eq!(
+            coverage,
+            1.0,
+            "Invariant coverage must be 100%. Gaps: {:?}",
+            coverage_gaps()
+        );
     }
 
     #[test]
     fn no_component_lacks_invariant_binding() {
         let gaps = coverage_gaps();
-        assert!(gaps.is_empty(),
-            "Components without invariants: {:?}", gaps);
+        assert!(gaps.is_empty(), "Components without invariants: {:?}", gaps);
     }
 
     #[test]
     fn all_component_names_are_unique() {
         let names: Vec<&str> = INVARIANT_BINDINGS.iter().map(|b| b.component).collect();
         let unique: HashSet<&str> = names.iter().copied().collect();
-        assert_eq!(names.len(), unique.len(),
-            "Duplicate component names in INVARIANT_BINDINGS");
+        assert_eq!(
+            names.len(),
+            unique.len(),
+            "Duplicate component names in INVARIANT_BINDINGS"
+        );
     }
 
     #[test]
     fn all_invariant_ids_are_nonempty_strings() {
         for binding in INVARIANT_BINDINGS {
             for &id in binding.invariant_ids {
-                assert!(!id.is_empty(),
-                    "Empty invariant ID in binding for '{}'", binding.component);
-                assert!(id.starts_with("I-"),
-                    "Invariant ID '{}' should start with 'I-'", id);
+                assert!(
+                    !id.is_empty(),
+                    "Empty invariant ID in binding for '{}'",
+                    binding.component
+                );
+                assert!(
+                    id.starts_with("I-"),
+                    "Invariant ID '{}' should start with 'I-'",
+                    id
+                );
             }
         }
     }
 
     #[test]
     fn phase_j_invariants_count_is_six() {
-        assert_eq!(PHASE_J_INVARIANTS.len(), 6,
-            "Expected 6 Phase J invariants (I-7.1–I-7.6)");
+        assert_eq!(
+            PHASE_J_INVARIANTS.len(),
+            6,
+            "Expected 6 Phase J invariants (I-7.1–I-7.6)"
+        );
     }
 
     #[test]
     fn at_least_seventeen_components_registered() {
         // 11 original + 6+ Phase J
-        assert!(INVARIANT_BINDINGS.len() >= 17,
-            "Expected ≥17 bindings, got {}", INVARIANT_BINDINGS.len());
+        assert!(
+            INVARIANT_BINDINGS.len() >= 17,
+            "Expected ≥17 bindings, got {}",
+            INVARIANT_BINDINGS.len()
+        );
     }
 
     #[test]
     fn total_invariant_ids_cover_both_phases() {
         let count = total_referenced_invariant_count();
-        assert!(count >= 20,
-            "Expected ≥20 distinct invariant IDs, got {}", count);
+        assert!(
+            count >= 20,
+            "Expected ≥20 distinct invariant IDs, got {}",
+            count
+        );
     }
 }

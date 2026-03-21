@@ -98,13 +98,9 @@ pub enum TaskEvent {
         agent_id: Option<String>,
     },
     /// Agent is reasoning/thinking.
-    Thinking {
-        content: String,
-    },
+    Thinking { content: String },
     /// Incremental content from the agent.
-    Content {
-        content: String,
-    },
+    Content { content: String },
     /// Agent called a tool.
     ToolCall {
         name: String,
@@ -268,9 +264,7 @@ pub struct McpToolCallResponse {
 #[serde(tag = "type", rename_all = "camelCase")]
 pub enum McpContentBlock {
     #[serde(rename = "text")]
-    Text {
-        text: String,
-    },
+    Text { text: String },
     #[serde(other)]
     Other,
 }
@@ -349,7 +343,9 @@ mod tests {
     fn task_event_deserializes_completed() {
         let json = r#"{"type": "completed", "output": "done", "tokens_used": 150}"#;
         let event: TaskEvent = serde_json::from_str(json).unwrap();
-        assert!(matches!(event, TaskEvent::Completed { output, tokens_used } if output == "done" && tokens_used == Some(150)));
+        assert!(
+            matches!(event, TaskEvent::Completed { output, tokens_used } if output == "done" && tokens_used == Some(150))
+        );
     }
 
     #[test]
@@ -408,14 +404,23 @@ mod tests {
     fn task_event_completed_accepts_camel_case_tokens_used() {
         let json = r#"{"type": "completed", "output": "ok", "tokensUsed": 200}"#;
         let event: TaskEvent = serde_json::from_str(json).unwrap();
-        assert!(matches!(event, TaskEvent::Completed { tokens_used: Some(200), .. }));
+        assert!(matches!(
+            event,
+            TaskEvent::Completed {
+                tokens_used: Some(200),
+                ..
+            }
+        ));
     }
 
     #[test]
     fn task_event_tool_result_accepts_camel_case_is_error() {
         let json = r#"{"type": "tool_result", "name": "bash", "output": "fail", "isError": true}"#;
         let event: TaskEvent = serde_json::from_str(json).unwrap();
-        assert!(matches!(event, TaskEvent::ToolResult { is_error: true, .. }));
+        assert!(matches!(
+            event,
+            TaskEvent::ToolResult { is_error: true, .. }
+        ));
     }
 
     #[test]
@@ -473,7 +478,14 @@ mod tests {
         assert!(resp.all_succeeded);
         assert_eq!(resp.combined_output, "Hello!");
         assert_eq!(resp.agent_results[0].latency_ms, 1000);
-        assert_eq!(resp.agent_results[0].token_usage.as_ref().unwrap().total_tokens, 500);
+        assert_eq!(
+            resp.agent_results[0]
+                .token_usage
+                .as_ref()
+                .unwrap()
+                .total_tokens,
+            500
+        );
     }
 
     #[test]

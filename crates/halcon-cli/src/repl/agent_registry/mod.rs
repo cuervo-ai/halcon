@@ -119,7 +119,11 @@ impl AgentRegistry {
             }
         }
 
-        AgentRegistry { agents, skills, warnings: all_warnings }
+        AgentRegistry {
+            agents,
+            skills,
+            warnings: all_warnings,
+        }
     }
 
     /// Look up an agent by exact name.
@@ -210,7 +214,11 @@ impl AgentRegistry {
         Some(ResolvedAgent {
             name: def.name.clone(),
             model: def.resolved_model.clone(),
-            allowed_tools: if def.tools.is_empty() { None } else { Some(def.tools.clone()) },
+            allowed_tools: if def.tools.is_empty() {
+                None
+            } else {
+                Some(def.tools.clone())
+            },
             disallowed_tools: def.disallowed_tools.clone(),
             max_turns: def.max_turns,
             system_prompt_prefix,
@@ -221,7 +229,8 @@ impl AgentRegistry {
     /// Format a user-facing listing of all registered agents (for `halcon agents list`).
     pub fn format_list(&self) -> String {
         if self.agents.is_empty() {
-            return "No agents registered. Add agent definitions to .halcon/agents/*.md\n".to_string();
+            return "No agents registered. Add agent definitions to .halcon/agents/*.md\n"
+                .to_string();
         }
 
         let mut out = String::new();

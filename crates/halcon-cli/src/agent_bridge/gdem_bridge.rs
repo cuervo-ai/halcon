@@ -18,10 +18,10 @@
 
 #![cfg(feature = "gdem-primary")]
 
-use std::sync::Arc;
 use anyhow::Result;
 use async_trait::async_trait;
 use futures::StreamExt;
+use std::sync::Arc;
 use uuid::Uuid;
 
 use halcon_agent_core::loop_driver::{
@@ -29,7 +29,9 @@ use halcon_agent_core::loop_driver::{
 };
 use halcon_agent_core::router::EmbeddingProvider;
 use halcon_core::traits::ModelProvider;
-use halcon_core::types::{ChatMessage, ContentBlock, MessageContent, ModelChunk, ModelRequest, Role, ToolInput};
+use halcon_core::types::{
+    ChatMessage, ContentBlock, MessageContent, ModelChunk, ModelRequest, Role, ToolInput,
+};
 use halcon_tools::ToolRegistry;
 
 // ── GdemToolExecutor ─────────────────────────────────────────────────────────
@@ -42,7 +44,10 @@ pub struct GdemToolExecutor {
 
 impl GdemToolExecutor {
     pub fn new(registry: Arc<ToolRegistry>, working_dir: impl Into<String>) -> Self {
-        Self { registry, working_dir: working_dir.into() }
+        Self {
+            registry,
+            working_dir: working_dir.into(),
+        }
     }
 }
 
@@ -61,8 +66,8 @@ impl ToolExecutor for GdemToolExecutor {
             });
         };
 
-        let arguments: serde_json::Value = serde_json::from_str(input)
-            .unwrap_or_else(|_| serde_json::json!({ "input": input }));
+        let arguments: serde_json::Value =
+            serde_json::from_str(input).unwrap_or_else(|_| serde_json::json!({ "input": input }));
 
         let tool_input = ToolInput {
             tool_use_id: Uuid::new_v4().to_string(),
@@ -103,7 +108,10 @@ pub struct GdemLlmClient {
 
 impl GdemLlmClient {
     pub fn new(provider: Arc<dyn ModelProvider>, model: impl Into<String>) -> Self {
-        Self { provider, model: model.into() }
+        Self {
+            provider,
+            model: model.into(),
+        }
     }
 }
 
@@ -115,9 +123,9 @@ impl LlmClient for GdemLlmClient {
             system: Some(system.to_string()),
             messages: vec![ChatMessage {
                 role: Role::User,
-                content: MessageContent::Blocks(vec![
-                    ContentBlock::Text { text: user.to_string() },
-                ]),
+                content: MessageContent::Blocks(vec![ContentBlock::Text {
+                    text: user.to_string(),
+                }]),
             }],
             max_tokens: Some(4096),
             temperature: Some(0.0),

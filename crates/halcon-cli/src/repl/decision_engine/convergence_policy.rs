@@ -35,9 +35,9 @@
 //! | High complexity       | disabled          | disabled           | 3         |
 //! | All others            | enabled           | enabled            | 0         |
 
+use super::complexity_estimator::ComplexityLevel;
 use super::domain_detector::TechnicalDomain;
 use super::risk_assessor::ExecutionRisk;
-use super::complexity_estimator::ComplexityLevel;
 
 // ── Policy ───────────────────────────────────────────────────────────────────
 
@@ -83,15 +83,13 @@ impl ConvergencePolicy {
     /// `current_round` is the number of completed rounds (0-indexed).
     #[inline]
     pub fn allows_evidence_threshold(&self, current_round: u32) -> bool {
-        !self.disable_evidence_threshold
-            && current_round >= self.min_rounds_before_convergence
+        !self.disable_evidence_threshold && current_round >= self.min_rounds_before_convergence
     }
 
     /// Whether DiminishingReturns is allowed to fire this round.
     #[inline]
     pub fn allows_diminishing_returns(&self, current_round: u32) -> bool {
-        !self.disable_diminishing_returns
-            && current_round >= self.min_rounds_before_convergence
+        !self.disable_diminishing_returns && current_round >= self.min_rounds_before_convergence
     }
 
     /// TokenHeadroom is ALWAYS permitted regardless of policy.
@@ -147,7 +145,8 @@ impl ConvergencePolicyFactory {
                 disable_evidence_threshold: true,
                 disable_diminishing_returns: false,
                 min_rounds_before_convergence: 3,
-                reason: "high-complexity: evidence threshold disabled to prevent premature synthesis",
+                reason:
+                    "high-complexity: evidence threshold disabled to prevent premature synthesis",
             };
         }
 

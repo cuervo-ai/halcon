@@ -10,10 +10,10 @@ use std::collections::HashSet;
 /// This is the union of the stopword lists that were previously maintained
 /// separately in `plan_coherence.rs` and `round_scorer.rs`.
 pub(crate) const ANALYSIS_STOPWORDS: &[&str] = &[
-    "the", "and", "for", "with", "that", "this", "are", "was", "were", "will", "from",
-    "into", "not", "but", "all", "can", "its", "have", "been", "has", "had", "our", "your",
-    "their", "then", "than", "when", "what", "how", "use", "you", "also", "new", "step",
-    "using", "each", "make", "run",
+    "the", "and", "for", "with", "that", "this", "are", "was", "were", "will", "from", "into",
+    "not", "but", "all", "can", "its", "have", "been", "has", "had", "our", "your", "their",
+    "then", "than", "when", "what", "how", "use", "you", "also", "new", "step", "using", "each",
+    "make", "run",
 ];
 
 /// Spanish stopwords filtered during multilingual keyword extraction.
@@ -21,11 +21,11 @@ pub(crate) const ANALYSIS_STOPWORDS: &[&str] = &[
 /// Includes common function words and generic task verbs that carry no
 /// discriminative signal for goal-coverage estimation.
 pub(crate) const SPANISH_STOPWORDS: &[&str] = &[
-    "de", "del", "el", "la", "los", "las", "en", "con", "para", "por", "una", "uno",
-    "como", "que", "al", "sus", "ser", "pero", "más", "este", "esta", "esto", "son",
-    "hay", "han", "fue", "era", "todo", "todas", "todos", "sobre", "entre", "hasta",
-    "desde", "hacia", "sin", "bajo", "ante", "tras", "según", "durante", "mediante",
-    "obtener", "realizar", "hacer", "ver", "dar", "tener", "puede", "debe",
+    "de", "del", "el", "la", "los", "las", "en", "con", "para", "por", "una", "uno", "como", "que",
+    "al", "sus", "ser", "pero", "más", "este", "esta", "esto", "son", "hay", "han", "fue", "era",
+    "todo", "todas", "todos", "sobre", "entre", "hasta", "desde", "hacia", "sin", "bajo", "ante",
+    "tras", "según", "durante", "mediante", "obtener", "realizar", "hacer", "ver", "dar", "tener",
+    "puede", "debe",
 ];
 
 /// Map a Spanish word to its closest English equivalent for cross-lingual coverage.
@@ -140,7 +140,10 @@ mod tests {
     fn extract_keywords_filters_step_and_run() {
         // Words that were added to plan_coherence but not round_scorer — now unified.
         let kw = extract_keywords("step using each make run");
-        assert!(kw.is_empty(), "'step', 'using', 'each', 'make', 'run' are stopwords");
+        assert!(
+            kw.is_empty(),
+            "'step', 'using', 'each', 'make', 'run' are stopwords"
+        );
     }
 
     #[test]
@@ -154,29 +157,47 @@ mod tests {
     #[test]
     fn multilingual_adds_english_for_estructura() {
         let kw = extract_keywords_multilingual("estructura del repositorio");
-        assert!(kw.contains("structure"), "should translate 'estructura' → 'structure': {:?}", kw);
-        assert!(kw.contains("repository"), "should translate 'repositorio' → 'repository': {:?}", kw);
+        assert!(
+            kw.contains("structure"),
+            "should translate 'estructura' → 'structure': {:?}",
+            kw
+        );
+        assert!(
+            kw.contains("repository"),
+            "should translate 'repositorio' → 'repository': {:?}",
+            kw
+        );
     }
 
     #[test]
     fn multilingual_filters_spanish_stopwords() {
         let kw = extract_keywords_multilingual("de el la los las para por con");
-        assert!(kw.is_empty(), "Spanish stopwords should all be filtered: {:?}", kw);
+        assert!(
+            kw.is_empty(),
+            "Spanish stopwords should all be filtered: {:?}",
+            kw
+        );
     }
 
     #[test]
     fn multilingual_keeps_original_spanish_word_too() {
         let kw = extract_keywords_multilingual("módulo de autenticación");
         // Should contain BOTH the original and the English translation.
-        assert!(kw.contains("module") || kw.contains("módulo") || kw.contains("modulo"),
-            "should keep module-related keyword: {:?}", kw);
+        assert!(
+            kw.contains("module") || kw.contains("módulo") || kw.contains("modulo"),
+            "should keep module-related keyword: {:?}",
+            kw
+        );
     }
 
     #[test]
     fn multilingual_handles_english_only_input() {
         let kw = extract_keywords_multilingual("analyze the authentication module");
-        assert!(kw.contains("analyze") || kw.contains("authentication"),
-            "should extract English content words: {:?}", kw);
+        assert!(
+            kw.contains("analyze") || kw.contains("authentication"),
+            "should extract English content words: {:?}",
+            kw
+        );
         assert!(!kw.contains("the"), "should filter English stopword 'the'");
     }
 

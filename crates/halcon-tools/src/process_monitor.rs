@@ -60,7 +60,15 @@ fn parse_ps_line(line: &str) -> Option<ProcessInfo> {
     if command.is_empty() {
         return None;
     }
-    Some(ProcessInfo { pid, user, cpu_pct, mem_pct, vsz_kb, rss_kb, command })
+    Some(ProcessInfo {
+        pid,
+        user,
+        cpu_pct,
+        mem_pct,
+        vsz_kb,
+        rss_kb,
+        command,
+    })
 }
 
 fn run_ps(
@@ -103,10 +111,18 @@ fn run_ps(
         .collect();
 
     match sort_by {
-        "mem" => procs.sort_by(|a, b| b.mem_pct.partial_cmp(&a.mem_pct).unwrap_or(std::cmp::Ordering::Equal)),
+        "mem" => procs.sort_by(|a, b| {
+            b.mem_pct
+                .partial_cmp(&a.mem_pct)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        }),
         "pid" => procs.sort_by_key(|p| p.pid),
         "rss" => procs.sort_by(|a, b| b.rss_kb.cmp(&a.rss_kb)),
-        _ => procs.sort_by(|a, b| b.cpu_pct.partial_cmp(&a.cpu_pct).unwrap_or(std::cmp::Ordering::Equal)),
+        _ => procs.sort_by(|a, b| {
+            b.cpu_pct
+                .partial_cmp(&a.cpu_pct)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        }),
     }
 
     if limit > 0 {
@@ -141,9 +157,18 @@ fn format_table(procs: &[ProcessInfo]) -> String {
 fn compute_totals(procs: &[ProcessInfo]) -> HashMap<String, f64> {
     let mut map = HashMap::new();
     map.insert("count".to_string(), procs.len() as f64);
-    map.insert("total_cpu".to_string(), procs.iter().map(|p| p.cpu_pct as f64).sum());
-    map.insert("total_mem".to_string(), procs.iter().map(|p| p.mem_pct as f64).sum());
-    map.insert("total_rss_kb".to_string(), procs.iter().map(|p| p.rss_kb as f64).sum());
+    map.insert(
+        "total_cpu".to_string(),
+        procs.iter().map(|p| p.cpu_pct as f64).sum(),
+    );
+    map.insert(
+        "total_mem".to_string(),
+        procs.iter().map(|p| p.mem_pct as f64).sum(),
+    );
+    map.insert(
+        "total_rss_kb".to_string(),
+        procs.iter().map(|p| p.rss_kb as f64).sum(),
+    );
     map
 }
 
@@ -151,14 +176,18 @@ fn compute_totals(procs: &[ProcessInfo]) -> HashMap<String, f64> {
 
 #[async_trait]
 impl Tool for ProcessMonitorTool {
-    fn name(&self) -> &str { "process_monitor" }
+    fn name(&self) -> &str {
+        "process_monitor"
+    }
 
     fn description(&self) -> &str {
         "List and inspect running system processes. Supports filtering by name or PID, \
          sorting by CPU/memory usage, and showing resource totals."
     }
 
-    fn permission_level(&self) -> PermissionLevel { PermissionLevel::ReadOnly }
+    fn permission_level(&self) -> PermissionLevel {
+        PermissionLevel::ReadOnly
+    }
 
     fn input_schema(&self) -> serde_json::Value {
         json!({
@@ -210,13 +239,14 @@ impl Tool for ProcessMonitorTool {
 
         let content = match operation {
             "list" | "top" | "find" => {
-                let actual_name = if operation == "find" { name_filter } else { name_filter };
+                let actual_name = name_filter;
 
-                let procs = run_ps(actual_name, pid_filter, sort_by, limit)
-                    .map_err(|e| HalconError::ToolExecutionFailed {
+                let procs = run_ps(actual_name, pid_filter, sort_by, limit).map_err(|e| {
+                    HalconError::ToolExecutionFailed {
                         tool: "process_monitor".into(),
                         message: e,
-                    })?;
+                    }
+                })?;
 
                 if procs.is_empty() {
                     "No processes found matching the criteria.".to_string()
@@ -227,11 +257,12 @@ impl Tool for ProcessMonitorTool {
             }
 
             "stats" => {
-                let procs = run_ps(name_filter, pid_filter, sort_by, 0)
-                    .map_err(|e| HalconError::ToolExecutionFailed {
+                let procs = run_ps(name_filter, pid_filter, sort_by, 0).map_err(|e| {
+                    HalconError::ToolExecutionFailed {
                         tool: "process_monitor".into(),
                         message: e,
-                    })?;
+                    }
+                })?;
 
                 let totals = compute_totals(&procs);
                 let mut lines = vec![
@@ -257,9 +288,9 @@ impl Tool for ProcessMonitorTool {
             }
 
             _ => {
-                return Err(HalconError::InvalidInput(
-                    format!("Unknown operation: {operation}")
-                ))
+                return Err(HalconError::InvalidInput(format!(
+                    "Unknown operation: {operation}"
+                )))
             }
         };
 
@@ -327,8 +358,24 @@ mod tests {
     #[test]
     fn compute_totals_basic() {
         let procs = vec![
-            ProcessInfo { pid: 1, user: "a".into(), cpu_pct: 1.0, mem_pct: 2.0, vsz_kb: 100, rss_kb: 50, command: "a".into() },
-            ProcessInfo { pid: 2, user: "b".into(), cpu_pct: 3.0, mem_pct: 4.0, vsz_kb: 200, rss_kb: 100, command: "b".into() },
+            ProcessInfo {
+                pid: 1,
+                user: "a".into(),
+                cpu_pct: 1.0,
+                mem_pct: 2.0,
+                vsz_kb: 100,
+                rss_kb: 50,
+                command: "a".into(),
+            },
+            ProcessInfo {
+                pid: 2,
+                user: "b".into(),
+                cpu_pct: 3.0,
+                mem_pct: 4.0,
+                vsz_kb: 200,
+                rss_kb: 100,
+                command: "b".into(),
+            },
         ];
         let t = compute_totals(&procs);
         assert_eq!(t["count"] as usize, 2);

@@ -1,4 +1,5 @@
 pub mod agents;
+pub mod chat;
 pub mod dashboard;
 pub mod files;
 pub mod logs;
@@ -7,4 +8,3 @@ pub mod protocols;
 pub mod settings;
 pub mod tasks;
 pub mod tools;
-pub mod chat;

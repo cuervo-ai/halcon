@@ -95,7 +95,10 @@ impl AgentHealthTracker {
     /// Get all tracked health states.
     pub fn all_states(&self) -> HashMap<Uuid, AgentHealth> {
         let states = self.states.read().unwrap();
-        states.iter().map(|(k, v)| (*k, v.current.clone())).collect()
+        states
+            .iter()
+            .map(|(k, v)| (*k, v.current.clone()))
+            .collect()
     }
 
     /// Get detailed state for an agent.

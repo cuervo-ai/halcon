@@ -93,7 +93,8 @@ impl RuleMatcher {
                     self.repository_rules.push(rule.clone());
                 }
                 RuleScope::Global => {
-                    if rule.tool_pattern_type == PatternType::Exact && rule.param_pattern.is_none() {
+                    if rule.tool_pattern_type == PatternType::Exact && rule.param_pattern.is_none()
+                    {
                         // Global + exact + no param pattern → pattern rules (will be cached on first match)
                         // We can't pre-cache because we don't know the working directory yet
                         self.pattern_rules.push(rule.clone());
@@ -126,7 +127,11 @@ impl RuleMatcher {
         let cwd = PathBuf::from(&input.working_directory);
 
         // Level 1: O(1) exact cache lookup
-        let cache_key = (tool_name.to_string(), cwd.to_string_lossy().to_string(), args_hash.clone());
+        let cache_key = (
+            tool_name.to_string(),
+            cwd.to_string_lossy().to_string(),
+            args_hash.clone(),
+        );
         if let Some(&decision) = self.exact_cache.get(&cache_key) {
             tracing::debug!(
                 tool = %tool_name,
@@ -141,20 +146,23 @@ impl RuleMatcher {
         if let Ok(canonical_cwd) = cwd.canonicalize() {
             for rule in &self.directory_rules {
                 let rule_path = PathBuf::from(&rule.scope_value);
-                if canonical_cwd.starts_with(&rule_path) {
-                    if self.matches_tool_pattern(tool_name, &rule.tool_pattern, &rule.tool_pattern_type) {
-                        if self.matches_param_pattern(input, rule.param_pattern.as_deref()) {
-                            tracing::debug!(
-                                tool = %tool_name,
-                                directory = %rule_path.display(),
-                                decision = ?rule.decision,
-                                "Matched directory rule"
-                            );
-                            // Cache for future O(1) lookups
-                            self.exact_cache.insert(cache_key.clone(), rule.decision);
-                            return Some(rule.decision);
-                        }
-                    }
+                if canonical_cwd.starts_with(&rule_path)
+                    && self.matches_tool_pattern(
+                        tool_name,
+                        &rule.tool_pattern,
+                        &rule.tool_pattern_type,
+                    )
+                    && self.matches_param_pattern(input, rule.param_pattern.as_deref())
+                {
+                    tracing::debug!(
+                        tool = %tool_name,
+                        directory = %rule_path.display(),
+                        decision = ?rule.decision,
+                        "Matched directory rule"
+                    );
+                    // Cache for future O(1) lookups
+                    self.exact_cache.insert(cache_key.clone(), rule.decision);
+                    return Some(rule.decision);
                 }
             }
         }
@@ -163,36 +171,39 @@ impl RuleMatcher {
         if let Some(repo_root) = Self::find_git_root(&cwd) {
             for rule in &self.repository_rules {
                 let rule_repo = PathBuf::from(&rule.scope_value);
-                if repo_root == rule_repo {
-                    if self.matches_tool_pattern(tool_name, &rule.tool_pattern, &rule.tool_pattern_type) {
-                        if self.matches_param_pattern(input, rule.param_pattern.as_deref()) {
-                            tracing::debug!(
-                                tool = %tool_name,
-                                repository = %repo_root.display(),
-                                decision = ?rule.decision,
-                                "Matched repository rule"
-                            );
-                            self.exact_cache.insert(cache_key.clone(), rule.decision);
-                            return Some(rule.decision);
-                        }
-                    }
+                if repo_root == rule_repo
+                    && self.matches_tool_pattern(
+                        tool_name,
+                        &rule.tool_pattern,
+                        &rule.tool_pattern_type,
+                    )
+                    && self.matches_param_pattern(input, rule.param_pattern.as_deref())
+                {
+                    tracing::debug!(
+                        tool = %tool_name,
+                        repository = %repo_root.display(),
+                        decision = ?rule.decision,
+                        "Matched repository rule"
+                    );
+                    self.exact_cache.insert(cache_key.clone(), rule.decision);
+                    return Some(rule.decision);
                 }
             }
         }
 
         // Level 3: O(P) pattern matching
         for rule in &self.pattern_rules {
-            if self.matches_tool_pattern(tool_name, &rule.tool_pattern, &rule.tool_pattern_type) {
-                if self.matches_param_pattern(input, rule.param_pattern.as_deref()) {
-                    tracing::debug!(
-                        tool = %tool_name,
-                        pattern = %rule.tool_pattern,
-                        decision = ?rule.decision,
-                        "Matched pattern rule"
-                    );
-                    self.exact_cache.insert(cache_key, rule.decision);
-                    return Some(rule.decision);
-                }
+            if self.matches_tool_pattern(tool_name, &rule.tool_pattern, &rule.tool_pattern_type)
+                && self.matches_param_pattern(input, rule.param_pattern.as_deref())
+            {
+                tracing::debug!(
+                    tool = %tool_name,
+                    pattern = %rule.tool_pattern,
+                    decision = ?rule.decision,
+                    "Matched pattern rule"
+                );
+                self.exact_cache.insert(cache_key, rule.decision);
+                return Some(rule.decision);
             }
         }
 
@@ -201,7 +212,12 @@ impl RuleMatcher {
     }
 
     /// Check if a tool name matches a pattern.
-    fn matches_tool_pattern(&self, tool_name: &str, pattern: &str, pattern_type: &PatternType) -> bool {
+    fn matches_tool_pattern(
+        &self,
+        tool_name: &str,
+        pattern: &str,
+        pattern_type: &PatternType,
+    ) -> bool {
         match pattern_type {
             PatternType::Exact => tool_name == pattern,
             PatternType::Glob => {
@@ -265,7 +281,9 @@ impl RuleMatcher {
             }
             (Value::Array(v_arr), Value::Array(p_arr)) if p_arr.len() == 1 => {
                 // Pattern [X] means all array elements must match X
-                v_arr.iter().all(|v| Self::json_matches_pattern(v, &p_arr[0]))
+                v_arr
+                    .iter()
+                    .all(|v| Self::json_matches_pattern(v, &p_arr[0]))
             }
             _ => value == pattern, // Exact match
         }
@@ -328,8 +346,9 @@ impl RuleMatcher {
                 }
 
                 // Validate regex syntax
-                regex::Regex::new(pattern)
-                    .map_err(|e| HalconError::InvalidInput(format!("Invalid regex pattern: {e}")))?;
+                regex::Regex::new(pattern).map_err(|e| {
+                    HalconError::InvalidInput(format!("Invalid regex pattern: {e}"))
+                })?;
 
                 Ok(())
             }

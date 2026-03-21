@@ -109,9 +109,15 @@ impl MergedMcpConfig {
         let project_path = find_project_halcon_dir(working_dir).map(|d| d.join("mcp.toml"));
         let local_path = local_scope_path(working_dir);
 
-        let user = user_path.as_deref().and_then(|p| load_scope_file(p, McpScope::User));
-        let project = project_path.as_deref().and_then(|p| load_scope_file(p, McpScope::Project));
-        let local = local_path.as_deref().and_then(|p| load_scope_file(p, McpScope::Local));
+        let user = user_path
+            .as_deref()
+            .and_then(|p| load_scope_file(p, McpScope::User));
+        let project = project_path
+            .as_deref()
+            .and_then(|p| load_scope_file(p, McpScope::Project));
+        let local = local_path
+            .as_deref()
+            .and_then(|p| load_scope_file(p, McpScope::Local));
 
         let mut merged: HashMap<String, McpServerSpec> = HashMap::new();
 
@@ -144,16 +150,27 @@ impl MergedMcpConfig {
 /// Add or update a server entry in the given scope file.
 ///
 /// Creates the file and parent directories if they do not exist.
-pub fn write_server(scope: McpScope, working_dir: &Path, name: &str, spec: McpServerSpec) -> std::io::Result<()> {
-    let path = scope_file_path(scope, working_dir)
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "cannot resolve scope path"))?;
+pub fn write_server(
+    scope: McpScope,
+    working_dir: &Path,
+    name: &str,
+    spec: McpServerSpec,
+) -> std::io::Result<()> {
+    let path = scope_file_path(scope, working_dir).ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::NotFound, "cannot resolve scope path")
+    })?;
 
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
 
-    let mut file: ScopeFile = path.exists()
-        .then(|| std::fs::read_to_string(&path).ok().and_then(|s| toml::from_str(&s).ok()))
+    let mut file: ScopeFile = path
+        .exists()
+        .then(|| {
+            std::fs::read_to_string(&path)
+                .ok()
+                .and_then(|s| toml::from_str(&s).ok())
+        })
         .flatten()
         .unwrap_or_default();
 
@@ -166,8 +183,9 @@ pub fn write_server(scope: McpScope, working_dir: &Path, name: &str, spec: McpSe
 
 /// Remove a server entry from the given scope file.
 pub fn remove_server(scope: McpScope, working_dir: &Path, name: &str) -> std::io::Result<bool> {
-    let path = scope_file_path(scope, working_dir)
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::NotFound, "cannot resolve scope path"))?;
+    let path = scope_file_path(scope, working_dir).ok_or_else(|| {
+        std::io::Error::new(std::io::ErrorKind::NotFound, "cannot resolve scope path")
+    })?;
 
     if !path.exists() {
         return Ok(false);
@@ -200,7 +218,9 @@ pub fn expand_env(s: &str) -> String {
             chars.next(); // consume '{'
             let mut var = String::new();
             for ch in chars.by_ref() {
-                if ch == '}' { break; }
+                if ch == '}' {
+                    break;
+                }
                 var.push(ch);
             }
             // Split on ":-" for default value.
@@ -230,7 +250,10 @@ pub fn expand_spec_env(spec: &McpServerSpec) -> McpServerSpec {
         McpTransport::Stdio { command, args, env } => McpTransport::Stdio {
             command: expand_env(command),
             args: args.iter().map(|a| expand_env(a)).collect(),
-            env: env.iter().map(|(k, v)| (k.clone(), expand_env(v))).collect(),
+            env: env
+                .iter()
+                .map(|(k, v)| (k.clone(), expand_env(v)))
+                .collect(),
         },
     };
     McpServerSpec {
@@ -257,14 +280,21 @@ fn user_scope_path() -> Option<PathBuf> {
 fn local_scope_path(working_dir: &Path) -> Option<PathBuf> {
     let home = dirs::home_dir()?;
     // Hash the canonical working_dir to get a stable per-project key.
-    let canonical = working_dir.canonicalize().unwrap_or_else(|_| working_dir.to_path_buf());
+    let canonical = working_dir
+        .canonicalize()
+        .unwrap_or_else(|_| working_dir.to_path_buf());
     let hash = {
         use std::hash::{Hash, Hasher};
         let mut h = std::collections::hash_map::DefaultHasher::new();
         canonical.hash(&mut h);
         h.finish()
     };
-    Some(home.join(".halcon").join("local").join(format!("{hash:016x}")).join("mcp.toml"))
+    Some(
+        home.join(".halcon")
+            .join("local")
+            .join(format!("{hash:016x}"))
+            .join("mcp.toml"),
+    )
 }
 
 fn find_project_halcon_dir(working_dir: &Path) -> Option<PathBuf> {
@@ -297,7 +327,9 @@ mod tests {
 
     fn http_spec(url: &str) -> McpServerSpec {
         McpServerSpec {
-            transport: McpTransport::Http { url: url.to_string() },
+            transport: McpTransport::Http {
+                url: url.to_string(),
+            },
             tool_permissions: HashMap::new(),
             scope: None,
         }
@@ -321,10 +353,19 @@ mod tests {
         let halcon_dir = dir.path().join(".halcon");
         std::fs::create_dir(&halcon_dir).unwrap();
 
-        write_server(McpScope::Project, dir.path(), "github", http_spec("https://example.com/mcp/")).unwrap();
+        write_server(
+            McpScope::Project,
+            dir.path(),
+            "github",
+            http_spec("https://example.com/mcp/"),
+        )
+        .unwrap();
 
         let merged = MergedMcpConfig::load(dir.path());
-        assert!(merged.servers.contains_key("github"), "should load project server");
+        assert!(
+            merged.servers.contains_key("github"),
+            "should load project server"
+        );
         assert_eq!(merged.servers["github"].scope, Some(McpScope::Project));
     }
 
@@ -372,12 +413,21 @@ mod tests {
         let halcon_dir = dir.path().join(".halcon");
         std::fs::create_dir(&halcon_dir).unwrap();
 
-        write_server(McpScope::Project, dir.path(), "github", http_spec("https://example.com/mcp/")).unwrap();
+        write_server(
+            McpScope::Project,
+            dir.path(),
+            "github",
+            http_spec("https://example.com/mcp/"),
+        )
+        .unwrap();
         let removed = remove_server(McpScope::Project, dir.path(), "github").unwrap();
         assert!(removed);
 
         let merged = MergedMcpConfig::load(dir.path());
-        assert!(!merged.servers.contains_key("github"), "server should be removed");
+        assert!(
+            !merged.servers.contains_key("github"),
+            "server should be removed"
+        );
     }
 
     #[test]
@@ -399,7 +449,10 @@ mod tests {
         let spec = McpServerSpec {
             transport: McpTransport::Stdio {
                 command: "npx".to_string(),
-                args: vec!["--yes".to_string(), "@modelcontextprotocol/server-filesystem".to_string()],
+                args: vec![
+                    "--yes".to_string(),
+                    "@modelcontextprotocol/server-filesystem".to_string(),
+                ],
                 env,
             },
             tool_permissions: HashMap::new(),

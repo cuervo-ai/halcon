@@ -73,9 +73,15 @@ pub enum ActivityLine {
     /// Informational message (round separators, status, etc.).
     Info(String),
     /// Warning message with optional hint.
-    Warning { message: String, hint: Option<String> },
+    Warning {
+        message: String,
+        hint: Option<String>,
+    },
     /// Error message with optional hint.
-    Error { message: String, hint: Option<String> },
+    Error {
+        message: String,
+        hint: Option<String>,
+    },
     /// Visual separator between agent rounds.
     RoundSeparator(usize),
     /// Tool execution — shows skeleton while loading, result when done.
@@ -119,10 +125,7 @@ pub enum ActivityLine {
     },
     /// Completed chain-of-thought bubble — dim, collapsible summary of model reasoning.
     /// Persists in the activity feed after thinking ends.
-    ThinkingBubble {
-        char_count: usize,
-        preview:    String,
-    },
+    ThinkingBubble { char_count: usize, preview: String },
 }
 
 impl ActivityLine {
@@ -167,7 +170,12 @@ impl ActivityLine {
                 s
             }
             ActivityLine::RoundSeparator(n) => format!("Round {n}"),
-            ActivityLine::ToolExec { name, input_preview, result, .. } => {
+            ActivityLine::ToolExec {
+                name,
+                input_preview,
+                result,
+                ..
+            } => {
                 let mut s = format!("{name} {input_preview}");
                 if let Some(r) = result {
                     s.push(' ');
@@ -178,10 +186,18 @@ impl ActivityLine {
             ActivityLine::PlanOverview { goal, .. } => goal.clone(),
             ActivityLine::AgentThinking => String::new(),
             ActivityLine::PhaseIndicator { label, .. } => label.clone(),
-            ActivityLine::OrchestratorHeader { task_count, wave_count } => {
+            ActivityLine::OrchestratorHeader {
+                task_count,
+                wave_count,
+            } => {
                 format!("orchestrator {task_count} tasks wave {wave_count}")
             }
-            ActivityLine::SubAgentTask { description, tools_used, summary, .. } => {
+            ActivityLine::SubAgentTask {
+                description,
+                tools_used,
+                summary,
+                ..
+            } => {
                 let mut s = description.clone();
                 if !tools_used.is_empty() {
                     s.push(' ');
@@ -202,22 +218,24 @@ impl ActivityLine {
 
 /// Render a single line of text with markdown formatting.
 /// Accepts palette colors to avoid hardcoded Color:: values.
-pub fn render_md_line(text: &str, c_text: Color, c_accent: Color, c_warning: Color, c_muted: Color) -> Line<'static> {
+pub fn render_md_line(
+    text: &str,
+    c_text: Color,
+    c_accent: Color,
+    c_warning: Color,
+    c_muted: Color,
+) -> Line<'static> {
     // Headers
     if let Some(rest) = text.strip_prefix("### ") {
         return Line::from(Span::styled(
             rest.to_string(),
-            Style::default()
-                .fg(c_text)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(c_text).add_modifier(Modifier::BOLD),
         ));
     }
     if let Some(rest) = text.strip_prefix("## ") {
         return Line::from(Span::styled(
             rest.to_string(),
-            Style::default()
-                .fg(c_accent)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(c_accent).add_modifier(Modifier::BOLD),
         ));
     }
     if let Some(rest) = text.strip_prefix("# ") {
@@ -244,9 +262,7 @@ pub fn render_md_line(text: &str, c_text: Color, c_accent: Color, c_warning: Col
         spans.extend(parse_md_spans(rest, c_warning).into_iter().map(|s| {
             Span::styled(
                 s.content,
-                s.style
-                    .fg(c_muted)
-                    .add_modifier(Modifier::ITALIC),
+                s.style.fg(c_muted).add_modifier(Modifier::ITALIC),
             )
         }));
         return Line::from(spans);

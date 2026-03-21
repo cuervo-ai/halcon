@@ -133,7 +133,14 @@ impl SidePanel {
     /// Update metrics from round-ended event data.
     ///
     /// Phase 3.1: Detects cost threshold crossings ($0.10, $1.00, $10.00) and starts alert pulse.
-    pub fn update_metrics(&mut self, round: usize, input_tokens: u32, output_tokens: u32, cost: f64, duration_ms: u64) {
+    pub fn update_metrics(
+        &mut self,
+        round: usize,
+        input_tokens: u32,
+        output_tokens: u32,
+        cost: f64,
+        duration_ms: u64,
+    ) {
         self.metrics.round = round;
         self.metrics.total_tokens += (input_tokens + output_tokens) as u64;
         self.metrics.total_cost += cost;
@@ -188,8 +195,10 @@ impl SidePanel {
         self.context_tiers.total_tokens = total_tokens;
         // Compute percentages relative to total.
         if total_tokens > 0 {
-            self.context_tiers.l0_pct = ((l0_tokens as f64 / total_tokens as f64) * 100.0).min(100.0) as u8;
-            self.context_tiers.l1_pct = ((l1_tokens as f64 / total_tokens as f64) * 100.0).min(100.0) as u8;
+            self.context_tiers.l0_pct =
+                ((l0_tokens as f64 / total_tokens as f64) * 100.0).min(100.0) as u8;
+            self.context_tiers.l1_pct =
+                ((l1_tokens as f64 / total_tokens as f64) * 100.0).min(100.0) as u8;
 
             // FIX: Compute L2-L4 percentages based on entry counts
             // L2-L4 don't have direct token counts, estimate based on entries
@@ -197,9 +206,12 @@ impl SidePanel {
             let l3_estimated = l3_entries as u32 * 150; // ~150 tokens per semantic entry
             let l4_estimated = l4_entries as u32 * 100; // ~100 tokens per archived entry
 
-            self.context_tiers.l2_pct = ((l2_estimated as f64 / total_tokens as f64) * 100.0).min(100.0) as u8;
-            self.context_tiers.l3_pct = ((l3_estimated as f64 / total_tokens as f64) * 100.0).min(100.0) as u8;
-            self.context_tiers.l4_pct = ((l4_estimated as f64 / total_tokens as f64) * 100.0).min(100.0) as u8;
+            self.context_tiers.l2_pct =
+                ((l2_estimated as f64 / total_tokens as f64) * 100.0).min(100.0) as u8;
+            self.context_tiers.l3_pct =
+                ((l3_estimated as f64 / total_tokens as f64) * 100.0).min(100.0) as u8;
+            self.context_tiers.l4_pct =
+                ((l4_estimated as f64 / total_tokens as f64) * 100.0).min(100.0) as u8;
 
             // Phase 3.1: Detect L0 overflow (>90% capacity) and start warning pulse
             if self.context_tiers.l0_pct > 90 && self.last_l0_pct <= 90 {
@@ -232,12 +244,21 @@ impl SidePanel {
     }
 
     /// Update or insert circuit breaker state for a provider.
-    pub fn update_breaker(&mut self, provider: String, state: CircuitBreakerState, failure_count: u32) {
+    pub fn update_breaker(
+        &mut self,
+        provider: String,
+        state: CircuitBreakerState,
+        failure_count: u32,
+    ) {
         if let Some(b) = self.breakers.iter_mut().find(|b| b.provider == provider) {
             b.state = state;
             b.failure_count = failure_count;
         } else {
-            self.breakers.push(BreakerInfo { provider, state, failure_count });
+            self.breakers.push(BreakerInfo {
+                provider,
+                state,
+                failure_count,
+            });
         }
     }
 
@@ -252,7 +273,11 @@ impl SidePanel {
 
     /// Update reasoning engine info.
     pub fn update_reasoning(&mut self, strategy: String, task_type: String, complexity: String) {
-        self.reasoning = ReasoningInfo { strategy, task_type, complexity };
+        self.reasoning = ReasoningInfo {
+            strategy,
+            task_type,
+            complexity,
+        };
     }
 
     /// Update Phase 2 metrics (orchestrator, planning, strategy).
@@ -282,17 +307,26 @@ impl SidePanel {
         } else {
             String::new()
         };
-        format!("Round {}  {} tokens  ${:.4}  {} tools{}",
-            m.round, m.total_tokens, m.total_cost, m.tool_count, cache_rate)
+        format!(
+            "Round {}  {} tokens  ${:.4}  {} tools{}",
+            m.round, m.total_tokens, m.total_cost, m.tool_count, cache_rate
+        )
     }
 
     /// One-line context tier summary for /context command.
     pub fn context_summary(&self) -> String {
         let t = &self.context_tiers;
-        format!("L0 {}% ({}/{} tok)  L1 {}% ({} ent)  L2 {}%  L3 {}%  L4 {}%",
-            t.l0_pct, t.l0_tokens, t.l0_capacity,
-            t.l1_pct, t.l1_entries,
-            t.l2_pct, t.l3_pct, t.l4_pct)
+        format!(
+            "L0 {}% ({}/{} tok)  L1 {}% ({} ent)  L2 {}%  L3 {}%  L4 {}%",
+            t.l0_pct,
+            t.l0_tokens,
+            t.l0_capacity,
+            t.l1_pct,
+            t.l1_entries,
+            t.l2_pct,
+            t.l3_pct,
+            t.l4_pct
+        )
     }
 
     /// One-line reasoning summary for /why command.
@@ -301,8 +335,10 @@ impl SidePanel {
         if r.strategy.is_empty() {
             "No reasoning data available yet".to_string()
         } else {
-            format!("Strategy: {}  Task: {}  Complexity: {}",
-                r.strategy, r.task_type, r.complexity)
+            format!(
+                "Strategy: {}  Task: {}  Complexity: {}",
+                r.strategy, r.task_type, r.complexity
+            )
         }
     }
 
@@ -336,10 +372,15 @@ impl SidePanel {
         if show_plan {
             lines.push(Line::from(Span::styled(
                 "── Plan ──",
-                Style::default().fg(c_text_label).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(c_text_label)
+                    .add_modifier(Modifier::BOLD),
             )));
             if self.plan_steps.is_empty() {
-                lines.push(Line::from(Span::styled("  (no plan)", Style::default().fg(c_muted))));
+                lines.push(Line::from(Span::styled(
+                    "  (no plan)",
+                    Style::default().fg(c_muted),
+                )));
             } else {
                 for (i, step) in self.plan_steps.iter().enumerate() {
                     let icon = match step.status {
@@ -359,7 +400,8 @@ impl SidePanel {
                     // Truncate description to fit panel width — char-safe (no byte-slice).
                     let max_desc = (area.width as usize).saturating_sub(6);
                     let desc = if step.description.chars().count() > max_desc {
-                        let truncated: String = step.description
+                        let truncated: String = step
+                            .description
                             .chars()
                             .take(max_desc.saturating_sub(1))
                             .collect();
@@ -367,15 +409,14 @@ impl SidePanel {
                     } else {
                         step.description.clone()
                     };
-                    let prefix = if i == self.current_step && step.status == PlanStepDisplayStatus::Pending {
+                    let prefix = if i == self.current_step
+                        && step.status == PlanStepDisplayStatus::Pending
+                    {
                         "▸"
                     } else {
                         icon
                     };
-                    lines.push(Line::from(Span::styled(
-                        format!(" {prefix} {desc}"),
-                        style,
-                    )));
+                    lines.push(Line::from(Span::styled(format!(" {prefix} {desc}"), style)));
                 }
             }
             lines.push(Line::from(""));
@@ -385,14 +426,25 @@ impl SidePanel {
         if show_metrics {
             lines.push(Line::from(Span::styled(
                 "── Metrics ──",
-                Style::default().fg(c_text_label).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(c_text_label)
+                    .add_modifier(Modifier::BOLD),
             )));
             lines.push(Line::from(format!("  Round: {}", self.metrics.round)));
-            lines.push(Line::from(format!("  Tokens: {}", fmt_tokens(self.metrics.total_tokens))));
-            lines.push(Line::from(format!("  Cost: ${:.4}", self.metrics.total_cost)));
+            lines.push(Line::from(format!(
+                "  Tokens: {}",
+                fmt_tokens(self.metrics.total_tokens)
+            )));
+            lines.push(Line::from(format!(
+                "  Cost: ${:.4}",
+                self.metrics.total_cost
+            )));
             lines.push(Line::from(format!("  Tools: {}", self.metrics.tool_count)));
             if self.metrics.elapsed_ms > 0 {
-                lines.push(Line::from(format!("  Time: {}", fmt_elapsed(self.metrics.elapsed_ms))));
+                lines.push(Line::from(format!(
+                    "  Time: {}",
+                    fmt_elapsed(self.metrics.elapsed_ms)
+                )));
             }
             // Cache hit rate (only show if any cache events recorded)
             let cache_total = self.metrics.cache_hits + self.metrics.cache_misses;
@@ -405,9 +457,10 @@ impl SidePanel {
             }
 
             // Phase 2 metrics (solo mostrar si hay datos)
-            if self.metrics.delegation_success_rate.is_some() ||
-               self.metrics.plan_success_rate.is_some() ||
-               self.metrics.ucb1_agreement_rate.is_some() {
+            if self.metrics.delegation_success_rate.is_some()
+                || self.metrics.plan_success_rate.is_some()
+                || self.metrics.ucb1_agreement_rate.is_some()
+            {
                 lines.push(Line::from("")); // Separador
                 lines.push(Line::from(Span::styled(
                     "  -- Phase 2 --",
@@ -448,13 +501,18 @@ impl SidePanel {
         if show_context {
             lines.push(Line::from(Span::styled(
                 "── Context ──",
-                Style::default().fg(c_text_label).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(c_text_label)
+                    .add_modifier(Modifier::BOLD),
             )));
             if self.context_viz.data().total_tokens > 0 {
                 // Render context visualization with animated gauges
                 lines.extend(self.context_viz.render_lines());
             } else {
-                lines.push(Line::from(Span::styled("  (no data)", Style::default().fg(c_muted))));
+                lines.push(Line::from(Span::styled(
+                    "  (no data)",
+                    Style::default().fg(c_muted),
+                )));
             }
             lines.push(Line::from(""));
         }
@@ -463,14 +521,28 @@ impl SidePanel {
         if show_reasoning {
             lines.push(Line::from(Span::styled(
                 "── Reasoning ──",
-                Style::default().fg(c_text_label).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(c_text_label)
+                    .add_modifier(Modifier::BOLD),
             )));
             if self.reasoning.strategy.is_empty() {
-                lines.push(Line::from(Span::styled("  (no data)", Style::default().fg(c_muted))));
+                lines.push(Line::from(Span::styled(
+                    "  (no data)",
+                    Style::default().fg(c_muted),
+                )));
             } else {
-                lines.push(Line::from(format!("  Strategy:   {}", self.reasoning.strategy)));
-                lines.push(Line::from(format!("  Task Type:  {}", self.reasoning.task_type)));
-                lines.push(Line::from(format!("  Complexity: {}", self.reasoning.complexity)));
+                lines.push(Line::from(format!(
+                    "  Strategy:   {}",
+                    self.reasoning.strategy
+                )));
+                lines.push(Line::from(format!(
+                    "  Task Type:  {}",
+                    self.reasoning.task_type
+                )));
+                lines.push(Line::from(format!(
+                    "  Complexity: {}",
+                    self.reasoning.complexity
+                )));
             }
         }
 
@@ -509,14 +581,11 @@ impl SidePanel {
                 .begin_symbol(Some("↑"))
                 .end_symbol(Some("↓"));
 
-            let mut scrollbar_state = ScrollbarState::new(total_lines.saturating_sub(viewport_height) as usize)
-                .position(self.scroll_offset as usize);
+            let mut scrollbar_state =
+                ScrollbarState::new(total_lines.saturating_sub(viewport_height) as usize)
+                    .position(self.scroll_offset as usize);
 
-            frame.render_stateful_widget(
-                scrollbar,
-                inner_area,
-                &mut scrollbar_state,
-            );
+            frame.render_stateful_widget(scrollbar, inner_area, &mut scrollbar_state);
         }
     }
 }
@@ -694,8 +763,12 @@ mod tests {
     #[test]
     fn panel_cache_hit_rate() {
         let mut panel = SidePanel::new();
-        for _ in 0..7 { panel.record_cache(true); }
-        for _ in 0..3 { panel.record_cache(false); }
+        for _ in 0..7 {
+            panel.record_cache(true);
+        }
+        for _ in 0..3 {
+            panel.record_cache(false);
+        }
         let total = panel.metrics.cache_hits + panel.metrics.cache_misses;
         let rate = (panel.metrics.cache_hits as f64 / total as f64) * 100.0;
         assert!((rate - 70.0).abs() < f64::EPSILON);
@@ -747,31 +820,52 @@ mod tests {
         // L4: 2 entries * 100 = 200 tokens estimated
         // Total: 100 + 50 + 2000 + 750 + 200 = 3100 tokens
         panel.update_context(
-            100,    // l0_tokens
-            500,    // l0_capacity
-            50,     // l1_tokens
-            5,      // l1_entries
-            10,     // l2_entries
-            5,      // l3_entries
-            2,      // l4_entries
-            3100,   // total_tokens
+            100,  // l0_tokens
+            500,  // l0_capacity
+            50,   // l1_tokens
+            5,    // l1_entries
+            10,   // l2_entries
+            5,    // l3_entries
+            2,    // l4_entries
+            3100, // total_tokens
         );
 
         // Verify L0 and L1 percentages (existing behavior)
-        assert!(panel.context_tiers.l0_pct > 0, "L0 percentage should be computed");
-        assert!(panel.context_tiers.l1_pct > 0, "L1 percentage should be computed");
+        assert!(
+            panel.context_tiers.l0_pct > 0,
+            "L0 percentage should be computed"
+        );
+        assert!(
+            panel.context_tiers.l1_pct > 0,
+            "L1 percentage should be computed"
+        );
 
         // FIX VERIFICATION: L2-L4 percentages should now be computed (was always 0 before)
-        assert!(panel.context_tiers.l2_pct > 0, "L2 percentage should be computed (FIX)");
-        assert!(panel.context_tiers.l3_pct > 0, "L3 percentage should be computed (FIX)");
-        assert!(panel.context_tiers.l4_pct > 0, "L4 percentage should be computed (FIX)");
+        assert!(
+            panel.context_tiers.l2_pct > 0,
+            "L2 percentage should be computed (FIX)"
+        );
+        assert!(
+            panel.context_tiers.l3_pct > 0,
+            "L3 percentage should be computed (FIX)"
+        );
+        assert!(
+            panel.context_tiers.l4_pct > 0,
+            "L4 percentage should be computed (FIX)"
+        );
 
         // Verify approximate distribution (L2 should be ~64%, L3 ~24%, L4 ~6%)
-        assert!(panel.context_tiers.l2_pct >= 60 && panel.context_tiers.l2_pct <= 70,
-                "L2 should be ~64% (2000/3100)");
-        assert!(panel.context_tiers.l3_pct >= 20 && panel.context_tiers.l3_pct <= 30,
-                "L3 should be ~24% (750/3100)");
-        assert!(panel.context_tiers.l4_pct >= 5 && panel.context_tiers.l4_pct <= 10,
-                "L4 should be ~6% (200/3100)");
+        assert!(
+            panel.context_tiers.l2_pct >= 60 && panel.context_tiers.l2_pct <= 70,
+            "L2 should be ~64% (2000/3100)"
+        );
+        assert!(
+            panel.context_tiers.l3_pct >= 20 && panel.context_tiers.l3_pct <= 30,
+            "L3 should be ~24% (750/3100)"
+        );
+        assert!(
+            panel.context_tiers.l4_pct >= 5 && panel.context_tiers.l4_pct <= 10,
+            "L4 should be ~6% (200/3100)"
+        );
     }
 }

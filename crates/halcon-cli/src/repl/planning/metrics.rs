@@ -22,7 +22,7 @@ struct PlanningMetricsInner {
     plan_generation_failures: AtomicU64,
 
     // Quality
-    avg_steps_per_plan: AtomicU64, // Fixed-point * 100
+    avg_steps_per_plan: AtomicU64,      // Fixed-point * 100
     avg_confidence_per_plan: AtomicU64, // Fixed-point * 100
 
     // Replanning
@@ -63,13 +63,21 @@ impl PlanningMetrics {
 
     pub fn record_plan_generated(&self, step_count: usize, avg_confidence: f64, duration_ms: u64) {
         self.inner.plans_generated.fetch_add(1, Ordering::Relaxed);
-        self.inner.avg_steps_per_plan.fetch_add((step_count as u64) * 100, Ordering::Relaxed);
-        self.inner.avg_confidence_per_plan.fetch_add((avg_confidence * 100.0) as u64, Ordering::Relaxed);
-        self.inner.total_planning_time_ms.fetch_add(duration_ms, Ordering::Relaxed);
+        self.inner
+            .avg_steps_per_plan
+            .fetch_add((step_count as u64) * 100, Ordering::Relaxed);
+        self.inner
+            .avg_confidence_per_plan
+            .fetch_add((avg_confidence * 100.0) as u64, Ordering::Relaxed);
+        self.inner
+            .total_planning_time_ms
+            .fetch_add(duration_ms, Ordering::Relaxed);
     }
 
     pub fn record_plan_generation_failure(&self) {
-        self.inner.plan_generation_failures.fetch_add(1, Ordering::Relaxed);
+        self.inner
+            .plan_generation_failures
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     pub fn record_replan(&self, reason: ReplanReason) {
@@ -80,7 +88,9 @@ impl PlanningMetrics {
     pub fn record_plan_outcome(&self, outcome: PlanOutcome) {
         match outcome {
             PlanOutcome::CompletedSuccessfully => {
-                self.inner.plans_completed_successfully.fetch_add(1, Ordering::Relaxed);
+                self.inner
+                    .plans_completed_successfully
+                    .fetch_add(1, Ordering::Relaxed);
             }
             PlanOutcome::Failed => {
                 self.inner.plans_failed.fetch_add(1, Ordering::Relaxed);
@@ -99,13 +109,17 @@ impl PlanningMetrics {
             plan_generation_failures: self.inner.plan_generation_failures.load(Ordering::Relaxed),
 
             avg_steps_per_plan: if total_plans > 0 {
-                self.inner.avg_steps_per_plan.load(Ordering::Relaxed) as f64 / total_plans as f64 / 100.0
+                self.inner.avg_steps_per_plan.load(Ordering::Relaxed) as f64
+                    / total_plans as f64
+                    / 100.0
             } else {
                 0.0
             },
 
             avg_confidence_per_plan: if total_plans > 0 {
-                self.inner.avg_confidence_per_plan.load(Ordering::Relaxed) as f64 / total_plans as f64 / 100.0
+                self.inner.avg_confidence_per_plan.load(Ordering::Relaxed) as f64
+                    / total_plans as f64
+                    / 100.0
             } else {
                 0.0
             },
@@ -118,7 +132,10 @@ impl PlanningMetrics {
                 self.inner.replan_reasons[3].load(Ordering::Relaxed),
             ],
 
-            plans_completed_successfully: self.inner.plans_completed_successfully.load(Ordering::Relaxed),
+            plans_completed_successfully: self
+                .inner
+                .plans_completed_successfully
+                .load(Ordering::Relaxed),
             plans_failed: self.inner.plans_failed.load(Ordering::Relaxed),
             plans_abandoned: self.inner.plans_abandoned.load(Ordering::Relaxed),
 

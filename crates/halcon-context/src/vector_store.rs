@@ -135,7 +135,10 @@ impl VectorMemoryStore {
             text: text.to_string(),
             vector,
         });
-        debug!("vector_store: indexed entry {id} from '{source}' ({} chars)", text.len());
+        debug!(
+            "vector_store: indexed entry {id} from '{source}' ({} chars)",
+            text.len()
+        );
     }
 
     /// Search for the top-`k` most relevant entries using MMR re-ranking.
@@ -181,7 +184,11 @@ impl VectorMemoryStore {
                     .iter()
                     .map(|sv| cosine_sim(entry_vec, sv))
                     .fold(f32::NEG_INFINITY, f32::max);
-                let redundancy = if selected_vecs.is_empty() { 0.0 } else { max_redundancy };
+                let redundancy = if selected_vecs.is_empty() {
+                    0.0
+                } else {
+                    max_redundancy
+                };
 
                 let mmr = MMR_LAMBDA * query_sim - (1.0 - MMR_LAMBDA) * redundancy;
                 if mmr > best_mmr {
@@ -200,9 +207,9 @@ impl VectorMemoryStore {
             .iter()
             .zip(
                 // Recover per-entry similarity scores for result construction.
-                selected_indices.iter().map(|&idx| {
-                    cosine_sim(&query_vec, &self.entries[idx].vector)
-                }),
+                selected_indices
+                    .iter()
+                    .map(|&idx| cosine_sim(&query_vec, &self.entries[idx].vector)),
             )
             .map(|(&idx, score)| SearchResult {
                 entry: self.entries[idx].clone(),
@@ -241,7 +248,10 @@ impl VectorMemoryStore {
             let source = if heading.is_empty() {
                 format!("{label}:{path_str}§preamble")
             } else {
-                format!("{label}:{path_str}§{}", heading.trim_start_matches('#').trim())
+                format!(
+                    "{label}:{path_str}§{}",
+                    heading.trim_start_matches('#').trim()
+                )
             };
             self.index_text(&combined, &source);
         }
@@ -306,9 +316,16 @@ impl VectorMemoryStore {
                     let _ = std::fs::create_dir_all(parent);
                 }
                 if let Err(e) = std::fs::write(path, json) {
-                    warn!("vector_store: failed to save index to {}: {e}", path.display());
+                    warn!(
+                        "vector_store: failed to save index to {}: {e}",
+                        path.display()
+                    );
                 } else {
-                    debug!("vector_store: saved {} entries to {}", self.entries.len(), path.display());
+                    debug!(
+                        "vector_store: saved {} entries to {}",
+                        self.entries.len(),
+                        path.display()
+                    );
                 }
             }
             Err(e) => warn!("vector_store: serialization error: {e}"),
@@ -320,7 +337,10 @@ impl VectorMemoryStore {
     /// Preferred over `load_from_disk()` when the caller has policy-level engine
     /// configuration (e.g., the agent loop reads `policy.embedding_endpoint`).
     /// Validates stored dims against the provided engine; rebuilds on mismatch.
-    pub fn load_from_disk_with_engine(index_path: PathBuf, engine: Box<dyn EmbeddingEngine>) -> Self {
+    pub fn load_from_disk_with_engine(
+        index_path: PathBuf,
+        engine: Box<dyn EmbeddingEngine>,
+    ) -> Self {
         let mut store = Self::new_with_engine(engine, Some(index_path.clone()));
         let content = match std::fs::read_to_string(&index_path) {
             Ok(c) => c,
@@ -328,7 +348,11 @@ impl VectorMemoryStore {
         };
         let engine_dims = {
             let v = store.engine.embed("probe");
-            if v.is_empty() { DIMS } else { v.len() }
+            if v.is_empty() {
+                DIMS
+            } else {
+                v.len()
+            }
         };
         match serde_json::from_str::<VIndexSnapshot>(&content) {
             Ok(snap) if snap.version == 1 && snap.dims == engine_dims => {
@@ -337,7 +361,9 @@ impl VectorMemoryStore {
                 store.entries = snap.entries;
                 debug!(
                     "vector_store: loaded {} entries from {} (dims={})",
-                    store.entries.len(), index_path.display(), engine_dims,
+                    store.entries.len(),
+                    index_path.display(),
+                    engine_dims,
                 );
             }
             Ok(snap) => {
@@ -369,7 +395,11 @@ impl VectorMemoryStore {
         // Determine expected dims from the engine selected at construction time.
         let engine_dims = {
             let v = store.engine.embed("probe");
-            if v.is_empty() { DIMS } else { v.len() }
+            if v.is_empty() {
+                DIMS
+            } else {
+                v.len()
+            }
         };
         match serde_json::from_str::<VIndexSnapshot>(&content) {
             Ok(snap) if snap.version == 1 && snap.dims == engine_dims => {
@@ -490,14 +520,24 @@ mod tests {
     #[test]
     fn search_returns_relevant_result() {
         let mut s = store();
-        s.index_text("Rust async tokio patterns with error handling", "test:§rust");
+        s.index_text(
+            "Rust async tokio patterns with error handling",
+            "test:§rust",
+        );
         s.index_text("Python Flask REST API web server", "test:§python");
-        s.index_text("SQLite database with WAL mode configuration", "test:§sqlite");
+        s.index_text(
+            "SQLite database with WAL mode configuration",
+            "test:§sqlite",
+        );
 
         let results = s.search("Rust async tokio", 3);
         assert!(!results.is_empty());
         // Rust entry should be first.
-        assert!(results[0].entry.text.contains("Rust"), "got: {}", results[0].entry.text);
+        assert!(
+            results[0].entry.text.contains("Rust"),
+            "got: {}",
+            results[0].entry.text
+        );
     }
 
     #[test]
@@ -524,7 +564,10 @@ mod tests {
     fn search_respects_k_limit() {
         let mut s = store();
         for i in 0..10 {
-            s.index_text(&format!("Rust async tokio pattern variant {i}"), &format!("test:§{i}"));
+            s.index_text(
+                &format!("Rust async tokio pattern variant {i}"),
+                &format!("test:§{i}"),
+            );
         }
         let results = s.search("Rust async tokio", 3);
         assert!(results.len() <= 3);
@@ -536,7 +579,10 @@ mod tests {
         // Index near-identical entries.
         s.index_text("file path error FASE-2 gate failure debugging", "test:§a");
         s.index_text("file path error FASE-2 gate failure debugging", "test:§b");
-        s.index_text("completely unrelated quantum physics superposition", "test:§c");
+        s.index_text(
+            "completely unrelated quantum physics superposition",
+            "test:§c",
+        );
         // MMR should prefer diversity over returning the same entry twice.
         let results = s.search("file path errors", 3);
         assert!(!results.is_empty());

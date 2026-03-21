@@ -57,7 +57,9 @@ impl RollingWindow {
         if n < 2 {
             return 0.0;
         }
-        let transitions = self.data.iter()
+        let transitions = self
+            .data
+            .iter()
             .zip(self.data.iter().skip(1))
             .filter(|(a, b)| a != b)
             .count();
@@ -205,11 +207,16 @@ mod tests {
     }
 
     fn replan() -> CriticSignal {
-        CriticSignal::Replan { reason: "stall".into(), alignment_score: 0.3 }
+        CriticSignal::Replan {
+            reason: "stall".into(),
+            alignment_score: 0.3,
+        }
     }
 
     fn terminate() -> CriticSignal {
-        CriticSignal::Terminate { reason: "budget".into() }
+        CriticSignal::Terminate {
+            reason: "budget".into(),
+        }
     }
 
     // ─── OI boundary tests ───────────────────────────────────────────────────
@@ -267,7 +274,11 @@ mod tests {
                 t.record_signal(&cont());
             }
         }
-        assert!(t.is_stable(), "OI={:.3} should be stable", t.oscillation_index());
+        assert!(
+            t.is_stable(),
+            "OI={:.3} should be stable",
+            t.oscillation_index()
+        );
     }
 
     // ─── Transition counting ─────────────────────────────────────────────────
@@ -275,11 +286,11 @@ mod tests {
     #[test]
     fn transition_count_accurate() {
         let mut t = OscillationTracker::new();
-        t.record_signal(&cont());    // prev=None → no transition
-        t.record_signal(&cont());    // same → no transition
-        t.record_signal(&replan());  // different → transition #1
-        t.record_signal(&cont());    // different → transition #2
-        t.record_signal(&cont());    // same → no transition
+        t.record_signal(&cont()); // prev=None → no transition
+        t.record_signal(&cont()); // same → no transition
+        t.record_signal(&replan()); // different → transition #1
+        t.record_signal(&cont()); // different → transition #2
+        t.record_signal(&cont()); // same → no transition
         assert_eq!(t.total_transitions(), 2);
         assert_eq!(t.total_rounds(), 5);
     }
@@ -347,6 +358,10 @@ mod tests {
         let oi = t.oscillation_index();
         assert!(oi >= 0.0 && oi <= 1.0, "OI out of [0,1]: {}", oi);
         // ~79 transitions / 100 rounds ≈ 0.79 → above stability threshold (expected)
-        assert!(oi > 0.5, "OI should be > 0.5 for this alternating sequence: {}", oi);
+        assert!(
+            oi > 0.5,
+            "OI should be > 0.5 for this alternating sequence: {}",
+            oi
+        );
     }
 }

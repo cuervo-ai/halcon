@@ -44,12 +44,20 @@ fn validate(data: &Value, schema: &Value, path: &str, errors: &mut Vec<String>) 
     validate_inner(data, schema, path, errors, 0);
 }
 
-fn validate_inner(data: &Value, schema: &Value, path: &str, errors: &mut Vec<String>, depth: usize) {
+fn validate_inner(
+    data: &Value,
+    schema: &Value,
+    path: &str,
+    errors: &mut Vec<String>,
+    depth: usize,
+) {
     if errors.len() >= MAX_ERRORS {
         return; // cap error list — prevents unbounded allocation
     }
     if depth >= MAX_DEPTH {
-        errors.push(format!("{path}: schema nesting exceeds maximum depth ({MAX_DEPTH})"));
+        errors.push(format!(
+            "{path}: schema nesting exceeds maximum depth ({MAX_DEPTH})"
+        ));
         return;
     }
     // type check
@@ -59,18 +67,20 @@ fn validate_inner(data: &Value, schema: &Value, path: &str, errors: &mut Vec<Str
             _ => "",
         };
         let type_ok = match type_str {
-            "string"  => data.is_string(),
-            "number"  => data.is_number(),
+            "string" => data.is_string(),
+            "number" => data.is_number(),
             "integer" => data.is_i64() || data.is_u64(),
             "boolean" => data.is_boolean(),
-            "array"   => data.is_array(),
-            "object"  => data.is_object(),
-            "null"    => data.is_null(),
-            _         => true,
+            "array" => data.is_array(),
+            "object" => data.is_object(),
+            "null" => data.is_null(),
+            _ => true,
         };
         if !type_ok {
             let actual = json_type_name(data);
-            errors.push(format!("{path}: expected type '{type_str}', got '{actual}'"));
+            errors.push(format!(
+                "{path}: expected type '{type_str}', got '{actual}'"
+            ));
             return; // further checks on wrong type are noisy
         }
     }
@@ -79,7 +89,10 @@ fn validate_inner(data: &Value, schema: &Value, path: &str, errors: &mut Vec<Str
     if let Some(Value::Array(allowed)) = schema.get("enum") {
         if !allowed.contains(data) {
             let allowed_str: Vec<String> = allowed.iter().map(|v| v.to_string()).collect();
-            errors.push(format!("{path}: value {data} not in enum [{}]", allowed_str.join(", ")));
+            errors.push(format!(
+                "{path}: value {data} not in enum [{}]",
+                allowed_str.join(", ")
+            ));
         }
     }
 
@@ -87,12 +100,18 @@ fn validate_inner(data: &Value, schema: &Value, path: &str, errors: &mut Vec<Str
     if let Some(s) = data.as_str() {
         if let Some(min) = schema.get("minLength").and_then(|v| v.as_u64()) {
             if s.len() < min as usize {
-                errors.push(format!("{path}: string length {} < minLength {min}", s.len()));
+                errors.push(format!(
+                    "{path}: string length {} < minLength {min}",
+                    s.len()
+                ));
             }
         }
         if let Some(max) = schema.get("maxLength").and_then(|v| v.as_u64()) {
             if s.len() > max as usize {
-                errors.push(format!("{path}: string length {} > maxLength {max}", s.len()));
+                errors.push(format!(
+                    "{path}: string length {} > maxLength {max}",
+                    s.len()
+                ));
             }
         }
     }
@@ -115,18 +134,32 @@ fn validate_inner(data: &Value, schema: &Value, path: &str, errors: &mut Vec<Str
     if let Some(arr) = data.as_array() {
         if let Some(min) = schema.get("minItems").and_then(|v| v.as_u64()) {
             if (arr.len() as u64) < min {
-                errors.push(format!("{path}: array length {} < minItems {min}", arr.len()));
+                errors.push(format!(
+                    "{path}: array length {} < minItems {min}",
+                    arr.len()
+                ));
             }
         }
         if let Some(max) = schema.get("maxItems").and_then(|v| v.as_u64()) {
             if (arr.len() as u64) > max {
-                errors.push(format!("{path}: array length {} > maxItems {max}", arr.len()));
+                errors.push(format!(
+                    "{path}: array length {} > maxItems {max}",
+                    arr.len()
+                ));
             }
         }
         if let Some(item_schema) = schema.get("items") {
             for (i, item) in arr.iter().enumerate() {
-                if errors.len() >= MAX_ERRORS { break; }
-                validate_inner(item, item_schema, &format!("{path}[{i}]"), errors, depth + 1);
+                if errors.len() >= MAX_ERRORS {
+                    break;
+                }
+                validate_inner(
+                    item,
+                    item_schema,
+                    &format!("{path}[{i}]"),
+                    errors,
+                    depth + 1,
+                );
             }
         }
     }
@@ -136,7 +169,9 @@ fn validate_inner(data: &Value, schema: &Value, path: &str, errors: &mut Vec<Str
         // required fields
         if let Some(Value::Array(required)) = schema.get("required") {
             for req in required {
-                if errors.len() >= MAX_ERRORS { break; }
+                if errors.len() >= MAX_ERRORS {
+                    break;
+                }
                 if let Some(field) = req.as_str() {
                     if !obj.contains_key(field) {
                         errors.push(format!("{path}: missing required field '{field}'"));
@@ -175,11 +210,17 @@ fn validate_inner(data: &Value, schema: &Value, path: &str, errors: &mut Vec<Str
 fn json_type_name(v: &Value) -> &'static str {
     match v {
         Value::String(_) => "string",
-        Value::Number(n) => if n.is_i64() || n.is_u64() { "integer" } else { "number" },
-        Value::Bool(_)   => "boolean",
-        Value::Array(_)  => "array",
+        Value::Number(n) => {
+            if n.is_i64() || n.is_u64() {
+                "integer"
+            } else {
+                "number"
+            }
+        }
+        Value::Bool(_) => "boolean",
+        Value::Array(_) => "array",
         Value::Object(_) => "object",
-        Value::Null      => "null",
+        Value::Null => "null",
     }
 }
 
@@ -213,7 +254,9 @@ impl Tool for JsonSchemaValidateTool {
         // When a String is provided, try parsing it as JSON first; if it fails
         // (e.g. bare "red"), treat the string itself as the data value.
         let data_val: Value = match &input.arguments["data"] {
-            Value::String(s) => serde_json::from_str(s).unwrap_or_else(|_| Value::String(s.clone())),
+            Value::String(s) => {
+                serde_json::from_str(s).unwrap_or_else(|_| Value::String(s.clone()))
+            }
             other => other.clone(),
         };
 
@@ -234,7 +277,10 @@ impl Tool for JsonSchemaValidateTool {
         validate(&data_val, &schema_val, "", &mut errors);
 
         let (content, is_error) = if errors.is_empty() {
-            ("✓ JSON data is valid against the schema.".to_string(), false)
+            (
+                "✓ JSON data is valid against the schema.".to_string(),
+                false,
+            )
         } else {
             let error_list = errors
                 .iter()
@@ -243,7 +289,10 @@ impl Tool for JsonSchemaValidateTool {
                 .collect::<Vec<_>>()
                 .join("\n");
             (
-                format!("✗ Validation failed with {} error(s):\n{error_list}", errors.len()),
+                format!(
+                    "✗ Validation failed with {} error(s):\n{error_list}",
+                    errors.len()
+                ),
                 true,
             )
         };
@@ -476,9 +525,14 @@ mod tests {
         let data = json!({}); // all 200 fields missing
         let out = tool.execute(make_input(data, schema)).await.unwrap();
         assert!(out.is_error);
-        let error_count = out.metadata.as_ref()
+        let error_count = out
+            .metadata
+            .as_ref()
             .and_then(|m| m["error_count"].as_u64())
             .unwrap_or(0);
-        assert!(error_count <= 100, "error list should be capped at 100, got {error_count}");
+        assert!(
+            error_count <= 100,
+            "error list should be capped at 100, got {error_count}"
+        );
     }
 }

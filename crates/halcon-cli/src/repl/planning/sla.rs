@@ -15,7 +15,7 @@
 
 use std::time::{Duration, Instant};
 
-use super::decision_layer::{TaskComplexity, OrchestrationDecision};
+use super::decision_layer::{OrchestrationDecision, TaskComplexity};
 
 /// SLA performance tiers.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -94,7 +94,8 @@ impl SlaBudget {
 
     /// Remaining time budget. `None` if unlimited or expired.
     pub fn remaining(&self) -> Option<Duration> {
-        self.max_duration.map(|d| d.saturating_sub(self.start.elapsed()))
+        self.max_duration
+            .map(|d| d.saturating_sub(self.start.elapsed()))
     }
 
     /// Fraction of time budget consumed. 0.0 = just started, 1.0+ = expired.
@@ -289,12 +290,18 @@ mod tests {
     fn sla_blocks_retry_when_budget_exhausted() {
         // Fast mode: max_retries = 0, so even first retry is blocked.
         let budget = SlaBudget::from_mode(SlaMode::Fast);
-        assert!(!budget.allows_retry(0), "Fast mode should block all retries");
+        assert!(
+            !budget.allows_retry(0),
+            "Fast mode should block all retries"
+        );
 
         // Balanced mode: max_retries = 1, so second retry is blocked.
         let budget = SlaBudget::from_mode(SlaMode::Balanced);
         assert!(budget.allows_retry(0), "Balanced should allow first retry");
-        assert!(!budget.allows_retry(1), "Balanced should block second retry");
+        assert!(
+            !budget.allows_retry(1),
+            "Balanced should block second retry"
+        );
 
         // Deep mode: max_retries = 3.
         let budget = SlaBudget::from_mode(SlaMode::Deep);
@@ -306,19 +313,28 @@ mod tests {
     fn sla_blocks_retry_when_expired() {
         let mut budget = SlaBudget::from_mode(SlaMode::Balanced);
         budget.start = Instant::now() - Duration::from_secs(200);
-        assert!(!budget.allows_retry(0), "Expired budget should block retries");
+        assert!(
+            !budget.allows_retry(0),
+            "Expired budget should block retries"
+        );
     }
 
     #[test]
     fn sla_blocks_orchestration_fast_mode() {
         let budget = SlaBudget::from_mode(SlaMode::Fast);
-        assert!(!budget.allows_orchestration(), "Fast mode: 0 sub-agents → no orchestration");
+        assert!(
+            !budget.allows_orchestration(),
+            "Fast mode: 0 sub-agents → no orchestration"
+        );
     }
 
     #[test]
     fn sla_allows_orchestration_balanced_mode() {
         let budget = SlaBudget::from_mode(SlaMode::Balanced);
-        assert!(budget.allows_orchestration(), "Balanced mode: 3 sub-agents → orchestration ok");
+        assert!(
+            budget.allows_orchestration(),
+            "Balanced mode: 3 sub-agents → orchestration ok"
+        );
     }
 
     #[test]
@@ -326,14 +342,20 @@ mod tests {
         // Fast mode: max_rounds = 4, room for 2 (critic + synthesis) → max 2 plan steps.
         let budget = SlaBudget::from_mode(SlaMode::Fast);
         let sla_max = budget.clamp_rounds(10) as usize; // 4
-        let max_plan_steps = sla_max.saturating_sub(2);  // 2
-        assert_eq!(max_plan_steps, 2, "Fast mode should allow at most 2 plan steps");
+        let max_plan_steps = sla_max.saturating_sub(2); // 2
+        assert_eq!(
+            max_plan_steps, 2,
+            "Fast mode should allow at most 2 plan steps"
+        );
 
         // Balanced: max_rounds = 10, room for 2 → max 8 plan steps.
         let budget = SlaBudget::from_mode(SlaMode::Balanced);
         let sla_max = budget.clamp_rounds(10) as usize;
         let max_plan_steps = sla_max.saturating_sub(2);
-        assert_eq!(max_plan_steps, 8, "Balanced mode should allow at most 8 plan steps");
+        assert_eq!(
+            max_plan_steps, 8,
+            "Balanced mode should allow at most 8 plan steps"
+        );
     }
 
     #[test]
@@ -358,11 +380,17 @@ mod tests {
     fn sla_fraction_consumed_80_percent_warning_threshold() {
         let budget = SlaBudget::from_mode(SlaMode::Balanced);
         // Fresh budget should be well below 80%.
-        assert!(budget.fraction_consumed() < 0.80, "Fresh budget should be under 80%");
+        assert!(
+            budget.fraction_consumed() < 0.80,
+            "Fresh budget should be under 80%"
+        );
         // Expired budget should be over 100%.
         let mut expired = SlaBudget::from_mode(SlaMode::Balanced);
         expired.start = Instant::now() - Duration::from_secs(200);
-        assert!(expired.fraction_consumed() >= 1.0, "Expired budget should be >= 100%");
+        assert!(
+            expired.fraction_consumed() >= 1.0,
+            "Expired budget should be >= 100%"
+        );
     }
 
     // ── PARTIAL-1: sla_budget.max_rounds sync with routing escalation ────────
@@ -380,7 +408,10 @@ mod tests {
         let new_max = budget.max_rounds + delta;
         budget.max_rounds = new_max; // PARTIAL-1 fix: direct field update
 
-        assert_eq!(budget.max_rounds, 14, "After escalation, max_rounds must be 14");
+        assert_eq!(
+            budget.max_rounds, 14,
+            "After escalation, max_rounds must be 14"
+        );
         // clamp_rounds should now respect the extended budget
         assert_eq!(budget.clamp_rounds(13), 13, "13 ≤ 14 should pass through");
         assert_eq!(budget.clamp_rounds(15), 14, "15 > 14 should be clamped");
@@ -400,7 +431,11 @@ mod tests {
         // After escalation: extend to 8 rounds
         let mut extended = budget.clone();
         extended.max_rounds = 8;
-        assert_eq!(extended.clamp_rounds(6), 6, "Extended budget allows 6 rounds");
+        assert_eq!(
+            extended.clamp_rounds(6),
+            6,
+            "Extended budget allows 6 rounds"
+        );
         assert_eq!(extended.clamp_rounds(9), 8, "Still capped at new max=8");
     }
 }

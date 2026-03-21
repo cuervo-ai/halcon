@@ -290,26 +290,28 @@ mod tests {
     #[test]
     fn rust_project_recommends_dependency_auditor() {
         let analysis = empty_analysis("rust");
-        let recs = PluginRecommendationEngine::recommend(
-            &analysis,
-            &HashSet::new(),
-            &HashMap::new(),
+        let recs =
+            PluginRecommendationEngine::recommend(&analysis, &HashSet::new(), &HashMap::new());
+        let auditor = recs
+            .iter()
+            .find(|r| r.plugin_id == "halcon-dependency-auditor");
+        assert!(
+            auditor.is_some(),
+            "dependency auditor should be recommended for rust"
         );
-        let auditor = recs.iter().find(|r| r.plugin_id == "halcon-dependency-auditor");
-        assert!(auditor.is_some(), "dependency auditor should be recommended for rust");
         assert_eq!(auditor.unwrap().tier, RecommendationTier::Essential);
     }
 
     #[test]
     fn node_project_recommends_ui_inspector() {
         let analysis = empty_analysis("node");
-        let recs = PluginRecommendationEngine::recommend(
-            &analysis,
-            &HashSet::new(),
-            &HashMap::new(),
-        );
+        let recs =
+            PluginRecommendationEngine::recommend(&analysis, &HashSet::new(), &HashMap::new());
         let inspector = recs.iter().find(|r| r.plugin_id == "halcon-ui-inspector");
-        assert!(inspector.is_some(), "ui-inspector should be recommended for node");
+        assert!(
+            inspector.is_some(),
+            "ui-inspector should be recommended for node"
+        );
         assert_eq!(inspector.unwrap().tier, RecommendationTier::Essential);
     }
 
@@ -320,7 +322,10 @@ mod tests {
         loaded.insert("halcon-dependency-auditor".to_string());
 
         let recs = PluginRecommendationEngine::recommend(&analysis, &loaded, &HashMap::new());
-        let auditor = recs.iter().find(|r| r.plugin_id == "halcon-dependency-auditor").unwrap();
+        let auditor = recs
+            .iter()
+            .find(|r| r.plugin_id == "halcon-dependency-auditor")
+            .unwrap();
         assert!(auditor.already_installed, "should be marked as installed");
     }
 
@@ -332,7 +337,10 @@ mod tests {
         rewards.insert("halcon-api-sculptor".to_string(), 0.85);
 
         let recs = PluginRecommendationEngine::recommend(&analysis, &HashSet::new(), &rewards);
-        let sculptor = recs.iter().find(|r| r.plugin_id == "halcon-api-sculptor").unwrap();
+        let sculptor = recs
+            .iter()
+            .find(|r| r.plugin_id == "halcon-api-sculptor")
+            .unwrap();
         // Optional (0.85 > 0.70) → upgrades to Recommended
         assert_eq!(sculptor.tier, RecommendationTier::Recommended);
     }
@@ -342,26 +350,29 @@ mod tests {
         // unknown project + many manifests → otel-tracer should NOT appear
         // (many_manifests requires >= 5 files)
         let analysis = many_manifest_analysis("unknown");
-        let recs = PluginRecommendationEngine::recommend(
-            &analysis,
-            &HashSet::new(),
-            &HashMap::new(),
-        );
+        let recs =
+            PluginRecommendationEngine::recommend(&analysis, &HashSet::new(), &HashMap::new());
         let otel = recs.iter().find(|r| r.plugin_id == "halcon-otel-tracer");
-        assert!(otel.is_some(), "otel-tracer should appear when many_manifests");
+        assert!(
+            otel.is_some(),
+            "otel-tracer should appear when many_manifests"
+        );
         assert_eq!(otel.unwrap().tier, RecommendationTier::Optional);
     }
 
     #[test]
     fn format_report_contains_tier_headers() {
         let analysis = empty_analysis("rust");
-        let recs = PluginRecommendationEngine::recommend(
-            &analysis,
-            &HashSet::new(),
-            &HashMap::new(),
-        );
+        let recs =
+            PluginRecommendationEngine::recommend(&analysis, &HashSet::new(), &HashMap::new());
         let report = PluginRecommendationEngine::format_report(&recs);
-        assert!(report.contains("Essential"), "report should contain Essential tier");
-        assert!(report.contains("Recommended"), "report should contain Recommended tier");
+        assert!(
+            report.contains("Essential"),
+            "report should contain Essential tier"
+        );
+        assert!(
+            report.contains("Recommended"),
+            "report should contain Recommended tier"
+        );
     }
 }

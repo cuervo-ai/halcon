@@ -7,7 +7,10 @@ impl TuiApp {
         use crossterm::event::KeyCode;
 
         // Phase I-6C: Route permission prompt input through conversational overlay.
-        if matches!(self.state.overlay.active, Some(OverlayKind::PermissionPrompt { .. })) {
+        if matches!(
+            self.state.overlay.active,
+            Some(OverlayKind::PermissionPrompt { .. })
+        ) {
             // Special case: Esc always closes and sends Denied to unblock authorize().
             if matches!(key.code, KeyCode::Esc) {
                 // Fix #6 (Bug #6): Esc was closing the modal visually but NOT sending
@@ -24,14 +27,16 @@ impl TuiApp {
                 use crate::tui::input_state::InputState;
                 self.prompt.set_input_state(InputState::Idle);
 
-                self.activity_model.push_warning("[permission] Denied (canceled)", None);
+                self.activity_model
+                    .push_warning("[permission] Denied (canceled)", None);
                 tracing::debug!("Permission canceled (Esc) — Denied sent to unblock authorize()");
                 return;
             }
 
             // Phase 6: F1 toggles advanced permission options (progressive disclosure).
             if matches!(key.code, KeyCode::F(1)) {
-                self.state.overlay.show_advanced_permissions = !self.state.overlay.show_advanced_permissions;
+                self.state.overlay.show_advanced_permissions =
+                    !self.state.overlay.show_advanced_permissions;
                 tracing::debug!(
                     show_advanced = self.state.overlay.show_advanced_permissions,
                     "Toggled advanced permission options"
@@ -76,19 +81,29 @@ impl TuiApp {
             let permission_option = match key.code {
                 KeyCode::Char('y') | KeyCode::Char('Y') => Some(PermissionOption::Yes),
                 KeyCode::Char('n') | KeyCode::Char('N') => Some(PermissionOption::No),
-                KeyCode::Char('a') | KeyCode::Char('A') if self.state.overlay.show_advanced_permissions => {
+                KeyCode::Char('a') | KeyCode::Char('A')
+                    if self.state.overlay.show_advanced_permissions =>
+                {
                     Some(PermissionOption::AlwaysThisTool)
                 }
-                KeyCode::Char('d') | KeyCode::Char('D') if self.state.overlay.show_advanced_permissions => {
+                KeyCode::Char('d') | KeyCode::Char('D')
+                    if self.state.overlay.show_advanced_permissions =>
+                {
                     Some(PermissionOption::ThisDirectory)
                 }
-                KeyCode::Char('s') | KeyCode::Char('S') if self.state.overlay.show_advanced_permissions => {
+                KeyCode::Char('s') | KeyCode::Char('S')
+                    if self.state.overlay.show_advanced_permissions =>
+                {
                     Some(PermissionOption::ThisSession)
                 }
-                KeyCode::Char('p') | KeyCode::Char('P') if self.state.overlay.show_advanced_permissions => {
+                KeyCode::Char('p') | KeyCode::Char('P')
+                    if self.state.overlay.show_advanced_permissions =>
+                {
                     Some(PermissionOption::ThisPattern)
                 }
-                KeyCode::Char('x') | KeyCode::Char('X') if self.state.overlay.show_advanced_permissions => {
+                KeyCode::Char('x') | KeyCode::Char('X')
+                    if self.state.overlay.show_advanced_permissions =>
+                {
                     Some(PermissionOption::NeverThisDirectory)
                 }
                 _ => None, // Ignore unrecognized keys
@@ -106,7 +121,10 @@ impl TuiApp {
                 if !is_option_available {
                     // Option not available at this risk level (e.g., AlwaysThisTool for Critical)
                     self.activity_model.push_warning(
-                        &format!("[permission] Option '{}' not available at this risk level", option.label()),
+                        &format!(
+                            "[permission] Option '{}' not available at this risk level",
+                            option.label()
+                        ),
                         None,
                     );
                     return;
@@ -121,7 +139,11 @@ impl TuiApp {
                     halcon_core::types::PermissionDecision::Denied
                         | halcon_core::types::PermissionDecision::DeniedForDirectory
                 );
-                let status_msg = format!("[control] {} - {}", option.label(), if is_approved { "Approved" } else { "Denied" });
+                let status_msg = format!(
+                    "[control] {} - {}",
+                    option.label(),
+                    if is_approved { "Approved" } else { "Denied" }
+                );
                 if is_approved {
                     self.activity_model.push_info(&status_msg);
                 } else {
@@ -140,7 +162,8 @@ impl TuiApp {
 
                 self.highlights.stop("permission_prompt");
                 self.agent_badge.set_state(AgentState::Running);
-                self.agent_badge.set_detail(Some("Continuing...".to_string()));
+                self.agent_badge
+                    .set_detail(Some("Continuing...".to_string()));
 
                 tracing::debug!(
                     decision = ?decision,
@@ -153,7 +176,10 @@ impl TuiApp {
         }
 
         // Phase 50: Sudo password entry overlay — masked input with remember toggle.
-        if matches!(self.state.overlay.active, Some(OverlayKind::SudoPasswordEntry { .. })) {
+        if matches!(
+            self.state.overlay.active,
+            Some(OverlayKind::SudoPasswordEntry { .. })
+        ) {
             use crossterm::event::{KeyCode, KeyModifiers};
             match key.code {
                 KeyCode::Esc => {
@@ -161,7 +187,8 @@ impl TuiApp {
                     let _ = self.sudo_pw_tx.as_ref().map(|tx| tx.send(None));
                     self.sudo_password_buf.clear();
                     self.state.overlay.close();
-                    self.activity_model.push_warning("[sudo] Password entry cancelled", None);
+                    self.activity_model
+                        .push_warning("[sudo] Password entry cancelled", None);
                     tracing::debug!("Sudo password entry cancelled by user");
                 }
                 KeyCode::Enter => {
@@ -178,7 +205,8 @@ impl TuiApp {
                     let _ = self.sudo_pw_tx.as_ref().map(|tx| tx.send(Some(pw)));
                     self.sudo_password_buf.clear();
                     self.state.overlay.close();
-                    self.activity_model.push_info("[sudo] Password submitted — elevating privileges");
+                    self.activity_model
+                        .push_info("[sudo] Password submitted — elevating privileges");
                     tracing::debug!("Sudo password submitted");
                 }
                 KeyCode::Tab => {
@@ -186,8 +214,7 @@ impl TuiApp {
                     self.sudo_remember_password = !self.sudo_remember_password;
                 }
                 KeyCode::Char('c') | KeyCode::Char('C')
-                    if key.modifiers == KeyModifiers::NONE
-                        && self.sudo_has_cached =>
+                    if key.modifiers == KeyModifiers::NONE && self.sudo_has_cached =>
                 {
                     // Use cached password immediately.
                     if let Some((ref pw, _)) = self.sudo_cache {
@@ -195,14 +222,18 @@ impl TuiApp {
                     }
                     self.sudo_password_buf.clear();
                     self.state.overlay.close();
-                    self.activity_model.push_info("[sudo] Using cached password");
+                    self.activity_model
+                        .push_info("[sudo] Using cached password");
                     tracing::debug!("Using cached sudo password");
                 }
                 KeyCode::Backspace => {
                     // Remove last character from masked password buffer.
                     self.sudo_password_buf.pop();
                 }
-                KeyCode::Char(c) if key.modifiers == KeyModifiers::NONE || key.modifiers == KeyModifiers::SHIFT => {
+                KeyCode::Char(c)
+                    if key.modifiers == KeyModifiers::NONE
+                        || key.modifiers == KeyModifiers::SHIFT =>
+                {
                     // Append printable character to password buffer (never echoed).
                     self.sudo_password_buf.push(c);
                 }
@@ -230,12 +261,15 @@ impl TuiApp {
                 KeyCode::Enter => {
                     if let Some(session) = self.session_list.get(self.session_list_selected) {
                         let id = session.id.clone();
-                        let short_id = if id.len() >= 8 { id[..8].to_string() } else { id.clone() };
+                        let short_id = if id.len() >= 8 {
+                            id[..8].to_string()
+                        } else {
+                            id.clone()
+                        };
                         let _ = self.ctrl_tx.send(ControlEvent::ResumeSession(id));
                         self.state.overlay.close();
-                        self.activity_model.push_info(&format!(
-                            "⟳ Loading session {}…", short_id
-                        ));
+                        self.activity_model
+                            .push_info(&format!("⟳ Loading session {}…", short_id));
                     }
                 }
                 _ => {}
@@ -244,14 +278,21 @@ impl TuiApp {
         }
 
         // Phase 94: Init wizard overlay key routing.
-        if matches!(self.state.overlay.active, Some(OverlayKind::InitWizard { .. })) {
+        if matches!(
+            self.state.overlay.active,
+            Some(OverlayKind::InitWizard { .. })
+        ) {
             match key.code {
                 KeyCode::Esc => {
                     self.state.overlay.close();
                 }
                 KeyCode::Enter => {
-                    if let Some(OverlayKind::InitWizard { ref mut step, ref preview, ref save_path, dry_run }) =
-                        self.state.overlay.active
+                    if let Some(OverlayKind::InitWizard {
+                        ref mut step,
+                        ref preview,
+                        ref save_path,
+                        dry_run,
+                    }) = self.state.overlay.active
                     {
                         match *step {
                             1 => *step = 2,
@@ -260,7 +301,8 @@ impl TuiApp {
                                 if dry_run {
                                     // Dry-run: just advance to done without writing.
                                     *step = 4;
-                                    self.activity_model.push_info("[onboarding] dry-run: archivo no escrito");
+                                    self.activity_model
+                                        .push_info("[onboarding] dry-run: archivo no escrito");
                                 } else {
                                     // Write the file.
                                     let path_str = save_path.clone();
@@ -274,9 +316,9 @@ impl TuiApp {
                                     if write_ok {
                                         match std::fs::write(path, content.as_bytes()) {
                                             Ok(_) => {
-                                                self.activity_model.push_info(
-                                                    &format!("[onboarding] ✓ Guardado: {path_str}")
-                                                );
+                                                self.activity_model.push_info(&format!(
+                                                    "[onboarding] ✓ Guardado: {path_str}"
+                                                ));
                                                 *step = 4;
                                             }
                                             Err(e) => {
@@ -307,7 +349,10 @@ impl TuiApp {
         }
 
         // Update-available overlay key routing.
-        if matches!(self.state.overlay.active, Some(OverlayKind::UpdateAvailable { .. })) {
+        if matches!(
+            self.state.overlay.active,
+            Some(OverlayKind::UpdateAvailable { .. })
+        ) {
             match key.code {
                 KeyCode::Enter => {
                     // Signal the caller to run the update after TUI exits.
@@ -330,11 +375,15 @@ impl TuiApp {
         }
 
         // Phase 95: PluginSuggest overlay key routing.
-        if matches!(self.state.overlay.active, Some(OverlayKind::PluginSuggest { .. })) {
+        if matches!(
+            self.state.overlay.active,
+            Some(OverlayKind::PluginSuggest { .. })
+        ) {
             match key.code {
                 KeyCode::Up => {
-                    if let Some(OverlayKind::PluginSuggest { ref mut selected, .. }) =
-                        self.state.overlay.active
+                    if let Some(OverlayKind::PluginSuggest {
+                        ref mut selected, ..
+                    }) = self.state.overlay.active
                     {
                         if *selected > 0 {
                             *selected -= 1;
@@ -342,8 +391,11 @@ impl TuiApp {
                     }
                 }
                 KeyCode::Down => {
-                    if let Some(OverlayKind::PluginSuggest { ref mut selected, ref suggestions, .. }) =
-                        self.state.overlay.active
+                    if let Some(OverlayKind::PluginSuggest {
+                        ref mut selected,
+                        ref suggestions,
+                        ..
+                    }) = self.state.overlay.active
                     {
                         if *selected + 1 < suggestions.len() {
                             *selected += 1;
@@ -352,7 +404,7 @@ impl TuiApp {
                 }
                 KeyCode::Char('a') | KeyCode::Char('A') => {
                     self.activity_model.push_info(
-                        "[plugins] Type /plugins auto to install Essential + Recommended"
+                        "[plugins] Type /plugins auto to install Essential + Recommended",
                     );
                     self.state.overlay.close();
                 }
@@ -365,11 +417,15 @@ impl TuiApp {
         }
 
         // Model selector overlay: Up/Down navigate, Enter confirms, Esc cancels.
-        if matches!(self.state.overlay.active, Some(OverlayKind::ModelSelector { .. })) {
+        if matches!(
+            self.state.overlay.active,
+            Some(OverlayKind::ModelSelector { .. })
+        ) {
             match key.code {
                 KeyCode::Up => {
-                    if let Some(OverlayKind::ModelSelector { ref mut selected, .. }) =
-                        self.state.overlay.active
+                    if let Some(OverlayKind::ModelSelector {
+                        ref mut selected, ..
+                    }) = self.state.overlay.active
                     {
                         if *selected > 0 {
                             *selected -= 1;
@@ -377,8 +433,11 @@ impl TuiApp {
                     }
                 }
                 KeyCode::Down => {
-                    if let Some(OverlayKind::ModelSelector { ref mut selected, ref models, .. }) =
-                        self.state.overlay.active
+                    if let Some(OverlayKind::ModelSelector {
+                        ref mut selected,
+                        ref models,
+                        ..
+                    }) = self.state.overlay.active
                     {
                         if *selected + 1 < models.len() {
                             *selected += 1;
@@ -414,20 +473,20 @@ impl TuiApp {
                                     model: model_id.clone(),
                                 });
                                 // Optimistically update status bar.
-                                self.status.apply_patch(crate::tui::widgets::status::StatusPatch {
-                                    provider: Some(provider),
-                                    model: Some(model_id.clone()),
-                                    ..Default::default()
-                                });
+                                self.status
+                                    .apply_patch(crate::tui::widgets::status::StatusPatch {
+                                        provider: Some(provider),
+                                        model: Some(model_id.clone()),
+                                        ..Default::default()
+                                    });
                                 // Clear previous error context.
                                 self.model_error_context = None;
                                 self.toasts.push(Toast::new(
                                     format!("Cambiando a {label}…"),
                                     ToastLevel::Info,
                                 ));
-                                self.activity_model.push_info(&format!(
-                                    "[model] Cambiando a: {label}"
-                                ));
+                                self.activity_model
+                                    .push_info(&format!("[model] Cambiando a: {label}"));
                             }
                         } else {
                             self.state.overlay.close();
@@ -460,7 +519,10 @@ impl TuiApp {
             KeyCode::Enter => {
                 match &self.state.overlay.active {
                     Some(OverlayKind::CommandPalette) => {
-                        let action = self.state.overlay.filtered_items
+                        let action = self
+                            .state
+                            .overlay
+                            .filtered_items
                             .get(self.state.overlay.selected)
                             .map(|item| item.action.clone());
                         // If we got here via slash-typing, clear the /xxx prefix from the prompt.
@@ -486,7 +548,10 @@ impl TuiApp {
             KeyCode::Up => {
                 if matches!(self.state.overlay.active, Some(OverlayKind::Search)) {
                     // Phase 3 SRCH-004: Ctrl+Up = navigate search history (older queries)
-                    if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) {
+                    if key
+                        .modifiers
+                        .contains(crossterm::event::KeyModifiers::CONTROL)
+                    {
                         if let Some(query) = self.activity_navigator.history_up() {
                             self.state.overlay.input = query.clone();
                             self.rerun_search();
@@ -502,7 +567,10 @@ impl TuiApp {
             KeyCode::Down => {
                 if matches!(self.state.overlay.active, Some(OverlayKind::Search)) {
                     // Phase 3 SRCH-004: Ctrl+Down = navigate search history (newer queries)
-                    if key.modifiers.contains(crossterm::event::KeyModifiers::CONTROL) {
+                    if key
+                        .modifiers
+                        .contains(crossterm::event::KeyModifiers::CONTROL)
+                    {
                         if let Some(query) = self.activity_navigator.history_down() {
                             self.state.overlay.input = query.clone();
                             self.rerun_search();

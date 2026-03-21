@@ -1,30 +1,30 @@
+#[cfg(feature = "color-science")]
+pub mod adaptive_optimizer;
+#[cfg(feature = "color-science")]
+pub mod adaptive_palette;
 #[allow(dead_code)]
 pub mod animations;
 #[allow(dead_code)]
 pub mod banner;
+pub mod ci_sink;
 pub mod color;
 #[cfg(feature = "color-science")]
 pub mod color_science;
-#[cfg(feature = "color-science")]
-pub mod adaptive_palette;
-#[cfg(feature = "color-science")]
-pub mod intelligent_theme;
-#[cfg(feature = "color-science")]
-pub mod adaptive_optimizer;
-#[cfg(feature = "color-science")]
-pub mod temporal_color;
-pub mod contrast_validator; // M3: Runtime contrast validation
-pub mod terminal_caps;
 pub mod components;
+pub mod contrast_validator; // M3: Runtime contrast validation
 #[allow(dead_code)]
 pub mod diff;
 pub mod feedback;
+#[cfg(feature = "color-science")]
+pub mod intelligent_theme;
 pub mod markdown;
+pub mod sink;
 pub mod spinner;
 pub mod stream;
-pub mod ci_sink;
-pub mod sink;
 pub mod syntax;
+#[cfg(feature = "color-science")]
+pub mod temporal_color;
+pub mod terminal_caps;
 pub mod theme;
 pub mod tool;
 

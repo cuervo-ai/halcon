@@ -69,12 +69,18 @@ pub struct TestSuiteResult {
 impl TestSuiteResult {
     /// Number of passed tests.
     pub fn passed(&self) -> usize {
-        self.cases.iter().filter(|c| c.status == TestStatus::Passed).count()
+        self.cases
+            .iter()
+            .filter(|c| c.status == TestStatus::Passed)
+            .count()
     }
 
     /// Number of failed tests.
     pub fn failed(&self) -> usize {
-        self.cases.iter().filter(|c| c.status == TestStatus::Failed).count()
+        self.cases
+            .iter()
+            .filter(|c| c.status == TestStatus::Failed)
+            .count()
     }
 
     /// Number of ignored / skipped tests.
@@ -374,9 +380,7 @@ fn parse_jest_value(root: &serde_json::Value, suite_name: &str) -> TestSuiteResu
                 _ => TestStatus::Ignored,
             };
 
-            let duration_ms = test
-                .get("duration")
-                .and_then(|v| v.as_f64());
+            let duration_ms = test.get("duration").and_then(|v| v.as_f64());
 
             let failure_message = if status == TestStatus::Failed {
                 test.get("failureMessages")
@@ -400,9 +404,7 @@ fn parse_jest_value(root: &serde_json::Value, suite_name: &str) -> TestSuiteResu
     let all_passed = cases.iter().all(|c| c.status != TestStatus::Failed);
 
     // Jest reports total duration in the `testExecError` / `perfStats` block.
-    let total_duration_ms = root
-        .get("startTime")
-        .and_then(|_| None::<f64>); // Accurate duration requires end time; skip for now.
+    let total_duration_ms = root.get("startTime").and(None::<f64>); // Accurate duration requires end time; skip for now.
 
     TestSuiteResult {
         suite_name: suite_name.to_string(),
@@ -463,7 +465,11 @@ test result: FAILED. 2 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; 
         assert_eq!(r.passed(), 2);
         assert_eq!(r.failed(), 1);
         assert_eq!(r.ignored(), 1);
-        let failed = r.cases.iter().find(|c| c.status == TestStatus::Failed).unwrap();
+        let failed = r
+            .cases
+            .iter()
+            .find(|c| c.status == TestStatus::Failed)
+            .unwrap();
         assert_eq!(failed.name, "module::beta");
     }
 
@@ -535,9 +541,17 @@ test result: FAILED. 2 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; 
         let r = parse_junit_xml(JUNIT_WITH_FAILURE, "fallback");
         assert!(!r.all_passed);
         assert_eq!(r.failed(), 1);
-        let failed = r.cases.iter().find(|c| c.status == TestStatus::Failed).unwrap();
+        let failed = r
+            .cases
+            .iter()
+            .find(|c| c.status == TestStatus::Failed)
+            .unwrap();
         assert_eq!(failed.name, "pkg.Bar::testFail");
-        assert!(failed.failure_message.as_deref().unwrap_or("").contains("Expected 1"));
+        assert!(failed
+            .failure_message
+            .as_deref()
+            .unwrap_or("")
+            .contains("Expected 1"));
     }
 
     #[test]
@@ -612,9 +626,17 @@ test result: FAILED. 2 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; 
         let r = parse_jest_json(JEST_WITH_FAILURE, "frontend");
         assert!(!r.all_passed);
         assert_eq!(r.failed(), 1);
-        let f = r.cases.iter().find(|c| c.status == TestStatus::Failed).unwrap();
+        let f = r
+            .cases
+            .iter()
+            .find(|c| c.status == TestStatus::Failed)
+            .unwrap();
         assert_eq!(f.name, "Bar fails");
-        assert!(f.failure_message.as_deref().unwrap_or("").contains("Expected true"));
+        assert!(f
+            .failure_message
+            .as_deref()
+            .unwrap_or("")
+            .contains("Expected true"));
     }
 
     #[test]

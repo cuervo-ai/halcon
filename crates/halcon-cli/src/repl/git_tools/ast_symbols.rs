@@ -205,9 +205,15 @@ impl RegexExtractor {
 
         // Visibility prefix detection.
         let (vis, rest) = if trimmed.starts_with("pub(crate)") {
-            (Some("pub(crate)"), trimmed.trim_start_matches("pub(crate)").trim())
+            (
+                Some("pub(crate)"),
+                trimmed.trim_start_matches("pub(crate)").trim(),
+            )
         } else if trimmed.starts_with("pub(super)") {
-            (Some("pub(super)"), trimmed.trim_start_matches("pub(super)").trim())
+            (
+                Some("pub(super)"),
+                trimmed.trim_start_matches("pub(super)").trim(),
+            )
         } else if trimmed.starts_with("pub ") {
             (Some("pub"), trimmed.trim_start_matches("pub ").trim())
         } else {
@@ -215,7 +221,10 @@ impl RegexExtractor {
         };
 
         // fn
-        if let Some(after_fn) = rest.strip_prefix("fn ").or_else(|| rest.strip_prefix("async fn ")) {
+        if let Some(after_fn) = rest
+            .strip_prefix("fn ")
+            .or_else(|| rest.strip_prefix("async fn "))
+        {
             let name = after_fn
                 .split(|c: char| !c.is_alphanumeric() && c != '_')
                 .next()
@@ -323,7 +332,7 @@ impl RegexExtractor {
                 .next()
                 .unwrap_or("")
                 .to_string();
-            if !name.is_empty() && name.chars().next().map_or(false, |c| c.is_uppercase()) {
+            if !name.is_empty() && name.chars().next().is_some_and(|c| c.is_uppercase()) {
                 return Some(Symbol {
                     name,
                     kind: SymbolKind::Constant,
@@ -377,7 +386,10 @@ impl RegexExtractor {
     fn python_line(line: &str, line_no: usize) -> Option<Symbol> {
         let trimmed = line.trim();
 
-        if let Some(after) = trimmed.strip_prefix("def ").or_else(|| trimmed.strip_prefix("async def ")) {
+        if let Some(after) = trimmed
+            .strip_prefix("def ")
+            .or_else(|| trimmed.strip_prefix("async def "))
+        {
             let name = after
                 .split(|c: char| c == '(' || c == ':' || c.is_whitespace())
                 .next()
@@ -428,7 +440,10 @@ impl RegexExtractor {
 
         // export keyword.
         let (vis, rest) = if trimmed.starts_with("export default ") {
-            (Some("export default"), trimmed["export default ".len()..].trim())
+            (
+                Some("export default"),
+                trimmed["export default ".len()..].trim(),
+            )
         } else if trimmed.starts_with("export ") {
             (Some("export"), trimmed["export ".len()..].trim())
         } else {
@@ -436,7 +451,10 @@ impl RegexExtractor {
         };
 
         // function
-        if let Some(after) = rest.strip_prefix("function ").or_else(|| rest.strip_prefix("async function ")) {
+        if let Some(after) = rest
+            .strip_prefix("function ")
+            .or_else(|| rest.strip_prefix("async function "))
+        {
             let name = after
                 .split(|c: char| c == '(' || c.is_whitespace())
                 .next()
@@ -544,7 +562,7 @@ impl RegexExtractor {
                         .unwrap_or("")
                         .to_string();
                     if !name.is_empty() {
-                        let exported = name.chars().next().map_or(false, |c| c.is_uppercase());
+                        let exported = name.chars().next().is_some_and(|c| c.is_uppercase());
                         return Some(Symbol {
                             name,
                             kind: SymbolKind::Method,
@@ -569,7 +587,7 @@ impl RegexExtractor {
                         name: name.clone(),
                         kind: SymbolKind::Function,
                         line: line_no,
-                        visibility: if name.chars().next().map_or(false, |c| c.is_uppercase()) {
+                        visibility: if name.chars().next().is_some_and(|c| c.is_uppercase()) {
                             Some("exported".to_string())
                         } else {
                             None
@@ -593,7 +611,7 @@ impl RegexExtractor {
                     name: name.clone(),
                     kind,
                     line: line_no,
-                    visibility: if name.chars().next().map_or(false, |c| c.is_uppercase()) {
+                    visibility: if name.chars().next().is_some_and(|c| c.is_uppercase()) {
                         Some("exported".to_string())
                     } else {
                         None
@@ -670,7 +688,16 @@ impl SymbolExtractor for RegexExtractor {
     }
 
     fn supported_languages(&self) -> &[&str] {
-        &["rust", "python", "typescript", "javascript", "go", "java", "kotlin", "csharp"]
+        &[
+            "rust",
+            "python",
+            "typescript",
+            "javascript",
+            "go",
+            "java",
+            "kotlin",
+            "csharp",
+        ]
     }
 }
 
@@ -736,7 +763,11 @@ mod tests {
     fn rust_extract_struct() {
         let code = "pub struct Config { pub timeout: u32 }";
         let idx = RegexExtractor.extract("lib.rs", "rust", code);
-        let structs: Vec<_> = idx.symbols.iter().filter(|s| s.kind == SymbolKind::Struct).collect();
+        let structs: Vec<_> = idx
+            .symbols
+            .iter()
+            .filter(|s| s.kind == SymbolKind::Struct)
+            .collect();
         assert!(!structs.is_empty());
         assert_eq!(structs[0].name, "Config");
     }
@@ -745,7 +776,11 @@ mod tests {
     fn rust_extract_enum() {
         let code = "pub enum Status { Ok, Err }";
         let idx = RegexExtractor.extract("status.rs", "rust", code);
-        let enums: Vec<_> = idx.symbols.iter().filter(|s| s.kind == SymbolKind::Enum).collect();
+        let enums: Vec<_> = idx
+            .symbols
+            .iter()
+            .filter(|s| s.kind == SymbolKind::Enum)
+            .collect();
         assert!(!enums.is_empty());
         assert_eq!(enums[0].name, "Status");
     }
@@ -754,7 +789,11 @@ mod tests {
     fn rust_extract_trait() {
         let code = "pub trait Processable { fn process(&self); }";
         let idx = RegexExtractor.extract("trait.rs", "rust", code);
-        let traits: Vec<_> = idx.symbols.iter().filter(|s| s.kind == SymbolKind::Trait).collect();
+        let traits: Vec<_> = idx
+            .symbols
+            .iter()
+            .filter(|s| s.kind == SymbolKind::Trait)
+            .collect();
         assert!(!traits.is_empty());
         assert_eq!(traits[0].name, "Processable");
     }
@@ -763,7 +802,11 @@ mod tests {
     fn rust_extract_const() {
         let code = "pub const MAX_SIZE: usize = 1024;";
         let idx = RegexExtractor.extract("lib.rs", "rust", code);
-        let consts: Vec<_> = idx.symbols.iter().filter(|s| s.kind == SymbolKind::Constant).collect();
+        let consts: Vec<_> = idx
+            .symbols
+            .iter()
+            .filter(|s| s.kind == SymbolKind::Constant)
+            .collect();
         assert!(!consts.is_empty());
         assert_eq!(consts[0].name, "MAX_SIZE");
     }
@@ -772,7 +815,11 @@ mod tests {
     fn rust_extract_type_alias() {
         let code = "pub type Result<T> = std::result::Result<T, Error>;";
         let idx = RegexExtractor.extract("lib.rs", "rust", code);
-        let types: Vec<_> = idx.symbols.iter().filter(|s| s.kind == SymbolKind::Type).collect();
+        let types: Vec<_> = idx
+            .symbols
+            .iter()
+            .filter(|s| s.kind == SymbolKind::Type)
+            .collect();
         assert!(!types.is_empty());
     }
 
@@ -780,7 +827,11 @@ mod tests {
     fn rust_extract_module() {
         let code = "pub mod network;";
         let idx = RegexExtractor.extract("lib.rs", "rust", code);
-        let mods: Vec<_> = idx.symbols.iter().filter(|s| s.kind == SymbolKind::Module).collect();
+        let mods: Vec<_> = idx
+            .symbols
+            .iter()
+            .filter(|s| s.kind == SymbolKind::Module)
+            .collect();
         assert!(!mods.is_empty());
         assert_eq!(mods[0].name, "network");
     }
@@ -789,7 +840,11 @@ mod tests {
     fn rust_extract_macro_rules() {
         let code = "macro_rules! assert_ok { ... }";
         let idx = RegexExtractor.extract("macros.rs", "rust", code);
-        let macros: Vec<_> = idx.symbols.iter().filter(|s| s.kind == SymbolKind::Macro).collect();
+        let macros: Vec<_> = idx
+            .symbols
+            .iter()
+            .filter(|s| s.kind == SymbolKind::Macro)
+            .collect();
         assert!(!macros.is_empty());
         assert_eq!(macros[0].name, "assert_ok");
     }
@@ -828,7 +883,11 @@ pub enum State { Running, Stopped }
     fn python_extract_class() {
         let code = "class Database(object):\n    pass";
         let idx = RegexExtractor.extract("db.py", "python", code);
-        let classes: Vec<_> = idx.symbols.iter().filter(|s| s.kind == SymbolKind::Class).collect();
+        let classes: Vec<_> = idx
+            .symbols
+            .iter()
+            .filter(|s| s.kind == SymbolKind::Class)
+            .collect();
         assert!(!classes.is_empty());
         assert_eq!(classes[0].name, "Database");
     }
@@ -837,7 +896,11 @@ pub enum State { Running, Stopped }
     fn python_extract_method_is_indented() {
         let code = "class Foo:\n    def bar(self):\n        pass";
         let idx = RegexExtractor.extract("foo.py", "python", code);
-        let methods: Vec<_> = idx.symbols.iter().filter(|s| s.kind == SymbolKind::Method).collect();
+        let methods: Vec<_> = idx
+            .symbols
+            .iter()
+            .filter(|s| s.kind == SymbolKind::Method)
+            .collect();
         assert!(!methods.is_empty());
     }
 
@@ -856,7 +919,11 @@ pub enum State { Running, Stopped }
     fn ts_extract_interface() {
         let code = "export interface UserConfig { name: string; }";
         let idx = RegexExtractor.extract("types.ts", "typescript", code);
-        let ifaces: Vec<_> = idx.symbols.iter().filter(|s| s.kind == SymbolKind::Interface).collect();
+        let ifaces: Vec<_> = idx
+            .symbols
+            .iter()
+            .filter(|s| s.kind == SymbolKind::Interface)
+            .collect();
         assert!(!ifaces.is_empty());
         assert_eq!(ifaces[0].name, "UserConfig");
     }
@@ -865,7 +932,11 @@ pub enum State { Running, Stopped }
     fn ts_extract_class() {
         let code = "export class ApiClient { constructor() {} }";
         let idx = RegexExtractor.extract("client.ts", "typescript", code);
-        let classes: Vec<_> = idx.symbols.iter().filter(|s| s.kind == SymbolKind::Class).collect();
+        let classes: Vec<_> = idx
+            .symbols
+            .iter()
+            .filter(|s| s.kind == SymbolKind::Class)
+            .collect();
         assert!(!classes.is_empty());
     }
 
@@ -884,7 +955,11 @@ pub enum State { Running, Stopped }
     fn go_extract_method() {
         let code = "func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {}";
         let idx = RegexExtractor.extract("server.go", "go", code);
-        let methods: Vec<_> = idx.symbols.iter().filter(|s| s.kind == SymbolKind::Method).collect();
+        let methods: Vec<_> = idx
+            .symbols
+            .iter()
+            .filter(|s| s.kind == SymbolKind::Method)
+            .collect();
         assert!(!methods.is_empty());
     }
 
@@ -892,7 +967,11 @@ pub enum State { Running, Stopped }
     fn go_extract_struct_type() {
         let code = "type Config struct { Port int }";
         let idx = RegexExtractor.extract("config.go", "go", code);
-        let structs: Vec<_> = idx.symbols.iter().filter(|s| s.kind == SymbolKind::Struct).collect();
+        let structs: Vec<_> = idx
+            .symbols
+            .iter()
+            .filter(|s| s.kind == SymbolKind::Struct)
+            .collect();
         assert!(!structs.is_empty());
         assert_eq!(structs[0].name, "Config");
     }
@@ -931,7 +1010,11 @@ pub enum State { Running, Stopped }
         let code = "pub struct A {}\npub fn b() {}\npub enum C {}";
         let idx = RegexExtractor.extract("lib.rs", "rust", code);
         let by_kind = idx.by_kind();
-        assert!(by_kind.contains_key("struct") || by_kind.contains_key("fn") || by_kind.contains_key("enum"));
+        assert!(
+            by_kind.contains_key("struct")
+                || by_kind.contains_key("fn")
+                || by_kind.contains_key("enum")
+        );
     }
 
     #[test]

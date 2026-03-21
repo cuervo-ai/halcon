@@ -184,7 +184,9 @@ pub enum UiCommand {
         title: Option<String>,
     },
     LoadChatSessions,
-    LoadChatMessages { session_id: uuid::Uuid },
+    LoadChatMessages {
+        session_id: uuid::Uuid,
+    },
     SendChatMessage {
         session_id: uuid::Uuid,
         content: String,
@@ -211,18 +213,28 @@ pub enum UiCommand {
     // Multimodal attachments
     /// Read the file at `path`, detect MIME type, encode as base64.
     /// Result: `BackendMessage::AttachmentReady` or `BackendMessage::AttachmentError`.
-    AttachFile { path: std::path::PathBuf },
+    AttachFile {
+        path: std::path::PathBuf,
+    },
     /// Remove the attachment at the given index from `ChatState::pending_attachments`.
     /// Handled entirely in-process (no backend call needed).
-    RemoveAttachment { index: usize },
+    #[allow(dead_code)]
+    RemoveAttachment {
+        index: usize,
+    },
     /// Clear all pending attachments for the active session.
+    #[allow(dead_code)]
     ClearAttachments,
 
     // File explorer — async IO offloaded to the tokio worker
     /// Load the direct children of `path`.  Result: `BackendMessage::DirectoryLoaded`.
-    LoadDirectory { path: std::path::PathBuf },
+    LoadDirectory {
+        path: std::path::PathBuf,
+    },
     /// Read a file.  Result: `BackendMessage::FileLoaded` (truncated to 64 KB).
-    LoadFile { path: std::path::PathBuf },
+    LoadFile {
+        path: std::path::PathBuf,
+    },
 
     // Agent / task operations
     /// Invoke a registered agent with a free-text instruction.

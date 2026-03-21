@@ -232,7 +232,11 @@ impl PostBatchSupervisor {
         // - Round 1: first batch completed, tracker may still not have matched names.
         // - Round 2: second batch, still calibrating (e.g., MCP tools vs halcon native names).
         // - Round ≥ 3: by now, genuine alignment drift if progress is still 0%.
-        if round >= 3 && plan_progress_ratio == 0.0 && any_tool_succeeded && !tools_executed.is_empty() {
+        if round >= 3
+            && plan_progress_ratio == 0.0
+            && any_tool_succeeded
+            && !tools_executed.is_empty()
+        {
             return BatchVerdict::InjectCorrection(
                 "[Supervisor] Tools succeeded this round but plan completion is 0%. \
                  Explicitly advance the plan: mark completed steps and invoke the next \
@@ -355,7 +359,10 @@ impl LoopCritic {
         // for multi-round sessions with large tool outputs.
         let total_chars = final_response.chars().count();
         let final_excerpt: String = if total_chars > excerpt_len {
-            final_response.chars().skip(total_chars - excerpt_len).collect()
+            final_response
+                .chars()
+                .skip(total_chars - excerpt_len)
+                .collect()
         } else {
             final_response.to_string()
         };
@@ -538,7 +545,10 @@ mod tests {
         let directive = injector.take_directive().unwrap();
         // Should appear only once (not duplicated).
         let count = directive.matches("same advice").count();
-        assert_eq!(count, 1, "Same advice should appear exactly once in directive");
+        assert_eq!(
+            count, 1,
+            "Same advice should appear exactly once in directive"
+        );
     }
 
     // ── PostBatchSupervisor ─────────────────────────────────────────────────
@@ -577,7 +587,10 @@ mod tests {
         );
         match verdict {
             BatchVerdict::InjectCorrection(msg) => {
-                assert!(msg.contains("file_edit"), "Correction must name the missing tool");
+                assert!(
+                    msg.contains("file_edit"),
+                    "Correction must name the missing tool"
+                );
                 assert!(msg.contains("[Supervisor]"));
             }
             other => panic!("Expected InjectCorrection, got {other:?}"),
@@ -602,7 +615,10 @@ mod tests {
     fn supervisor_force_replan_on_two_critical_failures() {
         let critical = vec![
             ("bash".to_string(), "command not found: xyz".to_string()),
-            ("file_write".to_string(), "permission denied: /root".to_string()),
+            (
+                "file_write".to_string(),
+                "permission denied: /root".to_string(),
+            ),
         ];
         let verdict = PostBatchSupervisor::check(0, None, &[], &critical, 0.0, false, None);
         assert!(
@@ -627,8 +643,8 @@ mod tests {
             None,
             &["file_read".to_string()],
             &[],
-            0.0,   // zero plan progress
-            true,  // tools succeeded
+            0.0,  // zero plan progress
+            true, // tools succeeded
             None,
         );
         match verdict {
@@ -649,8 +665,8 @@ mod tests {
                 None,
                 &["file_read".to_string()],
                 &[],
-                0.0,   // zero plan progress
-                true,  // tools succeeded
+                0.0,  // zero plan progress
+                true, // tools succeeded
                 None,
             );
             assert!(
@@ -722,10 +738,7 @@ mod tests {
         assert!(!verdict.achieved);
         assert_eq!(verdict.gaps.len(), 2);
         assert!(verdict.retry_instruction.is_some());
-        assert!(verdict
-            .retry_instruction
-            .unwrap()
-            .contains("try/catch"));
+        assert!(verdict.retry_instruction.unwrap().contains("try/catch"));
     }
 
     #[test]
@@ -751,12 +764,18 @@ mod tests {
         // Both ≥2 critical failures (Gate 1) AND expected tool not called (Gate 2).
         // Gate 1 must win → ForceReplanNow, not InjectCorrection.
         let critical = vec![
-            ("bash".to_string(), "No such file or directory: /missing".to_string()),
-            ("file_write".to_string(), "Permission denied: /root/x".to_string()),
+            (
+                "bash".to_string(),
+                "No such file or directory: /missing".to_string(),
+            ),
+            (
+                "file_write".to_string(),
+                "Permission denied: /root/x".to_string(),
+            ),
         ];
         let verdict = PostBatchSupervisor::check(
             1,
-            Some("file_edit"),        // expected but not called
+            Some("file_edit"),          // expected but not called
             &["file_read".to_string()], // different tool ran
             &critical,
             0.0,
@@ -774,7 +793,10 @@ mod tests {
         // Both ≥2 critical failures (Gate 1) AND 0% progress with success (Gate 3).
         // Gate 1 must win → ForceReplanNow.
         let critical = vec![
-            ("bash".to_string(), "command not found: missing_cmd".to_string()),
+            (
+                "bash".to_string(),
+                "command not found: missing_cmd".to_string(),
+            ),
             ("grep".to_string(), "No such file or directory".to_string()),
         ];
         let verdict = PostBatchSupervisor::check(
@@ -795,7 +817,10 @@ mod tests {
     #[test]
     fn supervisor_force_replan_message_contains_tool_names() {
         let critical = vec![
-            ("my_tool_a".to_string(), "No such file or directory".to_string()),
+            (
+                "my_tool_a".to_string(),
+                "No such file or directory".to_string(),
+            ),
             ("my_tool_b".to_string(), "Permission denied".to_string()),
         ];
         let verdict = PostBatchSupervisor::check(0, None, &[], &critical, 0.0, false, None);
@@ -820,7 +845,7 @@ mod tests {
             None,
             &["bash".to_string()],
             &[],
-            0.0,  // zero progress — but no plan, so Gate 3 fires (tools ran, no progress)
+            0.0, // zero progress — but no plan, so Gate 3 fires (tools ran, no progress)
             true,
             None,
         );
@@ -849,25 +874,52 @@ mod tests {
     #[test]
     fn should_halt_fires_on_high_conf_failure() {
         // !achieved + confidence >= 0.80 → must halt.
-        assert!(LoopCritic::should_halt(&verdict(false, 0.80), DEFAULT_HALT_THRESHOLD));
-        assert!(LoopCritic::should_halt(&verdict(false, 0.95), DEFAULT_HALT_THRESHOLD));
-        assert!(LoopCritic::should_halt(&verdict(false, 1.00), DEFAULT_HALT_THRESHOLD));
+        assert!(LoopCritic::should_halt(
+            &verdict(false, 0.80),
+            DEFAULT_HALT_THRESHOLD
+        ));
+        assert!(LoopCritic::should_halt(
+            &verdict(false, 0.95),
+            DEFAULT_HALT_THRESHOLD
+        ));
+        assert!(LoopCritic::should_halt(
+            &verdict(false, 1.00),
+            DEFAULT_HALT_THRESHOLD
+        ));
     }
 
     #[test]
     fn should_halt_silent_below_threshold() {
         // !achieved but confidence < 0.80 → do NOT halt (uncertainty is high).
-        assert!(!LoopCritic::should_halt(&verdict(false, 0.79), DEFAULT_HALT_THRESHOLD));
-        assert!(!LoopCritic::should_halt(&verdict(false, 0.50), DEFAULT_HALT_THRESHOLD));
-        assert!(!LoopCritic::should_halt(&verdict(false, 0.00), DEFAULT_HALT_THRESHOLD));
+        assert!(!LoopCritic::should_halt(
+            &verdict(false, 0.79),
+            DEFAULT_HALT_THRESHOLD
+        ));
+        assert!(!LoopCritic::should_halt(
+            &verdict(false, 0.50),
+            DEFAULT_HALT_THRESHOLD
+        ));
+        assert!(!LoopCritic::should_halt(
+            &verdict(false, 0.00),
+            DEFAULT_HALT_THRESHOLD
+        ));
     }
 
     #[test]
     fn should_halt_never_fires_when_achieved() {
         // Even with confidence = 1.0, if achieved=true we must NOT halt.
-        assert!(!LoopCritic::should_halt(&verdict(true, 1.00), DEFAULT_HALT_THRESHOLD));
-        assert!(!LoopCritic::should_halt(&verdict(true, 0.95), DEFAULT_HALT_THRESHOLD));
-        assert!(!LoopCritic::should_halt(&verdict(true, 0.80), DEFAULT_HALT_THRESHOLD));
+        assert!(!LoopCritic::should_halt(
+            &verdict(true, 1.00),
+            DEFAULT_HALT_THRESHOLD
+        ));
+        assert!(!LoopCritic::should_halt(
+            &verdict(true, 0.95),
+            DEFAULT_HALT_THRESHOLD
+        ));
+        assert!(!LoopCritic::should_halt(
+            &verdict(true, 0.80),
+            DEFAULT_HALT_THRESHOLD
+        ));
     }
 
     #[test]
@@ -879,7 +931,8 @@ mod tests {
             (true, 0.95_f32),
             (false, 1.00_f32),
         ] {
-            let via_verdict = LoopCritic::should_halt(&verdict(achieved, conf), DEFAULT_HALT_THRESHOLD);
+            let via_verdict =
+                LoopCritic::should_halt(&verdict(achieved, conf), DEFAULT_HALT_THRESHOLD);
             let via_raw = LoopCritic::should_halt_raw(achieved, conf, DEFAULT_HALT_THRESHOLD);
             assert_eq!(
                 via_verdict, via_raw,
@@ -898,10 +951,19 @@ mod tests {
     fn custom_policy_threshold_respected() {
         // Custom threshold of 0.50 should cause halts at lower confidence.
         let custom_threshold = 0.50_f32;
-        assert!(LoopCritic::should_halt(&verdict(false, 0.50), custom_threshold));
-        assert!(LoopCritic::should_halt(&verdict(false, 0.80), custom_threshold));
+        assert!(LoopCritic::should_halt(
+            &verdict(false, 0.50),
+            custom_threshold
+        ));
+        assert!(LoopCritic::should_halt(
+            &verdict(false, 0.80),
+            custom_threshold
+        ));
         // Below custom threshold → no halt.
-        assert!(!LoopCritic::should_halt(&verdict(false, 0.49), custom_threshold));
+        assert!(!LoopCritic::should_halt(
+            &verdict(false, 0.49),
+            custom_threshold
+        ));
     }
 
     // ── SuspendPlugin gate (Phase 7 V3 plugin architecture) ──────────────────
@@ -930,15 +992,8 @@ mod tests {
     #[test]
     fn suspend_plugin_none_suppresses_gate0() {
         // None → Gate 0 skipped, existing gates apply normally.
-        let verdict = PostBatchSupervisor::check(
-            1,
-            None,
-            &["file_read".to_string()],
-            &[],
-            0.5,
-            true,
-            None,
-        );
+        let verdict =
+            PostBatchSupervisor::check(1, None, &["file_read".to_string()], &[], 0.5, true, None);
         assert!(matches!(verdict, BatchVerdict::Continue));
     }
 
@@ -949,15 +1004,8 @@ mod tests {
             ("tool_a".to_string(), "err1".to_string()),
             ("tool_b".to_string(), "err2".to_string()),
         ];
-        let verdict = PostBatchSupervisor::check(
-            0,
-            None,
-            &[],
-            &critical,
-            0.0,
-            false,
-            Some("culprit-plugin"),
-        );
+        let verdict =
+            PostBatchSupervisor::check(0, None, &[], &critical, 0.0, false, Some("culprit-plugin"));
         assert!(
             matches!(verdict, BatchVerdict::SuspendPlugin { .. }),
             "Gate 0 must beat Gate 1 when plugin_all_failed is Some"

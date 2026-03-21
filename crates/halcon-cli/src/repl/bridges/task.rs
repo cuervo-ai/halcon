@@ -106,10 +106,15 @@ impl TaskBridge {
                     }
                 }
                 halcon_core::traits::TaskStatus::Failed => {
-                    let error_msg = tracked.step.outcome.as_ref().map(|o| match o {
-                        halcon_core::traits::StepOutcome::Failed { error } => error.clone(),
-                        _ => "unknown failure".to_string(),
-                    }).unwrap_or_else(|| "unknown failure".to_string());
+                    let error_msg = tracked
+                        .step
+                        .outcome
+                        .as_ref()
+                        .map(|o| match o {
+                            halcon_core::traits::StepOutcome::Failed { error } => error.clone(),
+                            _ => "unknown failure".to_string(),
+                        })
+                        .unwrap_or_else(|| "unknown failure".to_string());
 
                     let task = self.backlog.get_mut(task_id);
                     if let Some(task) = task {
@@ -314,7 +319,10 @@ mod tests {
 
     #[test]
     fn disabled_bridge_still_functional() {
-        let config = TaskFrameworkConfig { enabled: false, ..Default::default() };
+        let config = TaskFrameworkConfig {
+            enabled: false,
+            ..Default::default()
+        };
         let mut bridge = TaskBridge::new(&config);
         assert!(!bridge.is_enabled());
 
@@ -339,7 +347,10 @@ mod tests {
     fn is_strict_false_by_default() {
         // TaskFrameworkConfig.strict_enforcement defaults to false — bridge must expose this.
         let bridge = TaskBridge::new(&test_config());
-        assert!(!bridge.is_strict(), "strict_enforcement must default to false");
+        assert!(
+            !bridge.is_strict(),
+            "strict_enforcement must default to false"
+        );
     }
 
     #[test]

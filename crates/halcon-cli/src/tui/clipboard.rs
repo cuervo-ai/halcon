@@ -70,7 +70,8 @@ pub fn paste_safe(raw: &str) -> PasteOutcome {
 pub fn copy_to_clipboard(text: &str) -> Result<(), String> {
     #[cfg(feature = "arboard")]
     {
-        let mut clipboard = Clipboard::new().map_err(|e| format!("Failed to access clipboard: {}", e))?;
+        let mut clipboard =
+            Clipboard::new().map_err(|e| format!("Failed to access clipboard: {}", e))?;
         clipboard
             .set_text(text)
             .map_err(|e| format!("Failed to copy to clipboard: {}", e))?;
@@ -90,7 +91,8 @@ pub fn copy_to_clipboard(text: &str) -> Result<(), String> {
 pub fn paste_from_clipboard() -> Result<String, String> {
     #[cfg(feature = "arboard")]
     {
-        let mut clipboard = Clipboard::new().map_err(|e| format!("Failed to access clipboard: {}", e))?;
+        let mut clipboard =
+            Clipboard::new().map_err(|e| format!("Failed to access clipboard: {}", e))?;
         clipboard
             .get_text()
             .map_err(|e| format!("Failed to paste from clipboard: {}", e))
@@ -153,7 +155,10 @@ mod tests {
         let text = "b".repeat(PASTE_LIMIT_CHARS + 42);
         let outcome = paste_safe(&text);
         match outcome {
-            PasteOutcome::Truncated { text: truncated, original_len } => {
+            PasteOutcome::Truncated {
+                text: truncated,
+                original_len,
+            } => {
                 assert_eq!(truncated.len(), PASTE_LIMIT_CHARS);
                 assert_eq!(original_len, PASTE_LIMIT_CHARS + 42);
             }
@@ -185,7 +190,10 @@ mod tests {
 
         // Clipboard might not be available in CI/headless environments
         if copy_result.is_err() {
-            eprintln!("Skipping clipboard test (no clipboard available): {:?}", copy_result);
+            eprintln!(
+                "Skipping clipboard test (no clipboard available): {:?}",
+                copy_result
+            );
             return;
         }
 
@@ -204,7 +212,10 @@ mod tests {
 
         // Clipboard might not be available in CI/headless environments
         if result.is_err() {
-            eprintln!("Skipping clipboard test (no clipboard available): {:?}", result);
+            eprintln!(
+                "Skipping clipboard test (no clipboard available): {:?}",
+                result
+            );
             return;
         }
 
@@ -219,7 +230,10 @@ mod tests {
 
         // Clipboard might not be available in CI/headless environments
         if result.is_err() {
-            eprintln!("Skipping clipboard test (no clipboard available): {:?}", result);
+            eprintln!(
+                "Skipping clipboard test (no clipboard available): {:?}",
+                result
+            );
             return;
         }
 

@@ -47,7 +47,9 @@ pub fn score_tool_args(tool_name: &str, args: &Value) -> OutputRiskReport {
     let mut score: u32 = 0;
     let mut flags = Vec::new();
 
-    let args_str = serde_json::to_string(args).unwrap_or_default().to_lowercase();
+    let args_str = serde_json::to_string(args)
+        .unwrap_or_default()
+        .to_lowercase();
 
     if tool_name == "bash" {
         if let Some(cmd) = args.get("command").and_then(|v| v.as_str()) {
@@ -163,7 +165,10 @@ fn has_network_exfil(cmd_lower: &str) -> bool {
         return false;
     }
     // If it's to localhost, it's not exfil
-    if cmd_lower.contains("localhost") || cmd_lower.contains("127.0.0.1") || cmd_lower.contains("::1") {
+    if cmd_lower.contains("localhost")
+        || cmd_lower.contains("127.0.0.1")
+        || cmd_lower.contains("::1")
+    {
         return false;
     }
     // Has curl/wget without a localhost destination
@@ -219,7 +224,11 @@ mod tests {
     fn rm_rf_scores_high() {
         let args = json!({"command": "rm -rf /home/user/data"});
         let report = score_tool_args("bash", &args);
-        assert!(report.score >= 50, "rm -rf should score ≥50, got {}", report.score);
+        assert!(
+            report.score >= 50,
+            "rm -rf should score ≥50, got {}",
+            report.score
+        );
         assert!(report.flags.contains(&OutputRiskFlag::DestructiveSequence));
         assert!(report.is_high_risk());
     }

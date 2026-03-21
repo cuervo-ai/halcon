@@ -32,13 +32,14 @@ pub async fn submit_task(
             AgentSelector::ByCapability(vec![])
         };
 
-        let budget = node_spec.budget.as_ref().map(|b| {
-            halcon_runtime::AgentBudget {
+        let budget = node_spec
+            .budget
+            .as_ref()
+            .map(|b| halcon_runtime::AgentBudget {
                 max_tokens: b.max_tokens,
                 max_cost_usd: b.max_cost_usd,
                 max_duration: std::time::Duration::from_millis(b.max_duration_ms),
-            }
-        });
+            });
 
         let node = TaskNode {
             task_id: node_spec.task_id,
@@ -55,8 +56,12 @@ pub async fn submit_task(
     let node_count = req.nodes.len();
 
     // Validate DAG before execution.
-    dag.validate().map_err(|e| ApiError::bad_request(e.to_string()))?;
-    let wave_count = dag.waves().map_err(|e| ApiError::bad_request(e.to_string()))?.len();
+    dag.validate()
+        .map_err(|e| ApiError::bad_request(e.to_string()))?;
+    let wave_count = dag
+        .waves()
+        .map_err(|e| ApiError::bad_request(e.to_string()))?
+        .len();
 
     state.broadcast(crate::types::ws::WsServerEvent::TaskSubmitted {
         execution_id,
@@ -128,7 +133,9 @@ pub async fn submit_task(
                     })
                     .collect();
 
-                let all_success = node_results.iter().all(|r| r.status == TaskStatus::Completed);
+                let all_success = node_results
+                    .iter()
+                    .all(|r| r.status == TaskStatus::Completed);
 
                 if let Some(exec) = state_clone.task_executions.write().await.get_mut(&exec_id) {
                     exec.status = if all_success {
@@ -197,7 +204,9 @@ pub async fn cancel_task(
         if exec.status == TaskStatus::Running || exec.status == TaskStatus::Pending {
             exec.status = TaskStatus::Cancelled;
             exec.completed_at = Some(chrono::Utc::now());
-            Ok(Json(serde_json::json!({ "cancelled": true, "id": id.to_string() })))
+            Ok(Json(
+                serde_json::json!({ "cancelled": true, "id": id.to_string() }),
+            ))
         } else {
             Err(ApiError::bad_request(format!(
                 "task {id} is not running (status: {:?})",
@@ -205,6 +214,8 @@ pub async fn cancel_task(
             )))
         }
     } else {
-        Err(ApiError::not_found(format!("task execution {id} not found")))
+        Err(ApiError::not_found(format!(
+            "task execution {id} not found"
+        )))
     }
 }

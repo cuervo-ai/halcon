@@ -85,10 +85,19 @@ pub struct ProviderModelSelection {
 
 impl ProviderModelSelection {
     /// Construct from components, deriving `handle` from `provider_name`.
-    pub fn new(provider_name: impl Into<String>, model_id: impl Into<String>, reason: impl Into<String>) -> Self {
+    pub fn new(
+        provider_name: impl Into<String>,
+        model_id: impl Into<String>,
+        reason: impl Into<String>,
+    ) -> Self {
         let provider_name = provider_name.into();
         let handle = ProviderHandle::new(&provider_name);
-        Self { handle, provider_name, model_id: model_id.into(), reason: reason.into() }
+        Self {
+            handle,
+            provider_name,
+            model_id: model_id.into(),
+            reason: reason.into(),
+        }
     }
 }
 

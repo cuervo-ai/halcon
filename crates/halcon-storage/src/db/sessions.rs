@@ -245,7 +245,10 @@ mod tests {
         let tiny = r#"[]"#;
         let (json, compressed) = compress_messages(tiny);
         assert_eq!(json, tiny);
-        assert!(compressed.is_none(), "small payload should not be compressed");
+        assert!(
+            compressed.is_none(),
+            "small payload should not be compressed"
+        );
     }
 
     #[test]

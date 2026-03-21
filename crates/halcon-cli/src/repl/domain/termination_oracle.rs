@@ -201,7 +201,9 @@ impl TerminationOracle {
                     reason: SynthesisReason::MidLoopCriticForceSynthesis,
                 };
             }
-            Some(CriticAction::Replan | CriticAction::ReduceScope | CriticAction::ChangeStrategy) => {
+            Some(
+                CriticAction::Replan | CriticAction::ReduceScope | CriticAction::ChangeStrategy,
+            ) => {
                 return TerminationDecision::Replan {
                     reason: ReplanReason::MidLoopCriticReplan,
                 };
@@ -274,21 +276,30 @@ mod tests {
         fb.loop_signal = LoopSignal::InjectSynthesis;
         fb.replan_advised = true;
         fb.synthesis_advised = true;
-        assert_eq!(TerminationOracle::adjudicate(&fb), TerminationDecision::Halt);
+        assert_eq!(
+            TerminationOracle::adjudicate(&fb),
+            TerminationDecision::Halt
+        );
     }
 
     #[test]
     fn break_signal_produces_halt() {
         let mut fb = base_feedback();
         fb.loop_signal = LoopSignal::Break;
-        assert_eq!(TerminationOracle::adjudicate(&fb), TerminationDecision::Halt);
+        assert_eq!(
+            TerminationOracle::adjudicate(&fb),
+            TerminationDecision::Halt
+        );
     }
 
     #[test]
     fn convergence_halt_produces_halt() {
         let mut fb = base_feedback();
         fb.convergence_action = ConvergenceAction::Halt;
-        assert_eq!(TerminationOracle::adjudicate(&fb), TerminationDecision::Halt);
+        assert_eq!(
+            TerminationOracle::adjudicate(&fb),
+            TerminationDecision::Halt
+        );
     }
 
     #[test]
@@ -297,7 +308,10 @@ mod tests {
         fb.loop_signal = LoopSignal::Break;
         fb.convergence_action = ConvergenceAction::Synthesize;
         // Break → Halt; Synthesize is lower precedence
-        assert_eq!(TerminationOracle::adjudicate(&fb), TerminationDecision::Halt);
+        assert_eq!(
+            TerminationOracle::adjudicate(&fb),
+            TerminationDecision::Halt
+        );
     }
 
     // ── Precedence 2: InjectSynthesis ─────────────────────────────────────────
@@ -437,7 +451,10 @@ mod tests {
     fn force_no_tools_beats_continue() {
         let mut fb = base_feedback();
         fb.loop_signal = LoopSignal::ForceNoTools;
-        assert_eq!(TerminationOracle::adjudicate(&fb), TerminationDecision::ForceNoTools);
+        assert_eq!(
+            TerminationOracle::adjudicate(&fb),
+            TerminationDecision::ForceNoTools
+        );
     }
 
     // ── Precedence 5: Continue (default) ─────────────────────────────────────
@@ -445,7 +462,10 @@ mod tests {
     #[test]
     fn no_authority_fires_produces_continue() {
         let fb = base_feedback();
-        assert_eq!(TerminationOracle::adjudicate(&fb), TerminationDecision::Continue);
+        assert_eq!(
+            TerminationOracle::adjudicate(&fb),
+            TerminationDecision::Continue
+        );
     }
 
     // ── All reason variants correctly assigned ────────────────────────────────
@@ -494,7 +514,10 @@ mod tests {
         fb.mid_critic_action = Some(CriticAction::ForceSynthesis);
         fb.governance_rescue_active = true;
         // Governance rescue active → ForceSynthesis skipped, falls through to Continue
-        assert_eq!(TerminationOracle::adjudicate(&fb), TerminationDecision::Continue);
+        assert_eq!(
+            TerminationOracle::adjudicate(&fb),
+            TerminationDecision::Continue
+        );
     }
 
     #[test]
@@ -541,7 +564,10 @@ mod tests {
         use super::super::mid_loop_critic::CriticAction;
         let mut fb = base_feedback();
         fb.mid_critic_action = Some(CriticAction::Continue);
-        assert_eq!(TerminationOracle::adjudicate(&fb), TerminationDecision::Continue);
+        assert_eq!(
+            TerminationOracle::adjudicate(&fb),
+            TerminationDecision::Continue
+        );
     }
 
     #[test]
@@ -550,7 +576,10 @@ mod tests {
         let mut fb = base_feedback();
         fb.mid_critic_action = Some(CriticAction::ForceSynthesis);
         fb.convergence_action = ConvergenceAction::Halt;
-        assert_eq!(TerminationOracle::adjudicate(&fb), TerminationDecision::Halt);
+        assert_eq!(
+            TerminationOracle::adjudicate(&fb),
+            TerminationDecision::Halt
+        );
     }
 
     #[test]
@@ -574,8 +603,11 @@ mod tests {
         fb.synthesis_advised = true;
         fb.evidence_coverage = 0.10; // well below 0.30 threshold
         fb.round = 3; // early round
-        // Low coverage + early round → delay synthesis, fall through to Continue
-        assert_eq!(TerminationOracle::adjudicate(&fb), TerminationDecision::Continue);
+                      // Low coverage + early round → delay synthesis, fall through to Continue
+        assert_eq!(
+            TerminationOracle::adjudicate(&fb),
+            TerminationDecision::Continue
+        );
     }
 
     #[test]
@@ -601,7 +633,7 @@ mod tests {
         fb.evidence_coverage = 0.10; // low coverage
         fb.utility_score = 0.20; // below utility threshold
         fb.round = 10; // late round (>= 8)
-        // Low utility + late round → don't delay further, synthesize
+                       // Low utility + late round → don't delay further, synthesize
         assert_eq!(
             TerminationOracle::adjudicate(&fb),
             TerminationDecision::InjectSynthesis {

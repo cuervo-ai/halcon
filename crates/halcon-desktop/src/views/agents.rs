@@ -41,10 +41,7 @@ pub fn render(ui: &mut Ui, state: &mut AppState, cmd_tx: &mpsc::Sender<UiCommand
                 for agent in &state.agents {
                     // Name.
                     let selected = state.selected_agent == Some(agent.id);
-                    if ui
-                        .selectable_label(selected, &agent.name)
-                        .clicked()
-                    {
+                    if ui.selectable_label(selected, &agent.name).clicked() {
                         state.selected_agent = if selected { None } else { Some(agent.id) };
                     }
 
@@ -107,10 +104,7 @@ pub fn render(ui: &mut Ui, state: &mut AppState, cmd_tx: &mpsc::Sender<UiCommand
                 ui.label(format!("Kind: {:?}", agent.kind));
                 ui.label(format!("Health: {:?}", agent.health));
                 ui.label(format!("Protocols: {:?}", agent.protocols));
-                ui.label(format!(
-                    "Capabilities: {}",
-                    agent.capabilities.join(", ")
-                ));
+                ui.label(format!("Capabilities: {}", agent.capabilities.join(", ")));
                 if !agent.metadata.is_empty() {
                     ui.collapsing("Metadata", |ui| {
                         for (k, v) in &agent.metadata {
@@ -131,12 +125,13 @@ pub fn render(ui: &mut Ui, state: &mut AppState, cmd_tx: &mpsc::Sender<UiCommand
                         .hint_text("Enter instruction for this agent…")
                         .desired_width(ui.available_width() - 72.0);
                     let resp = ui.add(edit);
-                    let enter = resp.lost_focus()
-                        && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                    let enter = resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
 
                     ui.horizontal(|ui| {
                         let can_invoke = !state.ops.invoke_agent_input.trim().is_empty();
-                        if (ui.add_enabled(can_invoke, egui::Button::new("Invoke")).clicked()
+                        if (ui
+                            .add_enabled(can_invoke, egui::Button::new("Invoke"))
+                            .clicked()
                             || enter)
                             && can_invoke
                         {

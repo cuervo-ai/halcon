@@ -62,8 +62,9 @@ impl MetricsStore {
 
         // Ensure directory exists
         if !store_path.exists() {
-            fs::create_dir_all(&store_path)
-                .with_context(|| format!("Failed to create metrics store at {}", store_path.display()))?;
+            fs::create_dir_all(&store_path).with_context(|| {
+                format!("Failed to create metrics store at {}", store_path.display())
+            })?;
         }
 
         Ok(Self { store_path })
@@ -71,8 +72,7 @@ impl MetricsStore {
 
     /// Default store location: ~/.local/share/halcon/metrics/
     pub fn default_location() -> Result<Self> {
-        let data_dir = dirs::data_dir()
-            .context("Could not determine user data directory")?;
+        let data_dir = dirs::data_dir().context("Could not determine user data directory")?;
 
         let store_path = data_dir.join("halcon").join("metrics");
         Self::new(store_path)
@@ -83,8 +83,8 @@ impl MetricsStore {
         let filename = format!("baseline_{}.json", baseline.timestamp);
         let file_path = self.store_path.join(&filename);
 
-        let json = serde_json::to_string_pretty(baseline)
-            .context("Failed to serialize baseline")?;
+        let json =
+            serde_json::to_string_pretty(baseline).context("Failed to serialize baseline")?;
 
         fs::write(&file_path, json)
             .with_context(|| format!("Failed to write baseline to {}", file_path.display()))?;
@@ -106,9 +106,12 @@ impl MetricsStore {
             return Ok(baselines);
         }
 
-        for entry in fs::read_dir(&self.store_path)
-            .with_context(|| format!("Failed to read metrics store at {}", self.store_path.display()))?
-        {
+        for entry in fs::read_dir(&self.store_path).with_context(|| {
+            format!(
+                "Failed to read metrics store at {}",
+                self.store_path.display()
+            )
+        })? {
             let entry = entry?;
             let path = entry.path();
 
@@ -169,44 +172,57 @@ impl MetricsStore {
         stats.sample_count = baselines.len();
 
         // Orchestrator stats
-        let orch_samples: Vec<_> = baselines.iter()
+        let orch_samples: Vec<_> = baselines
+            .iter()
             .filter_map(|b| b.orchestrator.as_ref())
             .collect();
 
         if !orch_samples.is_empty() {
-            stats.avg_delegation_success_rate = orch_samples.iter()
+            stats.avg_delegation_success_rate = orch_samples
+                .iter()
                 .map(|o| o.delegation_success_rate())
-                .sum::<f64>() / orch_samples.len() as f64;
+                .sum::<f64>()
+                / orch_samples.len() as f64;
 
-            stats.avg_delegation_trigger_rate = orch_samples.iter()
+            stats.avg_delegation_trigger_rate = orch_samples
+                .iter()
                 .map(|o| o.delegation_trigger_rate())
-                .sum::<f64>() / orch_samples.len() as f64;
+                .sum::<f64>()
+                / orch_samples.len() as f64;
         }
 
         // Planning stats
-        let plan_samples: Vec<_> = baselines.iter()
+        let plan_samples: Vec<_> = baselines
+            .iter()
             .filter_map(|b| b.planning.as_ref())
             .collect();
 
         if !plan_samples.is_empty() {
-            stats.avg_plan_success_rate = plan_samples.iter()
+            stats.avg_plan_success_rate = plan_samples
+                .iter()
                 .map(|p| p.plan_success_rate())
-                .sum::<f64>() / plan_samples.len() as f64;
+                .sum::<f64>()
+                / plan_samples.len() as f64;
 
-            stats.avg_replan_frequency = plan_samples.iter()
+            stats.avg_replan_frequency = plan_samples
+                .iter()
                 .map(|p| p.replan_frequency())
-                .sum::<f64>() / plan_samples.len() as f64;
+                .sum::<f64>()
+                / plan_samples.len() as f64;
         }
 
         // Strategy stats
-        let strat_samples: Vec<_> = baselines.iter()
+        let strat_samples: Vec<_> = baselines
+            .iter()
             .filter_map(|b| b.strategy.as_ref())
             .collect();
 
         if !strat_samples.is_empty() {
-            stats.avg_ucb1_agreement_rate = strat_samples.iter()
+            stats.avg_ucb1_agreement_rate = strat_samples
+                .iter()
                 .map(|s| s.agreement_rate())
-                .sum::<f64>() / strat_samples.len() as f64;
+                .sum::<f64>()
+                / strat_samples.len() as f64;
         }
 
         stats

@@ -51,7 +51,9 @@ use uuid::Uuid;
 
 use halcon_core::error::{HalconError, Result};
 use halcon_core::traits::ModelProvider;
-use halcon_core::types::{ContentBlock, MessageContent, ModelChunk, ModelInfo, ModelRequest, TokenCost};
+use halcon_core::types::{
+    ContentBlock, MessageContent, ModelChunk, ModelInfo, ModelRequest, TokenCost,
+};
 
 use managed::{ManagedProcess, RespawnFactory};
 use metrics::ProviderMetrics;
@@ -228,9 +230,7 @@ impl ClaudeCodeProvider {
     /// The subprocess is spawned lazily on the first `invoke()` call.
     pub fn new(config: ClaudeCodeConfig) -> Self {
         let drain_timeout = Duration::from_secs(config.drain_timeout_secs);
-        let spawn_config = Arc::new(tokio::sync::RwLock::new(
-            config.to_spawn_config(None, None),
-        ));
+        let spawn_config = Arc::new(tokio::sync::RwLock::new(config.to_spawn_config(None, None)));
 
         let factory = Self::make_factory(Arc::clone(&spawn_config));
         let managed = ManagedProcess::new(factory, "default", drain_timeout);
@@ -270,9 +270,7 @@ impl ClaudeCodeProvider {
 
     // ── Factory ───────────────────────────────────────────────────────────────
 
-    fn make_factory(
-        spawn_config: Arc<tokio::sync::RwLock<SpawnConfig>>,
-    ) -> RespawnFactory {
+    fn make_factory(spawn_config: Arc<tokio::sync::RwLock<SpawnConfig>>) -> RespawnFactory {
         Arc::new(move || {
             let cfg_arc = spawn_config.clone();
             Box::pin(async move {
@@ -392,8 +390,11 @@ impl ModelProvider for ClaudeCodeProvider {
             // tokens of tool definitions) and causes the subprocess to try using
             // those tools on every request, leading to 30+ second timeouts.
             // The claude subprocess uses its own ~/.claude/CLAUDE.md system prompt.
-            if mgd.spawn_count == 0 && !model.is_empty() && model != "default"
-                && !model.contains('/') // skip if value is a command path, not a model ID
+            if mgd.spawn_count == 0
+                && !model.is_empty()
+                && model != "default"
+                && !model.contains('/')
+            // skip if value is a command path, not a model ID
             {
                 let mut sc = spawn_config_arc.write().await;
                 sc.model = Some(model.to_string());
@@ -443,14 +444,14 @@ impl ModelProvider for ClaudeCodeProvider {
 
             // ── Record metrics ─────────────────────────────────────────────────
             let ttft = t0.elapsed();
-            let (input_tokens, output_tokens, has_error) = chunks.iter().fold(
-                (0u32, 0u32, false),
-                |(inp, out, err), c| match c {
-                    ModelChunk::Usage(u) => (inp + u.input_tokens, out + u.output_tokens, err),
-                    ModelChunk::Error(_) => (inp, out, true),
-                    _ => (inp, out, err),
-                },
-            );
+            let (input_tokens, output_tokens, has_error) =
+                chunks
+                    .iter()
+                    .fold((0u32, 0u32, false), |(inp, out, err), c| match c {
+                        ModelChunk::Usage(u) => (inp + u.input_tokens, out + u.output_tokens, err),
+                        ModelChunk::Error(_) => (inp, out, true),
+                        _ => (inp, out, err),
+                    });
             {
                 let mut m = metrics_arc.lock().await;
                 m.record_request(input_tokens, output_tokens, ttft, has_error);
@@ -483,9 +484,7 @@ impl ModelProvider for ClaudeCodeProvider {
             })
             .collect::<Vec<_>>();
 
-        Ok(Box::pin(futures::stream::iter(
-            chunks.into_iter().map(Ok),
-        )))
+        Ok(Box::pin(futures::stream::iter(chunks.into_iter().map(Ok))))
     }
 
     async fn is_available(&self) -> bool {
@@ -619,7 +618,10 @@ mod tests {
         let result = p.invoke(&user_request("hi")).await;
         assert!(result.is_err());
         let err = result.err().unwrap();
-        assert!(matches!(err, HalconError::ConfigError(_)), "expected ConfigError, got {err:?}");
+        assert!(
+            matches!(err, HalconError::ConfigError(_)),
+            "expected ConfigError, got {err:?}"
+        );
     }
 
     // ── Full invoke via mock ──────────────────────────────────────────────────
@@ -662,7 +664,11 @@ mod tests {
         let text1: String = chunks1
             .iter()
             .filter_map(|r| {
-                if let Ok(ModelChunk::TextDelta(t)) = r { Some(t.as_str()) } else { None }
+                if let Ok(ModelChunk::TextDelta(t)) = r {
+                    Some(t.as_str())
+                } else {
+                    None
+                }
             })
             .collect();
         assert!(text1.contains("response one"), "got: {text1}");
@@ -672,7 +678,11 @@ mod tests {
         let text2: String = chunks2
             .iter()
             .filter_map(|r| {
-                if let Ok(ModelChunk::TextDelta(t)) = r { Some(t.as_str()) } else { None }
+                if let Ok(ModelChunk::TextDelta(t)) = r {
+                    Some(t.as_str())
+                } else {
+                    None
+                }
             })
             .collect();
         assert!(text2.contains("response two"), "got: {text2}");
@@ -686,7 +696,11 @@ mod tests {
         mock.queue_response(mock_success_response("data"));
         let p = make_provider(mock);
 
-        p.invoke(&user_request("test")).await.unwrap().for_each(|_| async {}).await;
+        p.invoke(&user_request("test"))
+            .await
+            .unwrap()
+            .for_each(|_| async {})
+            .await;
         let m = p.metrics().await;
         assert_eq!(m.total_requests, 1);
     }

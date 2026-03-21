@@ -199,7 +199,9 @@ impl AgentSelfCorrector {
                         "⚠️ Token budget constraint: You have {} tokens currently, \
                          growing at {:.1}% per round. Projected overflow in {} rounds. \
                          Be concise and focus on essential actions only.",
-                        current_tokens, growth_rate * 100.0, projected_overflow
+                        current_tokens,
+                        growth_rate * 100.0,
+                        projected_overflow
                     ),
                 }
             }

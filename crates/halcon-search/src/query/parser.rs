@@ -25,8 +25,7 @@ impl QueryParser {
     pub fn parse(&self, query: &str) -> Result<ParsedQuery> {
         // Basic sanitization: remove special FTS5 chars that could break query
         let sanitized = query
-            .replace('"', "")
-            .replace('*', "")
+            .replace(['"', '*'], "")
             .replace(':', " ")
             .trim()
             .to_string();

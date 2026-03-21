@@ -52,7 +52,10 @@ impl FsmModelState {
 
     /// Whether this state has no valid outgoing transitions.
     pub fn is_terminal(self) -> bool {
-        matches!(self, FsmModelState::Terminating | FsmModelState::Converged | FsmModelState::Error)
+        matches!(
+            self,
+            FsmModelState::Terminating | FsmModelState::Converged | FsmModelState::Error
+        )
     }
 
     /// Short label.
@@ -114,30 +117,90 @@ impl FsmAction {
 /// Any update to the runtime FSM **must** be reflected here.
 pub const TRANSITION_TABLE: &[(FsmModelState, FsmAction, FsmModelState)] = &[
     // ── Idle
-    (FsmModelState::Idle, FsmAction::BeginPlanning,      FsmModelState::Planning),
-    (FsmModelState::Idle, FsmAction::RequestTermination, FsmModelState::Terminating),
-
+    (
+        FsmModelState::Idle,
+        FsmAction::BeginPlanning,
+        FsmModelState::Planning,
+    ),
+    (
+        FsmModelState::Idle,
+        FsmAction::RequestTermination,
+        FsmModelState::Terminating,
+    ),
     // ── Planning
-    (FsmModelState::Planning, FsmAction::BeginExecuting,     FsmModelState::Executing),
-    (FsmModelState::Planning, FsmAction::RequestTermination, FsmModelState::Terminating),
-    (FsmModelState::Planning, FsmAction::EncounterError,     FsmModelState::Error),
-
+    (
+        FsmModelState::Planning,
+        FsmAction::BeginExecuting,
+        FsmModelState::Executing,
+    ),
+    (
+        FsmModelState::Planning,
+        FsmAction::RequestTermination,
+        FsmModelState::Terminating,
+    ),
+    (
+        FsmModelState::Planning,
+        FsmAction::EncounterError,
+        FsmModelState::Error,
+    ),
     // ── Executing
-    (FsmModelState::Executing, FsmAction::BeginVerifying,    FsmModelState::Verifying),
-    (FsmModelState::Executing, FsmAction::RequestTermination,FsmModelState::Terminating),
-    (FsmModelState::Executing, FsmAction::EncounterError,    FsmModelState::Error),
-
+    (
+        FsmModelState::Executing,
+        FsmAction::BeginVerifying,
+        FsmModelState::Verifying,
+    ),
+    (
+        FsmModelState::Executing,
+        FsmAction::RequestTermination,
+        FsmModelState::Terminating,
+    ),
+    (
+        FsmModelState::Executing,
+        FsmAction::EncounterError,
+        FsmModelState::Error,
+    ),
     // ── Verifying
-    (FsmModelState::Verifying, FsmAction::GoalReached,       FsmModelState::Converged),
-    (FsmModelState::Verifying, FsmAction::RequestReplan,     FsmModelState::Replanning),
-    (FsmModelState::Verifying, FsmAction::RetryExecution,    FsmModelState::Executing),
-    (FsmModelState::Verifying, FsmAction::RequestTermination,FsmModelState::Terminating),
-    (FsmModelState::Verifying, FsmAction::EncounterError,    FsmModelState::Error),
-
+    (
+        FsmModelState::Verifying,
+        FsmAction::GoalReached,
+        FsmModelState::Converged,
+    ),
+    (
+        FsmModelState::Verifying,
+        FsmAction::RequestReplan,
+        FsmModelState::Replanning,
+    ),
+    (
+        FsmModelState::Verifying,
+        FsmAction::RetryExecution,
+        FsmModelState::Executing,
+    ),
+    (
+        FsmModelState::Verifying,
+        FsmAction::RequestTermination,
+        FsmModelState::Terminating,
+    ),
+    (
+        FsmModelState::Verifying,
+        FsmAction::EncounterError,
+        FsmModelState::Error,
+    ),
     // ── Replanning
-    (FsmModelState::Replanning, FsmAction::BeginPlanning,      FsmModelState::Planning),
-    (FsmModelState::Replanning, FsmAction::RequestTermination, FsmModelState::Terminating),
-    (FsmModelState::Replanning, FsmAction::EncounterError,     FsmModelState::Error),
+    (
+        FsmModelState::Replanning,
+        FsmAction::BeginPlanning,
+        FsmModelState::Planning,
+    ),
+    (
+        FsmModelState::Replanning,
+        FsmAction::RequestTermination,
+        FsmModelState::Terminating,
+    ),
+    (
+        FsmModelState::Replanning,
+        FsmAction::EncounterError,
+        FsmModelState::Error,
+    ),
 ];
 
 // ─── Adjacency helpers ────────────────────────────────────────────────────────
@@ -163,10 +226,18 @@ pub struct PropertyResult {
 
 impl PropertyResult {
     fn pass(property: &'static str) -> Self {
-        Self { property, satisfied: true, evidence: "OK".into() }
+        Self {
+            property,
+            satisfied: true,
+            evidence: "OK".into(),
+        }
     }
     fn fail(property: &'static str, reason: impl Into<String>) -> Self {
-        Self { property, satisfied: false, evidence: reason.into() }
+        Self {
+            property,
+            satisfied: false,
+            evidence: reason.into(),
+        }
     }
 }
 
@@ -190,7 +261,8 @@ pub fn verify_reachability() -> PropertyResult {
         }
     }
 
-    let unreachable: Vec<&str> = FsmModelState::ALL.iter()
+    let unreachable: Vec<&str> = FsmModelState::ALL
+        .iter()
         .filter(|&&s| !visited.contains(&s))
         .map(|s| s.label())
         .collect();
@@ -198,7 +270,10 @@ pub fn verify_reachability() -> PropertyResult {
     if unreachable.is_empty() {
         PropertyResult::pass("P1: No unreachable states")
     } else {
-        PropertyResult::fail("P1: No unreachable states", format!("Unreachable: {:?}", unreachable))
+        PropertyResult::fail(
+            "P1: No unreachable states",
+            format!("Unreachable: {:?}", unreachable),
+        )
     }
 }
 
@@ -207,7 +282,8 @@ pub fn verify_reachability() -> PropertyResult {
 /// Every state that is not terminal must have ≥1 outgoing transition.
 pub fn verify_no_dead_nonterminal() -> PropertyResult {
     let adj = adjacency();
-    let dead: Vec<&str> = FsmModelState::ALL.iter()
+    let dead: Vec<&str> = FsmModelState::ALL
+        .iter()
         .filter(|&&s| !s.is_terminal())
         .filter(|&&s| adj.get(&s).map_or(true, |v| v.is_empty()))
         .map(|s| s.label())
@@ -216,7 +292,10 @@ pub fn verify_no_dead_nonterminal() -> PropertyResult {
     if dead.is_empty() {
         PropertyResult::pass("P2: No dead non-terminal states")
     } else {
-        PropertyResult::fail("P2: No dead non-terminal states", format!("Dead non-terminals: {:?}", dead))
+        PropertyResult::fail(
+            "P2: No dead non-terminal states",
+            format!("Dead non-terminals: {:?}", dead),
+        )
     }
 }
 
@@ -248,7 +327,8 @@ pub fn verify_liveness() -> PropertyResult {
         }
     }
 
-    let no_terminal_path: Vec<&str> = FsmModelState::ALL.iter()
+    let no_terminal_path: Vec<&str> = FsmModelState::ALL
+        .iter()
         .filter(|&&s| !can_reach_terminal.contains(&s))
         .map(|s| s.label())
         .collect();
@@ -256,7 +336,10 @@ pub fn verify_liveness() -> PropertyResult {
     if no_terminal_path.is_empty() {
         PropertyResult::pass("P3: Liveness — all states reach a terminal")
     } else {
-        PropertyResult::fail("P3: Liveness", format!("No terminal path: {:?}", no_terminal_path))
+        PropertyResult::fail(
+            "P3: Liveness",
+            format!("No terminal path: {:?}", no_terminal_path),
+        )
     }
 }
 
@@ -268,7 +351,13 @@ pub fn verify_determinism() -> PropertyResult {
             if existing != to {
                 return PropertyResult::fail(
                     "P4: Determinism",
-                    format!("({}, {:?}) → {:?} AND {:?}", from.label(), action, existing.label(), to.label()),
+                    format!(
+                        "({}, {:?}) → {:?} AND {:?}",
+                        from.label(),
+                        action,
+                        existing.label(),
+                        to.label()
+                    ),
                 );
             }
         } else {
@@ -322,7 +411,7 @@ pub fn verify_cycles_through_executing() -> PropertyResult {
             }
         }
 
-        dfs(&adj, &mut path, &mut visited_in_path, &mut cycles, start);
+        dfs(adj, &mut path, &mut visited_in_path, &mut cycles, start);
         cycles
     }
 
@@ -335,8 +424,10 @@ pub fn verify_cycles_through_executing() -> PropertyResult {
             if !cycle.contains(&FsmModelState::Executing) {
                 return PropertyResult::fail(
                     "P5: All cycles through Executing",
-                    format!("Cycle found not through Executing: {:?}",
-                        cycle.iter().map(|s| s.label()).collect::<Vec<_>>()),
+                    format!(
+                        "Cycle found not through Executing: {:?}",
+                        cycle.iter().map(|s| s.label()).collect::<Vec<_>>()
+                    ),
                 );
             }
         }
@@ -350,7 +441,10 @@ pub fn verify_terminal_closure() -> PropertyResult {
         if from.is_terminal() {
             return PropertyResult::fail(
                 "P6: Terminal closure",
-                format!("Terminal state '{}' has an outgoing transition", from.label()),
+                format!(
+                    "Terminal state '{}' has an outgoing transition",
+                    from.label()
+                ),
             );
         }
     }
@@ -422,7 +516,11 @@ mod tests {
     #[test]
     fn all_six_properties_satisfied() {
         for result in verify_all() {
-            assert!(result.satisfied, "Property FAILED: {} — {}", result.property, result.evidence);
+            assert!(
+                result.satisfied,
+                "Property FAILED: {} — {}",
+                result.property, result.evidence
+            );
         }
     }
 
@@ -480,17 +578,23 @@ mod tests {
     #[test]
     fn bfs_from_idle_visits_all_eight_states() {
         let result = exhaustive_bfs(FsmModelState::Idle);
-        assert_eq!(result.states_visited.len(), FsmModelState::ALL.len(),
+        assert_eq!(
+            result.states_visited.len(),
+            FsmModelState::ALL.len(),
             "BFS should visit all 8 states; got {:?}",
-            result.states_visited.iter().map(|s| s.label()).collect::<Vec<_>>());
+            result
+                .states_visited
+                .iter()
+                .map(|s| s.label())
+                .collect::<Vec<_>>()
+        );
     }
 
     #[test]
     fn happy_path_modeled_correctly() {
         // Idle→Planning→Executing→Verifying→Converged must all be in TRANSITION_TABLE
-        let table: HashSet<(FsmModelState, FsmModelState)> = TRANSITION_TABLE.iter()
-            .map(|&(f, _, t)| (f, t))
-            .collect();
+        let table: HashSet<(FsmModelState, FsmModelState)> =
+            TRANSITION_TABLE.iter().map(|&(f, _, t)| (f, t)).collect();
 
         assert!(table.contains(&(FsmModelState::Idle, FsmModelState::Planning)));
         assert!(table.contains(&(FsmModelState::Planning, FsmModelState::Executing)));
@@ -509,7 +613,8 @@ mod tests {
             FsmModelState::Replanning,
         ];
         for &s in &active {
-            let reaches_error = adj.get(&s)
+            let reaches_error = adj
+                .get(&s)
                 .map_or(false, |v| v.contains(&FsmModelState::Error));
             assert!(reaches_error, "{} should be able to reach Error", s.label());
         }
@@ -517,24 +622,32 @@ mod tests {
 
     #[test]
     fn three_terminal_states_exist() {
-        let terminals: Vec<FsmModelState> = FsmModelState::ALL.iter()
+        let terminals: Vec<FsmModelState> = FsmModelState::ALL
+            .iter()
             .copied()
             .filter(|s| s.is_terminal())
             .collect();
-        assert_eq!(terminals.len(), 3,
+        assert_eq!(
+            terminals.len(),
+            3,
             "Expected 3 terminals (Terminating, Converged, Error); got {:?}",
-            terminals.iter().map(|s| s.label()).collect::<Vec<_>>());
+            terminals.iter().map(|s| s.label()).collect::<Vec<_>>()
+        );
     }
 
     #[test]
     fn five_non_terminal_states_exist() {
-        let non_terminals: Vec<FsmModelState> = FsmModelState::ALL.iter()
+        let non_terminals: Vec<FsmModelState> = FsmModelState::ALL
+            .iter()
             .copied()
             .filter(|s| !s.is_terminal())
             .collect();
-        assert_eq!(non_terminals.len(), 5,
+        assert_eq!(
+            non_terminals.len(),
+            5,
             "Expected 5 non-terminals; got {}",
-            non_terminals.len());
+            non_terminals.len()
+        );
     }
 
     #[test]

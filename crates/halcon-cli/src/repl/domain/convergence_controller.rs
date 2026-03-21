@@ -408,7 +408,8 @@ impl ConvergenceController {
             return 0.5; // No keywords = neutral coverage.
         }
         let text_lower = text.to_lowercase();
-        let covered = self.goal_keywords
+        let covered = self
+            .goal_keywords
             .iter()
             .filter(|kw| text_lower.contains(kw.as_str()))
             .count();
@@ -420,7 +421,9 @@ impl ConvergenceController {
     /// Delegates to the unified `text_utils::extract_keywords` — single source of truth
     /// for stopwords and filtering logic (D6 fix: eliminates duplicated STOPWORDS list).
     fn extract_goal_keywords(query: &str) -> Vec<String> {
-        super::text_utils::extract_keywords(query).into_iter().collect()
+        super::text_utils::extract_keywords(query)
+            .into_iter()
+            .collect()
     }
 
     /// Multilingual keyword extraction for sub-agent instructions.
@@ -430,16 +433,15 @@ impl ConvergenceController {
     /// This prevents false-negative coverage misses when the instruction is in Spanish
     /// but the agent output (tool results, directory listings) is in English.
     fn extract_goal_keywords_multilingual(query: &str) -> Vec<String> {
-        super::text_utils::extract_keywords_multilingual(query).into_iter().collect()
+        super::text_utils::extract_keywords_multilingual(query)
+            .into_iter()
+            .collect()
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────
 
     fn current_cumulative_tokens(&self) -> u32 {
-        self.history
-            .iter()
-            .map(|o| o.response_tokens)
-            .sum()
+        self.history.iter().map(|o| o.response_tokens).sum()
     }
 
     /// Returns a human-readable summary of current controller state for tracing.
@@ -482,7 +484,10 @@ mod tests {
     }
 
     fn tools(names: &[&str], hashes: &[u64]) -> (Vec<String>, Vec<u64>) {
-        (names.iter().map(|s| s.to_string()).collect(), hashes.to_vec())
+        (
+            names.iter().map(|s| s.to_string()).collect(),
+            hashes.to_vec(),
+        )
     }
 
     #[test]
@@ -493,9 +498,18 @@ mod tests {
         ctrl.max_rounds = 3;
 
         let (ns, hs) = empty_tools();
-        assert_eq!(ctrl.observe_round(0, &ns, &hs, "", false), ConvergenceAction::Continue);
-        assert_eq!(ctrl.observe_round(1, &ns, &hs, "", false), ConvergenceAction::Continue);
-        assert_eq!(ctrl.observe_round(2, &ns, &hs, "", false), ConvergenceAction::Synthesize);
+        assert_eq!(
+            ctrl.observe_round(0, &ns, &hs, "", false),
+            ConvergenceAction::Continue
+        );
+        assert_eq!(
+            ctrl.observe_round(1, &ns, &hs, "", false),
+            ConvergenceAction::Continue
+        );
+        assert_eq!(
+            ctrl.observe_round(2, &ns, &hs, "", false),
+            ConvergenceAction::Synthesize
+        );
     }
 
     #[test]
@@ -515,7 +529,11 @@ mod tests {
         ctrl.observe_round(0, &ns, &hs, "", true);
         ctrl.observe_round(1, &ns, &hs, "", true);
         let action = ctrl.observe_round(2, &ns, &hs, "", true);
-        assert_eq!(action, ConvergenceAction::Replan, "Expected Replan after 3 consecutive errors");
+        assert_eq!(
+            action,
+            ConvergenceAction::Replan,
+            "Expected Replan after 3 consecutive errors"
+        );
     }
 
     #[test]
@@ -534,8 +552,11 @@ mod tests {
             Caching improves performance by reducing redundant computation. \
             The cache invalidation strategy uses LRU eviction.";
         let action = ctrl.observe_round(1, &ns2, &hs2, rich_text, false);
-        assert_eq!(action, ConvergenceAction::Synthesize,
-            "Expected Synthesize on text-only round with high coverage");
+        assert_eq!(
+            action,
+            ConvergenceAction::Synthesize,
+            "Expected Synthesize on text-only round with high coverage"
+        );
     }
 
     #[test]
@@ -571,21 +592,38 @@ mod tests {
         let (ns2, hs2) = tools(&["bash"], &[2]);
         let (ns3, hs3) = tools(&["grep"], &[3]);
 
-        assert_eq!(ctrl.observe_round(0, &ns1, &hs1, "text1", false), ConvergenceAction::Continue);
-        assert_eq!(ctrl.observe_round(1, &ns2, &hs2, "text2", false), ConvergenceAction::Continue);
-        assert_eq!(ctrl.observe_round(2, &ns3, &hs3, "text3", false), ConvergenceAction::Continue);
+        assert_eq!(
+            ctrl.observe_round(0, &ns1, &hs1, "text1", false),
+            ConvergenceAction::Continue
+        );
+        assert_eq!(
+            ctrl.observe_round(1, &ns2, &hs2, "text2", false),
+            ConvergenceAction::Continue
+        );
+        assert_eq!(
+            ctrl.observe_round(2, &ns3, &hs3, "text3", false),
+            ConvergenceAction::Continue
+        );
     }
 
     #[test]
     fn conversational_has_low_max_rounds() {
         let ctrl = make_controller("hola");
-        assert!(ctrl.max_rounds <= 3, "conversational max_rounds={}", ctrl.max_rounds);
+        assert!(
+            ctrl.max_rounds <= 3,
+            "conversational max_rounds={}",
+            ctrl.max_rounds
+        );
     }
 
     #[test]
     fn project_wide_has_high_max_rounds() {
         let ctrl = make_controller("analiza el proyecto completo y revisa todos los archivos");
-        assert!(ctrl.max_rounds >= 10, "project_wide max_rounds={}", ctrl.max_rounds);
+        assert!(
+            ctrl.max_rounds >= 10,
+            "project_wide max_rounds={}",
+            ctrl.max_rounds
+        );
     }
 
     #[test]
@@ -603,16 +641,25 @@ mod tests {
             Authentication uses JWT tokens for stateless verification.";
         let action = ctrl.observe_round(1, &ns2, &hs2, rich, false);
         // Should synthesize or continue (never replan with good progress).
-        assert_ne!(action, ConvergenceAction::Replan, "No replan with good coverage");
+        assert_ne!(
+            action,
+            ConvergenceAction::Replan,
+            "No replan with good coverage"
+        );
         assert_ne!(action, ConvergenceAction::Halt);
     }
 
     #[test]
     fn goal_keywords_extracted_correctly() {
-        let kws = ConvergenceController::extract_goal_keywords("analyze the authentication module performance");
+        let kws = ConvergenceController::extract_goal_keywords(
+            "analyze the authentication module performance",
+        );
         // Should contain content words, not stopwords.
-        assert!(kws.contains(&"analyze".to_string()) || kws.contains(&"authentication".to_string()),
-            "Expected content words in keywords: {:?}", kws);
+        assert!(
+            kws.contains(&"analyze".to_string()) || kws.contains(&"authentication".to_string()),
+            "Expected content words in keywords: {:?}",
+            kws
+        );
         // Should NOT contain stopwords.
         assert!(!kws.contains(&"the".to_string()));
         assert!(!kws.contains(&"and".to_string()));
@@ -663,7 +710,8 @@ mod tests {
             assert!(
                 ctrl.max_rounds <= 4,
                 "Conversational query {:?} must have max_rounds ≤ 4, got {}",
-                query, ctrl.max_rounds
+                query,
+                ctrl.max_rounds
             );
         }
     }
@@ -680,12 +728,14 @@ mod tests {
         assert!(
             conversational.max_rounds <= local.max_rounds,
             "conversational({}) should have ≤ local({}) rounds",
-            conversational.max_rounds, local.max_rounds
+            conversational.max_rounds,
+            local.max_rounds
         );
         assert!(
             local.max_rounds <= project_wide.max_rounds,
             "local({}) should have ≤ project_wide({}) rounds",
-            local.max_rounds, project_wide.max_rounds
+            local.max_rounds,
+            project_wide.max_rounds
         );
     }
 
@@ -709,7 +759,8 @@ mod tests {
 
         assert!(
             action == ConvergenceAction::Synthesize || action == ConvergenceAction::Replan,
-            "Expected stagnation to produce Synthesize or Replan, got {:?}", action
+            "Expected stagnation to produce Synthesize or Replan, got {:?}",
+            action
         );
     }
 
@@ -730,7 +781,9 @@ mod tests {
             assert!(
                 ctrl.max_rounds() <= suggested,
                 "Query {:?}: ctrl.max_rounds ({}) > suggested_max_rounds ({})",
-                query, ctrl.max_rounds(), suggested
+                query,
+                ctrl.max_rounds(),
+                suggested
             );
         }
     }
@@ -834,13 +887,16 @@ mod tests {
         assert_eq!(
             action,
             ConvergenceAction::Synthesize,
-            "sub-agent stagnation with partial coverage should Synthesize, got {:?}", action
+            "sub-agent stagnation with partial coverage should Synthesize, got {:?}",
+            action
         );
     }
 
     #[test]
     fn sub_agent_multilingual_keywords_include_english() {
-        let ctrl = ConvergenceController::new_for_sub_agent("Obtener una vista general de la estructura del repositorio");
+        let ctrl = ConvergenceController::new_for_sub_agent(
+            "Obtener una vista general de la estructura del repositorio",
+        );
         // Keywords should include English translations for Spanish domain words.
         let has_structure = ctrl.goal_keywords.contains(&"structure".to_string());
         let has_repository = ctrl.goal_keywords.contains(&"repository".to_string());
@@ -855,7 +911,11 @@ mod tests {
     fn sub_agent_fits_within_parent_cap() {
         let mut ctrl = ConvergenceController::new_for_sub_agent("analyze the project structure");
         ctrl.cap_max_rounds(10); // Simulate derive_sub_limits cap.
-        assert_eq!(ctrl.max_rounds(), 6, "cap_max_rounds(10) should not increase sub-agent max_rounds above 6");
+        assert_eq!(
+            ctrl.max_rounds(),
+            6,
+            "cap_max_rounds(10) should not increase sub-agent max_rounds above 6"
+        );
     }
 
     #[test]
@@ -876,8 +936,10 @@ mod tests {
         ctrl_default.observe_round(0, &empty_names, &empty_hashes, "", false);
         ctrl_boosted.observe_round(0, &empty_names, &empty_hashes, "", false);
 
-        let default_action = ctrl_default.observe_round(1, &empty_names, &empty_hashes, partial_text, false);
-        let boosted_action = ctrl_boosted.observe_round(1, &empty_names, &empty_hashes, partial_text, false);
+        let default_action =
+            ctrl_default.observe_round(1, &empty_names, &empty_hashes, partial_text, false);
+        let boosted_action =
+            ctrl_boosted.observe_round(1, &empty_names, &empty_hashes, partial_text, false);
 
         // The boosted controller's lower threshold means the same partial_text may flip to Synthesize.
         // We only assert that the boosted threshold is lower (already tested above) and that

@@ -47,9 +47,9 @@ impl Tool for FileDeleteTool {
     async fn execute(&self, input: ToolInput) -> Result<ToolOutput> {
         use halcon_core::error::HalconError;
 
-        let path_str = input.arguments["path"]
-            .as_str()
-            .ok_or_else(|| HalconError::InvalidInput("file_delete requires 'path' string".into()))?;
+        let path_str = input.arguments["path"].as_str().ok_or_else(|| {
+            HalconError::InvalidInput("file_delete requires 'path' string".into())
+        })?;
 
         let resolved = self.fs.resolve_path(path_str, &input.working_directory)?;
 
@@ -90,18 +90,14 @@ impl Tool for FileDeleteTool {
 
         // Delete the file via FsService (includes metrics tracking).
         // We already checked symlink/dir above, so use remove_file directly.
-        tokio::fs::remove_file(&resolved).await.map_err(|e| {
-            HalconError::ToolExecutionFailed {
+        tokio::fs::remove_file(&resolved)
+            .await
+            .map_err(|e| HalconError::ToolExecutionFailed {
                 tool: "file_delete".into(),
                 message: format!("failed to delete '{}': {e}", resolved.display()),
-            }
-        })?;
+            })?;
 
-        let content = format!(
-            "Deleted: {} ({} bytes)",
-            resolved.display(),
-            file_size
-        );
+        let content = format!("Deleted: {} ({} bytes)", resolved.display(), file_size);
 
         Ok(ToolOutput {
             tool_use_id: input.tool_use_id,
@@ -162,7 +158,11 @@ mod tests {
             ))
             .await
             .unwrap();
-        assert!(!output.is_error, "delete should succeed: {}", output.content);
+        assert!(
+            !output.is_error,
+            "delete should succeed: {}",
+            output.content
+        );
         assert!(output.content.contains("Deleted"));
 
         let meta = output.metadata.unwrap();

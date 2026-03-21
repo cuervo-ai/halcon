@@ -10,7 +10,7 @@
 //! Based on HICON's BayesianDetector but adapted for agent loop patterns.
 
 use std::collections::HashMap;
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 
 /// Types of anomalies the agent can experience.
 #[derive(Debug, Clone)]
@@ -37,7 +37,7 @@ pub(crate) enum AgentAnomaly {
 
     /// Token count growing exponentially without plan progress.
     TokenExplosion {
-        growth_rate: f64,       // tokens per round
+        growth_rate: f64,        // tokens per round
         projected_overflow: u32, // rounds until overflow
         current_tokens: u64,
     },
@@ -141,26 +141,41 @@ impl BayesianAnomalyDetector {
 
         // Initialize likelihood parameters with reasonable defaults
         let mut likelihoods = HashMap::new();
-        likelihoods.insert("tool_cycle".to_string(), GaussianParams {
-            mean: 1.0,      // Normal: 1 occurrence
-            variance: 0.25, // Anomaly: 3+ occurrences (tight distribution)
-        });
-        likelihoods.insert("plan_hash_switches".to_string(), GaussianParams {
-            mean: 1.0,      // Normal: 0-1 switches
-            variance: 0.5,  // Anomaly: 2+ switches
-        });
-        likelihoods.insert("read_saturation".to_string(), GaussianParams {
-            mean: 0.4,      // Normal: 40% read probability
-            variance: 0.2,  // Anomaly: >60% sustained
-        });
-        likelihoods.insert("token_growth_rate".to_string(), GaussianParams {
-            mean: 1.0,      // Normal: ~same tokens per round
-            variance: 0.3,  // Anomaly: >1.5x growth
-        });
-        likelihoods.insert("stagnant_progress".to_string(), GaussianParams {
-            mean: 1.5,      // Normal: 1-2 rounds without progress
-            variance: 0.5,  // Anomaly: 3+ rounds (tighter distribution)
-        });
+        likelihoods.insert(
+            "tool_cycle".to_string(),
+            GaussianParams {
+                mean: 1.0,      // Normal: 1 occurrence
+                variance: 0.25, // Anomaly: 3+ occurrences (tight distribution)
+            },
+        );
+        likelihoods.insert(
+            "plan_hash_switches".to_string(),
+            GaussianParams {
+                mean: 1.0,     // Normal: 0-1 switches
+                variance: 0.5, // Anomaly: 2+ switches
+            },
+        );
+        likelihoods.insert(
+            "read_saturation".to_string(),
+            GaussianParams {
+                mean: 0.4,     // Normal: 40% read probability
+                variance: 0.2, // Anomaly: >60% sustained
+            },
+        );
+        likelihoods.insert(
+            "token_growth_rate".to_string(),
+            GaussianParams {
+                mean: 1.0,     // Normal: ~same tokens per round
+                variance: 0.3, // Anomaly: >1.5x growth
+            },
+        );
+        likelihoods.insert(
+            "stagnant_progress".to_string(),
+            GaussianParams {
+                mean: 1.5,     // Normal: 1-2 rounds without progress
+                variance: 0.5, // Anomaly: 3+ rounds (tighter distribution)
+            },
+        );
 
         Self {
             threshold: 0.65, // Detect if P(anomaly|data) > 0.65
@@ -276,7 +291,8 @@ impl BayesianAnomalyDetector {
 
                 if last == prev2 && prev1 == prev3 && last != prev1 {
                     // Count total switches
-                    let switches = self.plan_history
+                    let switches = self
+                        .plan_history
                         .windows(2)
                         .filter(|w| w[0] != w[1])
                         .count() as u32;
@@ -309,11 +325,12 @@ impl BayesianAnomalyDetector {
         }
 
         // Count consecutive read-only rounds
-        let consecutive = snapshot.recent_tool_history.iter().rev()
+        let consecutive = snapshot
+            .recent_tool_history
+            .iter()
+            .rev()
             .take_while(|round| {
-                !round.is_empty() && round.iter().all(|(tool, _, _)| {
-                    is_read_only_tool(tool)
-                })
+                !round.is_empty() && round.iter().all(|(tool, _, _)| is_read_only_tool(tool))
             })
             .count() as u32;
 
@@ -347,7 +364,9 @@ impl BayesianAnomalyDetector {
         let (_input, _output, total) = snapshot.token_counts;
 
         // Calculate growth rate from history
-        let recent_totals: Vec<f64> = self.history.iter()
+        let recent_totals: Vec<f64> = self
+            .history
+            .iter()
             .rev()
             .take(5)
             .filter(|obs| obs.metric == "total_tokens")
@@ -356,9 +375,8 @@ impl BayesianAnomalyDetector {
 
         if recent_totals.len() >= 3 {
             // Calculate average growth rate
-            let growth_rate = recent_totals.windows(2)
-                .map(|w| w[0] - w[1])
-                .sum::<f64>() / (recent_totals.len() - 1) as f64;
+            let growth_rate = recent_totals.windows(2).map(|w| w[0] - w[1]).sum::<f64>()
+                / (recent_totals.len() - 1) as f64;
 
             // If growing >30% per round and no plan progress
             let growth_percent = growth_rate / total as f64;
@@ -420,15 +438,14 @@ impl BayesianAnomalyDetector {
                 }
 
                 // Find repeated errors (2+ occurrences)
-                let repeated: HashMap<String, u32> = error_counts.into_iter()
+                let repeated: HashMap<String, u32> = error_counts
+                    .into_iter()
                     .filter(|(_, count)| *count >= 2)
                     .collect();
 
                 if !repeated.is_empty() || snapshot.round >= 5 {
-                    let posterior = self.calculate_posterior(
-                        "stagnant_progress",
-                        snapshot.round as f64
-                    );
+                    let posterior =
+                        self.calculate_posterior("stagnant_progress", snapshot.round as f64);
 
                     if posterior > self.threshold {
                         return Some(DetectionResult {
@@ -521,9 +538,9 @@ impl BayesianAnomalyDetector {
 
         // Record token count observation
         let (_input, _output, total) = snapshot.token_counts;
-        let was_token_anomaly = results.iter().any(|r| {
-            matches!(r.anomaly, AgentAnomaly::TokenExplosion { .. })
-        });
+        let was_token_anomaly = results
+            .iter()
+            .any(|r| matches!(r.anomaly, AgentAnomaly::TokenExplosion { .. }));
 
         self.history.push(Observation {
             metric: "total_tokens".to_string(),
@@ -535,9 +552,9 @@ impl BayesianAnomalyDetector {
         // Record round count for stagnation
         if let Some((completed, _)) = snapshot.plan_progress {
             if completed == 0 {
-                let was_stagnant = results.iter().any(|r| {
-                    matches!(r.anomaly, AgentAnomaly::StagnantProgress { .. })
-                });
+                let was_stagnant = results
+                    .iter()
+                    .any(|r| matches!(r.anomaly, AgentAnomaly::StagnantProgress { .. }));
 
                 self.history.push(Observation {
                     metric: "stagnant_progress".to_string(),
@@ -566,8 +583,9 @@ impl BayesianAnomalyDetector {
 
         for obs in &self.history {
             if !obs.was_anomaly {
-                metric_values.entry(obs.metric.clone())
-                    .or_insert_with(Vec::new)
+                metric_values
+                    .entry(obs.metric.clone())
+                    .or_default()
                     .push(obs.value);
             }
         }
@@ -576,11 +594,11 @@ impl BayesianAnomalyDetector {
         for (metric, values) in metric_values {
             if values.len() >= 10 {
                 let mean = values.iter().sum::<f64>() / values.len() as f64;
-                let variance = values.iter()
-                    .map(|x| (x - mean).powi(2))
-                    .sum::<f64>() / values.len() as f64;
+                let variance =
+                    values.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / values.len() as f64;
 
-                self.likelihoods.insert(metric, GaussianParams { mean, variance });
+                self.likelihoods
+                    .insert(metric, GaussianParams { mean, variance });
             }
         }
     }
@@ -601,9 +619,18 @@ impl BayesianAnomalyDetector {
 fn is_read_only_tool(tool_name: &str) -> bool {
     matches!(
         tool_name,
-        "file_read" | "glob" | "grep" | "directory_tree" |
-        "git_status" | "git_diff" | "git_log" | "fuzzy_find" |
-        "symbol_search" | "file_inspect" | "web_search" | "web_fetch"
+        "file_read"
+            | "glob"
+            | "grep"
+            | "directory_tree"
+            | "git_status"
+            | "git_diff"
+            | "git_log"
+            | "fuzzy_find"
+            | "symbol_search"
+            | "file_inspect"
+            | "web_search"
+            | "web_fetch"
     )
 }
 
@@ -646,10 +673,9 @@ mod tests {
         let results = detector.detect(&snapshot);
 
         // Should detect tool cycle
-        assert!(results.iter().any(|r| matches!(
-            r.anomaly,
-            AgentAnomaly::ToolCycle { occurrences: 3, .. }
-        )));
+        assert!(results
+            .iter()
+            .any(|r| matches!(r.anomaly, AgentAnomaly::ToolCycle { occurrences: 3, .. })));
     }
 
     #[test]
@@ -670,10 +696,9 @@ mod tests {
         let results = detector.detect(&snapshot);
 
         // Should detect read saturation
-        assert!(results.iter().any(|r| matches!(
-            r.anomaly,
-            AgentAnomaly::ReadSaturation { .. }
-        )));
+        assert!(results
+            .iter()
+            .any(|r| matches!(r.anomaly, AgentAnomaly::ReadSaturation { .. })));
     }
 
     #[test]
@@ -698,10 +723,9 @@ mod tests {
         let results = detector.detect(&snapshot);
 
         // Should detect stagnant progress
-        assert!(results.iter().any(|r| matches!(
-            r.anomaly,
-            AgentAnomaly::StagnantProgress { .. }
-        )));
+        assert!(results
+            .iter()
+            .any(|r| matches!(r.anomaly, AgentAnomaly::StagnantProgress { .. })));
     }
 
     #[test]

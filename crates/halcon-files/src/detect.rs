@@ -182,10 +182,12 @@ pub async fn detect_with_limit(path: &Path, max_size: u64) -> Result<FileInfo, c
     // 2. Read first 8KB for detection.
     let probe_size = 8192.min(size_bytes as usize);
     let buf = if probe_size > 0 {
-        let mut file = tokio::fs::File::open(path).await.map_err(|e| crate::Error::Io {
-            path: path.to_path_buf(),
-            source: e,
-        })?;
+        let mut file = tokio::fs::File::open(path)
+            .await
+            .map_err(|e| crate::Error::Io {
+                path: path.to_path_buf(),
+                source: e,
+            })?;
         let mut buf = vec![0u8; probe_size];
         use tokio::io::AsyncReadExt;
         let n = file.read(&mut buf).await.map_err(|e| crate::Error::Io {
@@ -341,15 +343,17 @@ fn classify(path: &Path, buf: &[u8], is_binary: bool, mime: Option<&str>) -> Fil
         Some("rb" | "rake" | "gemspec") => FileType::SourceCode(Language::Ruby),
         Some("sh" | "bash" | "zsh" | "fish") => FileType::SourceCode(Language::Shell),
         Some("sql") => FileType::SourceCode(Language::Sql),
-        Some("swift" | "scala" | "r" | "lua" | "pl" | "pm" | "ex" | "exs" | "erl" | "zig"
-             | "nim" | "dart" | "cs" | "fs" | "fsx" | "ml" | "mli" | "clj" | "cljs"
-             | "hs" | "lhs" | "v" | "sv" | "vhd" | "vhdl") => {
-            FileType::SourceCode(Language::Other)
-        }
+        Some(
+            "swift" | "scala" | "r" | "lua" | "pl" | "pm" | "ex" | "exs" | "erl" | "zig" | "nim"
+            | "dart" | "cs" | "fs" | "fsx" | "ml" | "mli" | "clj" | "cljs" | "hs" | "lhs" | "v"
+            | "sv" | "vhd" | "vhdl",
+        ) => FileType::SourceCode(Language::Other),
 
         // Config/text files.
-        Some("txt" | "text" | "log" | "cfg" | "conf" | "ini" | "env" | "properties"
-             | "gitignore" | "dockerignore" | "editorconfig") => FileType::PlainText,
+        Some(
+            "txt" | "text" | "log" | "cfg" | "conf" | "ini" | "env" | "properties" | "gitignore"
+            | "dockerignore" | "editorconfig",
+        ) => FileType::PlainText,
 
         // No extension or unrecognized.
         _ => {
@@ -433,9 +437,7 @@ fn trim_bom(buf: &[u8]) -> &[u8] {
 fn has_tar_extension(path: &Path) -> bool {
     path.file_name()
         .and_then(|n| n.to_str())
-        .is_some_and(|n| {
-            n.contains(".tar.") || n.ends_with(".tar")
-        })
+        .is_some_and(|n| n.contains(".tar.") || n.ends_with(".tar"))
 }
 
 #[cfg(test)]
@@ -493,7 +495,12 @@ mod tests {
 
     #[test]
     fn classify_pdf_by_mime() {
-        let ft = classify(Path::new("doc.pdf"), b"%PDF-1.4", false, Some("application/pdf"));
+        let ft = classify(
+            Path::new("doc.pdf"),
+            b"%PDF-1.4",
+            false,
+            Some("application/pdf"),
+        );
         assert_eq!(ft, FileType::Pdf);
     }
 
@@ -511,7 +518,12 @@ mod tests {
 
     #[test]
     fn classify_tar_gz() {
-        let ft = classify(Path::new("data.tar.gz"), &[], true, Some("application/gzip"));
+        let ft = classify(
+            Path::new("data.tar.gz"),
+            &[],
+            true,
+            Some("application/gzip"),
+        );
         assert_eq!(ft, FileType::Archive(ArchiveFormat::TarGz));
     }
 
@@ -529,7 +541,12 @@ mod tests {
 
     #[test]
     fn classify_shebang_python() {
-        let ft = classify(Path::new("script"), b"#!/usr/bin/env python3\nimport os", false, None);
+        let ft = classify(
+            Path::new("script"),
+            b"#!/usr/bin/env python3\nimport os",
+            false,
+            None,
+        );
         assert_eq!(ft, FileType::SourceCode(Language::Python));
     }
 
@@ -612,16 +629,24 @@ mod tests {
     #[test]
     fn file_type_display() {
         assert_eq!(FileType::Json.to_string(), "json");
-        assert_eq!(FileType::SourceCode(Language::Rust).to_string(), "source:rust");
+        assert_eq!(
+            FileType::SourceCode(Language::Rust).to_string(),
+            "source:rust"
+        );
         assert_eq!(FileType::Image(ImageFormat::Png).to_string(), "image:png");
-        assert_eq!(FileType::Archive(ArchiveFormat::TarGz).to_string(), "archive:tar.gz");
+        assert_eq!(
+            FileType::Archive(ArchiveFormat::TarGz).to_string(),
+            "archive:tar.gz"
+        );
     }
 
     #[tokio::test]
     async fn detect_real_file() {
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join("test.json");
-        tokio::fs::write(&path, r#"{"key": "value"}"#).await.unwrap();
+        tokio::fs::write(&path, r#"{"key": "value"}"#)
+            .await
+            .unwrap();
 
         let info = detect(&path).await.unwrap();
         assert_eq!(info.file_type, FileType::Json);
@@ -651,13 +676,17 @@ mod tests {
         let real_file = dir.path().join("real.txt");
         let symlink_path = dir.path().join("link.txt");
 
-        tokio::fs::write(&real_file, "sensitive content").await.unwrap();
+        tokio::fs::write(&real_file, "sensitive content")
+            .await
+            .unwrap();
 
         // Create a symlink pointing to the real file.
         #[cfg(unix)]
         tokio::fs::symlink(&real_file, &symlink_path).await.unwrap();
         #[cfg(windows)]
-        tokio::fs::symlink_file(&real_file, &symlink_path).await.unwrap();
+        tokio::fs::symlink_file(&real_file, &symlink_path)
+            .await
+            .unwrap();
 
         let result = detect(&symlink_path).await;
         assert!(
@@ -744,13 +773,23 @@ mod tests {
 
     #[test]
     fn classify_shebang_node() {
-        let ft = classify(Path::new("script"), b"#!/usr/bin/env node\nconsole.log('hi')", false, None);
+        let ft = classify(
+            Path::new("script"),
+            b"#!/usr/bin/env node\nconsole.log('hi')",
+            false,
+            None,
+        );
         assert_eq!(ft, FileType::SourceCode(Language::JavaScript));
     }
 
     #[test]
     fn classify_shebang_ruby() {
-        let ft = classify(Path::new("script"), b"#!/usr/bin/ruby\nputs 'hi'", false, None);
+        let ft = classify(
+            Path::new("script"),
+            b"#!/usr/bin/ruby\nputs 'hi'",
+            false,
+            None,
+        );
         assert_eq!(ft, FileType::SourceCode(Language::Ruby));
     }
 
@@ -807,7 +846,12 @@ mod tests {
 
     #[test]
     fn classify_zig_file() {
-        let ft = classify(Path::new("main.zig"), b"const std = @import(\"std\");", false, None);
+        let ft = classify(
+            Path::new("main.zig"),
+            b"const std = @import(\"std\");",
+            false,
+            None,
+        );
         assert_eq!(ft, FileType::SourceCode(Language::Other));
     }
 

@@ -76,10 +76,10 @@ impl TokenCountTool {
 
     fn is_code_extension(path: &str) -> bool {
         let code_exts = [
-            "rs", "py", "js", "ts", "jsx", "tsx", "go", "java", "c", "cpp", "h", "cs", "rb",
-            "php", "swift", "kt", "scala", "sh", "bash", "zsh", "fish", "lua", "r", "m",
-            "sql", "toml", "yaml", "yml", "json", "xml", "html", "css", "scss", "sass",
-            "graphql", "proto", "tf", "hcl",
+            "rs", "py", "js", "ts", "jsx", "tsx", "go", "java", "c", "cpp", "h", "cs", "rb", "php",
+            "swift", "kt", "scala", "sh", "bash", "zsh", "fish", "lua", "r", "m", "sql", "toml",
+            "yaml", "yml", "json", "xml", "html", "css", "scss", "sass", "graphql", "proto", "tf",
+            "hcl",
         ];
         let ext = path.rsplit('.').next().unwrap_or("").to_lowercase();
         code_exts.contains(&ext.as_str())
@@ -98,7 +98,13 @@ impl TokenCountTool {
         let filled = filled.min(width);
         let empty = width - filled;
         let bar = "█".repeat(filled) + &"░".repeat(empty);
-        let color = if pct >= 90.0 { "🔴" } else if pct >= 70.0 { "🟡" } else { "🟢" };
+        let color = if pct >= 90.0 {
+            "🔴"
+        } else if pct >= 70.0 {
+            "🟡"
+        } else {
+            "🟢"
+        };
         format!("{color} [{bar}] {:.1}%", pct)
     }
 
@@ -195,7 +201,10 @@ impl Tool for TokenCountTool {
         PermissionLevel::ReadOnly
     }
 
-    async fn execute(&self, input: ToolInput) -> Result<ToolOutput, halcon_core::error::HalconError> {
+    async fn execute(
+        &self,
+        input: ToolInput,
+    ) -> Result<ToolOutput, halcon_core::error::HalconError> {
         let args = &input.arguments;
         let model = args["model"].as_str().unwrap_or("");
         let context_window = args["context_window"]
@@ -218,7 +227,10 @@ impl Tool for TokenCountTool {
         // Inline text
         if let Some(text) = args["text"].as_str() {
             if !text.is_empty() {
-                let is_code = paths.first().map(|p| Self::is_code_extension(p)).unwrap_or(false);
+                let is_code = paths
+                    .first()
+                    .map(|p| Self::is_code_extension(p))
+                    .unwrap_or(false);
                 let tokens = Self::estimate_tokens(text, is_code);
                 let chars = text.chars().count();
                 let lines = text.lines().count();
@@ -228,7 +240,11 @@ impl Tool for TokenCountTool {
                 if let Some(window) = context_window {
                     let pct = (tokens as f64 / window as f64) * 100.0;
                     let bar = Self::utilization_bar(pct, 30);
-                    let model_label = if model.is_empty() { "custom".to_string() } else { model.to_string() };
+                    let model_label = if model.is_empty() {
+                        "custom".to_string()
+                    } else {
+                        model.to_string()
+                    };
                     content.push_str(&format!(
                         "\nContext Window ({model_label}: {window} tokens)\n  {bar}\n  {tokens} / {window} tokens used\n"
                     ));
@@ -282,7 +298,10 @@ impl Tool for TokenCountTool {
             ));
         } else {
             // Header
-            content.push_str(&format!("  {:<40}  {:>8}  {:>8}  {:>8}\n", "File", "Lines", "Chars", "Tokens"));
+            content.push_str(&format!(
+                "  {:<40}  {:>8}  {:>8}  {:>8}\n",
+                "File", "Lines", "Chars", "Tokens"
+            ));
             content.push_str(&format!("  {}\n", "─".repeat(72)));
             for fc in &counts {
                 let name = if fc.path.len() > 40 {
@@ -305,7 +324,11 @@ impl Tool for TokenCountTool {
         if let Some(window) = context_window {
             let pct = (total_tokens as f64 / window as f64) * 100.0;
             let bar = Self::utilization_bar(pct, 30);
-            let model_label = if model.is_empty() { "custom".to_string() } else { model.to_string() };
+            let model_label = if model.is_empty() {
+                "custom".to_string()
+            } else {
+                model.to_string()
+            };
             content.push_str(&format!(
                 "\nContext Window ({model_label}: {window} tokens)\n  {bar}\n  {total_tokens} / {window} tokens used\n"
             ));
@@ -398,16 +421,31 @@ mod tests {
 
     #[test]
     fn model_window_lookup() {
-        assert_eq!(TokenCountTool::model_context_window("gpt-4o"), Some(128_000));
-        assert_eq!(TokenCountTool::model_context_window("claude-sonnet-4"), Some(200_000));
-        assert_eq!(TokenCountTool::model_context_window("deepseek-chat"), Some(64_000));
+        assert_eq!(
+            TokenCountTool::model_context_window("gpt-4o"),
+            Some(128_000)
+        );
+        assert_eq!(
+            TokenCountTool::model_context_window("claude-sonnet-4"),
+            Some(200_000)
+        );
+        assert_eq!(
+            TokenCountTool::model_context_window("deepseek-chat"),
+            Some(64_000)
+        );
         assert_eq!(TokenCountTool::model_context_window("unknown-model"), None);
     }
 
     #[test]
     fn model_window_case_insensitive() {
-        assert_eq!(TokenCountTool::model_context_window("GPT-4o"), Some(128_000));
-        assert_eq!(TokenCountTool::model_context_window("Claude-Sonnet-4"), Some(200_000));
+        assert_eq!(
+            TokenCountTool::model_context_window("GPT-4o"),
+            Some(128_000)
+        );
+        assert_eq!(
+            TokenCountTool::model_context_window("Claude-Sonnet-4"),
+            Some(200_000)
+        );
     }
 
     #[test]
@@ -433,7 +471,9 @@ mod tests {
     async fn execute_text_inline() {
         let tool = TokenCountTool::new();
         let out = tool
-            .execute(make_input(json!({ "text": "Hello, world! This is a test sentence." })))
+            .execute(make_input(
+                json!({ "text": "Hello, world! This is a test sentence." }),
+            ))
             .await
             .unwrap();
         assert!(!out.is_error, "error: {}", out.content);
@@ -451,7 +491,13 @@ mod tests {
             .await
             .unwrap();
         assert!(!out.is_error);
-        assert!(out.content.contains("128000") || out.content.contains("128,000") || out.content.contains("gpt-4o"), "content: {}", out.content);
+        assert!(
+            out.content.contains("128000")
+                || out.content.contains("128,000")
+                || out.content.contains("gpt-4o"),
+            "content: {}",
+            out.content
+        );
     }
 
     #[tokio::test]
@@ -465,7 +511,9 @@ mod tests {
     async fn execute_missing_file_returns_error_in_errors() {
         let tool = TokenCountTool::new();
         let out = tool
-            .execute(make_input(json!({ "file": "/tmp/nonexistent_halcon_token_count.txt" })))
+            .execute(make_input(
+                json!({ "file": "/tmp/nonexistent_halcon_token_count.txt" }),
+            ))
             .await
             .unwrap();
         // Tool-level is_error=false but errors section populated

@@ -106,7 +106,12 @@ pub struct PlanLifecycleLog {
 }
 
 impl PlanLifecycleLog {
-    pub fn new(plan_id: Uuid, goal: impl Into<String>, total_steps: usize, max_rounds: usize) -> Self {
+    pub fn new(
+        plan_id: Uuid,
+        goal: impl Into<String>,
+        total_steps: usize,
+        max_rounds: usize,
+    ) -> Self {
         let mut log = Self {
             plan_id,
             goal: goal.into(),
@@ -128,26 +133,40 @@ impl PlanLifecycleLog {
 
     pub fn step_started(&mut self, index: usize, description: impl Into<String>) {
         self.step_statuses.insert(index, DiagStepStatus::InProgress);
-        self.push(PlanEvent::StepStarted { step_index: index, description: description.into() });
+        self.push(PlanEvent::StepStarted {
+            step_index: index,
+            description: description.into(),
+        });
     }
 
     pub fn step_completed(&mut self, index: usize, duration_ms: u64, delegated: bool) {
         self.step_statuses.insert(index, DiagStepStatus::Completed);
-        self.push(PlanEvent::StepCompleted { step_index: index, duration_ms, delegated });
+        self.push(PlanEvent::StepCompleted {
+            step_index: index,
+            duration_ms,
+            delegated,
+        });
     }
 
     pub fn step_orphaned(&mut self, index: usize, reason: impl Into<String>) {
         let reason = reason.into();
         self.step_statuses.insert(index, DiagStepStatus::Orphaned);
-        self.push(PlanEvent::StepOrphaned { step_index: index, reason });
+        self.push(PlanEvent::StepOrphaned {
+            step_index: index,
+            reason,
+        });
     }
 
     pub fn plan_aborted(&mut self, termination_cause: impl Into<String>) {
-        let completed = self.step_statuses.values()
+        let completed = self
+            .step_statuses
+            .values()
             .filter(|s| **s == DiagStepStatus::Completed)
             .count();
         // Mark all remaining Pending steps as Orphaned.
-        let pending_indices: Vec<usize> = self.step_statuses.iter()
+        let pending_indices: Vec<usize> = self
+            .step_statuses
+            .iter()
             .filter(|(_, s)| **s == DiagStepStatus::Pending)
             .map(|(i, _)| *i)
             .collect();
@@ -169,12 +188,28 @@ impl PlanLifecycleLog {
         });
     }
 
-    pub fn budget_snapshot(&mut self, round: usize, rounds_remaining: usize,
-                            tokens_used: u64, tokens_remaining: u64) {
-        self.push(PlanEvent::BudgetSnapshot { round, rounds_remaining, tokens_used, tokens_remaining });
+    pub fn budget_snapshot(
+        &mut self,
+        round: usize,
+        rounds_remaining: usize,
+        tokens_used: u64,
+        tokens_remaining: u64,
+    ) {
+        self.push(PlanEvent::BudgetSnapshot {
+            round,
+            rounds_remaining,
+            tokens_used,
+            tokens_remaining,
+        });
     }
 
-    pub fn critic_decision(&mut self, round: usize, achieved: bool, confidence: f32, summary: &str) {
+    pub fn critic_decision(
+        &mut self,
+        round: usize,
+        achieved: bool,
+        confidence: f32,
+        summary: &str,
+    ) {
         self.push(PlanEvent::CriticDecision {
             round,
             achieved,
@@ -187,7 +222,9 @@ impl PlanLifecycleLog {
     ///
     /// INVARIANT: PlanComplete → All steps.status == Completed
     pub fn check_plan_complete_invariant(&self) -> Result<(), String> {
-        let non_completed: Vec<usize> = self.step_statuses.iter()
+        let non_completed: Vec<usize> = self
+            .step_statuses
+            .iter()
             .filter(|(_, s)| **s != DiagStepStatus::Completed)
             .map(|(i, _)| *i)
             .collect();
@@ -197,7 +234,10 @@ impl PlanLifecycleLog {
                  steps {:?} are not Completed (statuses: {:?})",
                 self.plan_id,
                 non_completed,
-                non_completed.iter().map(|i| self.step_statuses.get(i)).collect::<Vec<_>>()
+                non_completed
+                    .iter()
+                    .map(|i| self.step_statuses.get(i))
+                    .collect::<Vec<_>>()
             ));
         }
         Ok(())
@@ -213,12 +253,18 @@ impl PlanLifecycleLog {
 
     /// Render a compact trace for logging.
     pub fn trace(&self) -> String {
-        let completed = self.step_statuses.values()
+        let completed = self
+            .step_statuses
+            .values()
             .filter(|s| **s == DiagStepStatus::Completed)
             .count();
         format!(
             "plan_id={} goal=\"{}\" steps={}/{} events={}",
-            self.plan_id, self.goal, completed, self.total_steps, self.events.len()
+            self.plan_id,
+            self.goal,
+            completed,
+            self.total_steps,
+            self.events.len()
         )
     }
 }
@@ -262,7 +308,9 @@ impl CriticRetryGuard {
             retry = self.retry_count,
             step_index_before_retry = current_step_index,
             "CriticRetryGuard: retry {} of {} (step reset: {} → 0)",
-            self.retry_count, self.max_retries, current_step_index
+            self.retry_count,
+            self.max_retries,
+            current_step_index
         );
         Ok(self.retry_count)
     }
@@ -298,7 +346,10 @@ impl BudgetInvariantChecker {
                 max_critic_retries,
                 "INVARIANT VIOLATION [BudgetInvariant]: max_rounds({}) < \
                  plan.total_steps({}) + critic_retries({}) + 1 = {}",
-                max_rounds, plan_total_steps, max_critic_retries, required
+                max_rounds,
+                plan_total_steps,
+                max_critic_retries,
+                required
             );
             Err(required)
         } else {
@@ -333,7 +384,9 @@ mod tests {
         // Step 1 never executed → still Pending
         let result = log.check_plan_complete_invariant();
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("INVARIANT VIOLATION [PlanComplete]"));
+        assert!(result
+            .unwrap_err()
+            .contains("INVARIANT VIOLATION [PlanComplete]"));
     }
 
     #[test]
@@ -389,7 +442,10 @@ mod tests {
         // Reproduces the observed failure:
         // max_rounds=2 (Conversational), plan_steps=2, max_retries=1
         let result = BudgetInvariantChecker::check_max_rounds_invariant(2, 2, 1);
-        assert!(result.is_err(), "max_rounds=2 must fail for 2-step plan with 1 retry");
+        assert!(
+            result.is_err(),
+            "max_rounds=2 must fail for 2-step plan with 1 retry"
+        );
         let corrected = result.unwrap_err();
         assert_eq!(corrected, 4, "corrected max_rounds must be at least 4");
     }

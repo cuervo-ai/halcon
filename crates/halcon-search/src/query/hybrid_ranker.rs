@@ -56,9 +56,9 @@ pub struct HybridRankingConfig {
 impl Default for HybridRankingConfig {
     fn default() -> Self {
         Self {
-            bm25_weight: 0.6,      // Primary: keyword matching
-            semantic_weight: 0.3,  // Secondary: semantic understanding
-            pagerank_weight: 0.1,  // Tertiary: authority signal
+            bm25_weight: 0.6,     // Primary: keyword matching
+            semantic_weight: 0.3, // Secondary: semantic understanding
+            pagerank_weight: 0.1, // Tertiary: authority signal
             rrf_k: 60.0,
             use_rrf: true,
             min_semantic_similarity: 0.3,
@@ -147,9 +147,9 @@ impl HybridRanker {
             };
 
             // Compute semantic similarity
-            let semantic_score =
-                self.embedding_engine
-                    .cosine_similarity(&query_embedding, &doc_embedding);
+            let semantic_score = self
+                .embedding_engine
+                .cosine_similarity(&query_embedding, &doc_embedding);
 
             // Filter by threshold
             if semantic_score < self.config.min_semantic_similarity {
@@ -277,10 +277,8 @@ impl HybridRanker {
     where
         F: Fn(&ScoredDocument) -> f32,
     {
-        let mut scored: Vec<(DocumentId, f32)> = docs
-            .iter()
-            .map(|d| (d.document.id, score_fn(d)))
-            .collect();
+        let mut scored: Vec<(DocumentId, f32)> =
+            docs.iter().map(|d| (d.document.id, score_fn(d))).collect();
 
         // Sort descending by score
         scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
@@ -334,7 +332,11 @@ mod tests {
         Document {
             id: DocumentId(doc_id),
             url: url::Url::parse(url_str).unwrap(),
-            domain: url::Url::parse(url_str).unwrap().host_str().unwrap().to_string(),
+            domain: url::Url::parse(url_str)
+                .unwrap()
+                .host_str()
+                .unwrap()
+                .to_string(),
             title: "Test".to_string(),
             text: "test".to_string(),
             language: None,

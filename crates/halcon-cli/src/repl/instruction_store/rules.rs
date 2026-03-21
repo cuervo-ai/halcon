@@ -52,7 +52,7 @@ pub(super) fn load_rules_dir(
     let mut rule_files: Vec<PathBuf> = read_dir
         .flatten()
         .map(|e| e.path())
-        .filter(|p| p.extension().map_or(false, |ext| ext == "md") && p.is_file())
+        .filter(|p| p.extension().is_some_and(|ext| ext == "md") && p.is_file())
         .collect();
 
     rule_files.sort(); // Deterministic order (numeric prefix convention).
@@ -124,7 +124,7 @@ fn scan_dir_for_glob_match(
             // Skip hidden directories (e.g. .git, .halcon) to avoid noise.
             let hidden = path
                 .file_name()
-                .map_or(false, |n| n.to_string_lossy().starts_with('.'));
+                .is_some_and(|n| n.to_string_lossy().starts_with('.'));
             if !hidden && scan_dir_for_glob_match(base_dir, &path, patterns, count) {
                 return true;
             }
@@ -139,7 +139,7 @@ fn path_matches_any(file_path: &str, patterns: &[String]) -> bool {
     patterns.iter().any(|pat| {
         // Support both forward-slash and OS-native separators.
         let normalized = file_path.replace(std::path::MAIN_SEPARATOR, "/");
-        Pattern::new(pat).map_or(false, |p| p.matches(&normalized))
+        Pattern::new(pat).is_ok_and(|p| p.matches(&normalized))
     })
 }
 

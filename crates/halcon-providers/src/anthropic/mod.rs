@@ -23,8 +23,8 @@ use halcon_core::types::{
 
 use crate::http;
 use types::{
-    ApiContentBlock, ApiImageSource, ApiMessage, ApiMessageContent, ApiRequest,
-    ApiSystem, ApiSystemBlock, ApiToolDefinition, SseEvent,
+    ApiContentBlock, ApiImageSource, ApiMessage, ApiMessageContent, ApiRequest, ApiSystem,
+    ApiSystemBlock, ApiToolDefinition, SseEvent,
 };
 
 const DEFAULT_BASE_URL: &str = "https://api.anthropic.com";
@@ -257,9 +257,7 @@ impl AnthropicProvider {
             // Comma-separated multi-value is supported by the Anthropic API.
             headers.insert(
                 "anthropic-beta",
-                HeaderValue::from_static(
-                    "prompt-caching-2024-07-31,oauth-2025-04-20",
-                ),
+                HeaderValue::from_static("prompt-caching-2024-07-31,oauth-2025-04-20"),
             );
             debug!("auth: Bearer + prompt-caching + oauth beta flags");
         }
@@ -475,9 +473,7 @@ impl AnthropicProvider {
 
         Box::pin(stream.map(move |chunk| {
             if first_token {
-                if let Ok(ModelChunk::TextDelta(_))
-                | Ok(ModelChunk::ToolUseStart { .. }) = &chunk
-                {
+                if let Ok(ModelChunk::TextDelta(_)) | Ok(ModelChunk::ToolUseStart { .. }) = &chunk {
                     first_token = false;
                     let ttft_ms = ttft_start.elapsed().as_millis() as u64;
                     span.record("ttft_ms", ttft_ms);
@@ -1204,6 +1200,9 @@ mod tests {
 
         let event = SseEvent::ContentBlockStop { index: 0 };
         let chunks = AnthropicProvider::map_sse_event(&event);
-        assert!(chunks.is_empty(), "ContentBlockStop should produce no chunks");
+        assert!(
+            chunks.is_empty(),
+            "ContentBlockStop should produce no chunks"
+        );
     }
 }

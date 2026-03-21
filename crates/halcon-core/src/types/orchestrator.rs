@@ -11,9 +11,10 @@ use super::config::AgentLimits;
 // while permissions affect CAPABILITY (which tools are callable).
 // Mixing them in a single flags field would make the semantics ambiguous.
 // See US-agent-roles (PASO 4-B).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub enum AgentRole {
     /// Full access, can read all teammate states, can cancel teammates.
+    #[default]
     Lead,
     /// Receives initial context from lead, stricter limits, timeout × 0.6.
     Teammate,
@@ -52,12 +53,6 @@ impl AgentRole {
     /// Whether this role may cancel other agents in the same team.
     pub fn can_cancel_teammates(&self) -> bool {
         matches!(self, AgentRole::Lead)
-    }
-}
-
-impl Default for AgentRole {
-    fn default() -> Self {
-        AgentRole::Lead
     }
 }
 
@@ -172,7 +167,9 @@ pub struct SubAgentResult {
     pub had_tools_available: bool,
 }
 
-fn default_had_tools_true() -> bool { true }
+fn default_had_tools_true() -> bool {
+    true
+}
 
 /// Aggregated result from a complete orchestrator run.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -423,8 +420,14 @@ mod tests {
             "rounds": 0
         }"#;
         let parsed: SubAgentResult = serde_json::from_str(old_json).unwrap();
-        assert!(!parsed.evidence_verified, "default evidence_verified must be false");
-        assert_eq!(parsed.content_read_attempts, 0, "default content_read_attempts must be 0");
+        assert!(
+            !parsed.evidence_verified,
+            "default evidence_verified must be false"
+        );
+        assert_eq!(
+            parsed.content_read_attempts, 0,
+            "default content_read_attempts must be 0"
+        );
     }
 
     #[test]
@@ -542,7 +545,12 @@ mod tests {
 
     #[test]
     fn agent_role_serde_round_trip() {
-        for role in [AgentRole::Lead, AgentRole::Teammate, AgentRole::Specialist, AgentRole::Observer] {
+        for role in [
+            AgentRole::Lead,
+            AgentRole::Teammate,
+            AgentRole::Specialist,
+            AgentRole::Observer,
+        ] {
             let json = serde_json::to_string(&role).unwrap();
             let parsed: AgentRole = serde_json::from_str(&json).unwrap();
             assert_eq!(parsed, role);

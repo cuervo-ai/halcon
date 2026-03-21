@@ -91,25 +91,40 @@ impl SubAgentContract {
 
     fn infer_step_type(description: &str, tool_name: Option<&str>) -> StepType {
         let d = description.to_lowercase();
-        if d.contains("synthesi") || d.contains("sintetiz") || d.contains("summarize")
-            || d.contains("responde") || d.contains("respond") {
+        if d.contains("synthesi")
+            || d.contains("sintetiz")
+            || d.contains("summarize")
+            || d.contains("responde")
+            || d.contains("respond")
+        {
             return StepType::Synthesis;
         }
-        if d.contains("analiz") || d.contains("analy") || d.contains("inspect")
-            || d.contains("read") || d.contains("lee") || d.contains("revisa") {
+        if d.contains("analiz")
+            || d.contains("analy")
+            || d.contains("inspect")
+            || d.contains("read")
+            || d.contains("lee")
+            || d.contains("revisa")
+        {
             return StepType::Analysis;
         }
-        if d.contains("search") || d.contains("busca") || d.contains("find")
-            || d.contains("glob") || d.contains("grep") {
+        if d.contains("search")
+            || d.contains("busca")
+            || d.contains("find")
+            || d.contains("glob")
+            || d.contains("grep")
+        {
             return StepType::Search;
         }
-        if d.contains("run") || d.contains("execute") || d.contains("bash")
-            || d.contains("executa") {
+        if d.contains("run") || d.contains("execute") || d.contains("bash") || d.contains("executa")
+        {
             return StepType::Execution;
         }
         match tool_name {
             Some("glob") | Some("grep") | Some("fuzzy_find") => StepType::Search,
-            Some("file_read") | Some("file_inspect") | Some("read_multiple_files") => StepType::Analysis,
+            Some("file_read") | Some("file_inspect") | Some("read_multiple_files") => {
+                StepType::Analysis
+            }
             Some("bash") | Some("shell") => StepType::Execution,
             _ => StepType::Generic,
         }
@@ -143,22 +158,26 @@ pub enum RejectionReason {
 impl RejectionReason {
     pub fn description(&self) -> &'static str {
         match self {
-            Self::MetaQuestion =>
-                "sub-agent sent a meta-question (clarification request) when analysis was required",
-            Self::InsufficientSynthesis =>
-                "synthesis step produced no substantive content (too short or only questions)",
-            Self::NoFileReference =>
-                "analysis step did not reference any expected files",
-            Self::TooShort =>
-                "sub-agent output below minimum content threshold",
-            Self::NoSubstantiveContent =>
-                "output contains no technical content — only generic text",
+            Self::MetaQuestion => {
+                "sub-agent sent a meta-question (clarification request) when analysis was required"
+            }
+            Self::InsufficientSynthesis => {
+                "synthesis step produced no substantive content (too short or only questions)"
+            }
+            Self::NoFileReference => "analysis step did not reference any expected files",
+            Self::TooShort => "sub-agent output below minimum content threshold",
+            Self::NoSubstantiveContent => {
+                "output contains no technical content — only generic text"
+            }
         }
     }
 
     /// Returns true if re-running the sub-agent may recover.
     pub fn is_recoverable(&self) -> bool {
-        matches!(self, Self::MetaQuestion | Self::NoFileReference | Self::TooShort)
+        matches!(
+            self,
+            Self::MetaQuestion | Self::NoFileReference | Self::TooShort
+        )
     }
 }
 
@@ -171,7 +190,10 @@ pub struct ValidationResult {
 
 impl ValidationResult {
     pub fn valid() -> Self {
-        Self { status: ValidationStatus::Valid, coordinator_notice: None }
+        Self {
+            status: ValidationStatus::Valid,
+            coordinator_notice: None,
+        }
     }
 
     pub fn rejected(reason: RejectionReason) -> Self {
@@ -217,12 +239,38 @@ const META_QUESTION_PATTERNS: &[&str] = &[
 
 /// Words that indicate substantive technical content.
 const TECHNICAL_CONTENT_MARKERS: &[&str] = &[
-    "fn ", "impl ", "struct ", "enum ", "trait ", "pub ", "use ",
-    "cargo", "rust", "tokio", "async", "await", "mod ", "crate",
-    ".rs", "Cargo.toml", "src/", "crates/",
-    "error", "warning", "bug", "issue", "fix",
-    "architecture", "design", "pattern", "module",
-    "función", "módulo", "archivo", "estructura", "implementación",
+    "fn ",
+    "impl ",
+    "struct ",
+    "enum ",
+    "trait ",
+    "pub ",
+    "use ",
+    "cargo",
+    "rust",
+    "tokio",
+    "async",
+    "await",
+    "mod ",
+    "crate",
+    ".rs",
+    "Cargo.toml",
+    "src/",
+    "crates/",
+    "error",
+    "warning",
+    "bug",
+    "issue",
+    "fix",
+    "architecture",
+    "design",
+    "pattern",
+    "module",
+    "función",
+    "módulo",
+    "archivo",
+    "estructura",
+    "implementación",
 ];
 
 impl SubAgentContractValidator {
@@ -248,19 +296,15 @@ impl SubAgentContractValidator {
 
         // 2. Meta-question detection (for non-clarification steps).
         if !contract.allow_clarification {
-            let has_meta_question = META_QUESTION_PATTERNS.iter()
-                .any(|pat| lower.contains(pat));
+            let has_meta_question = META_QUESTION_PATTERNS.iter().any(|pat| lower.contains(pat));
 
             // Additional check: ends with question mark and is short (likely pure clarification).
-            let is_short_question =
-                trimmed.ends_with('?') && trimmed.len() < 500;
+            let is_short_question = trimmed.ends_with('?') && trimmed.len() < 500;
 
             if has_meta_question || is_short_question {
                 // Check if there IS some substantive content alongside the question.
                 // If the output is mostly questions (>50% of lines are questions), reject.
-                let question_lines = trimmed.lines()
-                    .filter(|l| l.trim().ends_with('?'))
-                    .count();
+                let question_lines = trimmed.lines().filter(|l| l.trim().ends_with('?')).count();
                 let total_lines = trimmed.lines().count().max(1);
                 let question_ratio = question_lines as f64 / total_lines as f64;
 
@@ -278,7 +322,8 @@ impl SubAgentContractValidator {
 
         // 3. Synthesis step: must have substantive content.
         if contract.step_type == StepType::Synthesis {
-            let has_content = TECHNICAL_CONTENT_MARKERS.iter()
+            let has_content = TECHNICAL_CONTENT_MARKERS
+                .iter()
                 .any(|marker| lower.contains(marker));
             let word_count = trimmed.split_whitespace().count();
 
@@ -294,7 +339,9 @@ impl SubAgentContractValidator {
 
         // 4. File reference check (for analysis steps with expected files).
         if contract.step_type == StepType::Analysis && !contract.expected_references.is_empty() {
-            let has_any_reference = contract.expected_references.iter()
+            let has_any_reference = contract
+                .expected_references
+                .iter()
                 .any(|r| lower.contains(&r.to_lowercase()));
 
             if !has_any_reference {
@@ -309,7 +356,8 @@ impl SubAgentContractValidator {
 
         // 5. No substantive content (generic filler detection).
         if contract.step_type != StepType::Generic {
-            let technical_markers_found = TECHNICAL_CONTENT_MARKERS.iter()
+            let technical_markers_found = TECHNICAL_CONTENT_MARKERS
+                .iter()
                 .filter(|m| lower.contains(*m))
                 .count();
             let word_count = trimmed.split_whitespace().count();
@@ -362,7 +410,10 @@ mod tests {
     use super::*;
 
     fn analysis_contract() -> SubAgentContract {
-        SubAgentContract::from_step("Read and analyse: Buscar archivos que puedan corresponder", Some("glob"))
+        SubAgentContract::from_step(
+            "Read and analyse: Buscar archivos que puedan corresponder",
+            Some("glob"),
+        )
     }
 
     fn synthesis_contract() -> SubAgentContract {
@@ -408,9 +459,10 @@ mod tests {
 
         let result = SubAgentContractValidator::validate(output, &contract);
         assert!(
-            matches!(result.status,
+            matches!(
+                result.status,
                 ValidationStatus::Rejected(RejectionReason::TooShort)
-                | ValidationStatus::Rejected(RejectionReason::InsufficientSynthesis)
+                    | ValidationStatus::Rejected(RejectionReason::InsufficientSynthesis)
             ),
             "Synthesis with only generic text must be rejected"
         );
@@ -477,14 +529,16 @@ mod tests {
 
     #[test]
     fn analysis_step_does_not_allow_clarification() {
-        let contract = SubAgentContract::from_step("analiza los archivos del proyecto", Some("file_read"));
+        let contract =
+            SubAgentContract::from_step("analiza los archivos del proyecto", Some("file_read"));
         assert!(!contract.allow_clarification);
         assert_eq!(contract.step_type, StepType::Analysis);
     }
 
     #[test]
     fn synthesis_step_inferred_correctly() {
-        let contract = SubAgentContract::from_step("Synthesize findings and respond to the user.", None);
+        let contract =
+            SubAgentContract::from_step("Synthesize findings and respond to the user.", None);
         assert_eq!(contract.step_type, StepType::Synthesis);
         assert_eq!(contract.min_content_chars, 200);
     }

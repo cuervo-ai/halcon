@@ -123,8 +123,8 @@ impl IdeProtocolHandler {
     /// (which are encoded as `DispatchResult::Error`).
     /// Returns `Err` only for fatal parse failures.
     pub async fn handle_raw(&self, raw: &[u8]) -> Result<DispatchResult, String> {
-        let request: JsonRpcRequest = serde_json::from_slice(raw)
-            .map_err(|e| format!("JSON-RPC parse error: {e}"))?;
+        let request: JsonRpcRequest =
+            serde_json::from_slice(raw).map_err(|e| format!("JSON-RPC parse error: {e}"))?;
         Ok(self.dispatch(request).await)
     }
 
@@ -132,20 +132,12 @@ impl IdeProtocolHandler {
     pub async fn dispatch(&self, req: JsonRpcRequest) -> DispatchResult {
         match req.method.as_str() {
             // ── LSP text document notifications ──────────────────────────────
-            "textDocument/didOpen" => {
-                self.handle_did_open(&req.params).await
-            }
-            "textDocument/didChange" => {
-                self.handle_did_change(&req.params).await
-            }
-            "textDocument/didClose" => {
-                self.handle_did_close(&req.params).await
-            }
+            "textDocument/didOpen" => self.handle_did_open(&req.params).await,
+            "textDocument/didChange" => self.handle_did_change(&req.params).await,
+            "textDocument/didClose" => self.handle_did_close(&req.params).await,
 
             // ── Halcon extension methods ──────────────────────────────────────
-            "$/halcon/context" => {
-                self.handle_context_request(req.id.clone()).await
-            }
+            "$/halcon/context" => self.handle_context_request(req.id.clone()).await,
 
             // ── Unknown method ────────────────────────────────────────────────
             other => {

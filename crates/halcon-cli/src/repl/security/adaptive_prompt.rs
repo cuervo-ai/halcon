@@ -31,9 +31,13 @@ impl AdaptivePromptBuilder {
 
         let verbose_hint = match risk_level {
             RiskLevel::Low => "Type 'y' to approve or ask questions naturally".into(),
-            RiskLevel::Medium => "⚠️  Consider reviewing parameters with '?' before approving".into(),
+            RiskLevel::Medium => {
+                "⚠️  Consider reviewing parameters with '?' before approving".into()
+            }
             RiskLevel::High => "🔴 HIGH RISK — Review details carefully before approving".into(),
-            RiskLevel::Critical => "🚨 CRITICAL — Dangerous operation detected! Type 'no' to reject".into(),
+            RiskLevel::Critical => {
+                "🚨 CRITICAL — Dangerous operation detected! Type 'no' to reject".into()
+            }
         };
 
         PromptContent {
@@ -84,7 +88,16 @@ impl AdaptivePromptBuilder {
             "bash" => {
                 let cmd = args["command"].as_str().unwrap_or("(unknown)");
                 if cmd.len() > 60 {
-                    format!("Command: {}...", &cmd[..{ let mut _fcb = (57).min(cmd.len()); while _fcb > 0 && !cmd.is_char_boundary(_fcb) { _fcb -= 1; } _fcb }])
+                    format!(
+                        "Command: {}...",
+                        &cmd[..{
+                            let mut _fcb = (57).min(cmd.len());
+                            while _fcb > 0 && !cmd.is_char_boundary(_fcb) {
+                                _fcb -= 1;
+                            }
+                            _fcb
+                        }]
+                    )
                 } else {
                     format!("Command: {}", cmd)
                 }
@@ -104,7 +117,16 @@ impl AdaptivePromptBuilder {
             _ => {
                 let json = serde_json::to_string(args).unwrap_or_default();
                 if json.len() > 60 {
-                    format!("{}...", &json[..{ let mut _fcb = (57).min(json.len()); while _fcb > 0 && !json.is_char_boundary(_fcb) { _fcb -= 1; } _fcb }])
+                    format!(
+                        "{}...",
+                        &json[..{
+                            let mut _fcb = (57).min(json.len());
+                            while _fcb > 0 && !json.is_char_boundary(_fcb) {
+                                _fcb -= 1;
+                            }
+                            _fcb
+                        }]
+                    )
                 } else {
                     json
                 }
@@ -135,7 +157,10 @@ impl AdaptivePromptBuilder {
             }
             lines.join("\n")
         } else {
-            format!("Parameters: {}", serde_json::to_string_pretty(args).unwrap_or_default())
+            format!(
+                "Parameters: {}",
+                serde_json::to_string_pretty(args).unwrap_or_default()
+            )
         }
     }
 
@@ -284,7 +309,9 @@ impl RiskLevel {
         match tool {
             "bash" => {
                 let cmd = args["command"].as_str().unwrap_or("");
-                if cmd.contains("rm -rf") || cmd.contains("sudo") || cmd.contains("dd if=")
+                if cmd.contains("rm -rf")
+                    || cmd.contains("sudo")
+                    || cmd.contains("dd if=")
                     || cmd.contains("> /dev/")
                 {
                     RiskLevel::High
@@ -394,7 +421,8 @@ mod tests {
     #[test]
     fn build_initial_prompt_low_risk() {
         let args = serde_json::json!({"path": "test.txt"});
-        let prompt = AdaptivePromptBuilder::build_initial_prompt("file_read", &args, RiskLevel::Low);
+        let prompt =
+            AdaptivePromptBuilder::build_initial_prompt("file_read", &args, RiskLevel::Low);
 
         assert!(prompt.title.contains("✓"));
         assert!(prompt.title.contains("file_read"));
@@ -427,7 +455,8 @@ mod tests {
     #[test]
     fn build_detail_view_parameters() {
         let args = serde_json::json!({"path": "test.txt", "content": "hello"});
-        let prompt = AdaptivePromptBuilder::build_detail_view("file_write", &args, DetailAspect::Parameters);
+        let prompt =
+            AdaptivePromptBuilder::build_detail_view("file_write", &args, DetailAspect::Parameters);
 
         assert!(prompt.title.contains("Parameters"));
         assert!(prompt.detail_view.is_some());
@@ -437,7 +466,11 @@ mod tests {
     #[test]
     fn build_detail_view_what_it_does() {
         let args = serde_json::json!({"path": "test.txt"});
-        let prompt = AdaptivePromptBuilder::build_detail_view("file_delete", &args, DetailAspect::WhatItDoes);
+        let prompt = AdaptivePromptBuilder::build_detail_view(
+            "file_delete",
+            &args,
+            DetailAspect::WhatItDoes,
+        );
 
         assert!(prompt.title.contains("What It Does"));
         let detail = prompt.detail_view.unwrap();
@@ -448,7 +481,8 @@ mod tests {
     #[test]
     fn build_detail_view_risk_assessment() {
         let args = serde_json::json!({"command": "rm -rf /"});
-        let prompt = AdaptivePromptBuilder::build_detail_view("bash", &args, DetailAspect::RiskAssessment);
+        let prompt =
+            AdaptivePromptBuilder::build_detail_view("bash", &args, DetailAspect::RiskAssessment);
 
         assert!(prompt.title.contains("Risk Assessment"));
         let detail = prompt.detail_view.unwrap();

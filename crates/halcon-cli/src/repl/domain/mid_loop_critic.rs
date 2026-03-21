@@ -158,7 +158,9 @@ impl MidLoopCritic {
                 "objective drift detected — execution diverging from original goal",
                 "Switch strategy: re-read the original goal and adjust the current approach",
             )
-        } else if evidence_declining && progress_deficit > self.policy.progress_deficit_threshold * 0.5 {
+        } else if evidence_declining
+            && progress_deficit > self.policy.progress_deficit_threshold * 0.5
+        {
             (
                 CriticAction::ReduceScope,
                 "evidence collection declining with moderate progress deficit",
@@ -172,7 +174,7 @@ impl MidLoopCritic {
             )
         };
 
-        let rounds_remaining = if max_rounds > round { max_rounds - round } else { 0 };
+        let rounds_remaining = max_rounds.saturating_sub(round);
 
         CriticCheckpoint {
             round,
@@ -227,13 +229,13 @@ impl CriticCheckpoint {
     pub fn format_summary(&self) -> String {
         let max_round = self.round + self.rounds_remaining;
         let pct_done = (self.completed_fraction * 100.0) as u32;
-        let pct_exp  = (self.expected_fraction  * 100.0) as u32;
+        let pct_exp = (self.expected_fraction * 100.0) as u32;
 
         let status = match self.action {
-            CriticAction::Continue       => "✓ on track",
+            CriticAction::Continue => "✓ on track",
             CriticAction::ChangeStrategy => "⚠ strategy shift needed",
-            CriticAction::ReduceScope    => "⚠ scope reduction advised",
-            CriticAction::Replan         => "⚠ replan triggered",
+            CriticAction::ReduceScope => "⚠ scope reduction advised",
+            CriticAction::Replan => "⚠ replan triggered",
             CriticAction::ForceSynthesis => "⚠ synthesizing early",
         };
 
@@ -309,8 +311,8 @@ mod tests {
         let mut critic = MidLoopCritic::new(test_policy(), 10);
         // Record declining evidence
         critic.record_snapshot(1, 0.10, 0.50, 0.5, true);
-        critic.record_snapshot(2, 0.15, 0.20, 0.4, true);  // sharp decline
-        // Moderate deficit (0.30 - 0.15 = 0.15 > 0.125)
+        critic.record_snapshot(2, 0.15, 0.20, 0.4, true); // sharp decline
+                                                          // Moderate deficit (0.30 - 0.15 = 0.15 > 0.125)
         let cp = critic.evaluate(3, 10, 0.15, 0.20, 0.10);
         assert_eq!(cp.action, CriticAction::ReduceScope);
     }
@@ -379,8 +381,14 @@ mod tests {
         let critic = MidLoopCritic::new(test_policy(), 20);
         // Round 10/20 = 50% budget, 35% done
         let cp = critic.evaluate(10, 20, 0.35, 0.40, 0.05);
-        assert!((cp.completed_fraction - 0.35).abs() < 1e-6, "completed_fraction should be plan_progress");
-        assert!((cp.expected_fraction  - 0.50).abs() < 1e-6, "expected_fraction should be budget_fraction");
+        assert!(
+            (cp.completed_fraction - 0.35).abs() < 1e-6,
+            "completed_fraction should be plan_progress"
+        );
+        assert!(
+            (cp.expected_fraction - 0.50).abs() < 1e-6,
+            "expected_fraction should be budget_fraction"
+        );
         assert_eq!(cp.rounds_remaining, 10);
     }
 
@@ -399,7 +407,10 @@ mod tests {
         let critic = MidLoopCritic::new(test_policy(), 20);
         let cp = critic.evaluate(4, 20, 0.20, 0.40, 0.05);
         let summary = cp.format_summary();
-        assert!(summary.contains("on track"), "continue path should say on track");
+        assert!(
+            summary.contains("on track"),
+            "continue path should say on track"
+        );
         assert!(summary.contains("20%"), "should show completed %");
     }
 
@@ -409,7 +420,7 @@ mod tests {
         let cp = critic.evaluate(5, 10, 0.10, 0.40, 0.05);
         let summary = cp.format_summary();
         assert!(summary.contains("Issue:"), "must label the problem");
-        assert!(summary.contains("Next:"),  "must provide next step");
+        assert!(summary.contains("Next:"), "must provide next step");
         assert!(!summary.contains("CRITICAL"), "must not use CRITICAL label");
     }
 
@@ -420,6 +431,9 @@ mod tests {
         critic.record_snapshot(2, 0.15, 0.20, 0.4, true);
         let cp = critic.evaluate(3, 10, 0.15, 0.20, 0.10);
         let summary = cp.format_summary();
-        assert!(summary.contains("declining"), "should mention evidence decline");
+        assert!(
+            summary.contains("declining"),
+            "should mention evidence decline"
+        );
     }
 }

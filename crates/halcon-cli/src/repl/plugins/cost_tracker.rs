@@ -100,7 +100,9 @@ impl PluginCostTracker {
     pub fn check_budget(&self) -> Option<PluginBudgetError> {
         if let Some(max) = self.max_calls {
             if self.calls_made >= max {
-                return Some(PluginBudgetError::CallsExceeded { count: self.calls_made });
+                return Some(PluginBudgetError::CallsExceeded {
+                    count: self.calls_made,
+                });
             }
         }
         if let Some(max) = self.max_tokens {
@@ -179,7 +181,10 @@ mod tests {
         let mut tracker = PluginCostTracker::new("p".into(), Some(100), None, None);
         tracker.record_call(100, 0.0, true);
         let err = tracker.check_budget();
-        assert!(matches!(err, Some(PluginBudgetError::TokensExceeded { .. })));
+        assert!(matches!(
+            err,
+            Some(PluginBudgetError::TokensExceeded { .. })
+        ));
     }
 
     #[test]
@@ -196,7 +201,10 @@ mod tests {
         tracker.record_call(0, 0.0, true);
         tracker.record_call(0, 0.0, true);
         let err = tracker.check_budget();
-        assert!(matches!(err, Some(PluginBudgetError::CallsExceeded { count: 2 })));
+        assert!(matches!(
+            err,
+            Some(PluginBudgetError::CallsExceeded { count: 2 })
+        ));
     }
 
     #[test]
@@ -258,7 +266,10 @@ mod tests {
         // Previously usd_spent += NaN would propagate NaN to all subsequent checks.
         let mut tracker = PluginCostTracker::unlimited("nan-usd".into());
         tracker.record_call(0, f64::NAN, true);
-        assert_eq!(tracker.usd_spent, 0.0, "NaN USD must be ignored, not accumulated");
+        assert_eq!(
+            tracker.usd_spent, 0.0,
+            "NaN USD must be ignored, not accumulated"
+        );
     }
 
     #[test]
@@ -281,9 +292,9 @@ mod tests {
     fn record_call_finite_usd_still_accumulates_after_non_finite() {
         // Regression guard: after rejecting non-finite values, finite values must still work.
         let mut tracker = PluginCostTracker::unlimited("mixed-usd".into());
-        tracker.record_call(0, f64::NAN, true);      // rejected
+        tracker.record_call(0, f64::NAN, true); // rejected
         tracker.record_call(0, f64::INFINITY, true); // rejected
-        tracker.record_call(0, 0.05, true);           // must accumulate
+        tracker.record_call(0, 0.05, true); // must accumulate
         assert!(
             (tracker.usd_spent - 0.05).abs() < 1e-10,
             "finite USD must accumulate normally even after non-finite values were rejected"

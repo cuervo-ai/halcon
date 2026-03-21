@@ -9,7 +9,7 @@
 //! `final_quality >= target`, the optimizer can skip or fast-path.
 
 use chrono::Utc;
-use rusqlite::{Connection, OptionalExtension, Result, params};
+use rusqlite::{params, Connection, OptionalExtension, Result};
 
 /// A recorded palette optimization run.
 #[derive(Debug, Clone)]
@@ -198,8 +198,14 @@ mod tests {
         insert_record(&conn, "sess-a", 205.0, 0.70, 0.82, 8);
         insert_record(&conn, "sess-b", 210.0, 0.71, 0.91, 15);
 
-        let best = load_best_palette_for_hue(&conn, 207.0, 15.0).unwrap().unwrap();
-        assert!((best.final_quality - 0.91).abs() < 0.001, "Expected best quality 0.91, got {}", best.final_quality);
+        let best = load_best_palette_for_hue(&conn, 207.0, 15.0)
+            .unwrap()
+            .unwrap();
+        assert!(
+            (best.final_quality - 0.91).abs() < 0.001,
+            "Expected best quality 0.91, got {}",
+            best.final_quality
+        );
     }
 
     #[test]
@@ -209,7 +215,10 @@ mod tests {
         insert_record(&conn, "sess-z", 30.0, 0.80, 0.95, 5);
 
         let result = load_best_palette_for_hue(&conn, 207.0, 15.0).unwrap();
-        assert!(result.is_none(), "Should not find record at hue 30° when querying 207°±15°");
+        assert!(
+            result.is_none(),
+            "Should not find record at hue 30° when querying 207°±15°"
+        );
     }
 
     #[test]
@@ -219,7 +228,10 @@ mod tests {
         insert_record(&conn, "sess-w", 355.0, 0.75, 0.89, 7);
 
         let best = load_best_palette_for_hue(&conn, 5.0, 15.0).unwrap();
-        assert!(best.is_some(), "Wrap-around: 355° should be found when querying 5°±15°");
+        assert!(
+            best.is_some(),
+            "Wrap-around: 355° should be found when querying 5°±15°"
+        );
         assert!((best.unwrap().base_hue - 355.0).abs() < 0.001);
     }
 

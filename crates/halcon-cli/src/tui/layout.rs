@@ -143,7 +143,11 @@ pub fn calculate_cockpit_zones(area: Rect, config: &LayoutConfig) -> CockpitZone
 }
 
 /// Calculate the cockpit layout with dynamic prompt height.
-pub fn calculate_cockpit_zones_dynamic(area: Rect, config: &LayoutConfig, content_lines: usize) -> CockpitZones {
+pub fn calculate_cockpit_zones_dynamic(
+    area: Rect,
+    config: &LayoutConfig,
+    content_lines: usize,
+) -> CockpitZones {
     // Status bar at top (1 line + borders = 3)
     let status_height: u16 = 3;
 
@@ -174,10 +178,7 @@ pub fn calculate_cockpit_zones_dynamic(area: Rect, config: &LayoutConfig, conten
 
         let h_chunks = Layout::default()
             .direction(Direction::Horizontal)
-            .constraints([
-                Constraint::Length(panel_width),
-                Constraint::Min(1),
-            ])
+            .constraints([Constraint::Length(panel_width), Constraint::Min(1)])
             .split(middle);
 
         (Some(h_chunks[0]), h_chunks[1])
@@ -230,10 +231,17 @@ pub fn calculate_mode_layout(area: Rect, mode: UiMode, panel_visible: bool) -> M
 }
 
 /// Calculate mode layout with dynamic prompt height.
-pub fn calculate_mode_layout_dynamic(area: Rect, mode: UiMode, panel_visible: bool, content_lines: usize) -> ModeLayout {
+pub fn calculate_mode_layout_dynamic(
+    area: Rect,
+    mode: UiMode,
+    panel_visible: bool,
+    content_lines: usize,
+) -> ModeLayout {
     let status_height: u16 = 3;
-    let prompt_height = calculate_prompt_height(content_lines, area.height)
-        .min(area.height.saturating_sub(status_height + FOOTER_HEIGHT + 4));
+    let prompt_height = calculate_prompt_height(content_lines, area.height).min(
+        area.height
+            .saturating_sub(status_height + FOOTER_HEIGHT + 4),
+    );
 
     // Vertical split: status | middle | prompt | footer
     let v_chunks = Layout::default()
@@ -499,7 +507,10 @@ mod tests {
     fn mode_layout_minimal_has_no_panels() {
         let area = Rect::new(0, 0, 160, 50);
         let layout = calculate_mode_layout(area, UiMode::Minimal, true);
-        assert!(layout.side_panel.is_none(), "minimal never shows side panel");
+        assert!(
+            layout.side_panel.is_none(),
+            "minimal never shows side panel"
+        );
         assert!(layout.inspector.is_none(), "minimal never shows inspector");
     }
 
@@ -507,7 +518,10 @@ mod tests {
     fn mode_layout_standard_shows_side_panel() {
         let area = Rect::new(0, 0, 120, 40);
         let layout = calculate_mode_layout(area, UiMode::Standard, true);
-        assert!(layout.side_panel.is_some(), "standard shows side panel at 120 cols");
+        assert!(
+            layout.side_panel.is_some(),
+            "standard shows side panel at 120 cols"
+        );
         assert!(layout.inspector.is_none(), "standard never shows inspector");
     }
 
@@ -522,7 +536,10 @@ mod tests {
     fn mode_layout_standard_no_panel_when_hidden() {
         let area = Rect::new(0, 0, 120, 40);
         let layout = calculate_mode_layout(area, UiMode::Standard, false);
-        assert!(layout.side_panel.is_none(), "panel hidden when panel_visible=false");
+        assert!(
+            layout.side_panel.is_none(),
+            "panel hidden when panel_visible=false"
+        );
     }
 
     #[test]
@@ -530,15 +547,24 @@ mod tests {
         let area = Rect::new(0, 0, 160, 50);
         let layout = calculate_mode_layout(area, UiMode::Expert, true);
         assert!(layout.side_panel.is_some(), "expert shows side panel");
-        assert!(layout.inspector.is_some(), "expert shows inspector at 160 cols");
+        assert!(
+            layout.inspector.is_some(),
+            "expert shows inspector at 160 cols"
+        );
     }
 
     #[test]
     fn mode_layout_expert_no_inspector_narrow() {
         let area = Rect::new(0, 0, 120, 40);
         let layout = calculate_mode_layout(area, UiMode::Expert, true);
-        assert!(layout.side_panel.is_some(), "expert shows side panel at 120");
-        assert!(layout.inspector.is_none(), "inspector hidden when < 140 cols");
+        assert!(
+            layout.side_panel.is_some(),
+            "expert shows side panel at 120"
+        );
+        assert!(
+            layout.inspector.is_none(),
+            "inspector hidden when < 140 cols"
+        );
     }
 
     #[test]
@@ -558,7 +584,8 @@ mod tests {
                 + layout.prompt.height
                 + layout.footer.height;
             assert_eq!(
-                total, area.height,
+                total,
+                area.height,
                 "mode={:?}: {} + {} + {} + {} = {} != {}",
                 mode,
                 layout.status.height,
@@ -586,8 +613,15 @@ mod tests {
         let area = Rect::new(0, 0, 120, 40);
         let layout = calculate_mode_layout(area, UiMode::Standard, true);
         if let Some(panel) = layout.side_panel {
-            assert_eq!(panel.height, layout.activity.height, "panel and activity same height");
-            assert_eq!(panel.width + layout.activity.width, area.width, "panel+activity = full width");
+            assert_eq!(
+                panel.height, layout.activity.height,
+                "panel and activity same height"
+            );
+            assert_eq!(
+                panel.width + layout.activity.width,
+                area.width,
+                "panel+activity = full width"
+            );
         }
     }
 
@@ -663,15 +697,30 @@ mod tests {
 
     #[test]
     fn prompt_height_multi_line_grows() {
-        assert_eq!(calculate_prompt_height(3, 40), 4, "3 lines content + 1 separator");
-        assert_eq!(calculate_prompt_height(5, 40), 6, "5 lines content + 1 separator");
-        assert_eq!(calculate_prompt_height(10, 40), 11, "10 lines content + 1 separator");
+        assert_eq!(
+            calculate_prompt_height(3, 40),
+            4,
+            "3 lines content + 1 separator"
+        );
+        assert_eq!(
+            calculate_prompt_height(5, 40),
+            6,
+            "5 lines content + 1 separator"
+        );
+        assert_eq!(
+            calculate_prompt_height(10, 40),
+            11,
+            "10 lines content + 1 separator"
+        );
     }
 
     #[test]
     fn prompt_height_clamped_at_max() {
         let height = calculate_prompt_height(20, 100);
-        assert_eq!(height, PROMPT_MAX_HEIGHT, "exceeds PROMPT_MAX_HEIGHT → clamped");
+        assert_eq!(
+            height, PROMPT_MAX_HEIGHT,
+            "exceeds PROMPT_MAX_HEIGHT → clamped"
+        );
     }
 
     #[test]
@@ -706,7 +755,10 @@ mod tests {
     fn zones_dynamic_exceeds_max() {
         let area = Rect::new(0, 0, 120, 60);
         let zones = calculate_zones_dynamic(area, 20);
-        assert_eq!(zones.prompt.height, PROMPT_MAX_HEIGHT, "content too large → clamped");
+        assert_eq!(
+            zones.prompt.height, PROMPT_MAX_HEIGHT,
+            "content too large → clamped"
+        );
     }
 
     #[test]

@@ -26,9 +26,15 @@ static KEBAB_CASE_RE: std::sync::LazyLock<regex::Regex> =
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Diagnostic {
     /// Hard error — agent will not be loaded.
-    Error { agent_source: String, message: String },
+    Error {
+        agent_source: String,
+        message: String,
+    },
     /// Soft warning — agent is loaded but user is notified.
-    Warning { agent_source: String, message: String },
+    Warning {
+        agent_source: String,
+        message: String,
+    },
 }
 
 impl Diagnostic {
@@ -54,8 +60,14 @@ impl Diagnostic {
 impl std::fmt::Display for Diagnostic {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let (level, source, msg) = match self {
-            Diagnostic::Error { agent_source, message } => ("ERROR", agent_source, message),
-            Diagnostic::Warning { agent_source, message } => ("WARN ", agent_source, message),
+            Diagnostic::Error {
+                agent_source,
+                message,
+            } => ("ERROR", agent_source, message),
+            Diagnostic::Warning {
+                agent_source,
+                message,
+            } => ("WARN ", agent_source, message),
         };
         write!(f, "[{level}] {source}: {msg}")
     }
@@ -209,8 +221,12 @@ fn levenshtein(a: &str, b: &str) -> usize {
     let n = b.len();
 
     let mut dp = vec![vec![0usize; n + 1]; m + 1];
-    for i in 0..=m { dp[i][0] = i; }
-    for j in 0..=n { dp[0][j] = j; }
+    for i in 0..=m {
+        dp[i][0] = i;
+    }
+    for j in 0..=n {
+        dp[0][j] = j;
+    }
 
     for i in 1..=m {
         for j in 1..=n {
@@ -230,7 +246,12 @@ mod tests {
     use std::collections::HashSet;
     use std::path::PathBuf;
 
-    fn make_def(name: &str, description: &str, max_turns: u32, scope: AgentScope) -> AgentDefinition {
+    fn make_def(
+        name: &str,
+        description: &str,
+        max_turns: u32,
+        scope: AgentScope,
+    ) -> AgentDefinition {
         AgentDefinition {
             name: name.to_string(),
             description: description.to_string(),
@@ -251,10 +272,19 @@ mod tests {
 
     #[test]
     fn valid_agent_has_no_diagnostics() {
-        let def = make_def("code-reviewer", "Reviews code carefully", 15, AgentScope::Project);
+        let def = make_def(
+            "code-reviewer",
+            "Reviews code carefully",
+            15,
+            AgentScope::Project,
+        );
         let skills: HashSet<String> = HashSet::new();
         let diags = validate_agent(&def, &skills);
-        assert!(diags.is_empty(), "expected no diagnostics, got: {:?}", diags);
+        assert!(
+            diags.is_empty(),
+            "expected no diagnostics, got: {:?}",
+            diags
+        );
     }
 
     #[test]
@@ -262,7 +292,9 @@ mod tests {
         let def = make_def("", "Has description", 10, AgentScope::Project);
         let skills = HashSet::new();
         let diags = validate_agent(&def, &skills);
-        assert!(diags.iter().any(|d| d.is_error() && d.message().contains("name")));
+        assert!(diags
+            .iter()
+            .any(|d| d.is_error() && d.message().contains("name")));
     }
 
     #[test]
@@ -270,7 +302,9 @@ mod tests {
         let def = make_def("CodeReviewer", "Has description", 10, AgentScope::Project);
         let skills = HashSet::new();
         let diags = validate_agent(&def, &skills);
-        assert!(diags.iter().any(|d| d.is_error() && d.message().contains("name")));
+        assert!(diags
+            .iter()
+            .any(|d| d.is_error() && d.message().contains("name")));
     }
 
     #[test]
@@ -278,7 +312,9 @@ mod tests {
         let def = make_def("code_reviewer", "Has description", 10, AgentScope::Project);
         let skills = HashSet::new();
         let diags = validate_agent(&def, &skills);
-        assert!(diags.iter().any(|d| d.is_error() && d.message().contains("name")));
+        assert!(diags
+            .iter()
+            .any(|d| d.is_error() && d.message().contains("name")));
     }
 
     #[test]
@@ -286,7 +322,9 @@ mod tests {
         let def = make_def("1agent", "Has description", 10, AgentScope::Project);
         let skills = HashSet::new();
         let diags = validate_agent(&def, &skills);
-        assert!(diags.iter().any(|d| d.is_error() && d.message().contains("name")));
+        assert!(diags
+            .iter()
+            .any(|d| d.is_error() && d.message().contains("name")));
     }
 
     #[test]
@@ -295,7 +333,9 @@ mod tests {
         let def = make_def(&long_name, "Has description", 10, AgentScope::Project);
         let skills = HashSet::new();
         let diags = validate_agent(&def, &skills);
-        assert!(diags.iter().any(|d| d.is_error() && d.message().contains("64")));
+        assert!(diags
+            .iter()
+            .any(|d| d.is_error() && d.message().contains("64")));
     }
 
     #[test]
@@ -303,7 +343,9 @@ mod tests {
         let def = make_def("my-agent", "", 10, AgentScope::Project);
         let skills = HashSet::new();
         let diags = validate_agent(&def, &skills);
-        assert!(diags.iter().any(|d| d.is_error() && d.message().contains("description")));
+        assert!(diags
+            .iter()
+            .any(|d| d.is_error() && d.message().contains("description")));
     }
 
     #[test]
@@ -315,7 +357,10 @@ mod tests {
         let errors: Vec<_> = diags.iter().filter(|d| d.is_error()).collect();
         let warnings: Vec<_> = diags.iter().filter(|d| !d.is_error()).collect();
         assert!(errors.is_empty(), "long description must not be an error");
-        assert!(!warnings.is_empty(), "long description must produce a warning");
+        assert!(
+            !warnings.is_empty(),
+            "long description must produce a warning"
+        );
     }
 
     #[test]
@@ -323,7 +368,9 @@ mod tests {
         let def = make_def("my-agent", "Description", 0, AgentScope::Project);
         let skills = HashSet::new();
         let diags = validate_agent(&def, &skills);
-        assert!(diags.iter().any(|d| d.is_error() && d.message().contains("max_turns")));
+        assert!(diags
+            .iter()
+            .any(|d| d.is_error() && d.message().contains("max_turns")));
     }
 
     #[test]
@@ -331,7 +378,9 @@ mod tests {
         let def = make_def("my-agent", "Description", 101, AgentScope::Project);
         let skills = HashSet::new();
         let diags = validate_agent(&def, &skills);
-        assert!(diags.iter().any(|d| d.is_error() && d.message().contains("max_turns")));
+        assert!(diags
+            .iter()
+            .any(|d| d.is_error() && d.message().contains("max_turns")));
     }
 
     #[test]
@@ -348,7 +397,9 @@ mod tests {
         def.skills = vec!["nonexistent-skill".to_string()];
         let skills: HashSet<String> = HashSet::new();
         let diags = validate_agent(&def, &skills);
-        assert!(diags.iter().any(|d| !d.is_error() && d.message().contains("nonexistent-skill")));
+        assert!(diags
+            .iter()
+            .any(|d| !d.is_error() && d.message().contains("nonexistent-skill")));
     }
 
     #[test]
@@ -358,8 +409,14 @@ mod tests {
         let mut skills: HashSet<String> = HashSet::new();
         skills.insert("security-guidelines".to_string());
         let diags = validate_agent(&def, &skills);
-        let warn = diags.iter().find(|d| !d.is_error()).expect("should have warning");
-        assert!(warn.message().contains("security-guidelines"), "should suggest correct name");
+        let warn = diags
+            .iter()
+            .find(|d| !d.is_error())
+            .expect("should have warning");
+        assert!(
+            warn.message().contains("security-guidelines"),
+            "should suggest correct name"
+        );
     }
 
     // ── resolve_collisions ────────────────────────────────────────────────────

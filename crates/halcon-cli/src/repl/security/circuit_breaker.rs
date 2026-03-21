@@ -486,8 +486,11 @@ mod tests {
         assert_eq!(breaker.state(), BreakerState::Open);
         assert_eq!(breaker.consecutive_trips(), 1);
         let d1 = breaker.current_open_duration();
-        assert!(d1.as_millis() >= 4000 && d1.as_millis() <= 6000,
-            "expected ~5s ±20%, got {:?}", d1);
+        assert!(
+            d1.as_millis() >= 4000 && d1.as_millis() <= 6000,
+            "expected ~5s ±20%, got {:?}",
+            d1
+        );
 
         // Wait for generous cooldown, transition to HalfOpen, then fail probe.
         let t1 = now + Duration::from_secs(7);
@@ -498,8 +501,11 @@ mod tests {
         assert_eq!(breaker.consecutive_trips(), 2);
         // Second trip: open_duration = ~10s (5 * 2^1, ±20% jitter).
         let d2 = breaker.current_open_duration();
-        assert!(d2.as_millis() >= 8000 && d2.as_millis() <= 12000,
-            "expected ~10s ±20%, got {:?}", d2);
+        assert!(
+            d2.as_millis() >= 8000 && d2.as_millis() <= 12000,
+            "expected ~10s ±20%, got {:?}",
+            d2
+        );
 
         // Wait for generous cooldown, fail probe again.
         let t2 = t1 + Duration::from_secs(13);
@@ -508,8 +514,11 @@ mod tests {
         assert_eq!(breaker.consecutive_trips(), 3);
         // Third trip: ~20s (5 * 2^2, ±20% jitter).
         let d3 = breaker.current_open_duration();
-        assert!(d3.as_millis() >= 16000 && d3.as_millis() <= 24000,
-            "expected ~20s ±20%, got {:?}", d3);
+        assert!(
+            d3.as_millis() >= 16000 && d3.as_millis() <= 24000,
+            "expected ~20s ±20%, got {:?}",
+            d3
+        );
     }
 
     #[test]
@@ -541,8 +550,11 @@ mod tests {
         breaker.record_failure_at(t2);
         assert_eq!(breaker.consecutive_trips(), 1);
         let d = breaker.current_open_duration();
-        assert!(d.as_millis() >= 4000 && d.as_millis() <= 6000,
-            "expected ~5s ±20%, got {:?}", d);
+        assert!(
+            d.as_millis() >= 4000 && d.as_millis() <= 6000,
+            "expected ~5s ±20%, got {:?}",
+            d
+        );
     }
 
     #[test]
@@ -561,8 +573,11 @@ mod tests {
         assert_eq!(breaker.consecutive_trips(), 1);
         // 100 * 2^0 = 100 (±20% jitter: 80-120s)
         let d = breaker.current_open_duration();
-        assert!(d.as_millis() >= 80_000 && d.as_millis() <= 120_000,
-            "expected ~100s ±20%, got {:?}", d);
+        assert!(
+            d.as_millis() >= 80_000 && d.as_millis() <= 120_000,
+            "expected ~100s ±20%, got {:?}",
+            d
+        );
 
         // Simulate 5 more trips to hit cap (exponent capped at 5).
         for i in 1..=5 {
@@ -571,14 +586,22 @@ mod tests {
             let d = breaker.current_open_duration();
             let min_ms = (expected_base_s as f64 * 1000.0 * 0.8) as u128;
             let max_ms = (expected_base_s as f64 * 1000.0 * 1.2).min(300_000.0) as u128;
-            assert!(d.as_millis() >= min_ms && d.as_millis() <= max_ms,
+            assert!(
+                d.as_millis() >= min_ms && d.as_millis() <= max_ms,
                 "trip {} expected ~{}s ±20%, got {:?}",
-                breaker.consecutive_trips(), expected_base_s, d);
+                breaker.consecutive_trips(),
+                expected_base_s,
+                d
+            );
         }
         // At consecutive_trips=6: 100 * 2^5 = 3200, but capped at 300.
         // With jitter: 240-300s (capped at 300s)
         let d = breaker.current_open_duration();
-        assert!(d.as_millis() <= 300_000, "should be capped at 300s, got {:?}", d);
+        assert!(
+            d.as_millis() <= 300_000,
+            "should be capped at 300s, got {:?}",
+            d
+        );
     }
 
     #[test]

@@ -13,7 +13,6 @@
  *   chat   — { message: String, context?: {...} } — runs the agent loop
  *   cancel — acknowledges with done (graceful; does not kill in-flight work)
  */
-
 use std::io::{BufRead, Write};
 use std::sync::{Arc, Mutex};
 
@@ -79,7 +78,9 @@ impl RenderSink for JsonRpcSink {
 
     fn tool_output(&self, block: &ContentBlock, _duration_ms: u64) {
         match block {
-            ContentBlock::ToolResult { content, is_error, .. } => {
+            ContentBlock::ToolResult {
+                content, is_error, ..
+            } => {
                 self.emit(
                     "tool_result",
                     serde_json::json!({
@@ -123,11 +124,15 @@ impl RenderSink for JsonRpcSink {
         // Suppress informational lines (round separators, compaction notices).
     }
 
-    fn is_silent(&self) -> bool { false }
+    fn is_silent(&self) -> bool {
+        false
+    }
 
     fn stream_reset(&self) {}
 
-    fn stream_full_text(&self) -> String { String::new() }
+    fn stream_full_text(&self) -> String {
+        String::new()
+    }
 }
 
 // ── Top-level run function ─────────────────────────────────────────────────────
@@ -166,12 +171,19 @@ pub async fn run(
     super::provider_factory::ensure_cenzontle_models(&mut registry).await;
 
     let (provider_str, model_str) = super::provider_factory::precheck_providers_explicit(
-        &registry, provider, model, explicit_model,
+        &registry,
+        provider,
+        model,
+        explicit_model,
     )
     .await?;
 
     // Open database (non-fatal).
-    let db_path = config.storage.database_path.clone().unwrap_or_else(default_db_path);
+    let db_path = config
+        .storage
+        .database_path
+        .clone()
+        .unwrap_or_else(default_db_path);
     let db = match Database::open(&db_path) {
         Ok(db) => Some(Arc::new(db)),
         Err(e) => {
@@ -194,7 +206,7 @@ pub async fn run(
         registry,
         tool_registry,
         event_tx,
-        true,  // no_banner — suppress all decorative output
+        true, // no_banner — suppress all decorative output
         explicit_model,
     )?;
 

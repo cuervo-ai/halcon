@@ -118,7 +118,11 @@ fn render_entries(
     };
 
     if entries.is_empty() {
-        ui.label(RichText::new("(empty)").color(HalconTheme::TEXT_MUTED).size(10.0));
+        ui.label(
+            RichText::new("(empty)")
+                .color(HalconTheme::TEXT_MUTED)
+                .size(10.0),
+        );
         return;
     }
 
@@ -160,10 +164,7 @@ fn render_entries(
             // ── File row ──────────────────────────────────────────────────────
             let is_selected = state.files.selected.as_deref() == Some(entry.path.as_path());
             if ui
-                .selectable_label(
-                    is_selected,
-                    RichText::new(&entry.name).size(12.0),
-                )
+                .selectable_label(is_selected, RichText::new(&entry.name).size(12.0))
                 .clicked()
                 && !is_selected
             {

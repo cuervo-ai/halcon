@@ -91,7 +91,9 @@ fn resolve_access_token() -> Result<String> {
 
 /// Resolve the Cenzontle base URL.
 fn resolve_base_url() -> Option<String> {
-    std::env::var("CENZONTLE_BASE_URL").ok().filter(|s| !s.is_empty())
+    std::env::var("CENZONTLE_BASE_URL")
+        .ok()
+        .filter(|s| !s.is_empty())
 }
 
 /// Try to resolve the access token silently (for auto-init paths).
@@ -205,11 +207,23 @@ async fn run_agent(
                 streamed_content = true;
             }
             Ok(TaskEvent::ToolCall { name, input }) => {
-                eprintln!("\x1b[36m[tool: {} → {}]\x1b[0m", name, truncate(&input.to_string(), 80));
+                eprintln!(
+                    "\x1b[36m[tool: {} → {}]\x1b[0m",
+                    name,
+                    truncate(&input.to_string(), 80)
+                );
             }
-            Ok(TaskEvent::ToolResult { name, output, is_error }) => {
+            Ok(TaskEvent::ToolResult {
+                name,
+                output,
+                is_error,
+            }) => {
                 if is_error {
-                    eprintln!("\x1b[31m[{} error: {}]\x1b[0m", name, truncate(&output, 120));
+                    eprintln!(
+                        "\x1b[31m[{} error: {}]\x1b[0m",
+                        name,
+                        truncate(&output, 120)
+                    );
                 } else {
                     eprintln!("\x1b[32m[{}: {}]\x1b[0m", name, truncate(&output, 120));
                 }
@@ -217,7 +231,10 @@ async fn run_agent(
             Ok(TaskEvent::PlanStep { step, index, total }) => {
                 eprintln!("\x1b[33m[step {}/{}: {}]\x1b[0m", index + 1, total, step);
             }
-            Ok(TaskEvent::Completed { output, tokens_used }) => {
+            Ok(TaskEvent::Completed {
+                output,
+                tokens_used,
+            }) => {
                 // Print output if we haven't already streamed content chunks.
                 if !streamed_content && !output.is_empty() {
                     println!("{}", output);

@@ -163,11 +163,7 @@ pub fn mock_error_response(message: &str) -> Vec<String> {
 /// Build a single NDJSON line simulating an incoming `can_use_tool` control_request from the CLI.
 ///
 /// Used in `ManagedProcess` tests to verify the permission-response flow.
-pub fn mock_can_use_tool_request(
-    request_id: &str,
-    tool_name: &str,
-    tool_use_id: &str,
-) -> String {
+pub fn mock_can_use_tool_request(request_id: &str, tool_name: &str, tool_use_id: &str) -> String {
     serde_json::json!({
         "type": "control_request",
         "request_id": request_id,

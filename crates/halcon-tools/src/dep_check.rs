@@ -15,8 +15,8 @@ use tracing::instrument;
 
 const MAX_OUTPUT_BYTES: usize = 128 * 1024; // 128 KB cap on raw command output
 const DEFAULT_TIMEOUT: u64 = 120; // cargo audit baseline
-// npm/pnpm audit fetches vulnerability DB from registry — much slower than cargo audit.
-// Node projects need a higher timeout to avoid cascade failures in sub-agents.
+                                  // npm/pnpm audit fetches vulnerability DB from registry — much slower than cargo audit.
+                                  // Node projects need a higher timeout to avoid cascade failures in sub-agents.
 const NODE_TIMEOUT: u64 = 240;
 // Python pip-audit also fetches from PyPI — give extra time.
 const PYTHON_TIMEOUT: u64 = 180;
@@ -27,7 +27,11 @@ pub struct DepCheckTool {
 
 impl DepCheckTool {
     pub fn new(timeout_secs: u64) -> Self {
-        let timeout_secs = if timeout_secs == 0 { DEFAULT_TIMEOUT } else { timeout_secs };
+        let timeout_secs = if timeout_secs == 0 {
+            DEFAULT_TIMEOUT
+        } else {
+            timeout_secs
+        };
         Self { timeout_secs }
     }
 }
@@ -54,8 +58,12 @@ fn detect_ecosystem(working_dir: &str) -> Option<Ecosystem> {
     let requirements = std::path::Path::new(working_dir).join("requirements.txt");
     let setup_py = std::path::Path::new(working_dir).join("setup.py");
 
-    if cargo.exists() { return Some(Ecosystem::Rust); }
-    if pkg_json.exists() { return Some(Ecosystem::Node); }
+    if cargo.exists() {
+        return Some(Ecosystem::Rust);
+    }
+    if pkg_json.exists() {
+        return Some(Ecosystem::Node);
+    }
     if pyproject.exists() || requirements.exists() || setup_py.exists() {
         return Some(Ecosystem::Python);
     }
@@ -130,8 +138,15 @@ fn parse_cargo_audit(output: &str) -> Vec<Vuln> {
         } else if trimmed.starts_with("Severity:") {
             let severity = trimmed.trim_start_matches("Severity:").trim().to_string();
             if !pkg.is_empty() {
-                vulns.push(Vuln { package: pkg.clone(), severity, title: title.clone(), advisory: advisory.clone() });
-                pkg.clear(); title.clear(); advisory.clear();
+                vulns.push(Vuln {
+                    package: pkg.clone(),
+                    severity,
+                    title: title.clone(),
+                    advisory: advisory.clone(),
+                });
+                pkg.clear();
+                title.clear();
+                advisory.clear();
             }
         }
     }
@@ -174,7 +189,15 @@ async fn run_rust(working_dir: &str, timeout_secs: u64, check_vulns: bool) -> To
     } else {
         let vuln_text: String = vulns
             .iter()
-            .map(|v| format!("  • [{severity}] {pkg}: {title} ({id})", severity=v.severity, pkg=v.package, title=v.title, id=v.advisory))
+            .map(|v| {
+                format!(
+                    "  • [{severity}] {pkg}: {title} ({id})",
+                    severity = v.severity,
+                    pkg = v.package,
+                    title = v.title,
+                    id = v.advisory
+                )
+            })
             .collect::<Vec<_>>()
             .join("\n");
         format!("Rust dependencies (depth=1):\n{tree_summary}\n\n⚠ {vuln_count} vulnerability(ies):\n{vuln_text}")
@@ -184,16 +207,25 @@ async fn run_rust(working_dir: &str, timeout_secs: u64, check_vulns: bool) -> To
         tool_use_id,
         content,
         is_error: vuln_count > 0,
-        metadata: Some(json!({ "ecosystem": "rust", "vuln_count": vuln_count, "vulnerabilities": vuln_list })),
+        metadata: Some(
+            json!({ "ecosystem": "rust", "vuln_count": vuln_count, "vulnerabilities": vuln_list }),
+        ),
     }
 }
 
 // ─── Node.js ──────────────────────────────────────────────────────────────────
 
 fn detect_node_pm(working_dir: &str) -> &'static str {
-    if std::path::Path::new(working_dir).join("pnpm-lock.yaml").exists() { "pnpm" }
-    else if std::path::Path::new(working_dir).join("yarn.lock").exists() { "yarn" }
-    else { "npm" }
+    if std::path::Path::new(working_dir)
+        .join("pnpm-lock.yaml")
+        .exists()
+    {
+        "pnpm"
+    } else if std::path::Path::new(working_dir).join("yarn.lock").exists() {
+        "yarn"
+    } else {
+        "npm"
+    }
 }
 
 fn parse_npm_audit_summary(output: &str) -> (u32, u32, u32) {
@@ -206,7 +238,10 @@ fn parse_npm_audit_summary(output: &str) -> (u32, u32, u32) {
         if l.contains("critical") || l.contains("high") {
             // Extract numbers after "critical" and "high"
             for word in l.split_whitespace() {
-                if let Ok(n) = word.trim_matches(|c: char| !c.is_ascii_digit()).parse::<u32>() {
+                if let Ok(n) = word
+                    .trim_matches(|c: char| !c.is_ascii_digit())
+                    .parse::<u32>()
+                {
                     if n > 0 && (l.contains("critical") || l.contains("high")) {
                         high += n;
                         break;
@@ -216,15 +251,27 @@ fn parse_npm_audit_summary(output: &str) -> (u32, u32, u32) {
         }
         if l.contains("moderate") || l.contains("medium") {
             for word in l.split_whitespace() {
-                if let Ok(n) = word.trim_matches(|c: char| !c.is_ascii_digit()).parse::<u32>() {
-                    if n > 0 { medium += n; break; }
+                if let Ok(n) = word
+                    .trim_matches(|c: char| !c.is_ascii_digit())
+                    .parse::<u32>()
+                {
+                    if n > 0 {
+                        medium += n;
+                        break;
+                    }
                 }
             }
         }
         if l.contains("low") {
             for word in l.split_whitespace() {
-                if let Ok(n) = word.trim_matches(|c: char| !c.is_ascii_digit()).parse::<u32>() {
-                    if n > 0 { low += n; break; }
+                if let Ok(n) = word
+                    .trim_matches(|c: char| !c.is_ascii_digit())
+                    .parse::<u32>()
+                {
+                    if n > 0 {
+                        low += n;
+                        break;
+                    }
                 }
             }
         }
@@ -291,6 +338,7 @@ async fn run_node(working_dir: &str, timeout_secs: u64, check_vulns: bool) -> To
 // ─── Python ───────────────────────────────────────────────────────────────────
 
 #[derive(Debug)]
+#[allow(dead_code)]
 struct PipPackage {
     name: String,
     version: String,
@@ -304,7 +352,11 @@ fn parse_pip_list(output: &str) -> Vec<PipPackage> {
             let mut parts = line.split_whitespace();
             let name = parts.next()?.to_string();
             let version = parts.next().unwrap_or("?").to_string();
-            if name.is_empty() { None } else { Some(PipPackage { name, version }) }
+            if name.is_empty() {
+                None
+            } else {
+                Some(PipPackage { name, version })
+            }
         })
         .collect()
 }
@@ -312,20 +364,31 @@ fn parse_pip_list(output: &str) -> Vec<PipPackage> {
 async fn run_python(working_dir: &str, timeout_secs: u64) -> ToolOutput {
     let tool_use_id = "dep_check".to_string();
 
-    let list_result = run_command("pip", &["list", "--format=columns"], working_dir, timeout_secs).await;
+    let list_result = run_command(
+        "pip",
+        &["list", "--format=columns"],
+        working_dir,
+        timeout_secs,
+    )
+    .await;
 
     let (packages, content) = match list_result {
         Ok((stdout, _, _)) => {
             let pkgs = parse_pip_list(&stdout);
             let count = pkgs.len();
             let summary = truncate(&stdout, 8 * 1024);
-            (count, format!("Python packages ({count} installed):\n{summary}"))
+            (
+                count,
+                format!("Python packages ({count} installed):\n{summary}"),
+            )
         }
         Err(e) => (0, format!("pip list failed: {e}")),
     };
 
     // pip-audit for vuln check (optional, best-effort)
-    let vuln_note = match run_command("pip-audit", &["--format=json"], working_dir, timeout_secs).await {
+    let vuln_note = match run_command("pip-audit", &["--format=json"], working_dir, timeout_secs)
+        .await
+    {
         Ok((stdout, _, code)) => {
             if code == 0 {
                 "\n\nNo known vulnerabilities (pip-audit).".to_string()
@@ -355,7 +418,9 @@ async fn run_python(working_dir: &str, timeout_secs: u64) -> ToolOutput {
 
 #[async_trait]
 impl Tool for DepCheckTool {
-    fn name(&self) -> &str { "dep_check" }
+    fn name(&self) -> &str {
+        "dep_check"
+    }
 
     fn description(&self) -> &str {
         "Audit project dependencies: list packages and check for known vulnerabilities. \
@@ -365,9 +430,13 @@ impl Tool for DepCheckTool {
          Returns structured summary with vulnerability counts and severity breakdown."
     }
 
-    fn permission_level(&self) -> PermissionLevel { PermissionLevel::ReadOnly }
+    fn permission_level(&self) -> PermissionLevel {
+        PermissionLevel::ReadOnly
+    }
 
-    fn requires_confirmation(&self, _input: &ToolInput) -> bool { false }
+    fn requires_confirmation(&self, _input: &ToolInput) -> bool {
+        false
+    }
 
     #[tracing::instrument(skip(self), fields(tool = "dep_check"))]
     async fn execute(&self, input: ToolInput) -> Result<ToolOutput> {
@@ -405,8 +474,8 @@ impl Tool for DepCheckTool {
         // are significantly slower than cargo audit which uses a local advisory DB.
         // The ecosystem-specific timeout must stay below sub_agent_timeout_secs (200s).
         let effective_timeout = match &ecosystem {
-            Ecosystem::Rust => self.timeout_secs,               // 120s (local cargo-audit DB)
-            Ecosystem::Node => self.timeout_secs.max(NODE_TIMEOUT),    // 240s (npm/pnpm registry fetch)
+            Ecosystem::Rust => self.timeout_secs, // 120s (local cargo-audit DB)
+            Ecosystem::Node => self.timeout_secs.max(NODE_TIMEOUT), // 240s (npm/pnpm registry fetch)
             Ecosystem::Python => self.timeout_secs.max(PYTHON_TIMEOUT), // 180s (PyPI fetch)
         };
         tracing::debug!(
@@ -473,22 +542,35 @@ mod tests {
     #[test]
     fn detect_ecosystem_rust() {
         let dir = tempfile::tempdir().unwrap();
-        std::fs::write(dir.path().join("Cargo.toml"), "[package]\nname = \"x\"\nversion = \"0.1.0\"").unwrap();
-        assert_eq!(detect_ecosystem(dir.path().to_str().unwrap()), Some(Ecosystem::Rust));
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[package]\nname = \"x\"\nversion = \"0.1.0\"",
+        )
+        .unwrap();
+        assert_eq!(
+            detect_ecosystem(dir.path().to_str().unwrap()),
+            Some(Ecosystem::Rust)
+        );
     }
 
     #[test]
     fn detect_ecosystem_node() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("package.json"), "{}").unwrap();
-        assert_eq!(detect_ecosystem(dir.path().to_str().unwrap()), Some(Ecosystem::Node));
+        assert_eq!(
+            detect_ecosystem(dir.path().to_str().unwrap()),
+            Some(Ecosystem::Node)
+        );
     }
 
     #[test]
     fn detect_ecosystem_python_requirements() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("requirements.txt"), "requests==2.28.0").unwrap();
-        assert_eq!(detect_ecosystem(dir.path().to_str().unwrap()), Some(Ecosystem::Python));
+        assert_eq!(
+            detect_ecosystem(dir.path().to_str().unwrap()),
+            Some(Ecosystem::Python)
+        );
     }
 
     #[test]
@@ -519,7 +601,8 @@ mod tests {
 
     #[test]
     fn parse_pip_list_parses_table() {
-        let output = "Package    Version\n---------- -------\nrequests   2.28.0\nflask      2.3.1\n";
+        let output =
+            "Package    Version\n---------- -------\nrequests   2.28.0\nflask      2.3.1\n";
         let pkgs = parse_pip_list(output);
         assert_eq!(pkgs.len(), 2);
         assert_eq!(pkgs[0].name, "requests");

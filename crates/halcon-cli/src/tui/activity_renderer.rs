@@ -15,20 +15,22 @@
 //! - Accurate line counting for scroll/scrollbar
 //! - Removed TOP/BOTTOM scroll indicators (position shown in title)
 
-use std::collections::HashMap;
-use std::time::Instant;
 use ratatui::layout::Rect;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap};
+use ratatui::widgets::{
+    Block, Borders, Paragraph, Scrollbar, ScrollbarOrientation, ScrollbarState, Wrap,
+};
 use ratatui::Frame;
+use std::collections::HashMap;
+use std::time::Instant;
 
-use crate::render::theme;
-use crate::tui::state::AppState;
 use super::activity_model::ActivityModel;
 use super::activity_navigator::ActivityNavigator;
-use super::app::{ExpansionAnimation, shimmer_progress}; // Phase B1, B2
 use super::activity_types::ActivityLine;
+use super::app::{shimmer_progress, ExpansionAnimation}; // Phase B1, B2
+use crate::render::theme;
+use crate::tui::state::AppState;
 
 // ── Chip classifiers (module-level so count_rendered_lines can use them) ──────
 
@@ -47,48 +49,48 @@ fn classify_info_chip(text: &str) -> (Option<char>, &str) {
     // Named chip patterns (prefix → icon)
     const CHIPS: &[(&str, char)] = &[
         // Agent lifecycle / state
-        ("[state] ",             '→'),
-        ("[health] ",            '◉'),
-        ("[control] ",           '⊞'),
-        ("[planning] ",          '⊡'),
-        ("[evaluation] ",        '◈'),
-        ("[strategy] ",          '◉'),
-        ("[step] ",              '▸'),
-        ("[delegation] ",        '⇢'),
-        ("[replan] ",            '↺'),
-        ("[dry-run] ",           '⊘'),
+        ("[state] ", '→'),
+        ("[health] ", '◉'),
+        ("[control] ", '⊞'),
+        ("[planning] ", '⊡'),
+        ("[evaluation] ", '◈'),
+        ("[strategy] ", '◉'),
+        ("[step] ", '▸'),
+        ("[delegation] ", '⇢'),
+        ("[replan] ", '↺'),
+        ("[dry-run] ", '⊘'),
         // Tools / execution
-        ("[tool] ",              '⊟'),
-        ("[tool_call] ",         '⊟'),
+        ("[tool] ", '⊟'),
+        ("[tool_call] ", '⊟'),
         // Infrastructure
-        ("[guard] ",             '⊕'),
-        ("[compaction] ",        '⊙'),
-        ("[memory] ",            '◈'),
-        ("[reflecting] ",        '◎'),
-        ("[reflection] ",        '◎'),
-        ("[cache hit] ",         '≋'),
-        ("[cache miss] ",        '≋'),
-        ("[speculative hit] ",   '◇'),
-        ("[speculative miss] ",  '◇'),
-        ("[permission] ",        '⚐'),
+        ("[guard] ", '⊕'),
+        ("[compaction] ", '⊙'),
+        ("[memory] ", '◈'),
+        ("[reflecting] ", '◎'),
+        ("[reflection] ", '◎'),
+        ("[cache hit] ", '≋'),
+        ("[cache miss] ", '≋'),
+        ("[speculative hit] ", '◇'),
+        ("[speculative miss] ", '◇'),
+        ("[permission] ", '⚐'),
         // HICON subsystem
-        ("[hicon:correct] ",     '⬡'),
-        ("[hicon:φ] ",           'Φ'),
-        ("[hicon:budget] ",      '◈'),
-        ("[hicon:anomaly] ",     '⬡'),
-        ("[hicon:",              '⬡'),
+        ("[hicon:correct] ", '⬡'),
+        ("[hicon:φ] ", 'Φ'),
+        ("[hicon:budget] ", '◈'),
+        ("[hicon:anomaly] ", '⬡'),
+        ("[hicon:", '⬡'),
         // Higher-level
-        ("[reasoning] ",         '◉'),
-        ("[task] ",              '▣'),
-        ("[context] ",           '⊟'),
-        ("[round] ",             '○'),
+        ("[reasoning] ", '◉'),
+        ("[task] ", '▣'),
+        ("[context] ", '⊟'),
+        ("[round] ", '○'),
         // Planning V3 convergence signals
-        ("[convergence] ",       '⊙'),
+        ("[convergence] ", '⊙'),
         // Multi-agent orchestration
-        ("[orchestrator] ",      '⬡'),   // hexagonal cluster — orchestration
-        ("[sub-agent] ",         '◎'),   // concentric circles — sub-agent instance
+        ("[orchestrator] ", '⬡'), // hexagonal cluster — orchestration
+        ("[sub-agent] ", '◎'),    // concentric circles — sub-agent instance
         // Multimodal analysis
-        ("[media] ",             '◫'),   // film frame — multimodal image/audio analysis
+        ("[media] ", '◫'), // film frame — multimodal image/audio analysis
     ];
 
     for (prefix, chip) in CHIPS {
@@ -106,11 +108,11 @@ fn classify_info_chip(text: &str) -> (Option<char>, &str) {
 /// Returns `(chip_char, display_text)` where chip replaces the `⚠` prefix.
 fn classify_warning_chip(message: &str) -> (char, &str) {
     const CHIPS: &[(&str, char)] = &[
-        ("[retry] ",         '↻'),
-        ("[guard] ",         '⊕'),
+        ("[retry] ", '↻'),
+        ("[guard] ", '⊕'),
         ("[hicon:anomaly] ", '⬡'),
-        ("[hicon:budget] ",  '◈'),
-        ("Tool denied: ",    '✕'),
+        ("[hicon:budget] ", '◈'),
+        ("Tool denied: ", '✕'),
     ];
 
     for (prefix, chip) in CHIPS {
@@ -455,10 +457,7 @@ impl ActivityRenderer {
                         format!("  {ch}  "),
                         Style::default().fg(c_spinner).add_modifier(Modifier::BOLD),
                     ),
-                    Span::styled(
-                        state.spinner_label.clone(),
-                        Style::default().fg(c_spinner),
-                    ),
+                    Span::styled(state.spinner_label.clone(), Style::default().fg(c_spinner)),
                 ]));
             }
         }
@@ -474,12 +473,12 @@ impl ActivityRenderer {
         &mut self,
         line: &ActivityLine,
         line_idx: usize,
-        total_lines: usize,                                // P0.4: total lines for last-line detection
+        total_lines: usize, // P0.4: total lines for last-line detection
         is_selected: bool,
         is_expanded: bool,
-        is_hovered: bool,                                  // Phase B4: hover state
-        expansion_progress: f32,                           // Phase B1: [0.0, 1.0] animation progress
-        executing_tools: &HashMap<String, Instant>,        // Phase B2: tool_name → start_time
+        is_hovered: bool,                           // Phase B4: hover state
+        expansion_progress: f32,                    // Phase B1: [0.0, 1.0] animation progress
+        executing_tools: &HashMap<String, Instant>, // Phase B2: tool_name → start_time
         highlights: &crate::tui::highlight::HighlightManager, // Phase B3: search highlight pulses
         state: &AppState,
         c_success: Color,
@@ -500,7 +499,8 @@ impl ActivityRenderer {
         // Background priority: highlight > selection > hover > none
         let bg = if highlights.is_pulsing(&highlight_key) {
             // Phase B3: Fade-in/fade-out search highlight background
-            let pulse_color = highlights.current(&highlight_key, theme::active().palette.bg_highlight);
+            let pulse_color =
+                highlights.current(&highlight_key, theme::active().palette.bg_highlight);
             Some(pulse_color.to_ratatui_color())
         } else if is_selected {
             // Selection highlight background
@@ -525,14 +525,23 @@ impl ActivityRenderer {
                 };
                 lines.push(Line::from(vec![
                     Span::styled(" › ".to_string(), Style::default().fg(c_muted).bg(card_bg)),
-                    Span::styled(display_name, Style::default().fg(c_muted).add_modifier(Modifier::BOLD).bg(card_bg)),
+                    Span::styled(
+                        display_name,
+                        Style::default()
+                            .fg(c_muted)
+                            .add_modifier(Modifier::BOLD)
+                            .bg(card_bg),
+                    ),
                 ]));
 
                 // Message content
                 for content_line in text.lines() {
                     lines.push(Line::from(vec![
                         Span::styled("   ".to_string(), Style::default().bg(card_bg)),
-                        Span::styled(content_line.to_string(), Style::default().fg(c_text).bg(card_bg)),
+                        Span::styled(
+                            content_line.to_string(),
+                            Style::default().fg(c_text).bg(card_bg),
+                        ),
                     ]));
                 }
 
@@ -550,14 +559,30 @@ impl ActivityRenderer {
 
                 // HALCÓN avatar: ◈ (precision targeting reticle) + brand name
                 lines.push(Line::from(vec![
-                    Span::styled(" ◈ ".to_string(), Style::default().fg(c_accent).add_modifier(Modifier::BOLD).bg(card_bg.unwrap_or(Color::Reset))),
-                    Span::styled("halcon".to_string(), Style::default().fg(c_accent).add_modifier(Modifier::BOLD).bg(card_bg.unwrap_or(Color::Reset))),
+                    Span::styled(
+                        " ◈ ".to_string(),
+                        Style::default()
+                            .fg(c_accent)
+                            .add_modifier(Modifier::BOLD)
+                            .bg(card_bg.unwrap_or(Color::Reset)),
+                    ),
+                    Span::styled(
+                        "halcon".to_string(),
+                        Style::default()
+                            .fg(c_accent)
+                            .add_modifier(Modifier::BOLD)
+                            .bg(card_bg.unwrap_or(Color::Reset)),
+                    ),
                 ]));
 
                 // Message content with markdown rendering
                 for l in text.lines() {
-                    let parsed = super::activity_types::parse_md_spans_with_bg(l, c_warning, card_bg);
-                    let mut indented = vec![Span::styled("   ".to_string(), Style::default().bg(card_bg.unwrap_or(Color::Reset)))];
+                    let parsed =
+                        super::activity_types::parse_md_spans_with_bg(l, c_warning, card_bg);
+                    let mut indented = vec![Span::styled(
+                        "   ".to_string(),
+                        Style::default().bg(card_bg.unwrap_or(Color::Reset)),
+                    )];
                     indented.extend(parsed);
                     lines.push(Line::from(indented));
                 }
@@ -571,7 +596,10 @@ impl ActivityRenderer {
                 // Header
                 lines.push(Line::from(vec![
                     Span::styled("  ┌─ ", Style::default().fg(c_muted)),
-                    Span::styled(lang.clone(), Style::default().fg(c_accent).add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        lang.clone(),
+                        Style::default().fg(c_accent).add_modifier(Modifier::BOLD),
+                    ),
                     Span::styled(" ─", Style::default().fg(c_muted)),
                 ]));
 
@@ -608,7 +636,10 @@ impl ActivityRenderer {
                 }
 
                 // Footer
-                lines.push(Line::from(Span::styled("  └───", Style::default().fg(c_muted))));
+                lines.push(Line::from(Span::styled(
+                    "  └───",
+                    Style::default().fg(c_muted),
+                )));
             }
 
             // ── Info — hierarchical + chip-based rendering ───────────────────
@@ -659,10 +690,7 @@ impl ActivityRenderer {
                             "  ◈ ".to_string(),
                             Style::default().fg(c_planning).add_modifier(Modifier::BOLD),
                         ),
-                        Span::styled(
-                            rest.to_string(),
-                            Style::default().fg(c_muted),
-                        ),
+                        Span::styled(rest.to_string(), Style::default().fg(c_muted)),
                     ]));
 
                 // ── Standard chip rendering ───────────────────────────────────
@@ -678,15 +706,13 @@ impl ActivityRenderer {
                             // Suppress entirely (e.g. [model] — already in status bar)
                         }
                         Some('·') => {
-                            lines.push(Line::from(vec![
-                                Span::styled(
-                                    format!("  · {rest}"),
-                                    Style::default()
-                                        .fg(c_muted)
-                                        .add_modifier(Modifier::DIM)
-                                        .bg(bg.unwrap_or(Color::Reset)),
-                                ),
-                            ]));
+                            lines.push(Line::from(vec![Span::styled(
+                                format!("  · {rest}"),
+                                Style::default()
+                                    .fg(c_muted)
+                                    .add_modifier(Modifier::DIM)
+                                    .bg(bg.unwrap_or(Color::Reset)),
+                            )]));
                         }
                         Some(ch) => {
                             let chip_color = if is_convergence { c_accent } else { c_accent };
@@ -730,10 +756,7 @@ impl ActivityRenderer {
                 ];
 
                 if let Some(h) = hint {
-                    spans.push(Span::styled(
-                        format!("  {h}"),
-                        Style::default().fg(c_muted),
-                    ));
+                    spans.push(Span::styled(format!("  {h}"), Style::default().fg(c_muted)));
                 }
 
                 lines.push(Line::from(spans));
@@ -749,10 +772,7 @@ impl ActivityRenderer {
                     Span::styled(message.clone(), Style::default().fg(c_error)),
                 ];
                 if let Some(h) = hint {
-                    spans.push(Span::styled(
-                        format!("  {h}"),
-                        Style::default().fg(c_muted),
-                    ));
+                    spans.push(Span::styled(format!("  {h}"), Style::default().fg(c_muted)));
                 }
                 lines.push(Line::from(spans));
             }
@@ -764,15 +784,16 @@ impl ActivityRenderer {
                         "  ─ ".to_string(),
                         Style::default().fg(c_muted).add_modifier(Modifier::DIM),
                     ),
-                    Span::styled(
-                        format!("{n}"),
-                        Style::default().fg(c_muted),
-                    ),
+                    Span::styled(format!("{n}"), Style::default().fg(c_muted)),
                 ]));
             }
 
             // ── Plan overview — HALCÓN hierarchical tree ────────────────────
-            ActivityLine::PlanOverview { goal, steps, current_step } => {
+            ActivityLine::PlanOverview {
+                goal,
+                steps,
+                current_step,
+            } => {
                 use crate::tui::events::PlanStepDisplayStatus;
                 // momoto planning color: deep violet for plan structure
                 let c_planning = theme::active().palette.planning_ratatui();
@@ -801,16 +822,20 @@ impl ActivityRenderer {
                     // Steps with tree connectors: ├─ or └─ (last step)
                     for (i, step) in steps.iter().enumerate() {
                         let (icon, icon_color) = match step.status {
-                            PlanStepDisplayStatus::Succeeded  => ("✓", c_success),
-                            PlanStepDisplayStatus::Failed     => ("✗", c_error),
+                            PlanStepDisplayStatus::Succeeded => ("✓", c_success),
+                            PlanStepDisplayStatus::Failed => ("✗", c_error),
                             PlanStepDisplayStatus::InProgress => ("⚙", c_running),
-                            PlanStepDisplayStatus::Skipped    => ("─", c_muted),
-                            PlanStepDisplayStatus::Pending    => ("○", c_muted),
+                            PlanStepDisplayStatus::Skipped => ("─", c_muted),
+                            PlanStepDisplayStatus::Pending => ("○", c_muted),
                         };
 
-                        let is_current = i == *current_step
-                            && step.status == PlanStepDisplayStatus::InProgress;
-                        let connector = if i + 1 == n_steps { "  └─ " } else { "  ├─ " };
+                        let is_current =
+                            i == *current_step && step.status == PlanStepDisplayStatus::InProgress;
+                        let connector = if i + 1 == n_steps {
+                            "  └─ "
+                        } else {
+                            "  ├─ "
+                        };
                         let counter = format!("[{}/{}] ", i + 1, n_steps);
                         let tool_hint = step
                             .tool_name
@@ -821,10 +846,7 @@ impl ActivityRenderer {
 
                         // Active step: full brightness; done: dim; pending: muted
                         let (desc_style, meta_style) = if is_current {
-                            (
-                                Style::default().fg(c_running),
-                                Style::default().fg(c_muted),
-                            )
+                            (Style::default().fg(c_running), Style::default().fg(c_muted))
                         } else if matches!(step.status, PlanStepDisplayStatus::Succeeded) {
                             (
                                 Style::default().fg(c_muted).add_modifier(Modifier::DIM),
@@ -864,11 +886,11 @@ impl ActivityRenderer {
                     let (progress_icon, progress_color) = steps
                         .get(*current_step)
                         .map(|s| match s.status {
-                            PlanStepDisplayStatus::Succeeded  => ("✓", c_success),
-                            PlanStepDisplayStatus::Failed     => ("✗", c_error),
+                            PlanStepDisplayStatus::Succeeded => ("✓", c_success),
+                            PlanStepDisplayStatus::Failed => ("✗", c_error),
                             PlanStepDisplayStatus::InProgress => ("⚙", c_running),
-                            PlanStepDisplayStatus::Skipped    => ("─", c_muted),
-                            PlanStepDisplayStatus::Pending    => ("○", c_muted),
+                            PlanStepDisplayStatus::Skipped => ("─", c_muted),
+                            PlanStepDisplayStatus::Pending => ("○", c_muted),
                         })
                         .unwrap_or(("◈", c_muted));
 
@@ -890,13 +912,12 @@ impl ActivityRenderer {
                             goal_display,
                             Style::default().fg(c_text).add_modifier(Modifier::BOLD),
                         ),
-                        Span::styled(
-                            "  ·  ".to_string(),
-                            Style::default().fg(c_muted),
-                        ),
+                        Span::styled("  ·  ".to_string(), Style::default().fg(c_muted)),
                         Span::styled(
                             format!("{progress_icon} "),
-                            Style::default().fg(progress_color).add_modifier(Modifier::BOLD),
+                            Style::default()
+                                .fg(progress_color)
+                                .add_modifier(Modifier::BOLD),
                         ),
                         Span::styled(
                             format!("[{n}/{n_steps}]"),
@@ -930,7 +951,10 @@ impl ActivityRenderer {
                     Span::raw("  "),
                     Span::styled(
                         eye.to_string(),
-                        Style::default().fg(c_primary).bg(card_bg).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(c_primary)
+                            .bg(card_bg)
+                            .add_modifier(Modifier::BOLD),
                     ),
                     Span::raw("  "),
                     Span::styled(
@@ -945,7 +969,10 @@ impl ActivityRenderer {
             }
 
             // ── Thinking bubble (persistent CoT summary) ─────────────────────
-            ActivityLine::ThinkingBubble { char_count, preview } => {
+            ActivityLine::ThinkingBubble {
+                char_count,
+                preview,
+            } => {
                 let pal = &theme::active().palette;
                 let c_dim = pal.muted_ratatui();
                 let kchars = if *char_count >= 1000 {
@@ -954,7 +981,16 @@ impl ActivityRenderer {
                     char_count.to_string()
                 };
                 let snippet = if preview.len() > 80 {
-                    format!("{}...", &preview[..{ let mut _fcb = (80).min(preview.len()); while _fcb > 0 && !preview.is_char_boundary(_fcb) { _fcb -= 1; } _fcb }])
+                    format!(
+                        "{}...",
+                        &preview[..{
+                            let mut _fcb = (80).min(preview.len());
+                            while _fcb > 0 && !preview.is_char_boundary(_fcb) {
+                                _fcb -= 1;
+                            }
+                            _fcb
+                        }]
+                    )
                 } else {
                     preview.clone()
                 };
@@ -962,7 +998,9 @@ impl ActivityRenderer {
                     Span::raw("  "),
                     Span::styled(
                         format!("⟨ razonando · {kchars} chars ⟩  \"{snippet}\""),
-                        Style::default().fg(c_dim).add_modifier(Modifier::DIM | Modifier::ITALIC),
+                        Style::default()
+                            .fg(c_dim)
+                            .add_modifier(Modifier::DIM | Modifier::ITALIC),
                     ),
                 ]));
             }
@@ -972,10 +1010,10 @@ impl ActivityRenderer {
                 use super::activity_types::AgentPhase;
                 let pal = &theme::active().palette;
                 let (icon, phase_color) = match phase {
-                    AgentPhase::Planning    => ('⊡', pal.planning_ratatui()),
-                    AgentPhase::Reasoning   => ('◉', pal.reasoning_ratatui()),
-                    AgentPhase::Reflecting  => ('◎', pal.reasoning_ratatui()),
-                    AgentPhase::Searching   => ('≋', pal.accent_ratatui()),
+                    AgentPhase::Planning => ('⊡', pal.planning_ratatui()),
+                    AgentPhase::Reasoning => ('◉', pal.reasoning_ratatui()),
+                    AgentPhase::Reflecting => ('◎', pal.reasoning_ratatui()),
+                    AgentPhase::Searching => ('≋', pal.accent_ratatui()),
                     AgentPhase::Delegating { .. } => ('⬡', pal.delegated_ratatui()),
                 };
                 // Line 1: icon + label
@@ -983,7 +1021,9 @@ impl ActivityRenderer {
                     Span::raw("  "),
                     Span::styled(
                         icon.to_string(),
-                        Style::default().fg(phase_color).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(phase_color)
+                            .add_modifier(Modifier::BOLD),
                     ),
                     Span::raw("  "),
                     Span::styled(label.clone(), Style::default().fg(phase_color)),
@@ -1006,7 +1046,12 @@ impl ActivityRenderer {
             }
 
             // ── Tool execution ───────────────────────────────────────────────
-            ActivityLine::ToolExec { name, input_preview, result, .. } => {
+            ActivityLine::ToolExec {
+                name,
+                input_preview,
+                result,
+                ..
+            } => {
                 match result {
                     None => {
                         // HALCÓN tool executing — precision pulse bar
@@ -1024,16 +1069,17 @@ impl ActivityRenderer {
                             .map(|i| {
                                 let pos = (shimmer_pos * SHIMMER_WIDTH as f32) as usize;
                                 let distance = if i >= pos { i - pos } else { pos - i };
-                                if distance < WAVE_WIDTH { '▪' } else { '·' }
+                                if distance < WAVE_WIDTH {
+                                    '▪'
+                                } else {
+                                    '·'
+                                }
                             })
                             .collect();
 
                         // ⟳ tool_name  arg_preview
                         lines.push(Line::from(vec![
-                            Span::styled(
-                                "  ⟳ ".to_string(),
-                                Style::default().fg(c_running),
-                            ),
+                            Span::styled("  ⟳ ".to_string(), Style::default().fg(c_running)),
                             Span::styled(
                                 name.clone(),
                                 Style::default().fg(c_text).add_modifier(Modifier::BOLD),
@@ -1047,7 +1093,10 @@ impl ActivityRenderer {
                         // Precision pulse bar
                         lines.push(Line::from(vec![
                             Span::styled("    ".to_string(), Style::default()),
-                            Span::styled(shimmer_bar, Style::default().fg(c_running).add_modifier(Modifier::DIM)),
+                            Span::styled(
+                                shimmer_bar,
+                                Style::default().fg(c_running).add_modifier(Modifier::DIM),
+                            ),
                         ]));
                     }
 
@@ -1056,8 +1105,8 @@ impl ActivityRenderer {
                         // Icon and color are outcome-driven (3-state: success / error / denied).
                         let (icon_char, icon_color) = match res.outcome {
                             ToolOutcome::Success => ("✓", c_success),
-                            ToolOutcome::Error   => ("✗", c_error),
-                            ToolOutcome::Denied  => ("⊘", c_warning),
+                            ToolOutcome::Error => ("✗", c_error),
+                            ToolOutcome::Denied => ("⊘", c_warning),
                         };
                         // Duration: omit for denied tools (execution never started).
                         let duration_str = if res.duration_ms == 0 {
@@ -1095,23 +1144,19 @@ impl ActivityRenderer {
                             ),
                             Span::styled(
                                 format!("  {preview_short}"),
-                                Style::default()
-                                    .fg(c_muted)
-                                    .bg(bg.unwrap_or(Color::Reset)),
+                                Style::default().fg(c_muted).bg(bg.unwrap_or(Color::Reset)),
                             ),
                             Span::styled(
                                 format!("{duration_str}{expand_hint}"),
-                                Style::default()
-                                    .fg(c_muted)
-                                    .bg(bg.unwrap_or(Color::Reset)),
+                                Style::default().fg(c_muted).bg(bg.unwrap_or(Color::Reset)),
                             ),
                         ]));
 
                         // Content: expanded or collapsed preview
                         if !res.content.is_empty() {
                             let content_color = match res.outcome {
-                                ToolOutcome::Error  => c_error,
-                                _                   => c_muted,
+                                ToolOutcome::Error => c_error,
+                                _ => c_muted,
                             };
 
                             if is_expanded {
@@ -1127,7 +1172,10 @@ impl ActivityRenderer {
                                 for pline in all_lines.iter().take(lines_to_show) {
                                     lines.push(Line::from(vec![
                                         Span::styled("    ", Style::default()),
-                                        Span::styled(pline.to_string(), Style::default().fg(content_color)),
+                                        Span::styled(
+                                            pline.to_string(),
+                                            Style::default().fg(content_color),
+                                        ),
                                     ]));
                                 }
                             } else {
@@ -1136,7 +1184,10 @@ impl ActivityRenderer {
                                 for pline in preview.lines().take(3) {
                                     lines.push(Line::from(vec![
                                         Span::styled("    ", Style::default()),
-                                        Span::styled(pline.to_string(), Style::default().fg(content_color)),
+                                        Span::styled(
+                                            pline.to_string(),
+                                            Style::default().fg(content_color),
+                                        ),
                                     ]));
                                 }
 
@@ -1154,23 +1205,27 @@ impl ActivityRenderer {
             }
 
             // ── Orchestrator header ──────────────────────────────────────────
-            ActivityLine::OrchestratorHeader { task_count, wave_count } => {
+            ActivityLine::OrchestratorHeader {
+                task_count,
+                wave_count,
+            } => {
                 let pal = &theme::active().palette;
                 let c_delegated = pal.delegated_ratatui();
                 lines.push(Line::from(vec![
                     Span::styled(
                         "  ● ".to_string(),
-                        Style::default().fg(c_delegated).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(c_delegated)
+                            .add_modifier(Modifier::BOLD),
                     ),
                     Span::styled(
                         "Orchestrator".to_string(),
-                        Style::default().fg(c_delegated).add_modifier(Modifier::BOLD),
+                        Style::default()
+                            .fg(c_delegated)
+                            .add_modifier(Modifier::BOLD),
                     ),
                     Span::styled("  ·  ".to_string(), Style::default().fg(c_muted)),
-                    Span::styled(
-                        format!("{task_count} tasks"),
-                        Style::default().fg(c_text),
-                    ),
+                    Span::styled(format!("{task_count} tasks"), Style::default().fg(c_text)),
                     Span::styled("  ·  ".to_string(), Style::default().fg(c_muted)),
                     Span::styled(
                         format!("Wave 1/{wave_count}"),
@@ -1200,7 +1255,8 @@ impl ActivityRenderer {
 
                 let duration_str = match status {
                     SubAgentStatus::Running => String::new(),
-                    SubAgentStatus::Success { latency_ms } | SubAgentStatus::Failed { latency_ms } => {
+                    SubAgentStatus::Success { latency_ms }
+                    | SubAgentStatus::Failed { latency_ms } => {
                         format!("  ·  {:.1}s", *latency_ms as f64 / 1000.0)
                     }
                 };
@@ -1227,7 +1283,10 @@ impl ActivityRenderer {
                         Span::raw("  "),
                         Span::styled(desc_short, Style::default().fg(c_text)),
                         Span::styled(tools_pill, Style::default().fg(c_muted)),
-                        Span::styled(duration_str, Style::default().fg(c_muted).add_modifier(Modifier::DIM)),
+                        Span::styled(
+                            duration_str,
+                            Style::default().fg(c_muted).add_modifier(Modifier::DIM),
+                        ),
                     ]));
                 } else {
                     // ── Expanded detail ────────────────────────────────────────
@@ -1243,8 +1302,14 @@ impl ActivityRenderer {
                             Style::default().fg(c_muted).add_modifier(Modifier::DIM),
                         ),
                         Span::raw("  "),
-                        Span::styled(desc_short, Style::default().fg(c_text).add_modifier(Modifier::BOLD)),
-                        Span::styled(duration_str, Style::default().fg(c_muted).add_modifier(Modifier::DIM)),
+                        Span::styled(
+                            desc_short,
+                            Style::default().fg(c_text).add_modifier(Modifier::BOLD),
+                        ),
+                        Span::styled(
+                            duration_str,
+                            Style::default().fg(c_muted).add_modifier(Modifier::DIM),
+                        ),
                     ]));
 
                     // Tool rows
@@ -1307,11 +1372,15 @@ impl ActivityRenderer {
                 ActivityLine::Info(text) => {
                     // Suppressed [model] lines count as 0
                     let (chip, _) = classify_info_chip(text);
-                    if chip.is_none() { 0 } else { 1 }
+                    if chip.is_none() {
+                        0
+                    } else {
+                        1
+                    }
                 }
 
                 ActivityLine::Warning { .. } => 1,
-                ActivityLine::Error { .. }   => 1,
+                ActivityLine::Error { .. } => 1,
                 ActivityLine::RoundSeparator(_) => 1,
 
                 ActivityLine::PlanOverview { steps, .. } => {
@@ -1326,7 +1395,11 @@ impl ActivityRenderer {
                 ActivityLine::PhaseIndicator { .. } => 2, // icon+label line + shimmer bar
                 ActivityLine::ThinkingBubble { .. } => 1, // single dim bubble line
                 ActivityLine::OrchestratorHeader { .. } => 1, // single header line
-                ActivityLine::SubAgentTask { tools_used, summary, .. } => {
+                ActivityLine::SubAgentTask {
+                    tools_used,
+                    summary,
+                    ..
+                } => {
                     if state.show_sub_agent_detail {
                         let summary_line = if summary.is_empty() { 0 } else { 1 };
                         1 + tools_used.len() + summary_line // header + tool rows + summary
@@ -1343,7 +1416,11 @@ impl ActivityRenderer {
                                 res.content.lines().count()
                             } else {
                                 let preview_lines = res.content.lines().take(3).count();
-                                let extra = if res.content.lines().count() > 3 { 1 } else { 0 };
+                                let extra = if res.content.lines().count() > 3 {
+                                    1
+                                } else {
+                                    0
+                                };
                                 preview_lines + extra
                             };
                             1 + content_lines // header + content

@@ -47,9 +47,9 @@ impl CodeMetricsTool {
 
     fn is_code_file(path: &Path) -> bool {
         let code_exts = [
-            "rs", "py", "js", "ts", "tsx", "jsx", "go", "java", "c", "h", "cpp", "cc",
-            "cxx", "hpp", "sh", "bash", "rb", "php", "cs", "swift", "kt", "lua",
-            "scala", "clj", "ex", "exs", "zig", "nim",
+            "rs", "py", "js", "ts", "tsx", "jsx", "go", "java", "c", "h", "cpp", "cc", "cxx",
+            "hpp", "sh", "bash", "rb", "php", "cs", "swift", "kt", "lua", "scala", "clj", "ex",
+            "exs", "zig", "nim",
         ];
         path.extension()
             .and_then(|e| e.to_str())
@@ -60,8 +60,18 @@ impl CodeMetricsTool {
     fn skip_dir(name: &str) -> bool {
         matches!(
             name,
-            "target" | "node_modules" | ".git" | "dist" | "build" | "__pycache__"
-                | ".cache" | "vendor" | ".gradle" | "out" | "bin" | "obj"
+            "target"
+                | "node_modules"
+                | ".git"
+                | "dist"
+                | "build"
+                | "__pycache__"
+                | ".cache"
+                | "vendor"
+                | ".gradle"
+                | "out"
+                | "bin"
+                | "obj"
         )
     }
 
@@ -93,18 +103,24 @@ impl CodeMetricsTool {
 
             // Single-line detection
             let is_comment = match lang {
-                "rust" | "go" | "java" | "javascript" | "typescript" | "c" | "cpp" | "csharp" | "swift" | "kotlin" => {
+                "rust" | "go" | "java" | "javascript" | "typescript" | "c" | "cpp" | "csharp"
+                | "swift" | "kotlin" => {
                     if trimmed.starts_with("//") || trimmed.starts_with("///") {
                         true
                     } else if trimmed.starts_with("/*") {
-                        in_block_comment = !trimmed.contains("*/") || trimmed.ends_with("*/") && trimmed.len() > 2;
+                        in_block_comment =
+                            !trimmed.contains("*/") || trimmed.ends_with("*/") && trimmed.len() > 2;
                         // Count as comment if it starts with /*
                         true
                     } else {
                         false
                     }
                 }
-                "python" => trimmed.starts_with('#') || trimmed.starts_with("\"\"\"") || trimmed.starts_with("'''"),
+                "python" => {
+                    trimmed.starts_with('#')
+                        || trimmed.starts_with("\"\"\"")
+                        || trimmed.starts_with("'''")
+                }
                 "ruby" => trimmed.starts_with('#'),
                 "shell" => trimmed.starts_with('#'),
                 _ => false,
@@ -117,19 +133,36 @@ impl CodeMetricsTool {
 
             // Function detection (approximate)
             let is_fn = match lang {
-                "rust" => trimmed.starts_with("fn ") || trimmed.starts_with("pub fn ") || trimmed.starts_with("async fn ") || trimmed.starts_with("pub async fn "),
+                "rust" => {
+                    trimmed.starts_with("fn ")
+                        || trimmed.starts_with("pub fn ")
+                        || trimmed.starts_with("async fn ")
+                        || trimmed.starts_with("pub async fn ")
+                }
                 "python" => trimmed.starts_with("def ") || trimmed.starts_with("async def "),
                 "javascript" | "typescript" => {
-                    trimmed.starts_with("function ") || trimmed.contains("=> {") || trimmed.starts_with("async function ")
+                    trimmed.starts_with("function ")
+                        || trimmed.contains("=> {")
+                        || trimmed.starts_with("async function ")
                 }
                 "go" => trimmed.starts_with("func "),
                 "java" | "csharp" | "kotlin" => {
-                    (trimmed.contains("void ") || trimmed.contains("int ") || trimmed.contains("String ") || trimmed.contains("bool "))
+                    (trimmed.contains("void ")
+                        || trimmed.contains("int ")
+                        || trimmed.contains("String ")
+                        || trimmed.contains("bool "))
                         && trimmed.contains('(')
                         && trimmed.contains(')')
                         && !trimmed.ends_with(';')
                 }
-                "c" | "cpp" => trimmed.contains('(') && trimmed.contains(')') && !trimmed.ends_with(';') && !trimmed.starts_with("if") && !trimmed.starts_with("while") && !trimmed.starts_with("for"),
+                "c" | "cpp" => {
+                    trimmed.contains('(')
+                        && trimmed.contains(')')
+                        && !trimmed.ends_with(';')
+                        && !trimmed.starts_with("if")
+                        && !trimmed.starts_with("while")
+                        && !trimmed.starts_with("for")
+                }
                 _ => false,
             };
             if is_fn {
@@ -137,7 +170,9 @@ impl CodeMetricsTool {
             }
 
             // Complexity: count decision points
-            let keywords = ["if ", "else if", "elif ", "while ", "for ", "match ", "case ", "&&", "||", "? "];
+            let keywords = [
+                "if ", "else if", "elif ", "while ", "for ", "match ", "case ", "&&", "||", "? ",
+            ];
             for kw in &keywords {
                 if trimmed.contains(kw) {
                     complexity += trimmed.matches(kw).count() as u32;
@@ -203,27 +238,54 @@ impl CodeMetricsTool {
             total_files,
             agg.total_lines,
             agg.code_lines,
-            if agg.total_lines > 0 { agg.code_lines as f64 / agg.total_lines as f64 * 100.0 } else { 0.0 },
+            if agg.total_lines > 0 {
+                agg.code_lines as f64 / agg.total_lines as f64 * 100.0
+            } else {
+                0.0
+            },
             agg.comment_lines,
-            if agg.total_lines > 0 { agg.comment_lines as f64 / agg.total_lines as f64 * 100.0 } else { 0.0 },
+            if agg.total_lines > 0 {
+                agg.comment_lines as f64 / agg.total_lines as f64 * 100.0
+            } else {
+                0.0
+            },
             agg.blank_lines,
-            if agg.total_lines > 0 { agg.blank_lines as f64 / agg.total_lines as f64 * 100.0 } else { 0.0 },
+            if agg.total_lines > 0 {
+                agg.blank_lines as f64 / agg.total_lines as f64 * 100.0
+            } else {
+                0.0
+            },
             agg.functions,
-            if total_files > 0 { agg.total_complexity as f64 / total_files as f64 } else { 0.0 },
+            if total_files > 0 {
+                agg.total_complexity as f64 / total_files as f64
+            } else {
+                0.0
+            },
         ));
 
         if !per_ext.is_empty() {
             out.push_str("## By Language\n\n");
-            out.push_str(&format!("{:<15} {:>6} {:>6} {:>7} {:>5}\n", "Language", "LOC", "Fns", "Comment%", "CC"));
-            out.push_str(&format!("{:-<15} {:->6} {:->6} {:->7} {:->5}\n", "", "", "", "", ""));
-            let mut langs: Vec<(&str, &FileMetrics)> = per_ext.iter().map(|(k, v)| (*k, v)).collect();
+            out.push_str(&format!(
+                "{:<15} {:>6} {:>6} {:>7} {:>5}\n",
+                "Language", "LOC", "Fns", "Comment%", "CC"
+            ));
+            out.push_str(&format!(
+                "{:-<15} {:->6} {:->6} {:->7} {:->5}\n",
+                "", "", "", "", ""
+            ));
+            let mut langs: Vec<(&str, &FileMetrics)> =
+                per_ext.iter().map(|(k, v)| (*k, v)).collect();
             langs.sort_by(|a, b| b.1.code_lines.cmp(&a.1.code_lines));
             for (lang, m) in &langs {
                 let comment_pct = if m.total_lines > 0 {
                     m.comment_lines as f64 / m.total_lines as f64 * 100.0
-                } else { 0.0 };
-                out.push_str(&format!("{:<15} {:>6} {:>6} {:>6.0}%  {:>4}\n",
-                    lang, m.code_lines, m.functions, comment_pct, m.cyclomatic_complexity));
+                } else {
+                    0.0
+                };
+                out.push_str(&format!(
+                    "{:<15} {:>6} {:>6} {:>6.0}%  {:>4}\n",
+                    lang, m.code_lines, m.functions, comment_pct, m.cyclomatic_complexity
+                ));
             }
         }
         out
@@ -240,6 +302,7 @@ struct FileMetrics {
     cyclomatic_complexity: u32,
 }
 
+#[derive(Default)]
 struct AggMetrics {
     total_lines: u32,
     blank_lines: u32,
@@ -247,12 +310,6 @@ struct AggMetrics {
     code_lines: u32,
     functions: u32,
     total_complexity: u32,
-}
-
-impl Default for AggMetrics {
-    fn default() -> Self {
-        Self { total_lines: 0, blank_lines: 0, comment_lines: 0, code_lines: 0, functions: 0, total_complexity: 0 }
-    }
 }
 
 impl Default for CodeMetricsTool {
@@ -303,7 +360,10 @@ impl Tool for CodeMetricsTool {
         PermissionLevel::ReadOnly
     }
 
-    async fn execute(&self, input: ToolInput) -> Result<ToolOutput, halcon_core::error::HalconError> {
+    async fn execute(
+        &self,
+        input: ToolInput,
+    ) -> Result<ToolOutput, halcon_core::error::HalconError> {
         let args = &input.arguments;
         let target = args["path"].as_str().unwrap_or(&input.working_directory);
         let max_files = args["max_files"].as_u64().unwrap_or(500).clamp(1, 2000) as usize;
@@ -321,7 +381,10 @@ impl Tool for CodeMetricsTool {
 
         // Filter by language if requested
         let candidates: Vec<_> = if let Some(ref lf) = lang_filter {
-            candidates.into_iter().filter(|(_, l)| *l == lf.as_str()).collect()
+            candidates
+                .into_iter()
+                .filter(|(_, l)| *l == lf.as_str())
+                .collect()
         } else {
             candidates
         };
@@ -422,9 +485,18 @@ mod tests {
 
     #[test]
     fn detect_language_rust() {
-        assert_eq!(CodeMetricsTool::detect_language(Path::new("main.rs")), "rust");
-        assert_eq!(CodeMetricsTool::detect_language(Path::new("script.py")), "python");
-        assert_eq!(CodeMetricsTool::detect_language(Path::new("app.ts")), "typescript");
+        assert_eq!(
+            CodeMetricsTool::detect_language(Path::new("main.rs")),
+            "rust"
+        );
+        assert_eq!(
+            CodeMetricsTool::detect_language(Path::new("script.py")),
+            "python"
+        );
+        assert_eq!(
+            CodeMetricsTool::detect_language(Path::new("app.ts")),
+            "typescript"
+        );
     }
 
     #[test]
@@ -440,7 +512,11 @@ fn hello() {
 fn world() {}
 "#;
         let m = CodeMetricsTool::analyze_file_content(code, "rust");
-        assert!(m.functions >= 2, "expected >=2 functions, got {}", m.functions);
+        assert!(
+            m.functions >= 2,
+            "expected >=2 functions, got {}",
+            m.functions
+        );
         assert!(m.comment_lines >= 1);
         assert!(m.blank_lines >= 1);
         assert!(m.code_lines >= 3);
@@ -488,10 +564,25 @@ fn world() {}
     #[test]
     fn format_report_basic() {
         let agg = AggMetrics {
-            total_lines: 100, blank_lines: 10, comment_lines: 20, code_lines: 70, functions: 5, total_complexity: 30
+            total_lines: 100,
+            blank_lines: 10,
+            comment_lines: 20,
+            code_lines: 70,
+            functions: 5,
+            total_complexity: 30,
         };
         let mut per_ext = HashMap::new();
-        per_ext.insert("rust", FileMetrics { total_lines: 100, blank_lines: 10, comment_lines: 20, code_lines: 70, functions: 5, cyclomatic_complexity: 30 });
+        per_ext.insert(
+            "rust",
+            FileMetrics {
+                total_lines: 100,
+                blank_lines: 10,
+                comment_lines: 20,
+                code_lines: 70,
+                functions: 5,
+                cyclomatic_complexity: 30,
+            },
+        );
         let r = CodeMetricsTool::format_report(&agg, &per_ext, 3);
         assert!(r.contains("Code Metrics"));
         assert!(r.contains("70"));
@@ -501,11 +592,15 @@ fn world() {}
     #[tokio::test]
     async fn execute_current_dir() {
         let tool = CodeMetricsTool::new();
-        let out = tool.execute(ToolInput {
-            tool_use_id: "t1".into(),
-            arguments: serde_json::json!({ "max_files": 10 }),
-            working_directory: "/Users/oscarvalois/Documents/Github/cuervo-cli/crates/halcon-tools/src".into(),
-        }).await.unwrap();
+        let out = tool
+            .execute(ToolInput {
+                tool_use_id: "t1".into(),
+                arguments: serde_json::json!({ "max_files": 10 }),
+                working_directory:
+                    "/Users/oscarvalois/Documents/Github/cuervo-cli/crates/halcon-tools/src".into(),
+            })
+            .await
+            .unwrap();
         assert!(!out.is_error, "error: {}", out.content);
         assert!(out.content.contains("Code Metrics") || out.content.contains("code"));
     }
@@ -513,11 +608,15 @@ fn world() {}
     #[tokio::test]
     async fn execute_json_format() {
         let tool = CodeMetricsTool::new();
-        let out = tool.execute(ToolInput {
-            tool_use_id: "t1".into(),
-            arguments: serde_json::json!({ "format": "json", "max_files": 5 }),
-            working_directory: "/Users/oscarvalois/Documents/Github/cuervo-cli/crates/halcon-tools/src".into(),
-        }).await.unwrap();
+        let out = tool
+            .execute(ToolInput {
+                tool_use_id: "t1".into(),
+                arguments: serde_json::json!({ "format": "json", "max_files": 5 }),
+                working_directory:
+                    "/Users/oscarvalois/Documents/Github/cuervo-cli/crates/halcon-tools/src".into(),
+            })
+            .await
+            .unwrap();
         assert!(!out.is_error);
         let v: Value = serde_json::from_str(&out.content).expect("should be valid JSON");
         assert!(v["files"].as_u64().unwrap_or(0) > 0);

@@ -24,8 +24,8 @@ use super::accumulator::CompletedToolUse;
 use super::agent::{run_agent_loop, AgentContext, StopCondition};
 use super::compaction::ContextCompactor;
 use super::executor::{self, is_deterministic_error, plan_execution, ToolExecutionConfig};
-use super::security::permissions::PermissionChecker;
 use super::resilience::ResilienceManager;
+use super::security::permissions::PermissionChecker;
 use crate::render::sink::{RenderSink, SilentSink};
 use halcon_core::types::Phase14Context;
 

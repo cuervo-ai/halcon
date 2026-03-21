@@ -13,7 +13,9 @@
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
-use crate::goal::{ConfidenceScore, Evidence, GoalSpec, GoalVerificationEngine, VerificationResult};
+use crate::goal::{
+    ConfidenceScore, Evidence, GoalSpec, GoalVerificationEngine, VerificationResult,
+};
 
 // ─── VerifierConfig ───────────────────────────────────────────────────────────
 
@@ -102,7 +104,11 @@ impl StepVerifier {
     /// [`VerifierDecision`] indicating whether to exit or continue.
     pub fn verify(&mut self, evidence: &Evidence) -> VerifierDecision {
         let evidence_count = evidence.tool_outputs.len()
-            + if evidence.assistant_text.is_empty() { 0 } else { 1 }
+            + if evidence.assistant_text.is_empty() {
+                0
+            } else {
+                1
+            }
             + evidence.tools_called.len();
 
         // Skip evaluation if we don't have enough evidence yet.
@@ -116,7 +122,9 @@ impl StepVerifier {
         }
 
         let score: ConfidenceScore = self.engine.evaluate(evidence);
-        let threshold = self.config.override_threshold
+        let threshold = self
+            .config
+            .override_threshold
             .unwrap_or(self.engine.spec().completion_threshold);
 
         let results = self.engine.last_results().to_vec();
@@ -207,7 +215,11 @@ mod tests {
         let mut verifier = StepVerifier::new(goal, VerifierConfig::default());
         let ev = make_evidence("The operation completed with SUCCESS.");
         let decision = verifier.verify(&ev);
-        assert!(decision.is_achieved(), "expected Achieved, got {:?}", decision);
+        assert!(
+            decision.is_achieved(),
+            "expected Achieved, got {:?}",
+            decision
+        );
     }
 
     #[test]
@@ -223,19 +235,28 @@ mod tests {
     #[test]
     fn insufficient_evidence_skips() {
         let goal = make_goal(&["x"], 0.5);
-        let config = VerifierConfig { min_evidence_items: 10, ..Default::default() };
+        let config = VerifierConfig {
+            min_evidence_items: 10,
+            ..Default::default()
+        };
         let mut verifier = StepVerifier::new(goal, config);
         // Evidence below min threshold
         let mut ev = Evidence::default();
         ev.record_tool_success("grep", "x found");
         let decision = verifier.verify(&ev);
-        assert!(matches!(decision, VerifierDecision::InsufficientEvidence { .. }));
+        assert!(matches!(
+            decision,
+            VerifierDecision::InsufficientEvidence { .. }
+        ));
     }
 
     #[test]
     fn override_threshold_used() {
         let goal = make_goal(&["SUCCESS"], 0.99); // very high threshold
-        let config = VerifierConfig { override_threshold: Some(0.1), ..Default::default() };
+        let config = VerifierConfig {
+            override_threshold: Some(0.1),
+            ..Default::default()
+        };
         let mut verifier = StepVerifier::new(goal, config);
         let ev = make_evidence("SUCCESS found");
         let decision = verifier.verify(&ev);
@@ -248,16 +269,14 @@ mod tests {
         let goal = GoalSpec {
             id: Uuid::new_v4(),
             intent: "multi-criterion".into(),
-            criteria: vec![
-                VerifiableCriterion {
-                    description: "must find secrets".into(),
-                    weight: 1.0,
-                    kind: CriterionKind::KeywordPresence {
-                        keywords: vec!["SECRET".into()],
-                    },
-                    threshold: 0.8,
+            criteria: vec![VerifiableCriterion {
+                description: "must find secrets".into(),
+                weight: 1.0,
+                kind: CriterionKind::KeywordPresence {
+                    keywords: vec!["SECRET".into()],
                 },
-            ],
+                threshold: 0.8,
+            }],
             completion_threshold: 0.9,
             max_rounds: 10,
             latency_sensitive: false,
@@ -266,7 +285,10 @@ mod tests {
         let ev = make_evidence("nothing here");
         let decision = verifier.verify(&ev);
         if let VerifierDecision::Continue { gaps, .. } = &decision {
-            assert!(!gaps.is_empty(), "gaps should be reported when criteria not met");
+            assert!(
+                !gaps.is_empty(),
+                "gaps should be reported when criteria not met"
+            );
         } else {
             panic!("expected Continue");
         }

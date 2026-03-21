@@ -47,14 +47,13 @@ pub mod risk_assessor;
 pub mod routing_adaptor;
 pub mod sla_router;
 
-pub use complexity_estimator::{ComplexityEstimate, ComplexityLevel};
 pub use convergence_policy::{ConvergencePolicy, ConvergencePolicyFactory};
 pub use decision_trace::DecisionTrace;
-pub use domain_detector::{DomainDetection, TechnicalDomain};
-pub use intent_pipeline::{IntentPipeline, MaxRoundsSource, ResolvedIntent, RoutingModeSource};
-pub use policy_store::{DecisionPolicy, PolicyStore, SlaParams};
-pub use risk_assessor::{ExecutionRisk, RiskAssessment};
-pub use routing_adaptor::{RoutingAdaptor, RoutingEscalation};
+pub use domain_detector::TechnicalDomain;
+pub use intent_pipeline::IntentPipeline;
+pub use policy_store::PolicyStore;
+pub use risk_assessor::ExecutionRisk;
+pub use routing_adaptor::RoutingAdaptor;
 pub use sla_router::{RoutingDecision, RoutingMode};
 
 use super::decision_layer::{OrchestrationDecision, TaskComplexity};
@@ -136,8 +135,7 @@ impl BoundaryDecisionEngine {
         let complexity = complexity_est.level;
 
         // ── Stage 3: Risk assessment ──────────────────────────────────────
-        let risk_assessment =
-            risk_assessor::RiskAssessor::assess(q_trimmed, domain, complexity);
+        let risk_assessment = risk_assessor::RiskAssessor::assess(q_trimmed, domain, complexity);
         let risk = risk_assessment.risk;
 
         // ── Stage 4: SLA routing ──────────────────────────────────────────
@@ -318,10 +316,7 @@ mod tests {
 
     #[test]
     fn to_orchestration_decision_preserves_rounds() {
-        let bd = BoundaryDecisionEngine::evaluate(
-            "security audit vulnerability scan",
-            10,
-        );
+        let bd = BoundaryDecisionEngine::evaluate("security audit vulnerability scan", 10);
         let od = bd.to_orchestration_decision();
         assert_eq!(od.recommended_max_rounds, bd.recommended_max_rounds);
         assert_eq!(od.use_orchestration, bd.use_orchestration);
@@ -346,10 +341,7 @@ mod tests {
 
     #[test]
     fn convergence_policy_respects_min_rounds() {
-        let bd = BoundaryDecisionEngine::evaluate(
-            "security audit owasp vulnerability",
-            10,
-        );
+        let bd = BoundaryDecisionEngine::evaluate("security audit owasp vulnerability", 10);
         let policy = &bd.convergence_policy;
         // Round 2 is below min (4) → nothing allowed.
         assert!(!policy.allows_evidence_threshold(2));
@@ -360,10 +352,8 @@ mod tests {
 
     #[test]
     fn trace_populated_correctly() {
-        let bd = BoundaryDecisionEngine::evaluate(
-            "review the architecture of the payment system",
-            10,
-        );
+        let bd =
+            BoundaryDecisionEngine::evaluate("review the architecture of the payment system", 10);
         assert!(!bd.trace.query_preview.is_empty());
         assert!(!bd.trace.routing_rationale.is_empty());
         assert!(bd.trace.domain_confidence > 0.0);

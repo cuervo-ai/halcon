@@ -37,9 +37,8 @@ static BLACKLIST: LazyLock<Vec<DangerousPattern>> = LazyLock::new(|| {
         .iter()
         .map(|(name, pattern, reason)| DangerousPattern {
             name,
-            pattern: Regex::new(pattern).unwrap_or_else(|e| {
-                panic!("Invalid G7 blacklist pattern '{}': {}", pattern, e)
-            }),
+            pattern: Regex::new(pattern)
+                .unwrap_or_else(|e| panic!("Invalid G7 blacklist pattern '{}': {}", pattern, e)),
             reason,
         })
         .collect()
@@ -246,7 +245,10 @@ mod tests {
     fn blacklist_has_all_patterns() {
         // Verify all 12 patterns from halcon_core::security::DANGEROUS_COMMAND_PATTERNS are loaded
         assert_eq!(BLACKLIST.len(), 12);
-        assert_eq!(BLACKLIST.len(), halcon_core::security::DANGEROUS_COMMAND_PATTERNS.len());
+        assert_eq!(
+            BLACKLIST.len(),
+            halcon_core::security::DANGEROUS_COMMAND_PATTERNS.len()
+        );
     }
 
     #[test]
@@ -260,7 +262,10 @@ mod tests {
     #[test]
     fn centralized_source_matches_compiled_blacklist() {
         // PASO 4: verify blacklist names match the centralized source exactly.
-        for (i, (name, _, _)) in halcon_core::security::DANGEROUS_COMMAND_PATTERNS.iter().enumerate() {
+        for (i, (name, _, _)) in halcon_core::security::DANGEROUS_COMMAND_PATTERNS
+            .iter()
+            .enumerate()
+        {
             assert_eq!(
                 BLACKLIST[i].name, *name,
                 "Pattern {i} name mismatch between centralized source and compiled blacklist"

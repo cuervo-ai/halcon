@@ -64,8 +64,7 @@ impl ContextMetrics {
 
     /// Record source invocations for an assembly round.
     pub fn record_source_invocations(&self, count: u64) {
-        self.source_invocations
-            .fetch_add(count, Ordering::Relaxed);
+        self.source_invocations.fetch_add(count, Ordering::Relaxed);
     }
 
     /// Take a point-in-time snapshot of all counters.

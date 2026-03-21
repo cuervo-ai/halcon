@@ -50,9 +50,7 @@ fn main() -> eframe::Result<()> {
 
             // Start background connection worker.
             rt.spawn(workers::connection::run_connection_worker(
-                cmd_rx,
-                msg_tx,
-                repaint,
+                cmd_rx, msg_tx, repaint,
             ));
 
             // Start periodic poller.

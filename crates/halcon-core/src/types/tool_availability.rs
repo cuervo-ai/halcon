@@ -70,7 +70,10 @@ mod tests {
         let ctx = ToolAvailabilityContext::suppressed("compaction_timeout", 0.85);
         assert!(!ctx.tools_available);
         assert!(!ctx.has_tool("bash"));
-        assert_eq!(ctx.suppression_reason.as_deref(), Some("compaction_timeout"));
+        assert_eq!(
+            ctx.suppression_reason.as_deref(),
+            Some("compaction_timeout")
+        );
     }
 
     #[test]

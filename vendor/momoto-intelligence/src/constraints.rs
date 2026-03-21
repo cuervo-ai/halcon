@@ -13,7 +13,6 @@
 // Convergence: penalty < threshold OR max_iterations reached.
 // =============================================================================
 
-use momoto_core::color::Color;
 use momoto_core::luminance::relative_luminance_srgb;
 use momoto_core::space::oklch::OKLCH;
 

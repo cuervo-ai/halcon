@@ -67,7 +67,11 @@ impl PerfAnalyzeTool {
             Ok(Ok(out)) => {
                 let stdout = String::from_utf8_lossy(&out.stdout).to_string();
                 let stderr = String::from_utf8_lossy(&out.stderr).to_string();
-                if stdout.is_empty() { stderr } else { stdout }
+                if stdout.is_empty() {
+                    stderr
+                } else {
+                    stdout
+                }
             }
             Ok(Err(e)) => format!("hyperfine error: {e}"),
             Err(_) => format!("Benchmark timed out after {timeout_secs}s"),
@@ -138,7 +142,12 @@ impl PerfAnalyzeTool {
         }
     }
 
-    async fn run_cargo_bench(package: Option<&str>, filter: Option<&str>, dir: &str, timeout_secs: u64) -> String {
+    async fn run_cargo_bench(
+        package: Option<&str>,
+        filter: Option<&str>,
+        dir: &str,
+        timeout_secs: u64,
+    ) -> String {
         let mut args = vec!["bench"];
         let pkg_owned;
         if let Some(p) = package {
@@ -152,10 +161,7 @@ impl PerfAnalyzeTool {
 
         let result = tokio::time::timeout(
             std::time::Duration::from_secs(timeout_secs),
-            Command::new("cargo")
-                .args(&args)
-                .current_dir(dir)
-                .output(),
+            Command::new("cargo").args(&args).current_dir(dir).output(),
         )
         .await;
 
@@ -164,7 +170,9 @@ impl PerfAnalyzeTool {
                 let stderr = String::from_utf8_lossy(&out.stderr).to_string();
                 let bench_lines: Vec<&str> = stderr
                     .lines()
-                    .filter(|l| l.contains("bench:") || l.contains("ns/iter") || l.contains("test "))
+                    .filter(|l| {
+                        l.contains("bench:") || l.contains("ns/iter") || l.contains("test ")
+                    })
                     .take(50)
                     .collect();
                 if bench_lines.is_empty() {
@@ -268,7 +276,10 @@ impl Tool for PerfAnalyzeTool {
         PermissionLevel::ReadWrite
     }
 
-    async fn execute(&self, input: ToolInput) -> Result<ToolOutput, halcon_core::error::HalconError> {
+    async fn execute(
+        &self,
+        input: ToolInput,
+    ) -> Result<ToolOutput, halcon_core::error::HalconError> {
         let args = &input.arguments;
         let mode = args["mode"].as_str().unwrap_or("benchmark");
         let dir = args["path"].as_str().unwrap_or(&input.working_directory);
@@ -304,7 +315,8 @@ impl Tool for PerfAnalyzeTool {
                 if commands.is_empty() {
                     return Ok(ToolOutput {
                         tool_use_id: input.tool_use_id,
-                        content: "Provide 'command', 'commands', or mode='cargo_bench'.".to_string(),
+                        content: "Provide 'command', 'commands', or mode='cargo_bench'."
+                            .to_string(),
                         is_error: true,
                         metadata: None,
                     });
@@ -312,11 +324,11 @@ impl Tool for PerfAnalyzeTool {
                 commands.truncate(5);
 
                 // Try hyperfine first
-                if Self::hyperfine_available().await && commands.len() >= 1 {
-                    let output = Self::run_hyperfine(&commands, runs, warmup, dir, self.timeout_secs).await;
-                    let content = format!(
-                        "# Performance Benchmark (hyperfine)\n\n```\n{output}\n```\n"
-                    );
+                if Self::hyperfine_available().await && !commands.is_empty() {
+                    let output =
+                        Self::run_hyperfine(&commands, runs, warmup, dir, self.timeout_secs).await;
+                    let content =
+                        format!("# Performance Benchmark (hyperfine)\n\n```\n{output}\n```\n");
                     return Ok(ToolOutput {
                         tool_use_id: input.tool_use_id,
                         content,
@@ -416,7 +428,9 @@ mod tests {
         assert!(!out.is_error, "error: {}", out.content);
         // Either hyperfine or simple timing output
         assert!(
-            out.content.contains("Benchmark") || out.content.contains("bench") || out.content.contains("ms"),
+            out.content.contains("Benchmark")
+                || out.content.contains("bench")
+                || out.content.contains("ms"),
             "content: {}",
             out.content
         );

@@ -124,17 +124,21 @@ mod tests {
         let value = "halcon-test-value-abc123";
 
         // Set
-        ks.set_secret(key, value).expect("set_secret should not fail");
+        ks.set_secret(key, value)
+            .expect("set_secret should not fail");
 
         // Get
         let got = ks.get_secret(key).expect("get_secret should not fail");
         assert_eq!(got, Some(value.to_string()));
 
         // Delete
-        ks.delete_secret(key).expect("delete_secret should not fail");
+        ks.delete_secret(key)
+            .expect("delete_secret should not fail");
 
         // Gone
-        let gone = ks.get_secret(key).expect("get_secret after delete should not fail");
+        let gone = ks
+            .get_secret(key)
+            .expect("get_secret after delete should not fail");
         assert_eq!(gone, None);
     }
 
@@ -150,6 +154,9 @@ mod tests {
     fn delete_is_noop_for_missing_key() {
         let ks = KeyStore::new("halcon-test-keystore");
         let result = ks.delete_secret("__also_does_not_exist_xyz__");
-        assert!(result.is_ok(), "delete_secret should not error on missing key");
+        assert!(
+            result.is_ok(),
+            "delete_secret should not error on missing key"
+        );
     }
 }

@@ -19,6 +19,8 @@ pub(crate) use ratatui::widgets::{Block, Borders, Paragraph};
 pub(crate) use ratatui::Terminal;
 pub(crate) use tokio::sync::mpsc;
 
+pub(crate) use super::activity_types::ActivityLine; // P0.1B: Migrated to activity_types
+pub(crate) use super::clipboard::{paste_safe, PasteOutcome};
 pub(crate) use super::constants;
 pub(crate) use super::conversational_overlay::ConversationalOverlay;
 pub(crate) use super::events::{ControlEvent, SessionInfo, UiEvent};
@@ -28,9 +30,7 @@ pub(crate) use super::layout;
 pub(crate) use super::overlay::{self, OverlayKind};
 pub(crate) use super::permission_context::{PermissionContext, RiskLevel};
 pub(crate) use super::state::{AgentControl, AppState, FocusZone, PendingAttachment, UiMode};
-pub(crate) use super::clipboard::{paste_safe, PasteOutcome};
 pub(crate) use super::transition_engine::TransitionEngine;
-pub(crate) use super::activity_types::ActivityLine; // P0.1B: Migrated to activity_types
 pub(crate) use super::widgets::activity_indicator::AgentState;
 pub(crate) use super::widgets::agent_badge::AgentBadge;
 pub(crate) use super::widgets::panel::SidePanel;
@@ -450,7 +450,6 @@ impl TuiApp {
             ..Default::default()
         });
     }
-
 }
 
 // ─── Sub-module declarations ────────────────────────────────────────────────
@@ -458,16 +457,16 @@ impl TuiApp {
 // Child modules have access to private fields of TuiApp because they are
 // declared inside the same module that owns the struct definition.
 
-mod run_loop;
-mod render;
+mod action_handler;
 mod overlay_handler;
+mod render;
+mod run_loop;
 mod search;
 mod slash_commands;
-mod action_handler;
-mod ui_event_handler;
-mod utils;
 #[cfg(test)]
 mod tests;
+mod ui_event_handler;
+mod utils;
 
 /// Format a short preview string from a tool's input JSON value.
 pub(crate) fn format_input_preview(input: &serde_json::Value) -> String {
@@ -509,14 +508,20 @@ pub(crate) fn event_summary(ev: &UiEvent) -> String {
         UiEvent::StreamChunk(_) => constants::EVENT_STREAM_CHUNK.into(),
         UiEvent::StreamThinking(_) => "StreamThinking".into(),
         UiEvent::ThinkingProgress { chars } => format!("ThinkingProgress({chars}chars)"),
-        UiEvent::ThinkingComplete { char_count, .. } => format!("ThinkingComplete({char_count}chars)"),
+        UiEvent::ThinkingComplete { char_count, .. } => {
+            format!("ThinkingComplete({char_count}chars)")
+        }
         UiEvent::StreamCodeBlock { lang, .. } => format!("CodeBlock({lang})"),
         UiEvent::StreamToolMarker(n) => format!("ToolMarker({n})"),
         UiEvent::StreamDone => constants::EVENT_STREAM_DONE.into(),
         UiEvent::StreamError(e) => format!("StreamError({e})"),
         UiEvent::ToolStart { name, .. } => format!("ToolStart({name})"),
         UiEvent::ToolOutput { name, is_error, .. } => {
-            if *is_error { format!("ToolError({name})") } else { format!("ToolDone({name})") }
+            if *is_error {
+                format!("ToolError({name})")
+            } else {
+                format!("ToolDone({name})")
+            }
         }
         UiEvent::ToolDenied(n) => format!("ToolDenied({n})"),
         UiEvent::SpinnerStart(l) => format!("SpinnerStart({l})"),
@@ -542,12 +547,18 @@ pub(crate) fn event_summary(ev: &UiEvent) -> String {
         UiEvent::LoopGuardAction { action, .. } => format!("LoopGuard({action})"),
         UiEvent::CompactionComplete { .. } => constants::EVENT_COMPACTION.into(),
         UiEvent::CacheStatus { hit, .. } => format!("Cache({})", if *hit { "hit" } else { "miss" }),
-        UiEvent::SpeculativeResult { tool, hit } => format!("Speculative({tool},{})", if *hit { "hit" } else { "miss" }),
-        UiEvent::PermissionAwaiting { tool, risk_level, .. } => format!("PermAwait({tool},{risk_level})"),
+        UiEvent::SpeculativeResult { tool, hit } => {
+            format!("Speculative({tool},{})", if *hit { "hit" } else { "miss" })
+        }
+        UiEvent::PermissionAwaiting {
+            tool, risk_level, ..
+        } => format!("PermAwait({tool},{risk_level})"),
         UiEvent::ReflectionStarted => constants::EVENT_REFLECTION_START.into(),
         UiEvent::ReflectionComplete { .. } => constants::EVENT_REFLECTION_DONE.into(),
         UiEvent::ConsolidationStatus { .. } => constants::EVENT_CONSOLIDATION.into(),
-        UiEvent::ConsolidationComplete { merged, pruned, .. } => format!("ConsolidationDone(m:{merged},p:{pruned})"),
+        UiEvent::ConsolidationComplete { merged, pruned, .. } => {
+            format!("ConsolidationDone(m:{merged},p:{pruned})")
+        }
         UiEvent::ToolRetrying { tool, attempt, .. } => format!("ToolRetry({tool},{attempt})"),
         UiEvent::ContextTierUpdate { .. } => constants::EVENT_CONTEXT_UPDATE.into(),
         UiEvent::ReasoningUpdate { strategy, .. } => format!("Reasoning({strategy})"),
@@ -557,48 +568,111 @@ pub(crate) fn event_summary(ev: &UiEvent) -> String {
         UiEvent::ProviderHealthUpdate { provider, .. } => format!("Health({provider})"),
         UiEvent::CircuitBreakerUpdate { provider, .. } => format!("Breaker({provider})"),
         UiEvent::AgentStateTransition { from, to, .. } => format!("State({from:?}→{to:?})"),
-        UiEvent::TaskStatus { ref title, ref status, .. } => format!("TaskStatus({title},{status})"),
+        UiEvent::TaskStatus {
+            ref title,
+            ref status,
+            ..
+        } => format!("TaskStatus({title},{status})"),
         UiEvent::ReasoningStatus { ref task_type, .. } => format!("Reasoning({task_type})"),
         UiEvent::ContextServersList { total_count, .. } => format!("ContextServers({total_count})"),
         // Phase 45: Status Bar Audit + Session Management
-        UiEvent::TokenDelta { session_input, session_output, .. } => format!("TokenDelta(↑{session_input}↓{session_output})"),
+        UiEvent::TokenDelta {
+            session_input,
+            session_output,
+            ..
+        } => format!("TokenDelta(↑{session_input}↓{session_output})"),
         UiEvent::SessionList { sessions } => format!("SessionList({})", sessions.len()),
         // FASE 1.2: HICON event summaries
-        UiEvent::HiconCorrection { strategy, round, .. } => format!("HICON:Correction({strategy},r{round})"),
-        UiEvent::HiconAnomaly { anomaly_type, severity, .. } => format!("HICON:Anomaly({severity}:{anomaly_type})"),
-        UiEvent::HiconCoherence { phi, status, .. } => format!("HICON:Coherence(Φ={phi:.2},{status})"),
-        UiEvent::HiconBudgetWarning { predicted_overflow_rounds, .. } => format!("HICON:Budget(overflow:{predicted_overflow_rounds}r)"),
+        UiEvent::HiconCorrection {
+            strategy, round, ..
+        } => format!("HICON:Correction({strategy},r{round})"),
+        UiEvent::HiconAnomaly {
+            anomaly_type,
+            severity,
+            ..
+        } => format!("HICON:Anomaly({severity}:{anomaly_type})"),
+        UiEvent::HiconCoherence { phi, status, .. } => {
+            format!("HICON:Coherence(Φ={phi:.2},{status})")
+        }
+        UiEvent::HiconBudgetWarning {
+            predicted_overflow_rounds,
+            ..
+        } => format!("HICON:Budget(overflow:{predicted_overflow_rounds}r)"),
         UiEvent::SudoPasswordRequest { tool, .. } => format!("SudoPasswordRequest({tool})"),
         // Dev Ecosystem Phase 5
         UiEvent::IdeConnected { port } => format!("IdeConnected(:{port})"),
         UiEvent::IdeDisconnected => "IdeDisconnected".into(),
         UiEvent::IdeBuffersUpdated { count, .. } => format!("IdeBuffers({count})"),
         // Multi-Agent Orchestration Visibility
-        UiEvent::OrchestratorWave { wave_index, total_waves, task_count } => format!("OrchestratorWave({wave_index}/{total_waves},{task_count}tasks)"),
-        UiEvent::SubAgentSpawned { step_index, total_steps, .. } => format!("SubAgentSpawned({step_index}/{total_steps})"),
-        UiEvent::SubAgentCompleted { step_index, total_steps, success, .. } => format!("SubAgentCompleted({step_index}/{total_steps},{})", if *success { "ok" } else { "fail" }),
+        UiEvent::OrchestratorWave {
+            wave_index,
+            total_waves,
+            task_count,
+        } => format!("OrchestratorWave({wave_index}/{total_waves},{task_count}tasks)"),
+        UiEvent::SubAgentSpawned {
+            step_index,
+            total_steps,
+            ..
+        } => format!("SubAgentSpawned({step_index}/{total_steps})"),
+        UiEvent::SubAgentCompleted {
+            step_index,
+            total_steps,
+            success,
+            ..
+        } => format!(
+            "SubAgentCompleted({step_index}/{total_steps},{})",
+            if *success { "ok" } else { "fail" }
+        ),
         // Multimodal
         UiEvent::MediaAnalysisStarted { count } => format!("MediaAnalysisStarted({count})"),
-        UiEvent::MediaAnalysisComplete { filename, tokens } => format!("MediaAnalysisComplete({filename},{tokens})"),
+        UiEvent::MediaAnalysisComplete { filename, tokens } => {
+            format!("MediaAnalysisComplete({filename},{tokens})")
+        }
         // Phase 83: Phase-Aware Skeleton/Spinner
         UiEvent::PhaseStarted { phase, .. } => format!("PhaseStarted({phase})"),
         UiEvent::PhaseEnded => "PhaseEnded".into(),
         // Phase 93: Cross-Platform SOTA — media attachment events
-        UiEvent::AttachmentAdded { path, modality } => format!("AttachmentAdded({modality}:{path})"),
+        UiEvent::AttachmentAdded { path, modality } => {
+            format!("AttachmentAdded({modality}:{path})")
+        }
         UiEvent::AttachmentRemoved { index } => format!("AttachmentRemoved({index})"),
         // Phase 94: Project Onboarding
-        UiEvent::OnboardingAvailable { root, project_type } => format!("OnboardingAvailable({project_type}@{root})"),
-        UiEvent::ProjectAnalysisComplete { project_type, .. } => format!("ProjectAnalysisComplete({project_type})"),
+        UiEvent::OnboardingAvailable { root, project_type } => {
+            format!("OnboardingAvailable({project_type}@{root})")
+        }
+        UiEvent::ProjectAnalysisComplete { project_type, .. } => {
+            format!("ProjectAnalysisComplete({project_type})")
+        }
         UiEvent::ProjectConfigCreated { path } => format!("ProjectConfigCreated({path})"),
-        UiEvent::ProjectHealthCalculated { score, issues, .. } => format!("ProjectHealthCalculated(score={score}, issues={})", issues.len()),
+        UiEvent::ProjectHealthCalculated { score, issues, .. } => format!(
+            "ProjectHealthCalculated(score={score}, issues={})",
+            issues.len()
+        ),
         UiEvent::ProjectConfigLoaded { path } => format!("ProjectConfigLoaded({path})"),
         UiEvent::OpenInitWizard { dry_run } => format!("OpenInitWizard(dry_run={dry_run})"),
         // Phase 95: Plugin Auto-Implantation
-        UiEvent::PluginSuggestionReady { suggestions, dry_run } => format!("PluginSuggestionReady({} suggestions, dry_run={dry_run})", suggestions.len()),
-        UiEvent::PluginBootstrapStarted { count, dry_run } => format!("PluginBootstrapStarted({count}, dry_run={dry_run})"),
-        UiEvent::PluginBootstrapComplete { installed, skipped, failed } => format!("PluginBootstrapComplete(✓{installed} ○{skipped} ✗{failed})"),
-        UiEvent::PluginStatusChanged { plugin_id, new_status } => format!("PluginStatusChanged({plugin_id}→{new_status})"),
-        UiEvent::AvailableProviders { models } => format!("AvailableProviders({} models)", models.len()),
+        UiEvent::PluginSuggestionReady {
+            suggestions,
+            dry_run,
+        } => format!(
+            "PluginSuggestionReady({} suggestions, dry_run={dry_run})",
+            suggestions.len()
+        ),
+        UiEvent::PluginBootstrapStarted { count, dry_run } => {
+            format!("PluginBootstrapStarted({count}, dry_run={dry_run})")
+        }
+        UiEvent::PluginBootstrapComplete {
+            installed,
+            skipped,
+            failed,
+        } => format!("PluginBootstrapComplete(✓{installed} ○{skipped} ✗{failed})"),
+        UiEvent::PluginStatusChanged {
+            plugin_id,
+            new_status,
+        } => format!("PluginStatusChanged({plugin_id}→{new_status})"),
+        UiEvent::AvailableProviders { models } => {
+            format!("AvailableProviders({} models)", models.len())
+        }
     }
 }
 
@@ -624,5 +698,4 @@ impl Drop for TuiApp {
 
         tracing::debug!("Terminal cleanup completed");
     }
-
 }

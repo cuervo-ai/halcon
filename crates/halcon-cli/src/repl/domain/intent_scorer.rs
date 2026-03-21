@@ -201,8 +201,8 @@ impl IntentScorer {
                 task_type,
                 TaskType::CodeGeneration | TaskType::CodeModification | TaskType::Debugging
             ) && scope > TaskScope::SingleArtifact;
-        let requires_reflection = depth == ReasoningDepth::Exhaustive
-            || scope >= TaskScope::ProjectWide;
+        let requires_reflection =
+            depth == ReasoningDepth::Exhaustive || scope >= TaskScope::ProjectWide;
         let estimated_tool_calls = Self::estimate_tool_calls(scope, task_type);
         let estimated_context_tokens = Self::estimate_context_tokens(scope, depth);
         let latency_tolerance = Self::derive_latency(scope, depth);
@@ -232,15 +232,55 @@ impl IntentScorer {
     fn detect_language(q: &str) -> QueryLanguage {
         // Compact language-marker word families (no external deps).
         const ES_MARKERS: &[&str] = &[
-            "que", "qué", "cómo", "como", "por", "para", "cuál", "cual",
-            "analiza", "analizar", "revisa", "revisar", "examina", "explica",
-            "implementa", "crea", "busca", "encuentra", "muestra",
-            "el", "la", "los", "las", "un", "una", "del", "con",
+            "que",
+            "qué",
+            "cómo",
+            "como",
+            "por",
+            "para",
+            "cuál",
+            "cual",
+            "analiza",
+            "analizar",
+            "revisa",
+            "revisar",
+            "examina",
+            "explica",
+            "implementa",
+            "crea",
+            "busca",
+            "encuentra",
+            "muestra",
+            "el",
+            "la",
+            "los",
+            "las",
+            "un",
+            "una",
+            "del",
+            "con",
         ];
         const EN_MARKERS: &[&str] = &[
-            "the", "and", "for", "with", "how", "what", "why", "which",
-            "create", "find", "show", "implement", "analyze", "review",
-            "fix", "write", "add", "remove", "update", "check",
+            "the",
+            "and",
+            "for",
+            "with",
+            "how",
+            "what",
+            "why",
+            "which",
+            "create",
+            "find",
+            "show",
+            "implement",
+            "analyze",
+            "review",
+            "fix",
+            "write",
+            "add",
+            "remove",
+            "update",
+            "check",
         ];
 
         let es_hits = ES_MARKERS
@@ -273,29 +313,73 @@ impl IntentScorer {
     fn score_scope(q: &str, word_count: usize) -> TaskScope {
         // SystemWide signals
         const SYSTEM_WIDE: &[&str] = &[
-            "arquitectura", "architecture", "infraestructura", "infrastructure",
-            "multiple repos", "cross-repo", "sistema completo", "entire system",
-            "microservices", "microservicios", "deployment", "ci/cd",
+            "arquitectura",
+            "architecture",
+            "infraestructura",
+            "infrastructure",
+            "multiple repos",
+            "cross-repo",
+            "sistema completo",
+            "entire system",
+            "microservices",
+            "microservicios",
+            "deployment",
+            "ci/cd",
         ];
         // ProjectWide signals
         const PROJECT_WIDE: &[&str] = &[
-            "proyecto", "project", "codebase", "base de codigo", "todo el",
-            "all files", "todos los archivos", "repositorio", "repository",
-            "analiza el proyecto", "analyze the project", "audit",
-            "current project", "proyecto actual", "estado del proyecto",
-            "estado actual", "revisa el proyecto",
+            "proyecto",
+            "project",
+            "codebase",
+            "base de codigo",
+            "todo el",
+            "all files",
+            "todos los archivos",
+            "repositorio",
+            "repository",
+            "analiza el proyecto",
+            "analyze the project",
+            "audit",
+            "current project",
+            "proyecto actual",
+            "estado del proyecto",
+            "estado actual",
+            "revisa el proyecto",
         ];
         // LocalContext signals (module / multiple files)
         const LOCAL_CONTEXT: &[&str] = &[
-            "module", "modulo", "package", "paquete", "directory", "directorio",
-            "folder", "carpeta", "multiple files", "varios archivos",
-            "tests", "test suite", "all functions in", "entire module",
+            "module",
+            "modulo",
+            "package",
+            "paquete",
+            "directory",
+            "directorio",
+            "folder",
+            "carpeta",
+            "multiple files",
+            "varios archivos",
+            "tests",
+            "test suite",
+            "all functions in",
+            "entire module",
         ];
         // Conversational signals (no tool implied)
         const CONVERSATIONAL: &[&str] = &[
-            "how are you", "hola", "hello", "gracias", "thanks", "thank you",
-            "what is your name", "who are you", "cuéntame", "cuéntame sobre",
-            "joke", "chiste", "humor", "chat", "conversa",
+            "how are you",
+            "hola",
+            "hello",
+            "gracias",
+            "thanks",
+            "thank you",
+            "what is your name",
+            "who are you",
+            "cuéntame",
+            "cuéntame sobre",
+            "joke",
+            "chiste",
+            "humor",
+            "chat",
+            "conversa",
         ];
 
         if Self::contains_any(q, SYSTEM_WIDE) {
@@ -326,21 +410,57 @@ impl IntentScorer {
 
     fn score_depth(q: &str, scope: TaskScope) -> ReasoningDepth {
         const EXHAUSTIVE: &[&str] = &[
-            "audit", "audita", "comprehensive review", "revisión completa",
-            "deep dive", "análisis profundo", "full analysis", "from scratch",
-            "architecture review", "revisión de arquitectura", "diagnóstica",
-            "profundo", "exhaustivo", "complete refactor",
+            "audit",
+            "audita",
+            "comprehensive review",
+            "revisión completa",
+            "deep dive",
+            "análisis profundo",
+            "full analysis",
+            "from scratch",
+            "architecture review",
+            "revisión de arquitectura",
+            "diagnóstica",
+            "profundo",
+            "exhaustivo",
+            "complete refactor",
         ];
         const DEEP: &[&str] = &[
-            "analiza", "analyze", "diagnose", "diagostica", "investigate",
-            "investiga", "refactor", "redesign", "why is", "por qué",
-            "how does", "como funciona", "optimize", "optimiza",
-            "performance", "rendimiento", "state", "estado",
+            "analiza",
+            "analyze",
+            "diagnose",
+            "diagostica",
+            "investigate",
+            "investiga",
+            "refactor",
+            "redesign",
+            "why is",
+            "por qué",
+            "how does",
+            "como funciona",
+            "optimize",
+            "optimiza",
+            "performance",
+            "rendimiento",
+            "state",
+            "estado",
         ];
         const LIGHT: &[&str] = &[
-            "fix", "arregla", "add", "agrega", "remove", "elimina",
-            "update", "actualiza", "rename", "check", "verifica",
-            "show me", "muéstrame", "list", "lista",
+            "fix",
+            "arregla",
+            "add",
+            "agrega",
+            "remove",
+            "elimina",
+            "update",
+            "actualiza",
+            "rename",
+            "check",
+            "verifica",
+            "show me",
+            "muéstrame",
+            "list",
+            "lista",
         ];
 
         if Self::contains_any(q, EXHAUSTIVE) || scope >= TaskScope::ProjectWide {
@@ -373,40 +493,120 @@ impl IntentScorer {
     fn score_intent(q: &str) -> (TaskType, f32) {
         // Priority-ordered rules — first match wins.
         const DEBUGGING: &[&str] = &[
-            "bug", "error", "fix", "broken", "crash", "fail",
-            "arregla", "falla", "error en", "no funciona", "roto",
+            "bug",
+            "error",
+            "fix",
+            "broken",
+            "crash",
+            "fail",
+            "arregla",
+            "falla",
+            "error en",
+            "no funciona",
+            "roto",
         ];
         const CODE_GEN: &[&str] = &[
-            "create", "crea", "write", "escribe", "implement", "implementa",
-            "build", "construye", "generate", "genera", "scaffold",
-            "add function", "agrega función", "new class", "nueva clase",
+            "create",
+            "crea",
+            "write",
+            "escribe",
+            "implement",
+            "implementa",
+            "build",
+            "construye",
+            "generate",
+            "genera",
+            "scaffold",
+            "add function",
+            "agrega función",
+            "new class",
+            "nueva clase",
         ];
         const CODE_MOD: &[&str] = &[
-            "refactor", "refactoriza", "rename", "cambia nombre",
-            "update", "actualiza", "modify", "modifica", "change", "cambia",
-            "move", "mueve", "extract", "extrae",
+            "refactor",
+            "refactoriza",
+            "rename",
+            "cambia nombre",
+            "update",
+            "actualiza",
+            "modify",
+            "modifica",
+            "change",
+            "cambia",
+            "move",
+            "mueve",
+            "extract",
+            "extrae",
         ];
         const GIT_OP: &[&str] = &[
-            "commit", "branch", "rama", "merge", "rebase", "push", "pull",
-            "status", "diff", "git log", "git status",
+            "commit",
+            "branch",
+            "rama",
+            "merge",
+            "rebase",
+            "push",
+            "pull",
+            "status",
+            "diff",
+            "git log",
+            "git status",
         ];
         const FILE_MGMT: &[&str] = &[
-            "file", "archivo", "directory", "directorio", "folder", "carpeta",
-            "delete", "elimina", "copy", "copia", "move file", "mueve archivo",
-            "create file", "crea archivo",
+            "file",
+            "archivo",
+            "directory",
+            "directorio",
+            "folder",
+            "carpeta",
+            "delete",
+            "elimina",
+            "copy",
+            "copia",
+            "move file",
+            "mueve archivo",
+            "create file",
+            "crea archivo",
         ];
         const CONFIG: &[&str] = &[
-            "config", "configuración", "setup", "configura", "settings",
-            "install", "instala", "environment", "entorno", "variable",
+            "config",
+            "configuración",
+            "setup",
+            "configura",
+            "settings",
+            "install",
+            "instala",
+            "environment",
+            "entorno",
+            "variable",
         ];
         const RESEARCH: &[&str] = &[
-            "find", "busca", "search", "search for", "analyze", "analiza",
-            "investigate", "investiga", "review", "revisa", "examine", "examina",
-            "audit", "audita", "inspect", "diagnostica",
+            "find",
+            "busca",
+            "search",
+            "search for",
+            "analyze",
+            "analiza",
+            "investigate",
+            "investiga",
+            "review",
+            "revisa",
+            "examine",
+            "examina",
+            "audit",
+            "audita",
+            "inspect",
+            "diagnostica",
         ];
         const EXPLANATION: &[&str] = &[
-            "explain", "explica", "how does", "como funciona",
-            "what is", "qué es", "why does", "por qué", "describe",
+            "explain",
+            "explica",
+            "how does",
+            "como funciona",
+            "what is",
+            "qué es",
+            "why does",
+            "por qué",
+            "describe",
             "tell me about",
         ];
 
@@ -467,15 +667,25 @@ impl IntentScorer {
 
     // ── Derived fields ───────────────────────────────────────────────────
 
-    fn derive_complexity(scope: TaskScope, depth: ReasoningDepth, word_count: usize) -> TaskComplexity {
+    fn derive_complexity(
+        scope: TaskScope,
+        depth: ReasoningDepth,
+        word_count: usize,
+    ) -> TaskComplexity {
         // Scope + depth take priority over word count.
         match (scope, depth) {
             (TaskScope::Conversational, _) => TaskComplexity::Simple,
             (TaskScope::SingleArtifact, ReasoningDepth::None | ReasoningDepth::Light) => {
-                if word_count > 35 { TaskComplexity::Moderate } else { TaskComplexity::Simple }
+                if word_count > 35 {
+                    TaskComplexity::Moderate
+                } else {
+                    TaskComplexity::Simple
+                }
             }
             (TaskScope::SingleArtifact, _) => TaskComplexity::Moderate,
-            (TaskScope::LocalContext, ReasoningDepth::None | ReasoningDepth::Light) => TaskComplexity::Moderate,
+            (TaskScope::LocalContext, ReasoningDepth::None | ReasoningDepth::Light) => {
+                TaskComplexity::Moderate
+            }
             (TaskScope::LocalContext, _) => TaskComplexity::Complex,
             (TaskScope::ProjectWide | TaskScope::SystemWide, _) => TaskComplexity::Complex,
         }
@@ -522,7 +732,8 @@ impl IntentScorer {
             (TaskScope::SingleArtifact, ReasoningDepth::None | ReasoningDepth::Light) => {
                 LatencyTolerance::Fast
             }
-            (TaskScope::SingleArtifact, _) | (TaskScope::LocalContext, ReasoningDepth::None | ReasoningDepth::Light) => {
+            (TaskScope::SingleArtifact, _)
+            | (TaskScope::LocalContext, ReasoningDepth::None | ReasoningDepth::Light) => {
                 LatencyTolerance::Balanced
             }
             _ => LatencyTolerance::Patient,
@@ -559,8 +770,8 @@ impl IntentScorer {
             if let Some(pos) = text[start..].find(word) {
                 let abs = start + pos;
                 let before_ok = abs == 0 || !tbytes[abs - 1].is_ascii_alphanumeric();
-                let after_ok = abs + wlen == tbytes.len()
-                    || !tbytes[abs + wlen].is_ascii_alphanumeric();
+                let after_ok =
+                    abs + wlen == tbytes.len() || !tbytes[abs + wlen].is_ascii_alphanumeric();
                 if before_ok && after_ok {
                     return true;
                 }
@@ -612,7 +823,11 @@ mod tests {
     #[test]
     fn scope_single_artifact() {
         let p = IntentScorer::score("fix the bug in utils.rs");
-        assert!(p.scope <= TaskScope::LocalContext, "scope was {:?}", p.scope);
+        assert!(
+            p.scope <= TaskScope::LocalContext,
+            "scope was {:?}",
+            p.scope
+        );
     }
 
     #[test]
@@ -625,8 +840,14 @@ mod tests {
 
     #[test]
     fn depth_exhaustive_for_project_audit() {
-        let p = IntentScorer::score("analiza el estado actual del proyecto, revisa la base de datos y los logs");
-        assert!(p.reasoning_depth >= ReasoningDepth::Deep, "depth was {:?}", p.reasoning_depth);
+        let p = IntentScorer::score(
+            "analiza el estado actual del proyecto, revisa la base de datos y los logs",
+        );
+        assert!(
+            p.reasoning_depth >= ReasoningDepth::Deep,
+            "depth was {:?}",
+            p.reasoning_depth
+        );
     }
 
     #[test]
@@ -638,7 +859,11 @@ mod tests {
     #[test]
     fn depth_light_for_simple_fix() {
         let p = IntentScorer::score("fix the typo in README");
-        assert!(p.reasoning_depth <= ReasoningDepth::Light, "depth was {:?}", p.reasoning_depth);
+        assert!(
+            p.reasoning_depth <= ReasoningDepth::Light,
+            "depth was {:?}",
+            p.reasoning_depth
+        );
     }
 
     // ── Intent classification ─────────────────────────────────────────────
@@ -658,7 +883,12 @@ mod tests {
     #[test]
     fn intent_research_analiza() {
         let p = IntentScorer::score("analiza el rendimiento de la aplicación");
-        assert_eq!(p.task_type, TaskType::Research, "type was {:?}", p.task_type);
+        assert_eq!(
+            p.task_type,
+            TaskType::Research,
+            "type was {:?}",
+            p.task_type
+        );
     }
 
     #[test]
@@ -676,7 +906,12 @@ mod tests {
     #[test]
     fn intent_explanation_explica_spanish() {
         let p = IntentScorer::score("explica cómo funciona el sistema de plugins");
-        assert_eq!(p.task_type, TaskType::Explanation, "type was {:?}", p.task_type);
+        assert_eq!(
+            p.task_type,
+            TaskType::Explanation,
+            "type was {:?}",
+            p.task_type
+        );
     }
 
     // ── Language detection ────────────────────────────────────────────────
@@ -704,7 +939,12 @@ mod tests {
     #[test]
     fn complexity_complex_for_project_wide() {
         let p = IntentScorer::score("analiza el proyecto completo y revisa el estado actual");
-        assert_eq!(p.complexity, TaskComplexity::Complex, "complexity was {:?}", p.complexity);
+        assert_eq!(
+            p.complexity,
+            TaskComplexity::Complex,
+            "complexity was {:?}",
+            p.complexity
+        );
     }
 
     // ── Requires planning ─────────────────────────────────────────────────
@@ -740,13 +980,23 @@ mod tests {
     #[test]
     fn max_rounds_low_for_conversational() {
         let p = IntentScorer::score("hola");
-        assert!(p.suggested_max_rounds() <= 3, "got {}", p.suggested_max_rounds());
+        assert!(
+            p.suggested_max_rounds() <= 3,
+            "got {}",
+            p.suggested_max_rounds()
+        );
     }
 
     #[test]
     fn max_rounds_high_for_project_audit() {
-        let p = IntentScorer::score("analiza el proyecto completo, revisa todos los archivos y el estado actual");
-        assert!(p.suggested_max_rounds() >= 10, "got {}", p.suggested_max_rounds());
+        let p = IntentScorer::score(
+            "analiza el proyecto completo, revisa todos los archivos y el estado actual",
+        );
+        assert!(
+            p.suggested_max_rounds() >= 10,
+            "got {}",
+            p.suggested_max_rounds()
+        );
     }
 
     // ── Ambiguity ─────────────────────────────────────────────────────────
@@ -754,13 +1004,21 @@ mod tests {
     #[test]
     fn ambiguity_high_for_single_word() {
         let p = IntentScorer::score("it");
-        assert!(p.ambiguity_score > 0.4, "expected high ambiguity, got {}", p.ambiguity_score);
+        assert!(
+            p.ambiguity_score > 0.4,
+            "expected high ambiguity, got {}",
+            p.ambiguity_score
+        );
     }
 
     #[test]
     fn ambiguity_low_for_specific_query() {
         let p = IntentScorer::score("fix the null pointer dereference in auth/login.rs line 42");
-        assert!(p.ambiguity_score < 0.5, "expected low ambiguity, got {}", p.ambiguity_score);
+        assert!(
+            p.ambiguity_score < 0.5,
+            "expected low ambiguity, got {}",
+            p.ambiguity_score
+        );
     }
 
     // ── Backward compat ───────────────────────────────────────────────────

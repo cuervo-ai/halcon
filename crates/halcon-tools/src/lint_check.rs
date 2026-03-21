@@ -80,7 +80,7 @@ fn detect_project_kind(working_dir: &str) -> ProjectKind {
 
 #[derive(Debug, Clone)]
 struct Diagnostic {
-    level: String,     // "error" | "warning" | "note" | "info"
+    level: String, // "error" | "warning" | "note" | "info"
     file: Option<String>,
     line: Option<u32>,
     col: Option<u32>,
@@ -132,7 +132,14 @@ fn parse_rust_output(output: &str) -> Vec<Diagnostic> {
                         })
                         .unwrap_or((None, None, None));
 
-                    diags.push(Diagnostic { level, file, line: ln, col, code, message });
+                    diags.push(Diagnostic {
+                        level,
+                        file,
+                        line: ln,
+                        col,
+                        code,
+                        message,
+                    });
                 }
                 continue;
             }
@@ -145,21 +152,29 @@ fn parse_rust_output(output: &str) -> Vec<Diagnostic> {
             let msg = rest[code_end + 2..].trim_start_matches("]: ").to_string();
             diags.push(Diagnostic {
                 level: "error".into(),
-                file: None, line: None, col: None,
+                file: None,
+                line: None,
+                col: None,
                 code: Some(code),
                 message: msg,
             });
         } else if let Some(msg) = line.strip_prefix("error: ") {
             diags.push(Diagnostic {
                 level: "error".into(),
-                file: None, line: None, col: None, code: None,
+                file: None,
+                line: None,
+                col: None,
+                code: None,
                 message: msg.to_string(),
             });
         } else if let Some(msg) = line.strip_prefix("warning: ") {
             if !msg.starts_with("generated") {
                 diags.push(Diagnostic {
                     level: "warning".into(),
-                    file: None, line: None, col: None, code: None,
+                    file: None,
+                    line: None,
+                    col: None,
+                    code: None,
                     message: msg.to_string(),
                 });
             }
@@ -180,7 +195,8 @@ fn parse_eslint_output(output: &str) -> Vec<Diagnostic> {
     for line in output.lines() {
         let trimmed = line.trim();
         // File header lines (no leading whitespace, end with counts or just path)
-        if !line.starts_with(' ') && !trimmed.is_empty()
+        if !line.starts_with(' ')
+            && !trimmed.is_empty()
             && !trimmed.starts_with("✖")
             && !trimmed.starts_with("✓")
             && !trimmed.starts_with("error")
@@ -253,7 +269,10 @@ fn parse_python_output(output: &str) -> Vec<Diagnostic> {
             if let Ok(c) = parts[2].trim().parse::<u32>() {
                 // ruff: file:line:col: code message
                 let rest = parts[3].trim();
-                let level = if rest.starts_with('E') || rest.starts_with('F') || rest.starts_with("error") {
+                let level = if rest.starts_with('E')
+                    || rest.starts_with('F')
+                    || rest.starts_with("error")
+                {
                     "error"
                 } else if rest.starts_with('W') || rest.starts_with("warning") {
                     "warning"
@@ -272,7 +291,7 @@ fn parse_python_output(output: &str) -> Vec<Diagnostic> {
                 (None, level.to_string(), parts[3].trim().to_string())
             }
         } else {
-            continue
+            continue;
         };
 
         if level == "note" {
@@ -335,10 +354,20 @@ fn parse_colon_format(line: &str, diags: &mut Vec<Diagnostic>) {
     let ln = parts[1].trim().parse::<u32>().ok();
     let _col = parts[2].trim().parse::<u32>().ok();
     let level = parts[3].trim().to_string();
-    let message = parts.get(4).map(|s| s.trim().to_string()).unwrap_or_default();
+    let message = parts
+        .get(4)
+        .map(|s| s.trim().to_string())
+        .unwrap_or_default();
 
     if level == "error" || level == "warning" {
-        diags.push(Diagnostic { level, file: Some(file), line: ln, col: None, code: None, message });
+        diags.push(Diagnostic {
+            level,
+            file: Some(file),
+            line: ln,
+            col: None,
+            code: None,
+            message,
+        });
     }
 }
 
@@ -431,7 +460,11 @@ impl Tool for LintCheckTool {
             .arguments
             .get("args")
             .and_then(|v| v.as_array())
-            .map(|a| a.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect())
+            .map(|a| {
+                a.iter()
+                    .filter_map(|x| x.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
             .unwrap_or_default();
 
         let kind = if let Some(ref linter) = forced_linter {
@@ -491,22 +524,16 @@ impl Tool for LintCheckTool {
 
         let files: Vec<serde_json::Value> = by_file
             .iter()
-            .map(|(f, (errs, warns))| {
-                json!({ "file": f, "errors": errs, "warnings": warns })
-            })
+            .map(|(f, (errs, warns))| json!({ "file": f, "errors": errs, "warnings": warns }))
             .collect();
 
         let passed = error_count == 0;
         let summary = if passed && warning_count == 0 {
             format!("✓ {linter_used}: no issues found")
         } else if passed {
-            format!(
-                "⚠ {linter_used}: {warning_count} warning(s), 0 errors"
-            )
+            format!("⚠ {linter_used}: {warning_count} warning(s), 0 errors")
         } else {
-            format!(
-                "✗ {linter_used}: {error_count} error(s), {warning_count} warning(s)"
-            )
+            format!("✗ {linter_used}: {error_count} error(s), {warning_count} warning(s)")
         };
 
         let meta = json!({
@@ -568,7 +595,11 @@ impl Tool for LintCheckTool {
 }
 
 impl LintCheckTool {
-    async fn run_clippy(&self, working_dir: &str, extra: &[&str]) -> (Vec<Diagnostic>, String, String) {
+    async fn run_clippy(
+        &self,
+        working_dir: &str,
+        extra: &[&str],
+    ) -> (Vec<Diagnostic>, String, String) {
         let mut args = vec!["clippy", "--message-format=json", "--", "-D", "warnings"];
         args.extend_from_slice(extra);
         match run_lint_command("cargo", &args, working_dir, self.timeout_secs).await {
@@ -581,7 +612,11 @@ impl LintCheckTool {
         }
     }
 
-    async fn run_eslint(&self, working_dir: &str, extra: &[&str]) -> (Vec<Diagnostic>, String, String) {
+    async fn run_eslint(
+        &self,
+        working_dir: &str,
+        extra: &[&str],
+    ) -> (Vec<Diagnostic>, String, String) {
         let mut args = vec![".", "--format", "compact"];
         args.extend_from_slice(extra);
         match run_lint_command("npx", &["eslint", "."], working_dir, self.timeout_secs).await {
@@ -595,7 +630,11 @@ impl LintCheckTool {
         }
     }
 
-    async fn run_tsc(&self, working_dir: &str, extra: &[&str]) -> (Vec<Diagnostic>, String, String) {
+    async fn run_tsc(
+        &self,
+        working_dir: &str,
+        extra: &[&str],
+    ) -> (Vec<Diagnostic>, String, String) {
         let mut args = vec!["--noEmit"];
         args.extend_from_slice(extra);
         match run_lint_command("npx", &["tsc", "--noEmit"], working_dir, self.timeout_secs).await {
@@ -609,11 +648,14 @@ impl LintCheckTool {
         }
     }
 
-    async fn run_python_lint(&self, working_dir: &str, extra: &[&str]) -> (Vec<Diagnostic>, String, String) {
+    async fn run_python_lint(
+        &self,
+        working_dir: &str,
+        extra: &[&str],
+    ) -> (Vec<Diagnostic>, String, String) {
         // Prefer ruff (fast), fall back to mypy
         let ruff_path = std::path::Path::new(working_dir).join(".ruff.toml");
-        let use_ruff = ruff_path.exists()
-            || which_exists("ruff").await;
+        let use_ruff = ruff_path.exists() || which_exists("ruff").await;
 
         let (program, args): (&str, Vec<&str>) = if use_ruff {
             let mut a = vec!["check", "."];
@@ -637,7 +679,11 @@ impl LintCheckTool {
         }
     }
 
-    async fn run_go_vet(&self, working_dir: &str, extra: &[&str]) -> (Vec<Diagnostic>, String, String) {
+    async fn run_go_vet(
+        &self,
+        working_dir: &str,
+        extra: &[&str],
+    ) -> (Vec<Diagnostic>, String, String) {
         let mut args = vec!["vet", "./..."];
         args.extend_from_slice(extra);
         match run_lint_command("go", &args, working_dir, self.timeout_secs).await {
@@ -671,7 +717,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path();
         std::fs::write(path.join("Cargo.toml"), "[package]").unwrap();
-        assert_eq!(detect_project_kind(path.to_str().unwrap()), ProjectKind::Rust);
+        assert_eq!(
+            detect_project_kind(path.to_str().unwrap()),
+            ProjectKind::Rust
+        );
     }
 
     #[test]
@@ -680,7 +729,10 @@ mod tests {
         let path = dir.path();
         std::fs::write(path.join("package.json"), "{}").unwrap();
         std::fs::write(path.join("tsconfig.json"), "{}").unwrap();
-        assert_eq!(detect_project_kind(path.to_str().unwrap()), ProjectKind::TypeScript);
+        assert_eq!(
+            detect_project_kind(path.to_str().unwrap()),
+            ProjectKind::TypeScript
+        );
     }
 
     #[test]
@@ -688,7 +740,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path();
         std::fs::write(path.join("package.json"), "{}").unwrap();
-        assert_eq!(detect_project_kind(path.to_str().unwrap()), ProjectKind::JavaScript);
+        assert_eq!(
+            detect_project_kind(path.to_str().unwrap()),
+            ProjectKind::JavaScript
+        );
     }
 
     #[test]
@@ -696,7 +751,10 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path();
         std::fs::write(path.join("pyproject.toml"), "").unwrap();
-        assert_eq!(detect_project_kind(path.to_str().unwrap()), ProjectKind::Python);
+        assert_eq!(
+            detect_project_kind(path.to_str().unwrap()),
+            ProjectKind::Python
+        );
     }
 
     #[test]
@@ -739,7 +797,8 @@ mod tests {
 
     #[test]
     fn parse_python_mypy_output() {
-        let output = "src/foo.py:10: error: Incompatible types\nsrc/bar.py:20: warning: Missing type\n";
+        let output =
+            "src/foo.py:10: error: Incompatible types\nsrc/bar.py:20: warning: Missing type\n";
         let diags = parse_python_output(output);
         assert_eq!(diags.len(), 2);
         assert_eq!(diags[0].file.as_deref(), Some("src/foo.py"));

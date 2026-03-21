@@ -103,16 +103,19 @@ impl EvidenceGraph {
         let id = self.next_id;
         self.next_id += 1;
 
-        self.nodes.insert(id, EvidenceNode {
+        self.nodes.insert(
             id,
-            tool_name: tool_name.to_string(),
-            tool_args_summary: tool_args_summary.to_string(),
-            quality,
-            byte_count,
-            timestamp: Instant::now(),
-            round,
-            error: error.map(|e| e.to_string()),
-        });
+            EvidenceNode {
+                id,
+                tool_name: tool_name.to_string(),
+                tool_args_summary: tool_args_summary.to_string(),
+                quality,
+                byte_count,
+                timestamp: Instant::now(),
+                round,
+                error: error.map(|e| e.to_string()),
+            },
+        );
 
         id
     }
@@ -145,7 +148,10 @@ impl EvidenceGraph {
 
     /// Number of nodes with Good quality.
     pub fn good_node_count(&self) -> usize {
-        self.nodes.values().filter(|n| n.quality == EvidenceQuality::Good).count()
+        self.nodes
+            .values()
+            .filter(|n| n.quality == EvidenceQuality::Good)
+            .count()
     }
 
     /// Number of nodes referenced by synthesis.
@@ -156,7 +162,9 @@ impl EvidenceGraph {
     /// Fraction of Good nodes that were referenced. 1.0 = full coverage.
     /// Returns 1.0 if there are no Good nodes (nothing to cover).
     pub fn synthesis_coverage(&self) -> f64 {
-        let good: HashSet<NodeId> = self.nodes.iter()
+        let good: HashSet<NodeId> = self
+            .nodes
+            .iter()
             .filter(|(_, n)| n.quality == EvidenceQuality::Good)
             .map(|(&id, _)| id)
             .collect();
@@ -172,7 +180,8 @@ impl EvidenceGraph {
     /// Get all Good-quality nodes that were NOT referenced by synthesis.
     /// These represent potentially missed evidence.
     pub fn unreferenced_evidence(&self) -> Vec<&EvidenceNode> {
-        self.nodes.values()
+        self.nodes
+            .values()
             .filter(|n| n.quality == EvidenceQuality::Good && !self.referenced.contains(&n.id))
             .collect()
     }
@@ -189,7 +198,8 @@ impl EvidenceGraph {
 
     /// Total readable bytes across all Good and Partial nodes.
     pub fn total_evidence_bytes(&self) -> usize {
-        self.nodes.values()
+        self.nodes
+            .values()
             .filter(|n| matches!(n.quality, EvidenceQuality::Good | EvidenceQuality::Partial))
             .map(|n| n.byte_count)
             .sum()
@@ -393,7 +403,7 @@ mod tests {
         let mut g = EvidenceGraph::new();
         g.add_node("file_read", "a.rs", 100, false, None, 1); // Good
         g.add_node("file_read", "b.pdf", 5000, true, None, 2); // Binary
-        g.add_node("bash", "fail", 0, false, Some("err"), 3);  // Empty
+        g.add_node("bash", "fail", 0, false, Some("err"), 3); // Empty
 
         // Only 1 Good node, 0 referenced → 0% coverage
         assert_eq!(g.synthesis_coverage(), 0.0);
@@ -408,7 +418,10 @@ mod tests {
         let mut g = EvidenceGraph::new();
         let partial = g.add_node("f", "a", MIN_EVIDENCE_BYTES - 1, false, None, 1);
         let good = g.add_node("f", "b", MIN_EVIDENCE_BYTES, false, None, 1);
-        assert_eq!(g.get_node(partial).unwrap().quality, EvidenceQuality::Partial);
+        assert_eq!(
+            g.get_node(partial).unwrap().quality,
+            EvidenceQuality::Partial
+        );
         assert_eq!(g.get_node(good).unwrap().quality, EvidenceQuality::Good);
     }
 }

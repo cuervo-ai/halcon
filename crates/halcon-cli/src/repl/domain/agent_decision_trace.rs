@@ -199,7 +199,11 @@ impl DecisionTraceCollector {
             .map(|(p, c)| format!("{}={}", p.label(), c))
             .collect();
         parts.sort();
-        format!("decisions: {} total [{}]", self.records.len(), parts.join(", "))
+        format!(
+            "decisions: {} total [{}]",
+            self.records.len(),
+            parts.join(", ")
+        )
     }
 
     /// Clear all records.
@@ -250,9 +254,21 @@ mod tests {
     #[test]
     fn phase4_trace_collector_record_and_retrieve() {
         let mut collector = DecisionTraceCollector::new();
-        collector.record(DecisionRecord::new(DecisionPoint::OracleAdjudication, 0, "Continue"));
-        collector.record(DecisionRecord::new(DecisionPoint::UtilityEvaluation, 0, "continue"));
-        collector.record(DecisionRecord::new(DecisionPoint::OracleAdjudication, 1, "Replan"));
+        collector.record(DecisionRecord::new(
+            DecisionPoint::OracleAdjudication,
+            0,
+            "Continue",
+        ));
+        collector.record(DecisionRecord::new(
+            DecisionPoint::UtilityEvaluation,
+            0,
+            "continue",
+        ));
+        collector.record(DecisionRecord::new(
+            DecisionPoint::OracleAdjudication,
+            1,
+            "Replan",
+        ));
 
         assert_eq!(collector.len(), 3);
 
@@ -267,7 +283,11 @@ mod tests {
     fn phase4_trace_collector_capacity_bounded() {
         let mut collector = DecisionTraceCollector::with_capacity(3);
         for i in 0..5 {
-            collector.record(DecisionRecord::new(DecisionPoint::OracleAdjudication, i, "Continue"));
+            collector.record(DecisionRecord::new(
+                DecisionPoint::OracleAdjudication,
+                i,
+                "Continue",
+            ));
         }
         assert_eq!(collector.len(), 3, "should not exceed max_records");
         // Oldest records should have been dropped
@@ -278,10 +298,26 @@ mod tests {
     #[test]
     fn phase4_trace_collector_counts_by_point() {
         let mut collector = DecisionTraceCollector::new();
-        collector.record(DecisionRecord::new(DecisionPoint::OracleAdjudication, 0, "Continue"));
-        collector.record(DecisionRecord::new(DecisionPoint::OracleAdjudication, 1, "Replan"));
-        collector.record(DecisionRecord::new(DecisionPoint::UtilityEvaluation, 0, "productive"));
-        collector.record(DecisionRecord::new(DecisionPoint::EbsGateFired, 2, "intercepted"));
+        collector.record(DecisionRecord::new(
+            DecisionPoint::OracleAdjudication,
+            0,
+            "Continue",
+        ));
+        collector.record(DecisionRecord::new(
+            DecisionPoint::OracleAdjudication,
+            1,
+            "Replan",
+        ));
+        collector.record(DecisionRecord::new(
+            DecisionPoint::UtilityEvaluation,
+            0,
+            "productive",
+        ));
+        collector.record(DecisionRecord::new(
+            DecisionPoint::EbsGateFired,
+            2,
+            "intercepted",
+        ));
 
         let counts = collector.counts_by_point();
         assert_eq!(counts[&DecisionPoint::OracleAdjudication], 2);
@@ -293,21 +329,41 @@ mod tests {
     #[test]
     fn phase4_trace_collector_last_of() {
         let mut collector = DecisionTraceCollector::new();
-        collector.record(DecisionRecord::new(DecisionPoint::OracleAdjudication, 0, "Continue"));
-        collector.record(DecisionRecord::new(DecisionPoint::OracleAdjudication, 3, "Halt"));
+        collector.record(DecisionRecord::new(
+            DecisionPoint::OracleAdjudication,
+            0,
+            "Continue",
+        ));
+        collector.record(DecisionRecord::new(
+            DecisionPoint::OracleAdjudication,
+            3,
+            "Halt",
+        ));
 
-        let last = collector.last_of(DecisionPoint::OracleAdjudication).unwrap();
+        let last = collector
+            .last_of(DecisionPoint::OracleAdjudication)
+            .unwrap();
         assert_eq!(last.round, 3);
         assert_eq!(last.action, "Halt");
 
-        assert!(collector.last_of(DecisionPoint::ComplexityUpgrade).is_none());
+        assert!(collector
+            .last_of(DecisionPoint::ComplexityUpgrade)
+            .is_none());
     }
 
     #[test]
     fn phase4_trace_collector_summary() {
         let mut collector = DecisionTraceCollector::new();
-        collector.record(DecisionRecord::new(DecisionPoint::OracleAdjudication, 0, "Continue"));
-        collector.record(DecisionRecord::new(DecisionPoint::UtilityEvaluation, 0, "productive"));
+        collector.record(DecisionRecord::new(
+            DecisionPoint::OracleAdjudication,
+            0,
+            "Continue",
+        ));
+        collector.record(DecisionRecord::new(
+            DecisionPoint::UtilityEvaluation,
+            0,
+            "productive",
+        ));
 
         let summary = collector.summary();
         assert!(summary.contains("2 total"));
@@ -318,7 +374,11 @@ mod tests {
     #[test]
     fn phase4_trace_collector_reset() {
         let mut collector = DecisionTraceCollector::new();
-        collector.record(DecisionRecord::new(DecisionPoint::OracleAdjudication, 0, "Continue"));
+        collector.record(DecisionRecord::new(
+            DecisionPoint::OracleAdjudication,
+            0,
+            "Continue",
+        ));
         assert_eq!(collector.len(), 1);
         collector.reset();
         assert!(collector.is_empty());
@@ -346,10 +406,14 @@ mod tests {
 
     #[test]
     fn phase4_trace_record_builder_pattern() {
-        let record = DecisionRecord::new(DecisionPoint::StrategyMutation, 5, "ReplanWithDecomposition")
-            .with_input("tool_failure_clustering", "0.65")
-            .with_input("plan_completion", "0.20")
-            .with_rationale("high failure clustering with low completion");
+        let record = DecisionRecord::new(
+            DecisionPoint::StrategyMutation,
+            5,
+            "ReplanWithDecomposition",
+        )
+        .with_input("tool_failure_clustering", "0.65")
+        .with_input("plan_completion", "0.20")
+        .with_rationale("high failure clustering with low completion");
 
         assert_eq!(record.inputs.len(), 2);
         assert!(record.confidence.is_none());
@@ -361,7 +425,11 @@ mod tests {
         let mut collector = DecisionTraceCollector::new();
         let actions = ["A", "B", "C", "D", "E"];
         for (i, action) in actions.iter().enumerate() {
-            collector.record(DecisionRecord::new(DecisionPoint::OracleAdjudication, i, *action));
+            collector.record(DecisionRecord::new(
+                DecisionPoint::OracleAdjudication,
+                i,
+                *action,
+            ));
         }
         for (i, record) in collector.records().iter().enumerate() {
             assert_eq!(record.action, actions[i]);

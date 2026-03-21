@@ -20,11 +20,11 @@
 //! **I-7.5**: `replay_hash(seed) = replay_hash(seed)` for any seed.
 //! Verified by 100 repeated runs producing identical hashes.
 
-use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand::Rng;
+use rand::SeedableRng;
 use serde::{Deserialize, Serialize};
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 
 // ─── ReplayEvent ─────────────────────────────────────────────────────────────
 
@@ -150,8 +150,20 @@ impl DeterministicHarness {
     pub fn run(&self) -> ReplayLog {
         let mut rng: StdRng = StdRng::seed_from_u64(self.seed);
 
-        let strategies = ["direct_tool", "plan_first", "multi_step", "exploratory", "goal_driven"];
-        let fsm_states = ["planning", "executing", "verifying", "replanning", "executing"];
+        let strategies = [
+            "direct_tool",
+            "plan_first",
+            "multi_step",
+            "exploratory",
+            "goal_driven",
+        ];
+        let fsm_states = [
+            "planning",
+            "executing",
+            "verifying",
+            "replanning",
+            "executing",
+        ];
 
         let mut events = Vec::with_capacity(self.rounds as usize);
         let mut transitions = Vec::with_capacity(self.rounds as usize);
@@ -162,13 +174,12 @@ impl DeterministicHarness {
         let k = strategies.len();
         let mut pulls = vec![0u64; k];
         let mut sum_reward = vec![0.0f64; k];
-        let mut total_pulls = 0u64;
-
         // Track FSM state
-        let mut fsm_idx: usize = 0;
         let mut prev_fsm = "idle".to_string();
 
-        for round in 0..self.rounds {
+        for (total_pulls, round) in (0..self.rounds).enumerate() {
+            let fsm_idx = round as usize;
+            let total_pulls = total_pulls as u64;
             // Select strategy via deterministic UCB1
             let c = std::f64::consts::SQRT_2;
             let chosen_strategy = if total_pulls < k as u64 {
@@ -177,10 +188,18 @@ impl DeterministicHarness {
                 let n = total_pulls;
                 (0..k)
                     .max_by(|&i, &j| {
-                        let si = if pulls[i] == 0 { f64::INFINITY }
-                            else { sum_reward[i] / pulls[i] as f64 + c * ((n as f64).ln() / pulls[i] as f64).sqrt() };
-                        let sj = if pulls[j] == 0 { f64::INFINITY }
-                            else { sum_reward[j] / pulls[j] as f64 + c * ((n as f64).ln() / pulls[j] as f64).sqrt() };
+                        let si = if pulls[i] == 0 {
+                            f64::INFINITY
+                        } else {
+                            sum_reward[i] / pulls[i] as f64
+                                + c * ((n as f64).ln() / pulls[i] as f64).sqrt()
+                        };
+                        let sj = if pulls[j] == 0 {
+                            f64::INFINITY
+                        } else {
+                            sum_reward[j] / pulls[j] as f64
+                                + c * ((n as f64).ln() / pulls[j] as f64).sqrt()
+                        };
                         si.partial_cmp(&sj).unwrap_or(std::cmp::Ordering::Equal)
                     })
                     .unwrap_or(0)
@@ -190,13 +209,11 @@ impl DeterministicHarness {
             let reward: f64 = rng.random_range(0.0..1.0);
             pulls[chosen_strategy] += 1;
             sum_reward[chosen_strategy] += reward.clamp(0.0, 1.0);
-            total_pulls += 1;
 
             // Advance FSM state
             let cur_fsm = fsm_states[fsm_idx % fsm_states.len()];
             transitions.push((prev_fsm.clone(), cur_fsm.to_string()));
             prev_fsm = cur_fsm.to_string();
-            fsm_idx += 1;
 
             // Deterministic tool output
             let tool_key: u32 = rng.random_range(1000..9999);
@@ -259,17 +276,27 @@ mod tests {
     fn different_seed_produces_different_hash() {
         let log1 = DeterministicHarness::new(1, 20).run();
         let log2 = DeterministicHarness::new(2, 20).run();
-        assert_ne!(log1.session_hash(), log2.session_hash(),
-            "different seeds should produce different hashes");
+        assert_ne!(
+            log1.session_hash(),
+            log2.session_hash(),
+            "different seeds should produce different hashes"
+        );
     }
 
     #[test]
     fn session_hash_is_64_hex_chars() {
         let log = DeterministicHarness::new(99, 10).run();
         let hex = log.session_hash().to_hex();
-        assert_eq!(hex.len(), 64, "SHA-256 should be 64 hex chars, got {}", hex.len());
-        assert!(hex.chars().all(|c| c.is_ascii_hexdigit()),
-            "hash should be lowercase hex");
+        assert_eq!(
+            hex.len(),
+            64,
+            "SHA-256 should be 64 hex chars, got {}",
+            hex.len()
+        );
+        assert!(
+            hex.chars().all(|c| c.is_ascii_hexdigit()),
+            "hash should be lowercase hex"
+        );
     }
 
     #[test]
@@ -301,7 +328,10 @@ mod tests {
     fn one_hundred_runs_produce_identical_hash() {
         // I-7.5 main invariant: 100 replays = same hash
         let (_, all_identical) = certify_determinism(999, 15, 100);
-        assert!(all_identical, "100 runs with same seed must produce identical hash");
+        assert!(
+            all_identical,
+            "100 runs with same seed must produce identical hash"
+        );
     }
 
     #[test]
@@ -325,8 +355,11 @@ mod tests {
         // GAS should be generally increasing (early rounds lower than late)
         let early_mean: f32 = log.gas_trajectory[..10].iter().sum::<f32>() / 10.0;
         let late_mean: f32 = log.gas_trajectory[40..].iter().sum::<f32>() / 10.0;
-        assert!(late_mean > early_mean,
+        assert!(
+            late_mean > early_mean,
             "late GAS should be higher than early GAS on average: early={:.3} late={:.3}",
-            early_mean, late_mean);
+            early_mean,
+            late_mean
+        );
     }
 }

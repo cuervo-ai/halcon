@@ -199,7 +199,10 @@ mod tests {
         let mut cb = PluginCircuitBreaker::new(3, Duration::from_secs(60));
         cb.record_failure();
         cb.record_failure();
-        assert!(!cb.is_open(), "circuit should still be closed before threshold");
+        assert!(
+            !cb.is_open(),
+            "circuit should still be closed before threshold"
+        );
     }
 
     #[test]

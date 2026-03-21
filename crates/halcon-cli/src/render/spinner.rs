@@ -6,11 +6,11 @@ use std::time::{Duration, Instant};
 use tokio::task::JoinHandle;
 
 use super::animations;
+#[cfg(feature = "color-science")]
+use super::temporal_color::{SpinnerPhysics, TemporalSpinner};
 use super::theme;
 #[cfg(feature = "color-science")]
 use super::theme::ThemeColor;
-#[cfg(feature = "color-science")]
-use super::temporal_color::{SpinnerPhysics, TemporalSpinner};
 
 /// Lightweight async spinner for inference waiting feedback.
 ///
@@ -19,7 +19,7 @@ use super::temporal_color::{SpinnerPhysics, TemporalSpinner};
 /// to avoid flicker on fast responses.
 pub struct Spinner {
     active: Arc<AtomicBool>,
-    label:  Arc<Mutex<String>>,
+    label: Arc<Mutex<String>>,
     handle: Option<JoinHandle<()>>,
 }
 
@@ -66,10 +66,7 @@ impl Spinner {
                 let lbl = label_clone.lock().unwrap().clone();
                 {
                     let mut out = io::stderr().lock();
-                    let _ = write!(
-                        out,
-                        "\r  {primary}{frame}{r} {lbl} {dim}({elapsed:.1}s){r}",
-                    );
+                    let _ = write!(out, "\r  {primary}{frame}{r} {lbl} {dim}({elapsed:.1}s){r}",);
                     let _ = out.flush();
                 }
                 tokio::time::sleep(Duration::from_millis(80)).await;

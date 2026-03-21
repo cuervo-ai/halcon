@@ -19,38 +19,114 @@ use serde_json::{json, Value};
 /// Compiled set of secret detection patterns.
 static SECRET_PATTERNS: LazyLock<Vec<SecretPattern>> = LazyLock::new(|| {
     vec![
-        SecretPattern::new("aws_access_key", r"(?i)(aws_access_key_id|AKIA)[A-Z0-9]{16,20}", "AWS Access Key ID"),
-        SecretPattern::new("aws_secret_key", r"(?i)aws_secret_access_key\s*[=:]\s*[A-Za-z0-9/+=]{40}", "AWS Secret Access Key"),
-        SecretPattern::new("github_token", r"(?i)(ghp_|gho_|ghu_|ghs_|ghr_)[A-Za-z0-9]{36,255}", "GitHub Personal Access Token"),
-        SecretPattern::new("github_classic", r"(?i)github[_\-\s.]*token[_\-\s.]*[=:][_\-\s.]*[A-Za-z0-9]{40}", "GitHub Classic Token"),
-        SecretPattern::new("anthropic_key", r"sk-ant-api[0-9]+-[A-Za-z0-9_\-]{95,}", "Anthropic API Key"),
+        SecretPattern::new(
+            "aws_access_key",
+            r"(?i)(aws_access_key_id|AKIA)[A-Z0-9]{16,20}",
+            "AWS Access Key ID",
+        ),
+        SecretPattern::new(
+            "aws_secret_key",
+            r"(?i)aws_secret_access_key\s*[=:]\s*[A-Za-z0-9/+=]{40}",
+            "AWS Secret Access Key",
+        ),
+        SecretPattern::new(
+            "github_token",
+            r"(?i)(ghp_|gho_|ghu_|ghs_|ghr_)[A-Za-z0-9]{36,255}",
+            "GitHub Personal Access Token",
+        ),
+        SecretPattern::new(
+            "github_classic",
+            r"(?i)github[_\-\s.]*token[_\-\s.]*[=:][_\-\s.]*[A-Za-z0-9]{40}",
+            "GitHub Classic Token",
+        ),
+        SecretPattern::new(
+            "anthropic_key",
+            r"sk-ant-api[0-9]+-[A-Za-z0-9_\-]{95,}",
+            "Anthropic API Key",
+        ),
         SecretPattern::new("openai_key", r"sk-[A-Za-z0-9]{48}", "OpenAI API Key"),
-        SecretPattern::new("google_api_key", r"AIza[0-9A-Za-z\-_]{35}", "Google API Key"),
-        SecretPattern::new("stripe_key", r"(?:sk|pk)_(?:live|test)_[0-9a-zA-Z]{24,}", "Stripe API Key"),
-        SecretPattern::new("slack_token", r"xox[baprs]-[0-9A-Za-z]{10,48}", "Slack Token"),
-        SecretPattern::new("jwt_token", r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}", "JWT Token"),
-        SecretPattern::new("private_key", r"-----BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY( BLOCK)?-----", "Private Key"),
-        SecretPattern::new("password_assign", r#"(?i)(password|passwd|pwd)\s*[=:]\s*["'][^"']{8,}["']"#, "Hardcoded Password"),
-        SecretPattern::new("secret_assign", r#"(?i)(secret|api_secret|client_secret)\s*[=:]\s*["'][^"']{8,}["']"#, "Hardcoded Secret"),
-        SecretPattern::new("db_connection", r"(?i)(postgres|mysql|mongodb|redis):\/\/[^:]+:[^@]+@", "Database Connection String with Credentials"),
-        SecretPattern::new("generic_token", r#"(?i)(access_token|auth_token|bearer_token)\s*[=:]\s*["'][A-Za-z0-9._\-]{20,}["']"#, "Generic Access Token"),
-        SecretPattern::new("heroku_key", r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}", "UUID-format Key (potential Heroku/service key)"),
-        SecretPattern::new("ssh_key_header", r"(ssh-rsa|ssh-ed25519|ecdsa-sha2-nistp256) AAAA[A-Za-z0-9+/]{40,}", "SSH Public Key"),
-        SecretPattern::new("dotenv_secret", r#"(?m)^[A-Z_]+_(KEY|SECRET|TOKEN|PASSWORD|PASS|PWD|API)\s*=\s*[^\s#]{8,}"#, ".env Secret Variable"),
+        SecretPattern::new(
+            "google_api_key",
+            r"AIza[0-9A-Za-z\-_]{35}",
+            "Google API Key",
+        ),
+        SecretPattern::new(
+            "stripe_key",
+            r"(?:sk|pk)_(?:live|test)_[0-9a-zA-Z]{24,}",
+            "Stripe API Key",
+        ),
+        SecretPattern::new(
+            "slack_token",
+            r"xox[baprs]-[0-9A-Za-z]{10,48}",
+            "Slack Token",
+        ),
+        SecretPattern::new(
+            "jwt_token",
+            r"eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}",
+            "JWT Token",
+        ),
+        SecretPattern::new(
+            "private_key",
+            r"-----BEGIN (RSA |EC |OPENSSH |DSA )?PRIVATE KEY( BLOCK)?-----",
+            "Private Key",
+        ),
+        SecretPattern::new(
+            "password_assign",
+            r#"(?i)(password|passwd|pwd)\s*[=:]\s*["'][^"']{8,}["']"#,
+            "Hardcoded Password",
+        ),
+        SecretPattern::new(
+            "secret_assign",
+            r#"(?i)(secret|api_secret|client_secret)\s*[=:]\s*["'][^"']{8,}["']"#,
+            "Hardcoded Secret",
+        ),
+        SecretPattern::new(
+            "db_connection",
+            r"(?i)(postgres|mysql|mongodb|redis):\/\/[^:]+:[^@]+@",
+            "Database Connection String with Credentials",
+        ),
+        SecretPattern::new(
+            "generic_token",
+            r#"(?i)(access_token|auth_token|bearer_token)\s*[=:]\s*["'][A-Za-z0-9._\-]{20,}["']"#,
+            "Generic Access Token",
+        ),
+        SecretPattern::new(
+            "heroku_key",
+            r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+            "UUID-format Key (potential Heroku/service key)",
+        ),
+        SecretPattern::new(
+            "ssh_key_header",
+            r"(ssh-rsa|ssh-ed25519|ecdsa-sha2-nistp256) AAAA[A-Za-z0-9+/]{40,}",
+            "SSH Public Key",
+        ),
+        SecretPattern::new(
+            "dotenv_secret",
+            r#"(?m)^[A-Z_]+_(KEY|SECRET|TOKEN|PASSWORD|PASS|PWD|API)\s*=\s*[^\s#]{8,}"#,
+            ".env Secret Variable",
+        ),
     ]
 });
 
 /// Skip-list for directories and files that should never be scanned.
 static SKIP_DIRS: &[&str] = &[
-    ".git", "target", "node_modules", ".venv", "venv", "__pycache__",
-    "vendor", "dist", "build", ".gradle", ".cargo",
+    ".git",
+    "target",
+    "node_modules",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "vendor",
+    "dist",
+    "build",
+    ".gradle",
+    ".cargo",
 ];
 
 static SKIP_EXTENSIONS: &[&str] = &[
-    "png", "jpg", "jpeg", "gif", "ico", "svg", "woff", "woff2",
-    "ttf", "otf", "mp3", "mp4", "wav", "pdf", "zip", "tar", "gz",
-    "bz2", "xz", "7z", "exe", "dll", "so", "dylib", "a", "o",
-    "lock",  // Cargo.lock, package-lock.json etc. contain hashes, not secrets
+    "png", "jpg", "jpeg", "gif", "ico", "svg", "woff", "woff2", "ttf", "otf", "mp3", "mp4", "wav",
+    "pdf", "zip", "tar", "gz", "bz2", "xz", "7z", "exe", "dll", "so", "dylib", "a", "o",
+    "lock", // Cargo.lock, package-lock.json etc. contain hashes, not secrets
 ];
 
 struct SecretPattern {
@@ -112,10 +188,12 @@ impl SecretScanTool {
         // Skip hidden files/dirs (except .env files)
         for component in path.components() {
             let name = component.as_os_str().to_string_lossy();
-            if name.starts_with('.') && name != ".env" && !name.starts_with(".env.") {
-                if SKIP_DIRS.iter().any(|&s| s == name.as_ref()) {
-                    return true;
-                }
+            if name.starts_with('.')
+                && name != ".env"
+                && !name.starts_with(".env.")
+                && SKIP_DIRS.iter().any(|&s| s == name.as_ref())
+            {
+                return true;
             }
             if SKIP_DIRS.iter().any(|&s| s == name.as_ref()) {
                 return true;
@@ -124,7 +202,7 @@ impl SecretScanTool {
         // Skip binary/asset extensions
         if let Some(ext) = path.extension() {
             let ext_str = ext.to_string_lossy().to_lowercase();
-            if SKIP_EXTENSIONS.iter().any(|&s| s == ext_str.as_str()) {
+            if SKIP_EXTENSIONS.contains(&ext_str.as_str()) {
                 return true;
             }
         }
@@ -228,7 +306,10 @@ impl Tool for SecretScanTool {
         PermissionLevel::ReadOnly
     }
 
-    async fn execute(&self, input: ToolInput) -> Result<ToolOutput, halcon_core::error::HalconError> {
+    async fn execute(
+        &self,
+        input: ToolInput,
+    ) -> Result<ToolOutput, halcon_core::error::HalconError> {
         let args = &input.arguments;
         let working_dir = PathBuf::from(&input.working_directory);
 
@@ -236,7 +317,11 @@ impl Tool for SecretScanTool {
             .as_str()
             .map(|p| {
                 let p = Path::new(p);
-                if p.is_absolute() { p.to_path_buf() } else { working_dir.join(p) }
+                if p.is_absolute() {
+                    p.to_path_buf()
+                } else {
+                    working_dir.join(p)
+                }
             })
             .unwrap_or_else(|| working_dir.clone());
 
@@ -245,14 +330,14 @@ impl Tool for SecretScanTool {
             .map(|n| (n as usize).min(5000))
             .unwrap_or(500);
 
-        let include_low_confidence = args["include_low_confidence"]
-            .as_bool()
-            .unwrap_or(false);
+        let include_low_confidence = args["include_low_confidence"].as_bool().unwrap_or(false);
 
         // Filter pattern IDs if specified
-        let pattern_filter: Option<Vec<String>> = args["patterns"]
-            .as_array()
-            .map(|arr| arr.iter().filter_map(|v| v.as_str().map(|s| s.to_string())).collect());
+        let pattern_filter: Option<Vec<String>> = args["patterns"].as_array().map(|arr| {
+            arr.iter()
+                .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                .collect()
+        });
 
         // Low-confidence patterns to skip unless explicitly requested
         let low_confidence = ["heroku_key", "ssh_key_header"];
@@ -273,7 +358,7 @@ impl Tool for SecretScanTool {
         let files_scanned = files.len();
         let mut all_findings: Vec<Finding> = Vec::new();
         let mut files_with_issues: HashMap<String, usize> = HashMap::new();
-        let mut errors: Vec<String> = Vec::new();
+        let errors: Vec<String> = Vec::new();
 
         for file in &files {
             let content = match std::fs::read_to_string(file) {
@@ -339,7 +424,8 @@ impl Tool for SecretScanTool {
         // Group by file
         let mut by_file: HashMap<String, Vec<&Finding>> = HashMap::new();
         for f in &all_findings {
-            let key = f.file
+            let key = f
+                .file
                 .strip_prefix(&working_dir)
                 .unwrap_or(&f.file)
                 .to_string_lossy()
@@ -356,10 +442,7 @@ impl Tool for SecretScanTool {
             for finding in findings.iter().take(10) {
                 output.push_str(&format!(
                     "  L{:4} [{:20}] {}\n       {}\n",
-                    finding.line_number,
-                    finding.pattern_id,
-                    finding.description,
-                    finding.context
+                    finding.line_number, finding.pattern_id, finding.description, finding.context
                 ));
             }
             if findings.len() > 10 {
@@ -403,7 +486,10 @@ mod tests {
         let line = "key = sk-aAbBcCdDeEfFgGhHiIjJkKlLmMnNoOpPqQrRsStTuUvVwWxX";
         let redacted = redact_line(line, &pattern);
         assert!(redacted.contains("[REDACTED]"), "should redact");
-        assert!(!redacted.contains("aAbBcCdDeEfFgGhHiIjJkKlLmMnNoOpPqQrRsStTuUvVwWxX"), "full secret should be removed");
+        assert!(
+            !redacted.contains("aAbBcCdDeEfFgGhHiIjJkKlLmMnNoOpPqQrRsStTuUvVwWxX"),
+            "full secret should be removed"
+        );
     }
 
     #[test]
@@ -417,10 +503,14 @@ mod tests {
 
     #[test]
     fn scan_content_detects_private_key() {
-        let content = "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA...\n-----END RSA PRIVATE KEY-----";
+        let content =
+            "-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA...\n-----END RSA PRIVATE KEY-----";
         let path = Path::new("id_rsa");
         let findings = SecretScanTool::scan_content(path, content);
-        assert!(findings.iter().any(|f| f.pattern_id == "private_key"), "should detect private key");
+        assert!(
+            findings.iter().any(|f| f.pattern_id == "private_key"),
+            "should detect private key"
+        );
     }
 
     #[test]
@@ -428,7 +518,10 @@ mod tests {
         let content = r#"DATABASE_URL=postgres://user:supersecret@localhost/mydb"#;
         let path = Path::new(".env");
         let findings = SecretScanTool::scan_content(path, content);
-        assert!(findings.iter().any(|f| f.pattern_id == "db_connection"), "should detect db conn");
+        assert!(
+            findings.iter().any(|f| f.pattern_id == "db_connection"),
+            "should detect db conn"
+        );
     }
 
     #[test]
@@ -441,15 +534,21 @@ mod tests {
 
     #[test]
     fn should_skip_git_dir() {
-        assert!(SecretScanTool::should_skip_path(Path::new(".git/COMMIT_EDITMSG")));
-        assert!(SecretScanTool::should_skip_path(Path::new("node_modules/pkg/index.js")));
+        assert!(SecretScanTool::should_skip_path(Path::new(
+            ".git/COMMIT_EDITMSG"
+        )));
+        assert!(SecretScanTool::should_skip_path(Path::new(
+            "node_modules/pkg/index.js"
+        )));
         assert!(!SecretScanTool::should_skip_path(Path::new("src/main.rs")));
     }
 
     #[test]
     fn should_skip_binary_extensions() {
         assert!(SecretScanTool::should_skip_path(Path::new("image.png")));
-        assert!(SecretScanTool::should_skip_path(Path::new("archive.tar.gz")));
+        assert!(SecretScanTool::should_skip_path(Path::new(
+            "archive.tar.gz"
+        )));
         assert!(!SecretScanTool::should_skip_path(Path::new("config.toml")));
     }
 

@@ -84,7 +84,11 @@ impl CostLatencyOptimizer {
             .collect();
 
         // Sort by score descending (higher = better).
-        ranked.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        ranked.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         ranked
     }
 }
@@ -115,7 +119,14 @@ mod tests {
     use chrono::Utc;
     use halcon_storage::InvocationMetric;
 
-    fn insert_metrics(db: &Database, provider: &str, model: &str, count: usize, latency: u64, cost: f64) {
+    fn insert_metrics(
+        db: &Database,
+        provider: &str,
+        model: &str,
+        count: usize,
+        latency: u64,
+        cost: f64,
+    ) {
         for _ in 0..count {
             db.insert_metric(&InvocationMetric {
                 provider: provider.to_string(),
@@ -200,8 +211,14 @@ mod tests {
     fn optimize_strategy_from_str() {
         assert_eq!(OptimizeStrategy::from_str("fast"), OptimizeStrategy::Fast);
         assert_eq!(OptimizeStrategy::from_str("cheap"), OptimizeStrategy::Cheap);
-        assert_eq!(OptimizeStrategy::from_str("balanced"), OptimizeStrategy::Balanced);
-        assert_eq!(OptimizeStrategy::from_str("unknown"), OptimizeStrategy::Balanced);
+        assert_eq!(
+            OptimizeStrategy::from_str("balanced"),
+            OptimizeStrategy::Balanced
+        );
+        assert_eq!(
+            OptimizeStrategy::from_str("unknown"),
+            OptimizeStrategy::Balanced
+        );
     }
 
     #[test]
@@ -219,7 +236,11 @@ mod tests {
             success_rate: 1.0,
         };
 
-        for strategy in [OptimizeStrategy::Balanced, OptimizeStrategy::Fast, OptimizeStrategy::Cheap] {
+        for strategy in [
+            OptimizeStrategy::Balanced,
+            OptimizeStrategy::Fast,
+            OptimizeStrategy::Cheap,
+        ] {
             let score = compute_score(&stats, strategy);
             assert!(score >= 0.0, "score should be non-negative");
             assert!(score <= 1.0, "score should be at most 1.0");

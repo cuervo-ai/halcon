@@ -71,10 +71,7 @@ impl IdempotencyRegistry {
     /// Number of recorded executions.
     #[allow(dead_code)]
     pub fn len(&self) -> usize {
-        self.records
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .len()
+        self.records.lock().unwrap_or_else(|e| e.into_inner()).len()
     }
 
     /// Whether the registry is empty.
@@ -107,10 +104,7 @@ mod tests {
     }
 
     /// Generate a rollback hint for a tool call (best-effort, test-only).
-    fn generate_rollback_hint(
-        tool_name: &str,
-        args: &serde_json::Value,
-    ) -> Option<RollbackHint> {
+    fn generate_rollback_hint(tool_name: &str, args: &serde_json::Value) -> Option<RollbackHint> {
         match tool_name {
             "file_write" | "write_file" => {
                 let path = args
@@ -245,8 +239,7 @@ mod tests {
 
     #[test]
     fn rollback_hint_file_edit() {
-        let hint =
-            generate_rollback_hint("file_edit", &serde_json::json!({"path": "src/main.rs"}));
+        let hint = generate_rollback_hint("file_edit", &serde_json::json!({"path": "src/main.rs"}));
         let hint = hint.unwrap();
         assert!(hint.undo_command.unwrap().contains("git checkout"));
     }

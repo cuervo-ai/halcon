@@ -27,7 +27,10 @@ pub struct CiEnvironment {
 pub fn detect() -> CiEnvironment {
     // Generic CI indicator
     if env::var("CI").is_ok_and(|v| v == "true" || v == "1") {
-        return CiEnvironment { is_ci: true, detected_via: Some("CI".to_string()) };
+        return CiEnvironment {
+            is_ci: true,
+            detected_via: Some("CI".to_string()),
+        };
     }
 
     // Platform-specific CI variables
@@ -47,11 +50,17 @@ pub fn detect() -> CiEnvironment {
 
     for &var in CI_VARS {
         if env::var(var).is_ok() {
-            return CiEnvironment { is_ci: true, detected_via: Some(var.to_string()) };
+            return CiEnvironment {
+                is_ci: true,
+                detected_via: Some(var.to_string()),
+            };
         }
     }
 
-    CiEnvironment { is_ci: false, detected_via: None }
+    CiEnvironment {
+        is_ci: false,
+        detected_via: None,
+    }
 }
 
 /// Auto-approves all tools when running in a CI environment.
@@ -83,16 +92,16 @@ impl CIDetectionPolicy {
 
         // Platform-specific CI variables
         const CI_VARS: &[&str] = &[
-            "GITHUB_ACTIONS",   // GitHub Actions
-            "GITLAB_CI",        // GitLab CI
-            "CIRCLECI",         // CircleCI
-            "JENKINS_HOME",     // Jenkins
-            "TRAVIS",           // Travis CI
-            "BUILDKITE",        // Buildkite
-            "DRONE",            // Drone CI
-            "TEAMCITY_VERSION", // TeamCity
-            "CIRRUS_CI",        // Cirrus CI
-            "SEMAPHORE",        // Semaphore CI
+            "GITHUB_ACTIONS",     // GitHub Actions
+            "GITLAB_CI",          // GitLab CI
+            "CIRCLECI",           // CircleCI
+            "JENKINS_HOME",       // Jenkins
+            "TRAVIS",             // Travis CI
+            "BUILDKITE",          // Buildkite
+            "DRONE",              // Drone CI
+            "TEAMCITY_VERSION",   // TeamCity
+            "CIRRUS_CI",          // Cirrus CI
+            "SEMAPHORE",          // Semaphore CI
             "CODEBUILD_BUILD_ID", // AWS CodeBuild
         ];
 
@@ -167,7 +176,13 @@ mod tests {
     #[test]
     #[serial]
     fn detect_returns_is_ci_false_when_no_ci_vars() {
-        for var in &["CI", "GITHUB_ACTIONS", "GITLAB_CI", "CIRCLECI", "JENKINS_HOME"] {
+        for var in &[
+            "CI",
+            "GITHUB_ACTIONS",
+            "GITLAB_CI",
+            "CIRCLECI",
+            "JENKINS_HOME",
+        ] {
             std::env::remove_var(var);
         }
         let env = detect();
@@ -229,7 +244,13 @@ mod tests {
     #[serial]
     fn not_ci_environment() {
         // Clear all potential CI vars
-        for var in &["CI", "GITHUB_ACTIONS", "GITLAB_CI", "CIRCLECI", "JENKINS_HOME"] {
+        for var in &[
+            "CI",
+            "GITHUB_ACTIONS",
+            "GITLAB_CI",
+            "CIRCLECI",
+            "JENKINS_HOME",
+        ] {
             std::env::remove_var(var);
         }
         assert!(!CIDetectionPolicy::is_ci_environment());

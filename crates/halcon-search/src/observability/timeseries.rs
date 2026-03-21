@@ -262,8 +262,7 @@ fn linear_regression_slope(points: &[(f64, f64)]) -> f64 {
     let sum_xy: f64 = points.iter().map(|(x, y)| x * y).sum();
     let sum_x2: f64 = points.iter().map(|(x, _)| x * x).sum();
 
-    let slope = (n * sum_xy - sum_x * sum_y) / (n * sum_x2 - sum_x * sum_x);
-    slope
+    (n * sum_xy - sum_x * sum_y) / (n * sum_x2 - sum_x * sum_x)
 }
 
 #[cfg(test)]
@@ -297,8 +296,14 @@ mod tests {
     #[test]
     fn test_aggregation_window_duration() {
         assert_eq!(AggregationWindow::Minute.duration(), Duration::minutes(1));
-        assert_eq!(AggregationWindow::FiveMinutes.duration(), Duration::minutes(5));
-        assert_eq!(AggregationWindow::FifteenMinutes.duration(), Duration::minutes(15));
+        assert_eq!(
+            AggregationWindow::FiveMinutes.duration(),
+            Duration::minutes(5)
+        );
+        assert_eq!(
+            AggregationWindow::FifteenMinutes.duration(),
+            Duration::minutes(15)
+        );
         assert_eq!(AggregationWindow::Hour.duration(), Duration::hours(1));
         assert_eq!(AggregationWindow::Day.duration(), Duration::days(1));
     }

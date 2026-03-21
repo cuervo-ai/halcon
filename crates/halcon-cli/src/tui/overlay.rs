@@ -151,9 +151,8 @@ impl OverlayState {
     /// hatch for non-interactive scenarios where a hard deadline is needed.
     pub fn set_permission_deadline(&mut self, timeout_secs: u64) {
         if timeout_secs > 0 {
-            self.permission_deadline = Some(
-                std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs),
-            );
+            self.permission_deadline =
+                Some(std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs));
             self.permission_total_secs = timeout_secs;
         }
     }
@@ -347,8 +346,7 @@ pub fn filter_commands(items: &[OverlayItem], query: &str) -> Vec<OverlayItem> {
     items
         .iter()
         .filter(|item| {
-            item.label.to_lowercase().contains(&q)
-                || item.description.to_lowercase().contains(&q)
+            item.label.to_lowercase().contains(&q) || item.description.to_lowercase().contains(&q)
         })
         .cloned()
         .collect()
@@ -488,10 +486,16 @@ pub fn render_permission_prompt(frame: &mut Frame, area: Rect, tool: &str) {
         )),
         Line::from(""),
         Line::from(vec![
-            Span::styled("  [Y] ", Style::default().fg(c_accent).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "  [Y] ",
+                Style::default().fg(c_accent).add_modifier(Modifier::BOLD),
+            ),
             Span::styled("Approve", Style::default().fg(c_text)),
             Span::styled("    ", Style::default()),
-            Span::styled("[N] ", Style::default().fg(c_warning).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "[N] ",
+                Style::default().fg(c_warning).add_modifier(Modifier::BOLD),
+            ),
             Span::styled("Reject", Style::default().fg(c_text)),
             Span::styled("    ", Style::default()),
             Span::styled("[Esc] ", Style::default().fg(c_text)),
@@ -636,17 +640,35 @@ pub fn render_context_servers(
     } else {
         // Table header
         lines.push(Line::from(vec![
-            Span::styled("NAME", Style::default().fg(c_accent).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "NAME",
+                Style::default().fg(c_accent).add_modifier(Modifier::BOLD),
+            ),
             Span::raw("            "),
-            Span::styled("PRIORITY", Style::default().fg(c_accent).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "PRIORITY",
+                Style::default().fg(c_accent).add_modifier(Modifier::BOLD),
+            ),
             Span::raw("  "),
-            Span::styled("STATUS", Style::default().fg(c_accent).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "STATUS",
+                Style::default().fg(c_accent).add_modifier(Modifier::BOLD),
+            ),
             Span::raw("      "),
-            Span::styled("TOKENS", Style::default().fg(c_accent).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "TOKENS",
+                Style::default().fg(c_accent).add_modifier(Modifier::BOLD),
+            ),
             Span::raw("    "),
-            Span::styled("QUERIES", Style::default().fg(c_accent).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "QUERIES",
+                Style::default().fg(c_accent).add_modifier(Modifier::BOLD),
+            ),
             Span::raw("    "),
-            Span::styled("LAST QUERY", Style::default().fg(c_accent).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "LAST QUERY",
+                Style::default().fg(c_accent).add_modifier(Modifier::BOLD),
+            ),
         ]));
         lines.push(Line::from(Span::styled(
             "─".repeat(rect.width.saturating_sub(4) as usize),
@@ -695,7 +717,10 @@ pub fn render_context_servers(
             lines.push(Line::from(vec![
                 Span::styled(format!("{:<20}", server.name), Style::default().fg(c_text)),
                 Span::raw("  "),
-                Span::styled(format!("{:>3}", server.priority), Style::default().fg(c_accent)),
+                Span::styled(
+                    format!("{:>3}", server.priority),
+                    Style::default().fg(c_accent),
+                ),
                 Span::raw("  "),
                 status_span,
                 Span::raw("    "),
@@ -703,7 +728,10 @@ pub fn render_context_servers(
                 Span::raw("    "),
                 Span::styled(format!("{:>7}", queries_str), Style::default().fg(c_accent)),
                 Span::raw("    "),
-                Span::styled(format!("{:>10}", last_query_str), Style::default().fg(c_muted)),
+                Span::styled(
+                    format!("{:>10}", last_query_str),
+                    Style::default().fg(c_muted),
+                ),
             ]));
         }
     }
@@ -723,13 +751,21 @@ pub fn render_context_servers(
         .border_style(Style::default().fg(c_border))
         .title(" Context Servers ");
 
-    let paragraph = Paragraph::new(lines).block(block).wrap(Wrap { trim: false });
+    let paragraph = Paragraph::new(lines)
+        .block(block)
+        .wrap(Wrap { trim: false });
 
     frame.render_widget(paragraph, rect);
 }
 
 /// Render the search overlay with real match count and current position.
-pub fn render_search(frame: &mut Frame, area: Rect, query: &str, match_count: usize, current: usize) {
+pub fn render_search(
+    frame: &mut Frame,
+    area: Rect,
+    query: &str,
+    match_count: usize,
+    current: usize,
+) {
     let p = &theme::active().palette;
     let c_border = p.border_ratatui();
     let c_accent = p.accent_ratatui();
@@ -784,8 +820,12 @@ pub fn render_session_list(
     let c_success = p.success_ratatui();
 
     // Center the overlay: 80% width, 70% height.
-    let width = (area.width * 4 / 5).max(60).min(area.width.saturating_sub(4));
-    let height = (area.height * 7 / 10).max(10).min(area.height.saturating_sub(4));
+    let width = (area.width * 4 / 5)
+        .max(60)
+        .min(area.width.saturating_sub(4));
+    let height = (area.height * 7 / 10)
+        .max(10)
+        .min(area.height.saturating_sub(4));
     let rect = Rect::new(
         area.x + (area.width.saturating_sub(width)) / 2,
         area.y + (area.height.saturating_sub(height)) / 2,
@@ -804,9 +844,10 @@ pub fn render_session_list(
     frame.render_widget(block, rect);
 
     if sessions.is_empty() {
-        let msg = Paragraph::new(Line::from(vec![
-            Span::styled("  No sessions found", Style::default().fg(c_muted)),
-        ]));
+        let msg = Paragraph::new(Line::from(vec![Span::styled(
+            "  No sessions found",
+            Style::default().fg(c_muted),
+        )]));
         frame.render_widget(msg, inner);
         return;
     }
@@ -815,26 +856,45 @@ pub fn render_session_list(
     let list_height = inner.height.saturating_sub(2) as usize; // reserve 2 rows: header + footer
 
     let header_area = Rect::new(inner.x, inner.y, inner.width, 1);
-    let list_area = Rect::new(inner.x, inner.y + 1, inner.width, inner.height.saturating_sub(2));
-    let footer_area = Rect::new(inner.x, inner.y + inner.height.saturating_sub(1), inner.width, 1);
+    let list_area = Rect::new(
+        inner.x,
+        inner.y + 1,
+        inner.width,
+        inner.height.saturating_sub(2),
+    );
+    let footer_area = Rect::new(
+        inner.x,
+        inner.y + inner.height.saturating_sub(1),
+        inner.width,
+        1,
+    );
 
     // Header
-    let header_line = Line::from(vec![
-        Span::styled(
-            format!("  {:<10} {:<25} {:>5}  {:>8}  date", "ID", "model", "R", "cost"),
-            Style::default().fg(c_muted).add_modifier(Modifier::DIM),
+    let header_line = Line::from(vec![Span::styled(
+        format!(
+            "  {:<10} {:<25} {:>5}  {:>8}  date",
+            "ID", "model", "R", "cost"
         ),
-    ]);
+        Style::default().fg(c_muted).add_modifier(Modifier::DIM),
+    )]);
     frame.render_widget(Paragraph::new(header_line), header_area);
 
     // Viewport: show list_height rows starting from selected if beyond.
-    let scroll = if selected >= list_height { selected - list_height + 1 } else { 0 };
+    let scroll = if selected >= list_height {
+        selected - list_height + 1
+    } else {
+        0
+    };
 
     let mut rows: Vec<Line> = Vec::new();
     for (i, session) in sessions.iter().enumerate().skip(scroll).take(list_height) {
         let is_selected = i == selected;
 
-        let short_id = if session.id.len() >= 8 { &session.id[..8] } else { &session.id };
+        let short_id = if session.id.len() >= 8 {
+            &session.id[..8]
+        } else {
+            &session.id
+        };
         let model_str = if session.model.len() > 24 {
             format!("{:.24}", session.model)
         } else {
@@ -855,7 +915,10 @@ pub fn render_session_list(
         );
 
         let style = if is_selected {
-            Style::default().fg(c_accent).bg(c_highlight).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(c_accent)
+                .bg(c_highlight)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(c_text)
         };
@@ -907,19 +970,30 @@ pub fn render_init_wizard(
     let popup_height = area.height.saturating_sub(6).min(22);
     let x = area.x + (area.width.saturating_sub(popup_width)) / 2;
     let y = area.y + (area.height.saturating_sub(popup_height)) / 2;
-    let popup_area = Rect { x, y, width: popup_width, height: popup_height };
+    let popup_area = Rect {
+        x,
+        y,
+        width: popup_width,
+        height: popup_height,
+    };
 
     frame.render_widget(Clear, popup_area);
 
     let title_text = if dry_run {
-        format!(" ◈ HALCON — Configurar Proyecto  [dry-run]  Paso {}/4 ", step.min(4))
+        format!(
+            " ◈ HALCON — Configurar Proyecto  [dry-run]  Paso {}/4 ",
+            step.min(4)
+        )
     } else {
         format!(" ◈ HALCON — Configurar Proyecto  Paso {}/4 ", step.min(4))
     };
     let block = Block::default()
         .borders(Borders::ALL)
         .border_style(Style::default().fg(c_border))
-        .title(Span::styled(title_text, Style::default().fg(c_accent).add_modifier(Modifier::BOLD)));
+        .title(Span::styled(
+            title_text,
+            Style::default().fg(c_accent).add_modifier(Modifier::BOLD),
+        ));
 
     let inner = block.inner(popup_area);
     frame.render_widget(block, popup_area);
@@ -969,7 +1043,16 @@ pub fn render_init_wizard(
                 } else if line.starts_with("**Descripción**: ") {
                     description = line.trim_start_matches("**Descripción**: ").to_string();
                     if description.len() > 55 {
-                        description = format!("{}…", &description[..{ let mut _fcb = (55).min(description.len()); while _fcb > 0 && !description.is_char_boundary(_fcb) { _fcb -= 1; } _fcb }]);
+                        description = format!(
+                            "{}…",
+                            &description[..{
+                                let mut _fcb = (55).min(description.len());
+                                while _fcb > 0 && !description.is_char_boundary(_fcb) {
+                                    _fcb -= 1;
+                                }
+                                _fcb
+                            }]
+                        );
                     }
                 } else if line.starts_with("- `") && line.ends_with('`') {
                     workspace_count += 1;
@@ -988,7 +1071,10 @@ pub fn render_init_wizard(
                 let name_disp: String = proj_name.chars().take(50).collect();
                 ls.push(Line::from(vec![
                     Span::styled("  Proyecto:  ", Style::default().fg(c_muted)),
-                    Span::styled(name_disp, Style::default().fg(c_accent).add_modifier(Modifier::BOLD)),
+                    Span::styled(
+                        name_disp,
+                        Style::default().fg(c_accent).add_modifier(Modifier::BOLD),
+                    ),
                 ]));
             }
             if !proj_type.is_empty() {
@@ -1000,7 +1086,10 @@ pub fn render_init_wizard(
             if workspace_count > 0 {
                 ls.push(Line::from(vec![
                     Span::styled("  Crates:    ", Style::default().fg(c_muted)),
-                    Span::styled(format!("{} miembros", workspace_count), Style::default().fg(c_muted)),
+                    Span::styled(
+                        format!("{} miembros", workspace_count),
+                        Style::default().fg(c_muted),
+                    ),
                 ]));
             }
             if !proj_version.is_empty() && proj_version != "(desconocida)" {
@@ -1038,13 +1127,22 @@ pub fn render_init_wizard(
         }
         2 => {
             let mut ls = vec![
-                Line::from(Span::styled("  Preview HALCON.md:", Style::default().fg(c_accent).add_modifier(Modifier::BOLD))),
+                Line::from(Span::styled(
+                    "  Preview HALCON.md:",
+                    Style::default().fg(c_accent).add_modifier(Modifier::BOLD),
+                )),
                 Line::from(""),
             ];
             let max_lines = inner.height.saturating_sub(4) as usize;
             for l in preview.lines().take(max_lines) {
-                let display: String = l.chars().take(popup_width.saturating_sub(4) as usize).collect();
-                ls.push(Line::from(Span::styled(format!("  {display}"), Style::default().fg(c_muted))));
+                let display: String = l
+                    .chars()
+                    .take(popup_width.saturating_sub(4) as usize)
+                    .collect();
+                ls.push(Line::from(Span::styled(
+                    format!("  {display}"),
+                    Style::default().fg(c_muted),
+                )));
             }
             ls.push(Line::from(""));
             let confirm_text = if dry_run {
@@ -1052,13 +1150,19 @@ pub fn render_init_wizard(
             } else {
                 "  [Enter] Guardar   [Esc] Cancelar"
             };
-            ls.push(Line::from(Span::styled(confirm_text, Style::default().fg(c_muted))));
+            ls.push(Line::from(Span::styled(
+                confirm_text,
+                Style::default().fg(c_muted),
+            )));
             ls
         }
         3 => {
             let path_display: String = save_path.chars().take(60).collect();
             vec![
-                Line::from(Span::styled("  Confirmar guardado:", Style::default().fg(c_accent).add_modifier(Modifier::BOLD))),
+                Line::from(Span::styled(
+                    "  Confirmar guardado:",
+                    Style::default().fg(c_accent).add_modifier(Modifier::BOLD),
+                )),
                 Line::from(""),
                 Line::from(vec![
                     Span::styled("  Ruta: ", Style::default().fg(c_muted)),
@@ -1066,8 +1170,11 @@ pub fn render_init_wizard(
                 ]),
                 Line::from(""),
                 Line::from(Span::styled(
-                    if dry_run { "  [Enter] Simular (dry-run)   [Esc] Cancelar" }
-                    else { "  [Enter] Escribir archivo   [Esc] Cancelar" },
+                    if dry_run {
+                        "  [Enter] Simular (dry-run)   [Esc] Cancelar"
+                    } else {
+                        "  [Enter] Escribir archivo   [Esc] Cancelar"
+                    },
                     Style::default().fg(c_muted),
                 )),
             ]
@@ -1079,7 +1186,10 @@ pub fn render_init_wizard(
                 Style::default().fg(c_success).add_modifier(Modifier::BOLD),
             )),
             Line::from(""),
-            Line::from(Span::styled("  [Enter/Esc] Cerrar", Style::default().fg(c_muted))),
+            Line::from(Span::styled(
+                "  [Enter/Esc] Cerrar",
+                Style::default().fg(c_muted),
+            )),
         ],
     };
 
@@ -1112,7 +1222,12 @@ pub fn render_plugin_suggest(
     let popup_height = area.height.saturating_sub(6).min(24);
     let x = area.x + (area.width.saturating_sub(popup_width)) / 2;
     let y = area.y + (area.height.saturating_sub(popup_height)) / 2;
-    let popup_area = Rect { x, y, width: popup_width, height: popup_height };
+    let popup_area = Rect {
+        x,
+        y,
+        width: popup_width,
+        height: popup_height,
+    };
 
     frame.render_widget(Clear, popup_area);
 
@@ -1190,9 +1305,11 @@ pub fn render_plugin_suggest(
                 },
             ]));
             // Rationale line
-            let rationale_display: String = item.rationale.chars().take(
-                popup_width.saturating_sub(6) as usize
-            ).collect();
+            let rationale_display: String = item
+                .rationale
+                .chars()
+                .take(popup_width.saturating_sub(6) as usize)
+                .collect();
             lines.push(Line::from(Span::styled(
                 format!("      {}", rationale_display),
                 Style::default().fg(c_muted),
@@ -1208,10 +1325,7 @@ pub fn render_plugin_suggest(
         ]));
     }
 
-    frame.render_widget(
-        Paragraph::new(lines).wrap(Wrap { trim: false }),
-        inner,
-    );
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
 }
 
 /// Render the update-available notification overlay.
@@ -1236,14 +1350,20 @@ pub fn render_update_available(
     let c_warning = p.warning_ratatui();
 
     // Compute popup height: base + notes lines
-    let notes_lines = notes.as_deref()
+    let notes_lines = notes
+        .as_deref()
         .map(|n| n.lines().count().min(10) as u16)
         .unwrap_or(0);
     let popup_height = (10 + notes_lines).min(area.height.saturating_sub(4));
     let popup_width = area.width.saturating_sub(8).min(68);
     let x = area.x + (area.width.saturating_sub(popup_width)) / 2;
     let y = area.y + (area.height.saturating_sub(popup_height)) / 2;
-    let popup_area = Rect { x, y, width: popup_width, height: popup_height };
+    let popup_area = Rect {
+        x,
+        y,
+        width: popup_width,
+        height: popup_height,
+    };
 
     frame.render_widget(Clear, popup_area);
 
@@ -1261,7 +1381,8 @@ pub fn render_update_available(
     lines.push(Line::from(""));
 
     // Version info
-    let date_str = published_at.as_deref()
+    let date_str = published_at
+        .as_deref()
         .and_then(|d| d.get(..10))
         .map(|d| format!("  (publicado {d})"))
         .unwrap_or_default();
@@ -1271,7 +1392,10 @@ pub fn render_update_available(
     ]));
     lines.push(Line::from(vec![
         Span::styled("  Nueva versión:   ", Style::default().fg(c_muted)),
-        Span::styled(format!("v{remote}"), Style::default().fg(c_success).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            format!("v{remote}"),
+            Style::default().fg(c_success).add_modifier(Modifier::BOLD),
+        ),
         Span::styled(date_str, Style::default().fg(c_muted)),
     ]));
 
@@ -1307,14 +1431,19 @@ pub fn render_update_available(
     )));
     lines.push(Line::from(vec![
         Span::styled("  [", Style::default().fg(c_muted)),
-        Span::styled("Enter", Style::default().fg(c_success).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "Enter",
+            Style::default().fg(c_success).add_modifier(Modifier::BOLD),
+        ),
         Span::styled("] Instalar ahora    [", Style::default().fg(c_muted)),
-        Span::styled("Esc", Style::default().fg(c_muted).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "Esc",
+            Style::default().fg(c_muted).add_modifier(Modifier::BOLD),
+        ),
         Span::styled("] Posponer", Style::default().fg(c_muted)),
     ]));
 
-    let paragraph = ratatui::widgets::Paragraph::new(lines)
-        .wrap(Wrap { trim: false });
+    let paragraph = ratatui::widgets::Paragraph::new(lines).wrap(Wrap { trim: false });
     frame.render_widget(paragraph, inner);
 }
 
@@ -1346,7 +1475,12 @@ pub fn render_model_selector(
     let popup_height = (list_height + 6 + extra_height).min(area.height.saturating_sub(4));
     let x = area.x + (area.width.saturating_sub(popup_width)) / 2;
     let y = area.y + (area.height.saturating_sub(popup_height)) / 2;
-    let popup_area = Rect { x, y, width: popup_width, height: popup_height };
+    let popup_area = Rect {
+        x,
+        y,
+        width: popup_width,
+        height: popup_height,
+    };
 
     frame.render_widget(Clear, popup_area);
 
@@ -1366,9 +1500,15 @@ pub fn render_model_selector(
     // Error banner (shown when switching after a failure).
     if let Some(err) = error_context {
         lines.push(Line::from(vec![
-            Span::styled("⚠ ", Style::default().fg(c_warning).add_modifier(Modifier::BOLD)),
             Span::styled(
-                format!("Error anterior: {}", &err[..err.len().min(popup_width as usize - 14)]),
+                "⚠ ",
+                Style::default().fg(c_warning).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!(
+                    "Error anterior: {}",
+                    &err[..err.len().min(popup_width as usize - 14)]
+                ),
                 Style::default().fg(c_warning),
             ),
         ]));
@@ -1381,9 +1521,15 @@ pub fn render_model_selector(
 
     // Header.
     lines.push(Line::from(vec![
-        Span::styled("  PROVEEDOR", Style::default().fg(c_accent).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "  PROVEEDOR",
+            Style::default().fg(c_accent).add_modifier(Modifier::BOLD),
+        ),
         Span::raw("   "),
-        Span::styled("MODELO", Style::default().fg(c_accent).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "MODELO",
+            Style::default().fg(c_accent).add_modifier(Modifier::BOLD),
+        ),
     ]));
     lines.push(Line::from(Span::styled(
         "─".repeat(popup_width.saturating_sub(4) as usize),
@@ -1401,8 +1547,11 @@ pub fn render_model_selector(
             Style::default().fg(c_muted),
         )));
     } else {
-        let scroll = if selected >= (inner.height as usize).saturating_sub(4 + extra_height as usize) {
-            selected.saturating_sub((inner.height as usize).saturating_sub(5 + extra_height as usize))
+        let scroll = if selected
+            >= (inner.height as usize).saturating_sub(4 + extra_height as usize)
+        {
+            selected
+                .saturating_sub((inner.height as usize).saturating_sub(5 + extra_height as usize))
         } else {
             0
         };
@@ -1418,7 +1567,10 @@ pub fn render_model_selector(
             let active_marker = if is_current { " ✓" } else { "" };
 
             let style = if is_selected {
-                Style::default().fg(c_running).bg(c_highlight).add_modifier(Modifier::BOLD)
+                Style::default()
+                    .fg(c_running)
+                    .bg(c_highlight)
+                    .add_modifier(Modifier::BOLD)
             } else if is_current {
                 Style::default().fg(c_success)
             } else {
@@ -1426,7 +1578,8 @@ pub fn render_model_selector(
             };
 
             let provider_col = format!("{:<14}", &provider[..provider.len().min(14)]);
-            let label_display: String = label.chars()
+            let label_display: String = label
+                .chars()
                 .take(popup_width.saturating_sub(22) as usize)
                 .collect();
 
@@ -1434,7 +1587,10 @@ pub fn render_model_selector(
                 Span::styled(prefix, style),
                 Span::styled(provider_col, style),
                 Span::styled(label_display, style),
-                Span::styled(active_marker, Style::default().fg(c_success).add_modifier(Modifier::BOLD)),
+                Span::styled(
+                    active_marker,
+                    Style::default().fg(c_success).add_modifier(Modifier::BOLD),
+                ),
             ]));
         }
     }
@@ -1443,16 +1599,16 @@ pub fn render_model_selector(
     lines.push(Line::from(""));
     lines.push(Line::from(vec![
         Span::styled("  [↑↓] Navegar  ", Style::default().fg(c_muted)),
-        Span::styled("[Enter]", Style::default().fg(c_success).add_modifier(Modifier::BOLD)),
+        Span::styled(
+            "[Enter]",
+            Style::default().fg(c_success).add_modifier(Modifier::BOLD),
+        ),
         Span::styled(" Confirmar  ", Style::default().fg(c_muted)),
         Span::styled("[Esc]", Style::default().fg(c_accent)),
         Span::styled(" Cancelar", Style::default().fg(c_muted)),
     ]));
 
-    frame.render_widget(
-        Paragraph::new(lines).wrap(Wrap { trim: false }),
-        inner,
-    );
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
 }
 
 #[cfg(test)]
@@ -1553,8 +1709,12 @@ mod tests {
         assert_eq!(OverlayKind::Help, OverlayKind::Help);
         assert_ne!(OverlayKind::Help, OverlayKind::Search);
         assert_eq!(
-            OverlayKind::PermissionPrompt { tool: "bash".into() },
-            OverlayKind::PermissionPrompt { tool: "bash".into() },
+            OverlayKind::PermissionPrompt {
+                tool: "bash".into()
+            },
+            OverlayKind::PermissionPrompt {
+                tool: "bash".into()
+            },
         );
     }
 
@@ -1597,7 +1757,9 @@ mod tests {
     fn filter_by_description() {
         let cmds = default_commands();
         let filtered = filter_commands(&cmds, "keybind");
-        assert!(filtered.iter().any(|i| i.description.to_lowercase().contains("keybind")));
+        assert!(filtered
+            .iter()
+            .any(|i| i.description.to_lowercase().contains("keybind")));
     }
 
     #[test]
@@ -1621,8 +1783,8 @@ mod tests {
     fn default_commands_contains_extended_commands() {
         let cmds = default_commands();
         let labels: Vec<&str> = cmds.iter().map(|c| c.label.as_str()).collect();
-        assert!(labels.contains(&"/init"),    "missing /init");
-        assert!(labels.contains(&"/tools"),   "missing /tools");
+        assert!(labels.contains(&"/init"), "missing /init");
+        assert!(labels.contains(&"/tools"), "missing /tools");
         assert!(labels.contains(&"/plugins"), "missing /plugins");
         assert!(labels.contains(&"/dry-run"), "missing /dry-run");
         assert!(labels.contains(&"/reasoning"), "missing /reasoning");
@@ -1634,10 +1796,19 @@ mod tests {
         let cmds = default_commands();
         // Simulates what happens when the user types "/pa" — should match /pause and /panel
         let filtered = filter_commands(&cmds, "pa");
-        assert!(filtered.iter().any(|i| i.label == "/pause"), "/pause must match 'pa'");
-        assert!(filtered.iter().any(|i| i.label == "/panel"), "/panel must match 'pa'");
+        assert!(
+            filtered.iter().any(|i| i.label == "/pause"),
+            "/pause must match 'pa'"
+        );
+        assert!(
+            filtered.iter().any(|i| i.label == "/panel"),
+            "/panel must match 'pa'"
+        );
         // Should NOT match /quit
-        assert!(!filtered.iter().any(|i| i.label == "/quit"), "/quit must not match 'pa'");
+        assert!(
+            !filtered.iter().any(|i| i.label == "/quit"),
+            "/quit must not match 'pa'"
+        );
     }
 
     #[test]
@@ -1645,7 +1816,11 @@ mod tests {
         let cmds = default_commands();
         // "/" with no suffix → empty query → all commands shown
         let filtered = filter_commands(&cmds, "");
-        assert_eq!(filtered.len(), cmds.len(), "empty query must return all commands");
+        assert_eq!(
+            filtered.len(),
+            cmds.len(),
+            "empty query must return all commands"
+        );
     }
 
     #[test]

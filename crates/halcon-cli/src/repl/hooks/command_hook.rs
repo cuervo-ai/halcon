@@ -158,7 +158,8 @@ mod tests {
     #[tokio::test]
     async fn timeout_returns_warn_not_deny() {
         // sleep 10 will be killed after 50ms.
-        let outcome = run_command_hook("sleep 10", &HashMap::new(), Duration::from_millis(50)).await;
+        let outcome =
+            run_command_hook("sleep 10", &HashMap::new(), Duration::from_millis(50)).await;
         assert!(
             matches!(outcome, HookOutcome::Warn(_)),
             "timeout must warn+allow, not deny"
@@ -168,10 +169,16 @@ mod tests {
     #[tokio::test]
     async fn env_vars_are_passed_to_child() {
         let mut env = HashMap::new();
-        env.insert("HALCON_TEST_VAR".to_string(), "hello_from_halcon".to_string());
+        env.insert(
+            "HALCON_TEST_VAR".to_string(),
+            "hello_from_halcon".to_string(),
+        );
         // Check the env var is set; exit 0 if equal, exit 1 otherwise.
         let cmd = r#"[ "$HALCON_TEST_VAR" = "hello_from_halcon" ] && exit 0 || exit 1"#;
         let outcome = run_command_hook(cmd, &env, Duration::from_secs(5)).await;
-        assert!(matches!(outcome, HookOutcome::Allow), "env var not passed: {outcome:?}");
+        assert!(
+            matches!(outcome, HookOutcome::Allow),
+            "env var not passed: {outcome:?}"
+        );
     }
 }

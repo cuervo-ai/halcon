@@ -35,6 +35,7 @@ enum LogFormat {
     Logfmt,
     Syslog,
     NginxAccess,
+    #[allow(dead_code)]
     ApacheAccess,
     Plain,
 }
@@ -56,12 +57,16 @@ impl ParseLogsTool {
 
     fn detect_format(sample: &str) -> LogFormat {
         let lines: Vec<&str> = sample.lines().take(5).collect();
-        let json_count = lines.iter().filter(|l| l.trim_start().starts_with('{')).count();
+        let json_count = lines
+            .iter()
+            .filter(|l| l.trim_start().starts_with('{'))
+            .count();
         if json_count >= 2 {
             return LogFormat::JsonLines;
         }
 
-        let logfmt_count = lines.iter()
+        let logfmt_count = lines
+            .iter()
             .filter(|l| l.contains("level=") || l.contains("msg=") || l.contains("ts="))
             .count();
         if logfmt_count >= 2 {
@@ -69,12 +74,18 @@ impl ParseLogsTool {
         }
 
         // Nginx: "IP - - [date] \"METHOD /path HTTP/1.1\" 200 1234"
-        let nginx_count = lines.iter()
+        let nginx_count = lines
+            .iter()
             .filter(|l| {
                 let l = l.trim();
                 // IP address pattern at start + typical nginx access log structure
-                l.contains("\" ") && l.contains('[') && l.contains(']')
-                && (l.contains("GET ") || l.contains("POST ") || l.contains("PUT ") || l.contains("DELETE "))
+                l.contains("\" ")
+                    && l.contains('[')
+                    && l.contains(']')
+                    && (l.contains("GET ")
+                        || l.contains("POST ")
+                        || l.contains("PUT ")
+                        || l.contains("DELETE "))
             })
             .count();
         if nginx_count >= 2 {
@@ -82,7 +93,8 @@ impl ParseLogsTool {
         }
 
         // Syslog: "Feb 20 10:00:00 hostname process[pid]: message"
-        let syslog_count = lines.iter()
+        let syslog_count = lines
+            .iter()
             .filter(|l| {
                 let parts: Vec<&str> = l.splitn(4, ' ').collect();
                 parts.len() >= 3 && parts[2].contains(':')
@@ -118,7 +130,8 @@ impl ParseLogsTool {
             entry.timestamp = ["ts", "timestamp", "time", "@timestamp", "created_at"]
                 .iter()
                 .find_map(|&k| {
-                    v[k].as_str().map(|s| s.to_string())
+                    v[k].as_str()
+                        .map(|s| s.to_string())
                         .or_else(|| v[k].as_f64().map(|f| f.to_string()))
                 });
         }
@@ -143,10 +156,10 @@ impl ParseLogsTool {
             };
             let key = key.trim();
 
-            let (value, next) = if rest.starts_with('"') {
+            let (value, next) = if let Some(stripped) = rest.strip_prefix('"') {
                 // Quoted value
-                match rest[1..].find('"') {
-                    Some(end) => (&rest[1..end + 1], &rest[end + 2..]),
+                match stripped.find('"') {
+                    Some(end) => (&stripped[..end], &stripped[end + 1..]),
                     None => (rest, ""),
                 }
             } else {
@@ -235,7 +248,10 @@ impl ParseLogsTool {
         top_errors.sort_by(|a, b| b.1.cmp(&a.1));
         top_errors.truncate(10);
 
-        LogStats { level_counts, top_errors }
+        LogStats {
+            level_counts,
+            top_errors,
+        }
     }
 }
 
@@ -252,7 +268,9 @@ struct LogStats {
 
 fn detect_level_in_text(line: &str) -> Option<String> {
     let upper = line.to_uppercase();
-    for level in &["CRITICAL", "FATAL", "ERROR", "WARN", "WARNING", "INFO", "DEBUG", "TRACE"] {
+    for level in &[
+        "CRITICAL", "FATAL", "ERROR", "WARN", "WARNING", "INFO", "DEBUG", "TRACE",
+    ] {
         if upper.contains(level) {
             return Some((*level).to_string());
         }
@@ -314,14 +332,21 @@ impl Tool for ParseLogsTool {
         PermissionLevel::ReadOnly
     }
 
-    async fn execute(&self, input: ToolInput) -> Result<ToolOutput, halcon_core::error::HalconError> {
+    async fn execute(
+        &self,
+        input: ToolInput,
+    ) -> Result<ToolOutput, halcon_core::error::HalconError> {
         let args = &input.arguments;
         let working_dir = PathBuf::from(&input.working_directory);
 
         let log_path = match args["path"].as_str() {
             Some(p) => {
                 let p = Path::new(p);
-                if p.is_absolute() { p.to_path_buf() } else { working_dir.join(p) }
+                if p.is_absolute() {
+                    p.to_path_buf()
+                } else {
+                    working_dir.join(p)
+                }
             }
             None => {
                 return Ok(ToolOutput {
@@ -371,7 +396,10 @@ impl Tool for ParseLogsTool {
         };
 
         let action = args["action"].as_str().unwrap_or("tail");
-        let lines_n = args["lines"].as_u64().map(|n| (n as usize).min(1000)).unwrap_or(50);
+        let lines_n = args["lines"]
+            .as_u64()
+            .map(|n| (n as usize).min(1000))
+            .unwrap_or(50);
         let level_filter = args["level"].as_str();
         let pattern = args["pattern"].as_str();
 
@@ -392,7 +420,9 @@ impl Tool for ParseLogsTool {
                 let tail: Vec<&str> = content.lines().skip(start).collect();
                 format!(
                     "Last {} lines of {} (format: {:?}):\n\n{}",
-                    tail.len(), log_path.display(), format,
+                    tail.len(),
+                    log_path.display(),
+                    format,
                     tail.join("\n")
                 )
             }
@@ -400,7 +430,9 @@ impl Tool for ParseLogsTool {
                 let head: Vec<&str> = content.lines().take(lines_n).collect();
                 format!(
                     "First {} lines of {} (format: {:?}):\n\n{}",
-                    head.len(), log_path.display(), format,
+                    head.len(),
+                    log_path.display(),
+                    format,
                     head.join("\n")
                 )
             }
@@ -408,12 +440,18 @@ impl Tool for ParseLogsTool {
                 let entries = Self::parse_entries(&content, &format, DEFAULT_MAX_LINES);
                 let errors = Self::filter_entries(&entries, Some("ERROR"), pattern);
                 if errors.is_empty() {
-                    format!("No ERROR-level entries found in {} ({} total lines)", log_path.display(), total_lines)
+                    format!(
+                        "No ERROR-level entries found in {} ({} total lines)",
+                        log_path.display(),
+                        total_lines
+                    )
                 } else {
                     let lines_out: Vec<&str> = errors.iter().map(|e| e.raw.as_str()).collect();
                     format!(
                         "{} error(s) in {} ({} total lines):\n\n{}",
-                        errors.len(), log_path.display(), total_lines,
+                        errors.len(),
+                        log_path.display(),
+                        total_lines,
                         lines_out.join("\n")
                     )
                 }
@@ -432,17 +470,21 @@ impl Tool for ParseLogsTool {
                 let lines_out: Vec<&str> = matches.iter().map(|e| e.raw.as_str()).collect();
                 format!(
                     "{} match(es) for {:?}:\n\n{}",
-                    matches.len(), pattern.unwrap_or(""),
+                    matches.len(),
+                    pattern.unwrap_or(""),
                     lines_out.join("\n")
                 )
             }
-            "stats" | _ => {
+            _ => {
                 let entries = Self::parse_entries(&content, &format, DEFAULT_MAX_LINES);
                 let stats = Self::compute_stats(&entries);
 
                 let mut out = format!(
                     "Log file: {}\nFormat: {:?}\nTotal lines: {}\nParsed: {} entries\n\n",
-                    log_path.display(), format, total_lines, entries.len()
+                    log_path.display(),
+                    format,
+                    total_lines,
+                    entries.len()
                 );
 
                 out.push_str("Level distribution:\n");
@@ -462,7 +504,12 @@ impl Tool for ParseLogsTool {
 
                 if action == "full" {
                     let filtered = Self::filter_entries(&entries, level_filter, pattern);
-                    let tail: Vec<&str> = filtered.iter().rev().take(20).map(|e| e.raw.as_str()).collect();
+                    let tail: Vec<&str> = filtered
+                        .iter()
+                        .rev()
+                        .take(20)
+                        .map(|e| e.raw.as_str())
+                        .collect();
                     if !tail.is_empty() {
                         out.push_str("\nLast entries:\n");
                         for line in tail.iter().rev() {
@@ -526,7 +573,9 @@ ts=2025-01-01T10:00:02Z level=warn msg="Retry attempt" count=3"#;
 
     #[test]
     fn parse_json_line_extracts_fields() {
-        let entry = ParseLogsTool::parse_json_line(r#"{"level":"error","msg":"test error","ts":"2025-01-01"}"#);
+        let entry = ParseLogsTool::parse_json_line(
+            r#"{"level":"error","msg":"test error","ts":"2025-01-01"}"#,
+        );
         assert_eq!(entry.level.as_deref(), Some("ERROR"));
         assert_eq!(entry.message.as_deref(), Some("test error"));
         assert_eq!(entry.timestamp.as_deref(), Some("2025-01-01"));
@@ -534,7 +583,8 @@ ts=2025-01-01T10:00:02Z level=warn msg="Retry attempt" count=3"#;
 
     #[test]
     fn parse_logfmt_line_extracts_fields() {
-        let entry = ParseLogsTool::parse_logfmt_line("level=warn msg=\"High memory\" ts=2025-01-01");
+        let entry =
+            ParseLogsTool::parse_logfmt_line("level=warn msg=\"High memory\" ts=2025-01-01");
         assert_eq!(entry.level.as_deref(), Some("WARN"));
         assert!(entry.message.is_some());
     }
@@ -543,7 +593,10 @@ ts=2025-01-01T10:00:02Z level=warn msg="Retry attempt" count=3"#;
     fn parse_entries_json() {
         let entries = ParseLogsTool::parse_entries(JSON_LOG, &LogFormat::JsonLines, 100);
         assert_eq!(entries.len(), 6);
-        let errors: Vec<_> = entries.iter().filter(|e| e.level.as_deref() == Some("ERROR")).collect();
+        let errors: Vec<_> = entries
+            .iter()
+            .filter(|e| e.level.as_deref() == Some("ERROR"))
+            .collect();
         assert_eq!(errors.len(), 2);
     }
 
@@ -575,11 +628,14 @@ ts=2025-01-01T10:00:02Z level=warn msg="Retry attempt" count=3"#;
         let dir = TempDir::new().unwrap();
         std::fs::write(dir.path().join("app.log"), JSON_LOG).unwrap();
         let tool = ParseLogsTool::new();
-        let out = tool.execute(ToolInput {
-            tool_use_id: "t1".into(),
-            arguments: json!({ "path": "app.log", "action": "tail", "lines": 3 }),
-            working_directory: dir.path().to_str().unwrap().to_string(),
-        }).await.unwrap();
+        let out = tool
+            .execute(ToolInput {
+                tool_use_id: "t1".into(),
+                arguments: json!({ "path": "app.log", "action": "tail", "lines": 3 }),
+                working_directory: dir.path().to_str().unwrap().to_string(),
+            })
+            .await
+            .unwrap();
         assert!(!out.is_error, "error: {}", out.content);
         assert!(out.content.contains("Last"), "content: {}", out.content);
     }
@@ -589,13 +645,20 @@ ts=2025-01-01T10:00:02Z level=warn msg="Retry attempt" count=3"#;
         let dir = TempDir::new().unwrap();
         std::fs::write(dir.path().join("app.log"), JSON_LOG).unwrap();
         let tool = ParseLogsTool::new();
-        let out = tool.execute(ToolInput {
-            tool_use_id: "t1".into(),
-            arguments: json!({ "path": "app.log", "action": "errors" }),
-            working_directory: dir.path().to_str().unwrap().to_string(),
-        }).await.unwrap();
+        let out = tool
+            .execute(ToolInput {
+                tool_use_id: "t1".into(),
+                arguments: json!({ "path": "app.log", "action": "errors" }),
+                working_directory: dir.path().to_str().unwrap().to_string(),
+            })
+            .await
+            .unwrap();
         assert!(!out.is_error);
-        assert!(out.content.contains("error") || out.content.contains("2 error"), "content: {}", out.content);
+        assert!(
+            out.content.contains("error") || out.content.contains("2 error"),
+            "content: {}",
+            out.content
+        );
     }
 
     #[tokio::test]
@@ -603,13 +666,20 @@ ts=2025-01-01T10:00:02Z level=warn msg="Retry attempt" count=3"#;
         let dir = TempDir::new().unwrap();
         std::fs::write(dir.path().join("app.log"), JSON_LOG).unwrap();
         let tool = ParseLogsTool::new();
-        let out = tool.execute(ToolInput {
-            tool_use_id: "t1".into(),
-            arguments: json!({ "path": "app.log", "action": "stats" }),
-            working_directory: dir.path().to_str().unwrap().to_string(),
-        }).await.unwrap();
+        let out = tool
+            .execute(ToolInput {
+                tool_use_id: "t1".into(),
+                arguments: json!({ "path": "app.log", "action": "stats" }),
+                working_directory: dir.path().to_str().unwrap().to_string(),
+            })
+            .await
+            .unwrap();
         assert!(!out.is_error);
-        assert!(out.content.contains("ERROR") || out.content.contains("Level"), "content: {}", out.content);
+        assert!(
+            out.content.contains("ERROR") || out.content.contains("Level"),
+            "content: {}",
+            out.content
+        );
     }
 
     #[test]
@@ -619,6 +689,9 @@ ts=2025-01-01T10:00:02Z level=warn msg="Retry attempt" count=3"#;
         assert!(!t.description().is_empty());
         assert_eq!(t.permission_level(), PermissionLevel::ReadOnly);
         let schema = t.input_schema();
-        assert!(schema["required"].as_array().unwrap().contains(&json!("path")));
+        assert!(schema["required"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("path")));
     }
 }

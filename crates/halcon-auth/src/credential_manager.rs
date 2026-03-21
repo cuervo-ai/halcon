@@ -128,12 +128,11 @@ impl CredentialManager {
             CredentialBackend::LinuxSecretService => self.keyring_get(key),
 
             // Linux: file store fallback.
-            CredentialBackend::LinuxFileStore => {
-                self.file_store
-                    .as_ref()
-                    .expect("file_store must be set for LinuxFileStore backend")
-                    .get(key)
-            }
+            CredentialBackend::LinuxFileStore => self
+                .file_store
+                .as_ref()
+                .expect("file_store must be set for LinuxFileStore backend")
+                .get(key),
         }
     }
 
@@ -144,12 +143,11 @@ impl CredentialManager {
                 self.keyring_set(key, value)
             }
             CredentialBackend::LinuxSecretService => self.keyring_set(key, value),
-            CredentialBackend::LinuxFileStore => {
-                self.file_store
-                    .as_ref()
-                    .expect("file_store must be set for LinuxFileStore backend")
-                    .set(key, value)
-            }
+            CredentialBackend::LinuxFileStore => self
+                .file_store
+                .as_ref()
+                .expect("file_store must be set for LinuxFileStore backend")
+                .set(key, value),
         }
     }
 
@@ -168,12 +166,11 @@ impl CredentialManager {
         I: IntoIterator<Item = (&'a str, &'a str)>,
     {
         match &self.backend {
-            CredentialBackend::LinuxFileStore => {
-                self.file_store
-                    .as_ref()
-                    .expect("file_store must be set for LinuxFileStore backend")
-                    .set_multiple(entries)
-            }
+            CredentialBackend::LinuxFileStore => self
+                .file_store
+                .as_ref()
+                .expect("file_store must be set for LinuxFileStore backend")
+                .set_multiple(entries),
             // For OS keyring backends, collect entries and write sequentially.
             // The keyring protocol has no bulk-write primitive; collect errors
             // and return the first one (all-or-nothing semantics best-effort).
@@ -202,12 +199,11 @@ impl CredentialManager {
                 self.keyring_delete(key)
             }
             CredentialBackend::LinuxSecretService => self.keyring_delete(key),
-            CredentialBackend::LinuxFileStore => {
-                self.file_store
-                    .as_ref()
-                    .expect("file_store must be set for LinuxFileStore backend")
-                    .delete(key)
-            }
+            CredentialBackend::LinuxFileStore => self
+                .file_store
+                .as_ref()
+                .expect("file_store must be set for LinuxFileStore backend")
+                .delete(key),
         }
     }
 
@@ -219,13 +215,19 @@ impl CredentialManager {
         let _ = service;
 
         #[cfg(target_os = "macos")]
-        { return (CredentialBackend::MacosKeychain, None); }
+        {
+            (CredentialBackend::MacosKeychain, None)
+        }
 
         #[cfg(target_os = "windows")]
-        { return (CredentialBackend::WindowsCredentialManager, None); }
+        {
+            return (CredentialBackend::WindowsCredentialManager, None);
+        }
 
         #[cfg(target_os = "linux")]
-        { return Self::detect_linux_backend(service); }
+        {
+            return Self::detect_linux_backend(service);
+        }
 
         // Fallback for other Unix (FreeBSD, etc.) — use file store.
         #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
@@ -247,21 +249,20 @@ impl CredentialManager {
         // We treat ANY error other than NoEntry as "unavailable" so we fall
         // back to the file store rather than returning an opaque error.
         let probe_key = "__halcon_probe__";
-        let probe_result = keyring::Entry::new(service, probe_key)
-            .and_then(|e| e.get_password().or_else(|err| {
+        let probe_result = keyring::Entry::new(service, probe_key).and_then(|e| {
+            e.get_password().or_else(|err| {
                 // NoEntry means the daemon responded — backend is available.
                 if matches!(err, keyring::Error::NoEntry) {
                     Ok(String::new())
                 } else {
                     Err(err)
                 }
-            }));
+            })
+        });
 
         match probe_result {
             Ok(_) => {
-                debug!(
-                    "Linux Secret Service (D-Bus) available — using OS keyring"
-                );
+                debug!("Linux Secret Service (D-Bus) available — using OS keyring");
                 (CredentialBackend::LinuxSecretService, None)
             }
             Err(probe_err) => {
@@ -289,7 +290,9 @@ impl CredentialManager {
         match entry.get_password() {
             Ok(v) => Ok(Some(v)),
             Err(keyring::Error::NoEntry) => Ok(None),
-            Err(e) => Err(HalconError::AuthFailed(format!("keyring read ({key}): {e}"))),
+            Err(e) => Err(HalconError::AuthFailed(format!(
+                "keyring read ({key}): {e}"
+            ))),
         }
     }
 
@@ -307,7 +310,9 @@ impl CredentialManager {
         match entry.delete_credential() {
             Ok(()) => Ok(()),
             Err(keyring::Error::NoEntry) => Ok(()),
-            Err(e) => Err(HalconError::AuthFailed(format!("keyring delete ({key}): {e}"))),
+            Err(e) => Err(HalconError::AuthFailed(format!(
+                "keyring delete ({key}): {e}"
+            ))),
         }
     }
 }

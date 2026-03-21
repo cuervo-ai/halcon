@@ -53,9 +53,7 @@ impl AwsCredentials {
     /// that proxy Bedrock traffic (e.g., LiteLLM, Portkey).
     pub fn bedrock_base_url(&self) -> String {
         std::env::var("ANTHROPIC_BEDROCK_BASE_URL")
-            .unwrap_or_else(|_| {
-                format!("https://bedrock-runtime.{}.amazonaws.com", self.region)
-            })
+            .unwrap_or_else(|_| format!("https://bedrock-runtime.{}.amazonaws.com", self.region))
     }
 }
 
@@ -69,9 +67,7 @@ pub fn sign_request(
     creds: &AwsCredentials,
     service: &str,
 ) -> Result<(), String> {
-    use aws_sigv4::http_request::{
-        sign, SignableBody, SignableRequest, SigningSettings,
-    };
+    use aws_sigv4::http_request::{sign, SignableBody, SignableRequest, SigningSettings};
     use aws_sigv4::sign::v4;
 
     let now = std::time::SystemTime::now();
@@ -102,17 +98,15 @@ pub fn sign_request(
 
     // Clone body bytes for signing (reqwest Body is not Clone, but we control
     // the body creation in mod.rs and always pass the bytes here).
-    let body_bytes = request
-        .body()
-        .and_then(|b| b.as_bytes())
-        .unwrap_or(&[]);
+    let body_bytes = request.body().and_then(|b| b.as_bytes()).unwrap_or(&[]);
 
     let signable = SignableRequest::new(
         method,
         &url,
         headers.iter().map(|(k, v)| (*k, *v)),
         SignableBody::Bytes(body_bytes),
-    ).map_err(|e| format!("SignableRequest error: {e}"))?;
+    )
+    .map_err(|e| format!("SignableRequest error: {e}"))?;
 
     let (signing_instructions, _signature) = sign(signable, &params.into())
         .map_err(|e| format!("SigV4 signing error: {e}"))?
@@ -162,8 +156,14 @@ mod tests {
             region: "eu-west-1".into(),
         };
         let url = creds.bedrock_base_url();
-        assert!(url.contains("eu-west-1"), "URL should contain region: {url}");
-        assert!(url.contains("bedrock-runtime"), "URL should contain bedrock-runtime: {url}");
+        assert!(
+            url.contains("eu-west-1"),
+            "URL should contain region: {url}"
+        );
+        assert!(
+            url.contains("bedrock-runtime"),
+            "URL should contain bedrock-runtime: {url}"
+        );
     }
 
     #[test]

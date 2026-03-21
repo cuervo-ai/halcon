@@ -104,7 +104,9 @@ impl AutoPluginBootstrap {
             }
 
             // Write the manifest
-            let manifest_path = opts.plugin_dir.join(format!("{}.plugin.toml", rec.plugin_id));
+            let manifest_path = opts
+                .plugin_dir
+                .join(format!("{}.plugin.toml", rec.plugin_id));
             let main_py = plugin_src_dir.join("main.py");
             let manifest_content = Self::manifest_toml(rec, &main_py);
 
@@ -195,7 +197,10 @@ mod tests {
         let opts = BootstrapOptions {
             dry_run: true,
             plugin_dir: dir.path().to_path_buf(),
-            tiers: vec![RecommendationTier::Essential, RecommendationTier::Recommended],
+            tiers: vec![
+                RecommendationTier::Essential,
+                RecommendationTier::Recommended,
+            ],
         };
         let recs = vec![make_rec("my-plugin", RecommendationTier::Essential, false)];
 
@@ -230,8 +235,14 @@ mod tests {
         let manifest = dir.path().join("my-plugin.plugin.toml");
         assert!(manifest.exists(), "manifest file should be written");
         let content = std::fs::read_to_string(&manifest).unwrap();
-        assert!(content.contains("id = \"my-plugin\""), "manifest should contain plugin id");
-        assert!(content.contains("type = \"stdio\""), "manifest should specify stdio transport");
+        assert!(
+            content.contains("id = \"my-plugin\""),
+            "manifest should contain plugin id"
+        );
+        assert!(
+            content.contains("type = \"stdio\""),
+            "manifest should specify stdio transport"
+        );
     }
 
     #[test]
@@ -242,10 +253,17 @@ mod tests {
             plugin_dir: dir.path().to_path_buf(),
             tiers: vec![RecommendationTier::Essential],
         };
-        let recs = vec![make_rec("installed-plugin", RecommendationTier::Essential, true)];
+        let recs = vec![make_rec(
+            "installed-plugin",
+            RecommendationTier::Essential,
+            true,
+        )];
 
         let result = AutoPluginBootstrap::bootstrap(&recs, &opts);
-        assert!(result.installed.is_empty(), "already installed should be skipped");
+        assert!(
+            result.installed.is_empty(),
+            "already installed should be skipped"
+        );
         assert_eq!(result.skipped, vec!["installed-plugin".to_string()]);
     }
 
@@ -258,13 +276,20 @@ mod tests {
             tiers: vec![RecommendationTier::Essential],
         };
         // No plugin source dir created
-        let recs = vec![make_rec("missing-plugin", RecommendationTier::Essential, false)];
+        let recs = vec![make_rec(
+            "missing-plugin",
+            RecommendationTier::Essential,
+            false,
+        )];
 
         let result = AutoPluginBootstrap::bootstrap(&recs, &opts);
         assert!(result.installed.is_empty());
         assert_eq!(result.failed.len(), 1);
         assert!(result.failed[0].0 == "missing-plugin");
-        assert!(result.failed[0].1.contains("not found"), "error should mention 'not found'");
+        assert!(
+            result.failed[0].1.contains("not found"),
+            "error should mention 'not found'"
+        );
     }
 
     #[test]
@@ -276,7 +301,11 @@ mod tests {
             tiers: vec![RecommendationTier::Essential], // only Essential
         };
         // Recommended plugin — not in tiers list
-        let recs = vec![make_rec("optional-plugin", RecommendationTier::Optional, false)];
+        let recs = vec![make_rec(
+            "optional-plugin",
+            RecommendationTier::Optional,
+            false,
+        )];
 
         let result = AutoPluginBootstrap::bootstrap(&recs, &opts);
         assert!(result.installed.is_empty());

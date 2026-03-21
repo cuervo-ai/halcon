@@ -1,3 +1,4 @@
+use halcon_context::ContextPipeline;
 /// Budget guard checks: token, duration, and cost limits.
 ///
 /// Returns `Some(StopCondition)` if any budget is exceeded (the caller
@@ -6,7 +7,6 @@
 /// When a budget fires, the current `round_text` (if any) is appended as
 /// an assistant message before the function returns, so context is preserved.
 use halcon_core::types::{AgentLimits, ChatMessage, MessageContent, Role, Session};
-use halcon_context::ContextPipeline;
 
 use super::super::agent_types::StopCondition;
 use crate::render::sink::RenderSink;
@@ -32,9 +32,7 @@ pub(super) fn check(
     context_pipeline: &mut ContextPipeline,
 ) -> Option<StopCondition> {
     // --- Token budget guard ---
-    if limits.max_total_tokens > 0
-        && session.total_usage.total() >= limits.max_total_tokens
-    {
+    if limits.max_total_tokens > 0 && session.total_usage.total() >= limits.max_total_tokens {
         tracing::warn!(
             total = session.total_usage.total(),
             budget = limits.max_total_tokens,
@@ -55,9 +53,7 @@ pub(super) fn check(
     }
 
     // --- Duration budget guard ---
-    if limits.max_duration_secs > 0
-        && loop_start.elapsed().as_secs() >= limits.max_duration_secs
-    {
+    if limits.max_duration_secs > 0 && loop_start.elapsed().as_secs() >= limits.max_duration_secs {
         tracing::warn!(
             elapsed_secs = loop_start.elapsed().as_secs(),
             budget_secs = limits.max_duration_secs,

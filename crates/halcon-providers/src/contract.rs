@@ -7,12 +7,12 @@
 mod tests {
     use std::sync::Arc;
 
+    use futures::StreamExt;
     use halcon_core::traits::ModelProvider;
     use halcon_core::types::{
-        ChatMessage, MessageContent, ModelChunk, ModelRequest, Role, StopReason,
-        TokenizerHint, ToolFormat,
+        ChatMessage, MessageContent, ModelChunk, ModelRequest, Role, StopReason, TokenizerHint,
+        ToolFormat,
     };
-    use futures::StreamExt;
 
     use crate::{
         AnthropicProvider, DeepSeekProvider, EchoProvider, GeminiProvider, OllamaProvider,
@@ -397,14 +397,23 @@ mod tests {
         let http = halcon_core::types::HttpConfig::default();
         let openai = OpenAIProvider::new("sk-secret-key-123".into(), None, http.clone());
         let debug_str = format!("{:?}", openai);
-        assert!(!debug_str.contains("sk-secret"), "OpenAI Debug leaks key: {debug_str}");
+        assert!(
+            !debug_str.contains("sk-secret"),
+            "OpenAI Debug leaks key: {debug_str}"
+        );
 
         let deepseek = DeepSeekProvider::new("sk-deepseek-secret".into(), None, http.clone());
         let debug_str = format!("{:?}", deepseek);
-        assert!(!debug_str.contains("sk-deepseek"), "DeepSeek Debug leaks key: {debug_str}");
+        assert!(
+            !debug_str.contains("sk-deepseek"),
+            "DeepSeek Debug leaks key: {debug_str}"
+        );
 
         let gemini = GeminiProvider::new("AIzaSySecret123".into(), None, http);
         let debug_str = format!("{:?}", gemini);
-        assert!(!debug_str.contains("AIzaSy"), "Gemini Debug leaks key: {debug_str}");
+        assert!(
+            !debug_str.contains("AIzaSy"),
+            "Gemini Debug leaks key: {debug_str}"
+        );
     }
 }

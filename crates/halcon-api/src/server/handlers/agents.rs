@@ -9,9 +9,7 @@ use crate::server::state::AppState;
 use crate::types::agent::*;
 
 /// GET /api/v1/agents — list all agents.
-pub async fn list_agents(
-    State(state): State<AppState>,
-) -> Result<Json<Vec<AgentInfo>>, ApiError> {
+pub async fn list_agents(State(state): State<AppState>) -> Result<Json<Vec<AgentInfo>>, ApiError> {
     let descriptors = state.runtime.all_agents().await;
     let health_report = state.runtime.health_report().await;
 
@@ -27,16 +25,8 @@ pub async fn list_agents(
                 id: desc.id,
                 name: desc.name.clone(),
                 kind: convert_agent_kind(&desc.agent_kind),
-                capabilities: desc
-                    .capabilities
-                    .iter()
-                    .map(|c| format!("{c:?}"))
-                    .collect(),
-                protocols: desc
-                    .protocols
-                    .iter()
-                    .map(|p| format!("{p:?}"))
-                    .collect(),
+                capabilities: desc.capabilities.iter().map(|c| format!("{c:?}")).collect(),
+                protocols: desc.protocols.iter().map(|p| format!("{p:?}")).collect(),
                 health,
                 registered_at: chrono::Utc::now(), // TODO: track in registry
                 last_invoked: None,
@@ -71,16 +61,8 @@ pub async fn get_agent(
         id: desc.id,
         name: desc.name.clone(),
         kind: convert_agent_kind(&desc.agent_kind),
-        capabilities: desc
-            .capabilities
-            .iter()
-            .map(|c| format!("{c:?}"))
-            .collect(),
-        protocols: desc
-            .protocols
-            .iter()
-            .map(|p| format!("{p:?}"))
-            .collect(),
+        capabilities: desc.capabilities.iter().map(|c| format!("{c:?}")).collect(),
+        protocols: desc.protocols.iter().map(|p| format!("{p:?}")).collect(),
         health,
         registered_at: chrono::Utc::now(),
         last_invoked: None,
@@ -97,7 +79,9 @@ pub async fn stop_agent(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     state.runtime.deregister_agent(&id).await;
     state.broadcast(crate::types::ws::WsServerEvent::AgentDeregistered { id });
-    Ok(Json(serde_json::json!({ "stopped": true, "id": id.to_string() })))
+    Ok(Json(
+        serde_json::json!({ "stopped": true, "id": id.to_string() }),
+    ))
 }
 
 /// POST /api/v1/agents/:id/invoke — invoke an agent.
@@ -114,9 +98,7 @@ pub async fn invoke_agent(
         max_duration: std::time::Duration::from_millis(b.max_duration_ms),
     });
 
-    let timeout = req
-        .timeout_ms
-        .map(std::time::Duration::from_millis);
+    let timeout = req.timeout_ms.map(std::time::Duration::from_millis);
 
     let agent_req = AgentRequest {
         request_id: uuid::Uuid::new_v4(),
@@ -129,10 +111,7 @@ pub async fn invoke_agent(
 
     let request_id = agent_req.request_id;
 
-    state.broadcast(crate::types::ws::WsServerEvent::AgentInvoked {
-        id,
-        request_id,
-    });
+    state.broadcast(crate::types::ws::WsServerEvent::AgentInvoked { id, request_id });
 
     let response = state
         .runtime
@@ -218,10 +197,8 @@ fn convert_health(health: &halcon_runtime::AgentHealth) -> HealthStatus {
         halcon_runtime::AgentHealth::Degraded { reason } => HealthStatus::Degraded {
             reason: reason.clone(),
         },
-        halcon_runtime::AgentHealth::Unavailable { reason } => {
-            HealthStatus::Unavailable {
-                reason: reason.clone(),
-            }
-        }
+        halcon_runtime::AgentHealth::Unavailable { reason } => HealthStatus::Unavailable {
+            reason: reason.clone(),
+        },
     }
 }

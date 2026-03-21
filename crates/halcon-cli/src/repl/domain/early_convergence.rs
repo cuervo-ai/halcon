@@ -84,7 +84,9 @@ impl ConvergenceReason {
         match self {
             Self::EvidenceThreshold => "sufficient evidence gathered (≥80% plan complete)",
             Self::TokenHeadroom => "token budget low — synthesising to avoid truncation",
-            Self::DiminishingReturns => "diminishing returns — no meaningful progress in recent rounds",
+            Self::DiminishingReturns => {
+                "diminishing returns — no meaningful progress in recent rounds"
+            }
         }
     }
 }
@@ -386,7 +388,7 @@ mod tests {
         assert_eq!(det.check(0.10, 50_000, 0.01), None);
         // Progress round — resets counter.
         assert_eq!(det.check(0.30, 50_000, 0.20), None); // 0.20 > MIN_PROGRESS_DELTA
-        // One stagnant round again (counter was reset, so need WINDOW more).
+                                                         // One stagnant round again (counter was reset, so need WINDOW more).
         assert_eq!(det.check(0.30, 50_000, 0.01), None);
         // Second stagnant round — fires.
         assert_eq!(
@@ -435,9 +437,13 @@ mod tests {
 
     #[test]
     fn convergence_reason_descriptions_non_empty() {
-        assert!(!ConvergenceReason::EvidenceThreshold.description().is_empty());
+        assert!(!ConvergenceReason::EvidenceThreshold
+            .description()
+            .is_empty());
         assert!(!ConvergenceReason::TokenHeadroom.description().is_empty());
-        assert!(!ConvergenceReason::DiminishingReturns.description().is_empty());
+        assert!(!ConvergenceReason::DiminishingReturns
+            .description()
+            .is_empty());
     }
 
     #[test]

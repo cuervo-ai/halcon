@@ -18,15 +18,15 @@
 //!   └─→ PermissionChecker (final authorization)
 //! ```
 
-use super::{
-    adaptive_prompt::{AdaptivePromptBuilder, RiskLevel},
-    permissions::PermissionChecker,
-    validation::{PermissionValidator, ValidationError},
-};
 use super::super::{
     conversation_protocol::{DetailAspect, PermissionMessage},
     conversation_state::ConversationState,
     input_normalizer::InputNormalizer,
+};
+use super::{
+    adaptive_prompt::{AdaptivePromptBuilder, RiskLevel},
+    permissions::PermissionChecker,
+    validation::{PermissionValidator, ValidationError},
 };
 use halcon_core::types::{ChatMessage, MessageContent, PermissionDecision, Role, ToolInput};
 use serde_json::Value;
@@ -178,12 +178,7 @@ impl ConversationalPermissionHandler {
             }
 
             let result = self
-                .authorize_conversational(
-                    tool,
-                    level,
-                    &input.arguments,
-                    user_response.as_deref(),
-                )
+                .authorize_conversational(tool, level, &input.arguments, user_response.as_deref())
                 .await;
 
             match result {
@@ -201,7 +196,10 @@ impl ConversationalPermissionHandler {
                     eprintln!();
 
                     // Re-prompt for decision
-                    eprint!("Tool '{}' requires permission. [y]es [n]o [?]details: ", tool);
+                    eprint!(
+                        "Tool '{}' requires permission. [y]es [n]o [?]details: ",
+                        tool
+                    );
                     std::io::stderr().flush().ok();
 
                     let mut buffer = String::new();
@@ -286,9 +284,7 @@ impl ConversationalPermissionHandler {
                 | PermissionDecision::AllowedForDirectory
                 | PermissionDecision::AllowedForRepository
                 | PermissionDecision::AllowedForPattern
-                | PermissionDecision::AllowedThisSession => {
-                    return ConversationalResult::Approved
-                }
+                | PermissionDecision::AllowedThisSession => return ConversationalResult::Approved,
                 PermissionDecision::Denied
                 | PermissionDecision::DeniedForDirectory
                 | PermissionDecision::DeniedForPattern => return ConversationalResult::Denied,
@@ -340,7 +336,8 @@ impl ConversationalPermissionHandler {
                 PermissionMessage::Defer { reason } => ConversationalResult::Deferred { reason },
                 PermissionMessage::RequestDetails { aspect } => {
                     // Generate detail view and return as agent response.
-                    let details = AdaptivePromptBuilder::build_detail_view(tool, input, aspect.clone());
+                    let details =
+                        AdaptivePromptBuilder::build_detail_view(tool, input, aspect.clone());
                     let detail_text = format!("{}\n\n{}", details.title, details.summary);
                     ConversationalResult::NeedsAgentResponse {
                         question: detail_text,
@@ -376,8 +373,11 @@ impl ConversationalPermissionHandler {
                 }
                 PermissionMessage::RequestPreview => {
                     // Preview requested — return detail view.
-                    let details =
-                        AdaptivePromptBuilder::build_detail_view(tool, input, DetailAspect::WhatItDoes);
+                    let details = AdaptivePromptBuilder::build_detail_view(
+                        tool,
+                        input,
+                        DetailAspect::WhatItDoes,
+                    );
                     ConversationalResult::NeedsAgentResponse {
                         question: details.summary,
                         resume_state: Box::new(ConversationState::Prompting {
@@ -550,10 +550,7 @@ impl ConversationalPermissionHandler {
 
     /// Set the sudo password channel (TUI → executor elevation flow).
     #[cfg(feature = "tui")]
-    pub fn set_sudo_channel(
-        &mut self,
-        rx: tokio::sync::mpsc::UnboundedReceiver<Option<String>>,
-    ) {
+    pub fn set_sudo_channel(&mut self, rx: tokio::sync::mpsc::UnboundedReceiver<Option<String>>) {
         self.checker.set_sudo_channel(rx);
     }
 
@@ -723,7 +720,10 @@ mod tests {
             assert!(question.contains("Validation error"));
             assert!(question.contains("unclear") || question.contains("specify parameter"));
         } else {
-            panic!("Expected NeedsAgentResponse with validation error, got: {:?}", result);
+            panic!(
+                "Expected NeedsAgentResponse with validation error, got: {:?}",
+                result
+            );
         }
     }
 
@@ -941,7 +941,11 @@ mod tests {
         let mut handler = ConversationalPermissionHandler::new(true);
         let input = make_tool_input(json!({"command": "rm -rf /"}));
         let result = handler
-            .authorize("bash", halcon_core::types::PermissionLevel::Destructive, &input)
+            .authorize(
+                "bash",
+                halcon_core::types::PermissionLevel::Destructive,
+                &input,
+            )
             .await;
         assert_eq!(result, PermissionDecision::Denied);
     }
@@ -951,7 +955,11 @@ mod tests {
         let mut handler = ConversationalPermissionHandler::new(false); // non-interactive
         let input = make_tool_input(json!({"command": ":(){ :|:& };:"}));
         let result = handler
-            .authorize("bash", halcon_core::types::PermissionLevel::Destructive, &input)
+            .authorize(
+                "bash",
+                halcon_core::types::PermissionLevel::Destructive,
+                &input,
+            )
             .await;
         assert_eq!(result, PermissionDecision::Denied);
     }
@@ -961,7 +969,11 @@ mod tests {
         let mut handler = ConversationalPermissionHandler::new(true);
         let input = make_tool_input(json!({"command": "mkfs.ext4 /dev/sda1"}));
         let result = handler
-            .authorize("bash", halcon_core::types::PermissionLevel::Destructive, &input)
+            .authorize(
+                "bash",
+                halcon_core::types::PermissionLevel::Destructive,
+                &input,
+            )
             .await;
         assert_eq!(result, PermissionDecision::Denied);
     }
@@ -972,7 +984,11 @@ mod tests {
         let mut handler = ConversationalPermissionHandler::new(false); // auto-approve
         let input = make_tool_input(json!({"command": "echo hello"}));
         let result = handler
-            .authorize("bash", halcon_core::types::PermissionLevel::ReadOnly, &input)
+            .authorize(
+                "bash",
+                halcon_core::types::PermissionLevel::ReadOnly,
+                &input,
+            )
             .await;
         // Non-interactive auto-approves safe commands
         assert_eq!(result, PermissionDecision::Allowed);
@@ -984,7 +1000,11 @@ mod tests {
         let mut handler = ConversationalPermissionHandler::new(false);
         let input = make_tool_input(json!({"path": "/etc/passwd"}));
         let result = handler
-            .authorize("file_read", halcon_core::types::PermissionLevel::ReadOnly, &input)
+            .authorize(
+                "file_read",
+                halcon_core::types::PermissionLevel::ReadOnly,
+                &input,
+            )
             .await;
         assert_eq!(result, PermissionDecision::Allowed);
     }
@@ -994,7 +1014,11 @@ mod tests {
         let mut handler = ConversationalPermissionHandler::new(true);
         let input = make_tool_input(json!({"command": "dd if=/dev/zero of=/dev/sda"}));
         let result = handler
-            .authorize("bash", halcon_core::types::PermissionLevel::Destructive, &input)
+            .authorize(
+                "bash",
+                halcon_core::types::PermissionLevel::Destructive,
+                &input,
+            )
             .await;
         assert_eq!(result, PermissionDecision::Denied);
     }

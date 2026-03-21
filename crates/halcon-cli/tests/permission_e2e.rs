@@ -7,10 +7,12 @@
 //!
 //! These tests verify that CRITICAL BUG #1 and #2 are fully resolved.
 
+use halcon_cli::repl::adaptive_prompt::RiskLevel as AdaptiveRiskLevel;
 use halcon_cli::repl::command_blacklist;
 use halcon_cli::repl::conversational_permission::ConversationalPermissionHandler;
-use halcon_cli::repl::adaptive_prompt::RiskLevel as AdaptiveRiskLevel;
-use halcon_cli::tui::permission_context::{PermissionContext, PermissionOption, RiskLevel as TuiRiskLevel};
+use halcon_cli::tui::permission_context::{
+    PermissionContext, PermissionOption, RiskLevel as TuiRiskLevel,
+};
 use halcon_core::types::PermissionLevel;
 use serde_json::json;
 
@@ -23,18 +25,62 @@ fn e2e_blacklist_escalates_to_critical() {
 
     // Test all 12 blacklist patterns
     let dangerous_commands = vec![
-        ("rm -rf /", "Root filesystem deletion", AdaptiveRiskLevel::Critical),
-        ("dd if=/dev/zero of=/dev/sda", "Disk wipe with dd", AdaptiveRiskLevel::Critical),
-        ("mkfs.ext4 /dev/sdb", "Filesystem creation on device", AdaptiveRiskLevel::Critical),
+        (
+            "rm -rf /",
+            "Root filesystem deletion",
+            AdaptiveRiskLevel::Critical,
+        ),
+        (
+            "dd if=/dev/zero of=/dev/sda",
+            "Disk wipe with dd",
+            AdaptiveRiskLevel::Critical,
+        ),
+        (
+            "mkfs.ext4 /dev/sdb",
+            "Filesystem creation on device",
+            AdaptiveRiskLevel::Critical,
+        ),
         (":(){ :|:& };:", "Fork bomb", AdaptiveRiskLevel::Critical),
-        ("chmod -R 777 /", "Global world-writable permissions", AdaptiveRiskLevel::Critical),
-        ("setenforce 0", "Disable SELinux/AppArmor", AdaptiveRiskLevel::Critical),
-        ("echo c > /proc/sysrq-trigger", "Kernel panic trigger", AdaptiveRiskLevel::Critical),
-        ("dd if=/dev/zero of=/dev/mem", "Memory device overwrite", AdaptiveRiskLevel::Critical),
-        ("fdisk /dev/sda", "Partition table destruction", AdaptiveRiskLevel::Critical),
-        ("chown -R nobody /", "Global chown to non-root", AdaptiveRiskLevel::Critical),
-        ("apt remove -y apt", "Package manager removal", AdaptiveRiskLevel::Critical),
-        ("swapoff -a", "Swap disable on low memory", AdaptiveRiskLevel::Critical),
+        (
+            "chmod -R 777 /",
+            "Global world-writable permissions",
+            AdaptiveRiskLevel::Critical,
+        ),
+        (
+            "setenforce 0",
+            "Disable SELinux/AppArmor",
+            AdaptiveRiskLevel::Critical,
+        ),
+        (
+            "echo c > /proc/sysrq-trigger",
+            "Kernel panic trigger",
+            AdaptiveRiskLevel::Critical,
+        ),
+        (
+            "dd if=/dev/zero of=/dev/mem",
+            "Memory device overwrite",
+            AdaptiveRiskLevel::Critical,
+        ),
+        (
+            "fdisk /dev/sda",
+            "Partition table destruction",
+            AdaptiveRiskLevel::Critical,
+        ),
+        (
+            "chown -R nobody /",
+            "Global chown to non-root",
+            AdaptiveRiskLevel::Critical,
+        ),
+        (
+            "apt remove -y apt",
+            "Package manager removal",
+            AdaptiveRiskLevel::Critical,
+        ),
+        (
+            "swapoff -a",
+            "Swap disable on low memory",
+            AdaptiveRiskLevel::Critical,
+        ),
     ];
 
     for (cmd, expected_pattern, expected_risk) in dangerous_commands {
@@ -43,8 +89,7 @@ fn e2e_blacklist_escalates_to_critical() {
         assert!(
             analysis.is_blacklisted,
             "Command '{}' should be blacklisted (pattern: {})",
-            cmd,
-            expected_pattern
+            cmd, expected_pattern
         );
 
         // Verify risk escalation
@@ -87,7 +132,8 @@ fn e2e_safe_commands_not_escalated() {
             &json!({"command": cmd}),
         );
         assert_eq!(
-            risk, AdaptiveRiskLevel::High,
+            risk,
+            AdaptiveRiskLevel::High,
             "Safe command '{}' should be High risk",
             cmd
         );
@@ -103,12 +149,27 @@ fn e2e_all_8_options_map_to_decisions() {
 
     let options_and_decisions = vec![
         (PermissionOption::Yes, PermissionDecision::Allowed),
-        (PermissionOption::AlwaysThisTool, PermissionDecision::AllowedAlways),
-        (PermissionOption::ThisDirectory, PermissionDecision::AllowedForDirectory),
-        (PermissionOption::ThisSession, PermissionDecision::AllowedThisSession),
-        (PermissionOption::ThisPattern, PermissionDecision::AllowedForPattern),
+        (
+            PermissionOption::AlwaysThisTool,
+            PermissionDecision::AllowedAlways,
+        ),
+        (
+            PermissionOption::ThisDirectory,
+            PermissionDecision::AllowedForDirectory,
+        ),
+        (
+            PermissionOption::ThisSession,
+            PermissionDecision::AllowedThisSession,
+        ),
+        (
+            PermissionOption::ThisPattern,
+            PermissionDecision::AllowedForPattern,
+        ),
         (PermissionOption::No, PermissionDecision::Denied),
-        (PermissionOption::NeverThisDirectory, PermissionDecision::DeniedForDirectory),
+        (
+            PermissionOption::NeverThisDirectory,
+            PermissionDecision::DeniedForDirectory,
+        ),
         (PermissionOption::Cancel, PermissionDecision::Denied),
     ];
 
@@ -154,7 +215,11 @@ fn e2e_high_critical_risk_filters_dangerous_options() {
 
     // Critical risk: same as High
     let critical_opts = TuiRiskLevel::Critical.available_options();
-    assert_eq!(critical_opts.len(), 6, "Critical risk should have 6 options");
+    assert_eq!(
+        critical_opts.len(),
+        6,
+        "Critical risk should have 6 options"
+    );
     assert!(!critical_opts.contains(&PermissionOption::AlwaysThisTool));
     assert!(!critical_opts.contains(&PermissionOption::ThisPattern));
 }
@@ -203,10 +268,7 @@ fn e2e_progressive_disclosure_filters_correctly() {
     assert!(basic_options.contains(&&PermissionOption::Cancel));
 
     // Advanced options: AlwaysThisTool, ThisDirectory, ThisSession, ThisPattern, NeverThisDirectory
-    let advanced_options: Vec<_> = all_options
-        .iter()
-        .filter(|opt| opt.is_advanced())
-        .collect();
+    let advanced_options: Vec<_> = all_options.iter().filter(|opt| opt.is_advanced()).collect();
     assert_eq!(advanced_options.len(), 5, "Should have 5 advanced options");
     assert!(advanced_options.contains(&&PermissionOption::AlwaysThisTool));
     assert!(advanced_options.contains(&&PermissionOption::ThisDirectory));
@@ -267,10 +329,19 @@ fn e2e_complete_dangerous_command_flow() {
 fn e2e_parse_risk_handles_all_levels() {
     assert_eq!(PermissionContext::parse_risk("Low"), TuiRiskLevel::Low);
     assert_eq!(PermissionContext::parse_risk("low"), TuiRiskLevel::Low);
-    assert_eq!(PermissionContext::parse_risk("Medium"), TuiRiskLevel::Medium);
+    assert_eq!(
+        PermissionContext::parse_risk("Medium"),
+        TuiRiskLevel::Medium
+    );
     assert_eq!(PermissionContext::parse_risk("High"), TuiRiskLevel::High);
-    assert_eq!(PermissionContext::parse_risk("Critical"), TuiRiskLevel::Critical);
-    assert_eq!(PermissionContext::parse_risk("CRITICAL"), TuiRiskLevel::Critical);
+    assert_eq!(
+        PermissionContext::parse_risk("Critical"),
+        TuiRiskLevel::Critical
+    );
+    assert_eq!(
+        PermissionContext::parse_risk("CRITICAL"),
+        TuiRiskLevel::Critical
+    );
     assert_eq!(
         PermissionContext::parse_risk("unknown"),
         TuiRiskLevel::Medium,
@@ -303,7 +374,10 @@ fn e2e_args_summary_handles_edge_cases() {
     );
     let summary = ctx.args_summary(1);
     assert_eq!(summary.len(), 1);
-    assert!(summary[0].1.len() <= 53, "Should be truncated to 50 + '...'");
+    assert!(
+        summary[0].1.len() <= 53,
+        "Should be truncated to 50 + '...'"
+    );
 
     // Array formatting
     let ctx2 = PermissionContext::new(
@@ -338,7 +412,10 @@ fn e2e_risk_level_colors_use_palette() {
     assert_eq!(TuiRiskLevel::Low.color(p).srgb8(), p.success.srgb8());
     assert_eq!(TuiRiskLevel::Medium.color(p).srgb8(), p.accent.srgb8());
     assert_eq!(TuiRiskLevel::High.color(p).srgb8(), p.warning.srgb8());
-    assert_eq!(TuiRiskLevel::Critical.color(p).srgb8(), p.destructive.srgb8());
+    assert_eq!(
+        TuiRiskLevel::Critical.color(p).srgb8(),
+        p.destructive.srgb8()
+    );
 }
 
 /// Test that urgency levels are correctly ordered.
@@ -374,7 +451,8 @@ fn e2e_read_write_tools_medium_risk() {
     );
 
     assert_eq!(
-        risk, AdaptiveRiskLevel::Medium,
+        risk,
+        AdaptiveRiskLevel::Medium,
         "ReadWrite tools should be Medium risk"
     );
 }
@@ -391,7 +469,8 @@ fn e2e_readonly_tools_low_risk() {
     );
 
     assert_eq!(
-        risk, AdaptiveRiskLevel::Low,
+        risk,
+        AdaptiveRiskLevel::Low,
         "ReadOnly tools should be Low risk"
     );
 }
@@ -465,11 +544,15 @@ fn e2e_cancel_equals_no() {
 fn e2e_option_labels_are_readable() {
     assert!(PermissionOption::Yes.label().contains("once"));
     assert!(PermissionOption::AlwaysThisTool.label().contains("global"));
-    assert!(PermissionOption::ThisDirectory.label().contains("directory"));
+    assert!(PermissionOption::ThisDirectory
+        .label()
+        .contains("directory"));
     assert!(PermissionOption::ThisSession.label().contains("session"));
     assert!(PermissionOption::ThisPattern.label().contains("pattern"));
     assert!(PermissionOption::No.label().contains("reject"));
-    assert!(PermissionOption::NeverThisDirectory.label().contains("Never"));
+    assert!(PermissionOption::NeverThisDirectory
+        .label()
+        .contains("Never"));
     assert!(PermissionOption::Cancel.label().contains("Cancel"));
 }
 
@@ -489,7 +572,12 @@ fn e2e_option_descriptions_are_informative() {
     ] {
         let desc = option.description();
         assert!(!desc.is_empty(), "{:?} has empty description", option);
-        assert!(desc.len() > 10, "{:?} description too short: {}", option, desc);
+        assert!(
+            desc.len() > 10,
+            "{:?} description too short: {}",
+            option,
+            desc
+        );
     }
 }
 

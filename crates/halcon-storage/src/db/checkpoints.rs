@@ -24,7 +24,9 @@ pub struct SessionCheckpoint {
 impl Database {
     /// Save a session checkpoint (INSERT OR REPLACE on session_id+round).
     pub fn save_checkpoint(&self, checkpoint: &SessionCheckpoint) -> Result<()> {
-        let conn = self.conn.lock()
+        let conn = self
+            .conn
+            .lock()
             .map_err(|e| HalconError::DatabaseError(e.to_string()))?;
 
         conn.execute(
@@ -47,8 +49,14 @@ impl Database {
     }
 
     /// Load a specific checkpoint by session_id and round.
-    pub fn load_checkpoint(&self, session_id: Uuid, round: u32) -> Result<Option<SessionCheckpoint>> {
-        let conn = self.conn.lock()
+    pub fn load_checkpoint(
+        &self,
+        session_id: Uuid,
+        round: u32,
+    ) -> Result<Option<SessionCheckpoint>> {
+        let conn = self
+            .conn
+            .lock()
             .map_err(|e| HalconError::DatabaseError(e.to_string()))?;
 
         let result = conn.query_row(
@@ -69,7 +77,9 @@ impl Database {
 
     /// Load the latest checkpoint for a session (highest round number).
     pub fn load_latest_checkpoint(&self, session_id: Uuid) -> Result<Option<SessionCheckpoint>> {
-        let conn = self.conn.lock()
+        let conn = self
+            .conn
+            .lock()
             .map_err(|e| HalconError::DatabaseError(e.to_string()))?;
 
         let result = conn.query_row(
@@ -90,7 +100,9 @@ impl Database {
 
     /// List checkpoint (round, created_at) pairs for a session, ordered by round ascending.
     pub fn list_checkpoints(&self, session_id: Uuid) -> Result<Vec<(u32, String)>> {
-        let conn = self.conn.lock()
+        let conn = self
+            .conn
+            .lock()
             .map_err(|e| HalconError::DatabaseError(e.to_string()))?;
 
         let mut stmt = conn.prepare(
@@ -98,30 +110,38 @@ impl Database {
         )
         .map_err(|e| HalconError::DatabaseError(format!("prepare: {e}")))?;
 
-        let rows = stmt.query_map(rusqlite::params![session_id.to_string()], |row| {
-            Ok((row.get::<_, u32>(0)?, row.get::<_, String>(1)?))
-        })
-        .map_err(|e| HalconError::DatabaseError(format!("list checkpoints: {e}")))?
-        .collect::<std::result::Result<Vec<_>, _>>()
-        .map_err(|e| HalconError::DatabaseError(format!("collect: {e}")))?;
+        let rows = stmt
+            .query_map(rusqlite::params![session_id.to_string()], |row| {
+                Ok((row.get::<_, u32>(0)?, row.get::<_, String>(1)?))
+            })
+            .map_err(|e| HalconError::DatabaseError(format!("list checkpoints: {e}")))?
+            .collect::<std::result::Result<Vec<_>, _>>()
+            .map_err(|e| HalconError::DatabaseError(format!("collect: {e}")))?;
 
         Ok(rows)
     }
 
     fn row_to_checkpoint(row: &rusqlite::Row) -> Result<SessionCheckpoint> {
-        let session_id_str: String = row.get(0)
+        let session_id_str: String = row
+            .get(0)
             .map_err(|e| HalconError::DatabaseError(e.to_string()))?;
-        let round: u32 = row.get(1)
+        let round: u32 = row
+            .get(1)
             .map_err(|e| HalconError::DatabaseError(e.to_string()))?;
-        let step_index: u32 = row.get(2)
+        let step_index: u32 = row
+            .get(2)
             .map_err(|e| HalconError::DatabaseError(e.to_string()))?;
-        let messages_json: String = row.get(3)
+        let messages_json: String = row
+            .get(3)
             .map_err(|e| HalconError::DatabaseError(e.to_string()))?;
-        let usage_json: String = row.get(4)
+        let usage_json: String = row
+            .get(4)
             .map_err(|e| HalconError::DatabaseError(e.to_string()))?;
-        let fingerprint: String = row.get(5)
+        let fingerprint: String = row
+            .get(5)
             .map_err(|e| HalconError::DatabaseError(e.to_string()))?;
-        let created_at_str: String = row.get(6)
+        let created_at_str: String = row
+            .get(6)
             .map_err(|e| HalconError::DatabaseError(e.to_string()))?;
 
         let session_id = Uuid::parse_str(&session_id_str)

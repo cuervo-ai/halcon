@@ -86,10 +86,9 @@ impl HalconTheme {
             TextStyle::Heading,
             FontId::new(18.0, FontFamily::Proportional),
         );
-        style.text_styles.insert(
-            TextStyle::Body,
-            FontId::new(13.0, FontFamily::Proportional),
-        );
+        style
+            .text_styles
+            .insert(TextStyle::Body, FontId::new(13.0, FontFamily::Proportional));
         style.text_styles.insert(
             TextStyle::Monospace,
             FontId::new(12.0, FontFamily::Monospace),

@@ -15,8 +15,8 @@ use halcon_core::EventSender;
 use halcon_storage::AsyncDatabase;
 
 use super::super::backpressure::{BackpressureGuard, InvokePermit};
-use super::circuit_breaker::{BreakerState, ProviderBreaker};
 use super::super::health::{HealthLevel, HealthScorer};
+use super::circuit_breaker::{BreakerState, ProviderBreaker};
 
 /// Result of a pre-invoke check.
 #[derive(Debug)]
@@ -193,10 +193,16 @@ impl ResilienceManager {
                 // Emit domain event for state recovery (P1-1: specific variant, not generic).
                 if let Some(tx) = &self.event_tx {
                     let payload_opt = match (&transition.from, &transition.to) {
-                        (BreakerState::HalfOpen, BreakerState::Closed) =>
-                            Some(EventPayload::CircuitBreakerRecovered { provider: provider.to_string() }),
-                        (BreakerState::Open, BreakerState::HalfOpen) =>
-                            Some(EventPayload::CircuitBreakerHalfOpen { provider: provider.to_string() }),
+                        (BreakerState::HalfOpen, BreakerState::Closed) => {
+                            Some(EventPayload::CircuitBreakerRecovered {
+                                provider: provider.to_string(),
+                            })
+                        }
+                        (BreakerState::Open, BreakerState::HalfOpen) => {
+                            Some(EventPayload::CircuitBreakerHalfOpen {
+                                provider: provider.to_string(),
+                            })
+                        }
                         (from, to) => {
                             // Unexpected transition — all valid success paths should be covered above.
                             tracing::error!(
@@ -232,11 +238,12 @@ impl ResilienceManager {
                 if let Some(tx) = &self.event_tx {
                     let failure_count = breaker.failure_count();
                     let payload_opt = match (&transition.from, &transition.to) {
-                        (BreakerState::Closed, BreakerState::Open) =>
+                        (BreakerState::Closed, BreakerState::Open) => {
                             Some(EventPayload::CircuitBreakerOpened {
                                 provider: provider.to_string(),
                                 failure_count: failure_count as u32,
-                            }),
+                            })
+                        }
                         (from, to) => {
                             // Unexpected failure transition — all valid paths should be covered above.
                             tracing::error!(
@@ -269,12 +276,7 @@ impl ResilienceManager {
     ///   Closed (healthy)  = 1.0
     ///   HalfOpen (probing) = 0.5
     ///   Open (tripped)    = 0.0
-    async fn persist_breaker_event(
-        &self,
-        provider: &str,
-        from: &BreakerState,
-        to: &BreakerState,
-    ) {
+    async fn persist_breaker_event(&self, provider: &str, from: &BreakerState, to: &BreakerState) {
         if let Some(db) = &self.db {
             // Derive health score from the destination state (u32, 0–100 scale).
             let score = match to {
@@ -373,7 +375,12 @@ mod tests {
 
         let decision = mgr.pre_invoke("bad").await;
         assert!(
-            matches!(decision, PreInvokeDecision::Fallback { reason: FallbackReason::BreakerOpen { .. } }),
+            matches!(
+                decision,
+                PreInvokeDecision::Fallback {
+                    reason: FallbackReason::BreakerOpen { .. }
+                }
+            ),
             "should fallback when breaker is open"
         );
     }
@@ -390,7 +397,12 @@ mod tests {
         // Third should timeout and fallback.
         let decision = mgr.pre_invoke("busy").await;
         assert!(
-            matches!(decision, PreInvokeDecision::Fallback { reason: FallbackReason::Saturated { .. } }),
+            matches!(
+                decision,
+                PreInvokeDecision::Fallback {
+                    reason: FallbackReason::Saturated { .. }
+                }
+            ),
             "should fallback when saturated"
         );
     }
@@ -466,9 +478,9 @@ mod tests {
 
     #[tokio::test]
     async fn health_scorer_wired_into_pre_invoke() {
-        use std::sync::Arc;
         use chrono::Utc;
         use halcon_storage::{Database, InvocationMetric};
+        use std::sync::Arc;
 
         let db = Arc::new(Database::open_in_memory().unwrap());
 
@@ -519,8 +531,7 @@ mod tests {
             .unwrap();
         }
 
-        let mut mgr = ResilienceManager::new(test_config(true))
-            .with_db(AsyncDatabase::new(db));
+        let mut mgr = ResilienceManager::new(test_config(true)).with_db(AsyncDatabase::new(db));
         mgr.register_provider("sick");
 
         let decision = mgr.pre_invoke("sick").await;
@@ -537,9 +548,9 @@ mod tests {
 
     #[tokio::test]
     async fn healthy_provider_passes_health_check() {
-        use std::sync::Arc;
         use chrono::Utc;
         use halcon_storage::{Database, InvocationMetric};
+        use std::sync::Arc;
 
         let db = Arc::new(Database::open_in_memory().unwrap());
 
@@ -560,8 +571,7 @@ mod tests {
             .unwrap();
         }
 
-        let mut mgr = ResilienceManager::new(test_config(true))
-            .with_db(AsyncDatabase::new(db));
+        let mut mgr = ResilienceManager::new(test_config(true)).with_db(AsyncDatabase::new(db));
         mgr.register_provider("good");
 
         let decision = mgr.pre_invoke("good").await;
@@ -586,8 +596,8 @@ mod tests {
 
     #[tokio::test]
     async fn breaker_trip_persists_resilience_event() {
-        use std::sync::Arc;
         use halcon_storage::Database;
+        use std::sync::Arc;
 
         let db = Arc::new(Database::open_in_memory().unwrap());
         let async_db = AsyncDatabase::new(Arc::clone(&db));
@@ -635,7 +645,10 @@ mod tests {
         // Should have emitted a CircuitBreakerOpened event (P1-1: specific variant).
         let event = event_rx.try_recv().expect("should receive breaker event");
         match &event.payload {
-            EventPayload::CircuitBreakerOpened { provider, failure_count } => {
+            EventPayload::CircuitBreakerOpened {
+                provider,
+                failure_count,
+            } => {
                 assert_eq!(provider, "failing");
                 assert!(*failure_count >= 3);
             }
@@ -700,9 +713,9 @@ mod tests {
 
     #[tokio::test]
     async fn breaker_recovery_persists_event() {
+        use halcon_storage::Database;
         use std::sync::Arc;
         use std::time::{Duration, Instant};
-        use halcon_storage::Database;
 
         let db = Arc::new(Database::open_in_memory().unwrap());
         let async_db = AsyncDatabase::new(Arc::clone(&db));

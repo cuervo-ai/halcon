@@ -103,11 +103,17 @@ pub fn forecast(
     };
 
     // Conservative estimate: use the larger of the two
-    let estimated_remaining = rounds_by_utility.max(rounds_by_evidence).min(sla_remaining_rounds);
+    let estimated_remaining = rounds_by_utility
+        .max(rounds_by_evidence)
+        .min(sla_remaining_rounds);
 
     // Probability: higher when plenty of budget remains
     let probability = if sla_remaining_rounds == 0 {
-        if current_utility >= synthesis_threshold { 1.0 } else { 0.0 }
+        if current_utility >= synthesis_threshold {
+            1.0
+        } else {
+            0.0
+        }
     } else {
         (1.0 - estimated_remaining as f64 / sla_remaining_rounds as f64).clamp(0.0, 1.0)
     };
@@ -178,7 +184,10 @@ mod tests {
         ];
         // Utility trend = 0.10/round, evidence rate = 0.15/round
         let result = forecast(&metrics, 0.10, 0.15, 10, 0.35, 3);
-        assert!(result.probability > 0.50, "should be high probability with good trend");
+        assert!(
+            result.probability > 0.50,
+            "should be high probability with good trend"
+        );
         assert_eq!(result.estimated_rounds_remaining, 1); // gap=0.05, 0.05/0.10=1
         assert!(result.confidence >= 0.30);
     }
@@ -192,7 +201,10 @@ mod tests {
         ];
         // No improvement
         let result = forecast(&metrics, 0.0, 0.0, 3, 0.35, 3);
-        assert!(result.probability < 0.01, "stalled session should have low probability");
+        assert!(
+            result.probability < 0.01,
+            "stalled session should have low probability"
+        );
         assert_eq!(result.estimated_rounds_remaining, 3);
     }
 
@@ -238,7 +250,10 @@ mod tests {
         let metrics8: Vec<_> = (0..8).map(|i| make_round(i, 0.3, 0.4)).collect();
         let r3 = forecast(&metrics3, 0.05, 0.05, 10, 0.35, 3);
         let r8 = forecast(&metrics8, 0.05, 0.05, 10, 0.35, 3);
-        assert!(r8.confidence > r3.confidence, "more data should yield higher confidence");
+        assert!(
+            r8.confidence > r3.confidence,
+            "more data should yield higher confidence"
+        );
     }
 
     #[test]

@@ -187,8 +187,8 @@ impl StrategySelector {
                     let exploitation = stats.avg_score;
                     // Defensive .max(1) ensures the denominator is never exactly 0 even if
                     // the guard above is ever accidentally bypassed during refactoring.
-                    let exploration = c_eff
-                        * ((total_uses as f64).ln() / (stats.uses.max(1) as f64)).sqrt();
+                    let exploration =
+                        c_eff * ((total_uses as f64).ln() / (stats.uses.max(1) as f64)).sqrt();
                     exploitation + exploration
                 };
 
@@ -200,7 +200,11 @@ impl StrategySelector {
     }
 
     /// Configure strategy with limits and multi-dimensional parameters based on complexity.
-    pub fn configure(&self, strategy: ReasoningStrategy, complexity: TaskComplexity) -> StrategyPlan {
+    pub fn configure(
+        &self,
+        strategy: ReasoningStrategy,
+        complexity: TaskComplexity,
+    ) -> StrategyPlan {
         let max_rounds = match (strategy, complexity) {
             (ReasoningStrategy::DirectExecution, TaskComplexity::Simple) => 3,
             (ReasoningStrategy::DirectExecution, TaskComplexity::Moderate) => 5,
@@ -224,25 +228,18 @@ impl StrategySelector {
         // (D2 fix). The bias is always computed from the IntentProfile by ModelRouter in
         // reasoning_engine::pre_loop(), which has richer signal than the static
         // strategy×complexity table.
-        let (loop_guard_tightness, replan_sensitivity) =
-            match (strategy, complexity) {
-                (ReasoningStrategy::DirectExecution, TaskComplexity::Simple) =>
-                    (0.3, 0.3),
-                (ReasoningStrategy::DirectExecution, TaskComplexity::Moderate) =>
-                    (0.5, 0.5),
-                (ReasoningStrategy::DirectExecution, TaskComplexity::Complex) =>
-                    (0.6, 0.7),
-                (ReasoningStrategy::PlanExecuteReflect, TaskComplexity::Simple) =>
-                    (0.4, 0.4),
-                (ReasoningStrategy::PlanExecuteReflect, TaskComplexity::Moderate) =>
-                    (0.6, 0.6),
-                // replan_sensitivity reduced 0.8→0.4: effective_rounds = max(1, floor(3*(1-0.4*0.6)))
-                // = max(1, floor(3*0.76)) = max(1,2) = 2 rounds below threshold trigger replan.
-                // Old 0.8: 1 single bad round triggered a replan (~3k token planning call).
-                // New 0.4: requires 2 consecutive bad rounds — eliminates hair-trigger replanning.
-                (ReasoningStrategy::PlanExecuteReflect, TaskComplexity::Complex) =>
-                    (0.8, 0.4),
-            };
+        let (loop_guard_tightness, replan_sensitivity) = match (strategy, complexity) {
+            (ReasoningStrategy::DirectExecution, TaskComplexity::Simple) => (0.3, 0.3),
+            (ReasoningStrategy::DirectExecution, TaskComplexity::Moderate) => (0.5, 0.5),
+            (ReasoningStrategy::DirectExecution, TaskComplexity::Complex) => (0.6, 0.7),
+            (ReasoningStrategy::PlanExecuteReflect, TaskComplexity::Simple) => (0.4, 0.4),
+            (ReasoningStrategy::PlanExecuteReflect, TaskComplexity::Moderate) => (0.6, 0.6),
+            // replan_sensitivity reduced 0.8→0.4: effective_rounds = max(1, floor(3*(1-0.4*0.6)))
+            // = max(1, floor(3*0.76)) = max(1,2) = 2 rounds below threshold trigger replan.
+            // Old 0.8: 1 single bad round triggered a replan (~3k token planning call).
+            // New 0.4: requires 2 consecutive bad rounds — eliminates hair-trigger replanning.
+            (ReasoningStrategy::PlanExecuteReflect, TaskComplexity::Complex) => (0.8, 0.4),
+        };
         let routing_bias = None; // Always delegated to ModelRouter via reasoning_engine.
 
         StrategyPlan {
@@ -266,15 +263,17 @@ impl StrategySelector {
     /// Load experience from external source (e.g., database).
     pub fn load_experience(&mut self, experiences: Vec<(TaskType, ReasoningStrategy, f64, usize)>) {
         for (task_type, strategy, avg_score, uses) in experiences {
-            self.experience.insert(
-                (task_type, strategy),
-                StrategyStats { avg_score, uses },
-            );
+            self.experience
+                .insert((task_type, strategy), StrategyStats { avg_score, uses });
         }
     }
 
     /// Get current experience stats.
-    pub fn get_stats(&self, task_type: TaskType, strategy: ReasoningStrategy) -> Option<&StrategyStats> {
+    pub fn get_stats(
+        &self,
+        task_type: TaskType,
+        strategy: ReasoningStrategy,
+    ) -> Option<&StrategyStats> {
         self.experience.get(&(task_type, strategy))
     }
 
@@ -346,7 +345,9 @@ mod tests {
 
     #[test]
     fn default_moderate_plan_execute_reflect() {
-        let analysis = TaskAnalyzer::analyze("create a function that processes user input and validates it against a schema");
+        let analysis = TaskAnalyzer::analyze(
+            "create a function that processes user input and validates it against a schema",
+        );
         assert_eq!(analysis.complexity, TaskComplexity::Moderate);
 
         let selector = StrategySelector::new(1.4);
@@ -370,7 +371,11 @@ mod tests {
         let mut selector = StrategySelector::new(1.4);
 
         // Load experience for DirectExecution only
-        selector.update(TaskType::CodeGeneration, ReasoningStrategy::DirectExecution, 0.8);
+        selector.update(
+            TaskType::CodeGeneration,
+            ReasoningStrategy::DirectExecution,
+            0.8,
+        );
 
         // Should select PlanExecuteReflect (unexplored = INFINITY score)
         let strategy = selector.select(&analysis);
@@ -384,12 +389,20 @@ mod tests {
 
         // DirectExecution: very high score, many uses (10 updates @ 0.95)
         for _ in 0..10 {
-            selector.update(TaskType::CodeGeneration, ReasoningStrategy::DirectExecution, 0.95);
+            selector.update(
+                TaskType::CodeGeneration,
+                ReasoningStrategy::DirectExecution,
+                0.95,
+            );
         }
 
         // PlanExecuteReflect: low score, moderate uses (5 updates @ 0.3)
         for _ in 0..5 {
-            selector.update(TaskType::CodeGeneration, ReasoningStrategy::PlanExecuteReflect, 0.3);
+            selector.update(
+                TaskType::CodeGeneration,
+                ReasoningStrategy::PlanExecuteReflect,
+                0.3,
+            );
         }
 
         // UCB1 scores: DirectExecution=1.68, PlanExecuteReflect=1.33
@@ -415,7 +428,10 @@ mod tests {
         // max_rounds reduced from 15→8: prevents 111k+ token burn on Complex tasks.
         // 8 rounds = 3-4 tool cycles + synthesis + headroom for 1 replan.
         let selector = StrategySelector::new(1.4);
-        let plan = selector.configure(ReasoningStrategy::PlanExecuteReflect, TaskComplexity::Complex);
+        let plan = selector.configure(
+            ReasoningStrategy::PlanExecuteReflect,
+            TaskComplexity::Complex,
+        );
         assert_eq!(plan.max_rounds, 8);
         assert!(plan.enable_reflection);
         // Complex+PlanExecuteReflect: tight loop guard, quality routing.
@@ -429,7 +445,10 @@ mod tests {
     #[test]
     fn configure_new_dimensions_present() {
         let selector = StrategySelector::new(1.4);
-        let plan = selector.configure(ReasoningStrategy::PlanExecuteReflect, TaskComplexity::Moderate);
+        let plan = selector.configure(
+            ReasoningStrategy::PlanExecuteReflect,
+            TaskComplexity::Moderate,
+        );
         // Verify new fields are populated
         assert!(plan.loop_guard_tightness > 0.0);
         assert!(plan.replan_sensitivity > 0.0);
@@ -451,17 +470,31 @@ mod tests {
     fn load_experience_from_database() {
         let mut selector = StrategySelector::new(1.4);
         let experiences = vec![
-            (TaskType::CodeGeneration, ReasoningStrategy::DirectExecution, 0.85, 10),
-            (TaskType::Debugging, ReasoningStrategy::PlanExecuteReflect, 0.72, 5),
+            (
+                TaskType::CodeGeneration,
+                ReasoningStrategy::DirectExecution,
+                0.85,
+                10,
+            ),
+            (
+                TaskType::Debugging,
+                ReasoningStrategy::PlanExecuteReflect,
+                0.72,
+                5,
+            ),
         ];
 
         selector.load_experience(experiences);
 
-        let stats1 = selector.get_stats(TaskType::CodeGeneration, ReasoningStrategy::DirectExecution).unwrap();
+        let stats1 = selector
+            .get_stats(TaskType::CodeGeneration, ReasoningStrategy::DirectExecution)
+            .unwrap();
         assert_eq!(stats1.avg_score, 0.85);
         assert_eq!(stats1.uses, 10);
 
-        let stats2 = selector.get_stats(TaskType::Debugging, ReasoningStrategy::PlanExecuteReflect).unwrap();
+        let stats2 = selector
+            .get_stats(TaskType::Debugging, ReasoningStrategy::PlanExecuteReflect)
+            .unwrap();
         assert_eq!(stats2.avg_score, 0.72);
         assert_eq!(stats2.uses, 5);
     }
@@ -493,9 +526,15 @@ mod tests {
         let c100 = selector.effective_c(100);
         let c400 = selector.effective_c(400);
         assert!(c0 > c10, "C must decrease from n=0 to n=10: {c0} vs {c10}");
-        assert!(c10 > c100, "C must decrease from n=10 to n=100: {c10} vs {c100}");
+        assert!(
+            c10 > c100,
+            "C must decrease from n=10 to n=100: {c10} vs {c100}"
+        );
         // c400 may hit floor, but must not exceed c100
-        assert!(c100 >= c400, "C must not increase past n=100: {c100} vs {c400}");
+        assert!(
+            c100 >= c400,
+            "C must not increase past n=100: {c100} vs {c400}"
+        );
     }
 
     #[test]
@@ -518,11 +557,19 @@ mod tests {
 
         // DirectExecution: excellent score × 100 uses
         for _ in 0..100 {
-            selector.update(TaskType::CodeGeneration, ReasoningStrategy::DirectExecution, 0.95);
+            selector.update(
+                TaskType::CodeGeneration,
+                ReasoningStrategy::DirectExecution,
+                0.95,
+            );
         }
         // PlanExecuteReflect: poor score × 100 uses
         for _ in 0..100 {
-            selector.update(TaskType::CodeGeneration, ReasoningStrategy::PlanExecuteReflect, 0.10);
+            selector.update(
+                TaskType::CodeGeneration,
+                ReasoningStrategy::PlanExecuteReflect,
+                0.10,
+            );
         }
 
         // With adaptive C (reduced at n=200), exploitation signal should win
@@ -541,6 +588,9 @@ mod tests {
 
     #[test]
     fn c_decay_alpha_constant_is_0_05() {
-        assert!((C_DECAY_ALPHA - 0.05).abs() < 1e-10, "C_DECAY_ALPHA must be 0.05");
+        assert!(
+            (C_DECAY_ALPHA - 0.05).abs() < 1e-10,
+            "C_DECAY_ALPHA must be 0.05"
+        );
     }
 }

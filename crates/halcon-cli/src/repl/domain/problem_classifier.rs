@@ -123,7 +123,11 @@ impl ProblemClassifier {
     }
 
     /// Perform initial classification from round metrics.
-    pub fn classify(&mut self, metrics: &[RoundMetrics], sla_fraction: f64) -> ProblemClassification {
+    pub fn classify(
+        &mut self,
+        metrics: &[RoundMetrics],
+        sla_fraction: f64,
+    ) -> ProblemClassification {
         let classification = compute_classification(metrics, sla_fraction, &self.policy);
         self.current = Some(classification.clone());
         classification
@@ -149,7 +153,11 @@ impl ProblemClassifier {
     }
 
     /// Attempt reclassification. Returns Some if reclassified, None otherwise.
-    pub fn reclassify(&mut self, metrics: &[RoundMetrics], sla_fraction: f64) -> Option<ProblemClassification> {
+    pub fn reclassify(
+        &mut self,
+        metrics: &[RoundMetrics],
+        sla_fraction: f64,
+    ) -> Option<ProblemClassification> {
         if !self.should_reclassify(metrics) {
             return None;
         }
@@ -205,7 +213,10 @@ fn extract_signals(metrics: &[RoundMetrics], sla_pressure: f64) -> Classificatio
     // Exploration ratio: heuristic — rounds with high evidence coverage growth
     // relative to tool calls indicate exploration-heavy behavior.
     // We approximate by checking evidence_coverage > 0.3 as proxy for search-heavy rounds.
-    let exploration_rounds = metrics.iter().filter(|r| r.evidence_coverage > 0.30 && r.tool_calls > 0).count();
+    let exploration_rounds = metrics
+        .iter()
+        .filter(|r| r.evidence_coverage > 0.30 && r.tool_calls > 0)
+        .count();
     let exploration_ratio = if metrics.is_empty() {
         0.0
     } else {
@@ -230,7 +241,11 @@ fn extract_signals(metrics: &[RoundMetrics], sla_pressure: f64) -> Classificatio
     }
 }
 
-fn compute_classification(metrics: &[RoundMetrics], sla_fraction: f64, policy: &PolicyConfig) -> ProblemClassification {
+fn compute_classification(
+    metrics: &[RoundMetrics],
+    sla_fraction: f64,
+    policy: &PolicyConfig,
+) -> ProblemClassification {
     let signals = extract_signals(metrics, sla_fraction);
     let round_classified = metrics.last().map(|r| r.round).unwrap_or(0);
 
@@ -451,7 +466,10 @@ mod tests {
         let mut classifier = ProblemClassifier::new(default_policy());
         let metrics = vec![make_round(0), make_round(1)];
         let result = classifier.reclassify(&metrics, 0.30);
-        assert!(result.is_none(), "cannot reclassify without initial classification");
+        assert!(
+            result.is_none(),
+            "cannot reclassify without initial classification"
+        );
     }
 
     #[test]

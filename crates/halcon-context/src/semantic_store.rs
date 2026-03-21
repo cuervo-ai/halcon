@@ -119,7 +119,10 @@ impl SemanticStore {
             }
             used += tokens;
             result.push(ContextChunk {
-                source: format!("L3:semantic:r{}-{}", entry.segment.round_start, entry.segment.round_end),
+                source: format!(
+                    "L3:semantic:r{}-{}",
+                    entry.segment.round_start, entry.segment.round_end
+                ),
                 priority: 30, // Lower priority than L1 (50) and L2 (40)
                 content: entry.context_string.clone(),
                 estimated_tokens: tokens as usize,
@@ -163,10 +166,7 @@ impl SemanticStore {
 
     /// Total original tokens across all stored segments.
     pub fn original_tokens(&self) -> u32 {
-        self.entries
-            .iter()
-            .map(|e| e.segment.token_estimate)
-            .sum()
+        self.entries.iter().map(|e| e.segment.token_estimate).sum()
     }
 
     /// Maximum entries capacity.
@@ -244,8 +244,8 @@ impl SemanticStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
     use crate::assembler::estimate_tokens;
+    use chrono::Utc;
 
     fn make_segment(start: u32, end: u32, summary: &str) -> ContextSegment {
         ContextSegment {
@@ -273,7 +273,11 @@ mod tests {
     #[test]
     fn store_single_segment() {
         let mut store = SemanticStore::new(100);
-        store.store(&make_segment(1, 1, "Implemented async Rust patterns with tokio"));
+        store.store(&make_segment(
+            1,
+            1,
+            "Implemented async Rust patterns with tokio",
+        ));
         assert_eq!(store.len(), 1);
         assert!(!store.is_empty());
         assert!(store.vocabulary_size() > 0);
@@ -291,9 +295,17 @@ mod tests {
     #[test]
     fn retrieve_relevant_segment() {
         let mut store = SemanticStore::new(100);
-        store.store(&make_segment(1, 1, "Implemented Rust async patterns with tokio runtime"));
+        store.store(&make_segment(
+            1,
+            1,
+            "Implemented Rust async patterns with tokio runtime",
+        ));
         store.store(&make_segment(2, 2, "Added Python unit tests for the API"));
-        store.store(&make_segment(3, 3, "Configured SQLite database with WAL mode"));
+        store.store(&make_segment(
+            3,
+            3,
+            "Configured SQLite database with WAL mode",
+        ));
 
         let results = store.retrieve("Rust async tokio", 10_000);
         assert!(!results.is_empty());
@@ -418,16 +430,26 @@ mod tests {
         let results = store.retrieve("Rust async tokio", 50_000);
         assert!(results.len() >= 2);
         // Both Rust segments should appear, Python should not.
-        assert!(results.iter().all(|r| r.content.contains("Rust") || r.content.contains("tokio")));
+        assert!(results
+            .iter()
+            .all(|r| r.content.contains("Rust") || r.content.contains("tokio")));
     }
 
     #[test]
     fn bm25_idf_penalizes_common_terms() {
         let mut store = SemanticStore::new(100);
         // "the" appears in all documents (low IDF), "quantum" appears in one (high IDF).
-        store.store(&make_segment(1, 1, "the quick brown fox jumps over the lazy dog"));
+        store.store(&make_segment(
+            1,
+            1,
+            "the quick brown fox jumps over the lazy dog",
+        ));
         store.store(&make_segment(2, 2, "the cat sat on the mat by the door"));
-        store.store(&make_segment(3, 3, "quantum computing uses the principles of superposition"));
+        store.store(&make_segment(
+            3,
+            3,
+            "quantum computing uses the principles of superposition",
+        ));
 
         let results = store.retrieve("quantum principles", 50_000);
         assert!(!results.is_empty());

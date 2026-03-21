@@ -15,11 +15,11 @@
 //! Run `halcon login cenzontle` to perform the SSO browser flow and store the
 //! token in the OS keychain automatically.
 
-pub mod types;
 #[cfg(feature = "cenzontle-agents")]
 pub mod agent_client;
 #[cfg(feature = "cenzontle-agents")]
 pub mod agent_types;
+pub mod types;
 
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -134,7 +134,11 @@ impl CircuitBreaker {
                 .as_millis() as u64
                 + CB_OPEN_MS;
             self.open_until_unix_ms.store(until, Ordering::Relaxed);
-            warn!(failures = n, open_until_unix_ms = until, "Cenzontle: circuit breaker opened");
+            warn!(
+                failures = n,
+                open_until_unix_ms = until,
+                "Cenzontle: circuit breaker opened"
+            );
         }
     }
 
@@ -327,7 +331,9 @@ fn model_info_from_cenzontle(m: CenzontleModel) -> ModelInfo {
         id: m.id.clone(),
         name: m.name.unwrap_or_else(|| m.id.clone()),
         provider: PROVIDER_NAME.to_string(),
-        context_window: m.context_window.unwrap_or_else(|| tier_context_window(tier)),
+        context_window: m
+            .context_window
+            .unwrap_or_else(|| tier_context_window(tier)),
         max_output_tokens: m.max_output_tokens.unwrap_or_else(|| tier_max_output(tier)),
         supports_streaming: m.supports_streaming,
         supports_tools: m.supports_tools,
@@ -389,7 +395,9 @@ impl ModelProvider for CenzontleProvider {
         // Build the OpenAI-compatible request body with SSE streaming enabled.
         let mut chat_request = self.inner.build_request(request);
         chat_request.stream = true;
-        chat_request.stream_options = Some(StreamOptions { include_usage: true });
+        chat_request.stream_options = Some(StreamOptions {
+            include_usage: true,
+        });
 
         // ── Idempotency key ──────────────────────────────────────────────────
         // SHA-256(model + last user message content) → stable hex key.
@@ -448,7 +456,11 @@ impl ModelProvider for CenzontleProvider {
         for attempt in 0..=max_retries {
             if attempt > 0 {
                 let delay = backoff_delay_with_jitter(1000, attempt);
-                debug!(attempt, delay_ms = delay.as_millis(), "Cenzontle: retry backoff");
+                debug!(
+                    attempt,
+                    delay_ms = delay.as_millis(),
+                    "Cenzontle: retry backoff"
+                );
                 tokio::time::sleep(delay).await;
             }
 
@@ -489,7 +501,10 @@ impl ModelProvider for CenzontleProvider {
                 Err(_) => {
                     cb.record_failure();
                     if attempt < max_retries {
-                        warn!(attempt = attempt + 1, "Cenzontle: request timeout, retrying");
+                        warn!(
+                            attempt = attempt + 1,
+                            "Cenzontle: request timeout, retrying"
+                        );
                         continue;
                     }
                     return Err(HalconError::ApiError {
@@ -689,10 +704,7 @@ mod tests {
 
     #[test]
     fn tokenizer_hint_for_model_unknown() {
-        assert_eq!(
-            tokenizer_hint_for_model("llama3.2"),
-            TokenizerHint::Unknown
-        );
+        assert_eq!(tokenizer_hint_for_model("llama3.2"), TokenizerHint::Unknown);
     }
 
     // ── model_info_from_cenzontle ────────────────────────────────────────────

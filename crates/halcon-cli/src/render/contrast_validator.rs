@@ -6,11 +6,11 @@
 #[cfg(feature = "color-science")]
 use momoto_core::Color;
 #[cfg(feature = "color-science")]
-use momoto_intelligence::QualityScore;
+use momoto_intelligence::context::RecommendationContext;
 #[cfg(feature = "color-science")]
 use momoto_intelligence::scoring::QualityScorer;
 #[cfg(feature = "color-science")]
-use momoto_intelligence::context::RecommendationContext;
+use momoto_intelligence::QualityScore;
 
 use super::theme::Palette;
 
@@ -46,17 +46,23 @@ impl ContrastValidation {
         if self.passes_aa_normal {
             format!(
                 "✓ {}/{}: {:.1}% compliance (WCAG AA pass)",
-                self.bg_name, self.fg_name, self.score * 100.0
+                self.bg_name,
+                self.fg_name,
+                self.score * 100.0
             )
         } else if self.passes_aa_large {
             format!(
                 "⚠ {}/{}: {:.1}% compliance (WCAG AA fail for normal text, pass for large text)",
-                self.bg_name, self.fg_name, self.score * 100.0
+                self.bg_name,
+                self.fg_name,
+                self.score * 100.0
             )
         } else {
             format!(
                 "✗ {}/{}: {:.1}% compliance (WCAG AA fail)",
-                self.bg_name, self.fg_name, self.score * 100.0
+                self.bg_name,
+                self.fg_name,
+                self.score * 100.0
             )
         }
     }
@@ -79,10 +85,7 @@ pub fn validate_palette_contrast(palette: &Palette) -> Vec<ContrastValidation> {
     ];
 
     // Text colors to validate against
-    let text_colors = [
-        ("text", palette.text),
-        ("text_dim", palette.text_dim),
-    ];
+    let text_colors = [("text", palette.text), ("text_dim", palette.text_dim)];
 
     // Validate all combinations
     for (bg_name, bg_color) in &card_backgrounds {
@@ -268,7 +271,10 @@ mod tests {
         let validations = validate_palette_contrast(&palette);
         let failures: Vec<_> = validations.iter().filter(|v| v.is_failure()).collect();
 
-        assert!(!failures.is_empty(), "Poor contrast should produce failures");
+        assert!(
+            !failures.is_empty(),
+            "Poor contrast should produce failures"
+        );
     }
 
     #[cfg(feature = "color-science")]

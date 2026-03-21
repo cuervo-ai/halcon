@@ -100,7 +100,11 @@ impl ProcessTransport {
             .ok_or_else(|| HalconError::Internal("claude-code: stdout unavailable".into()))?;
 
         debug!(command = %config.command, "claude-code: subprocess spawned");
-        Ok(Self { stdin, stdout, child })
+        Ok(Self {
+            stdin,
+            stdout,
+            child,
+        })
     }
 }
 
@@ -214,7 +218,12 @@ pub fn build_command(config: &SpawnConfig) -> Command {
     // `--input-format stream-json` + `--output-format stream-json` only work
     // with `--print` (see `claude --help`).
     cmd.arg("--print");
-    cmd.args(["--input-format", "stream-json", "--output-format", "stream-json"]);
+    cmd.args([
+        "--input-format",
+        "stream-json",
+        "--output-format",
+        "stream-json",
+    ]);
     // verbose: enables {"type":"system","subtype":"init"} and model resolution events
     cmd.arg("--verbose");
     // include-partial-messages: enables streaming text deltas (letter-by-letter)
@@ -295,7 +304,12 @@ mod tests {
     fn std_args(config: &SpawnConfig) -> Vec<String> {
         let mut cmd = std::process::Command::new(&config.command);
         cmd.arg("--print");
-        cmd.args(["--input-format", "stream-json", "--output-format", "stream-json"]);
+        cmd.args([
+            "--input-format",
+            "stream-json",
+            "--output-format",
+            "stream-json",
+        ]);
         cmd.arg("--verbose");
         cmd.arg("--include-partial-messages");
         let effective_mode = if config.mode == SpawnMode::Auto {
@@ -303,7 +317,11 @@ mod tests {
             let is_root = unsafe { libc::getuid() } == 0;
             #[cfg(not(unix))]
             let is_root = false;
-            if is_root { SpawnMode::Chat } else { SpawnMode::Auto }
+            if is_root {
+                SpawnMode::Chat
+            } else {
+                SpawnMode::Auto
+            }
         } else {
             config.mode
         };
@@ -363,7 +381,10 @@ mod tests {
 
     #[test]
     fn auto_mode_adds_skip_permissions() {
-        let cfg = SpawnConfig { mode: SpawnMode::Auto, ..chat_cfg() };
+        let cfg = SpawnConfig {
+            mode: SpawnMode::Auto,
+            ..chat_cfg()
+        };
         let args = std_args(&cfg);
         // When running as root (uid==0), Auto mode is downgraded to Chat to
         // avoid the "cannot use --dangerously-skip-permissions as root" error.
@@ -381,7 +402,10 @@ mod tests {
 
     #[test]
     fn smart_approve_mode() {
-        let cfg = SpawnConfig { mode: SpawnMode::SmartApprove, ..chat_cfg() };
+        let cfg = SpawnConfig {
+            mode: SpawnMode::SmartApprove,
+            ..chat_cfg()
+        };
         let args = std_args(&cfg);
         assert!(args.contains(&"--permission-mode".into()));
         assert!(args.contains(&"acceptEdits".into()));

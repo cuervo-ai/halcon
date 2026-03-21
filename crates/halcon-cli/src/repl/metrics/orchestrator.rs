@@ -62,28 +62,40 @@ impl OrchestratorMetrics {
 
     /// Record plan evaluation (called when orchestrator analyzes a plan)
     pub fn record_plan_evaluation(&self, step_count: usize, avg_confidence: f64) {
-        self.inner.total_plan_evaluations.fetch_add(1, Ordering::Relaxed);
+        self.inner
+            .total_plan_evaluations
+            .fetch_add(1, Ordering::Relaxed);
 
         // Update rolling average (simple fixed-point arithmetic)
         let steps_fp = (step_count as u64) * 100;
         let conf_fp = (avg_confidence * 100.0) as u64;
 
-        self.inner.avg_plan_steps.fetch_add(steps_fp, Ordering::Relaxed);
-        self.inner.avg_confidence.fetch_add(conf_fp, Ordering::Relaxed);
+        self.inner
+            .avg_plan_steps
+            .fetch_add(steps_fp, Ordering::Relaxed);
+        self.inner
+            .avg_confidence
+            .fetch_add(conf_fp, Ordering::Relaxed);
     }
 
     /// Record delegation decision
     pub fn record_delegation_decision(&self, delegated: bool) {
         if delegated {
-            self.inner.plans_with_delegation.fetch_add(1, Ordering::Relaxed);
+            self.inner
+                .plans_with_delegation
+                .fetch_add(1, Ordering::Relaxed);
         } else {
-            self.inner.plans_without_delegation.fetch_add(1, Ordering::Relaxed);
+            self.inner
+                .plans_without_delegation
+                .fetch_add(1, Ordering::Relaxed);
         }
     }
 
     /// Start timing a delegated task
     pub fn start_delegation(&self) -> DelegationTimer {
-        self.inner.delegated_tasks_total.fetch_add(1, Ordering::Relaxed);
+        self.inner
+            .delegated_tasks_total
+            .fetch_add(1, Ordering::Relaxed);
         DelegationTimer {
             start: Instant::now(),
             metrics: self.clone(),
@@ -93,23 +105,31 @@ impl OrchestratorMetrics {
     /// Record delegation outcome
     fn record_delegation_outcome(&self, success: bool, duration: Duration) {
         if success {
-            self.inner.delegated_tasks_success.fetch_add(1, Ordering::Relaxed);
+            self.inner
+                .delegated_tasks_success
+                .fetch_add(1, Ordering::Relaxed);
         } else {
-            self.inner.delegated_tasks_failure.fetch_add(1, Ordering::Relaxed);
+            self.inner
+                .delegated_tasks_failure
+                .fetch_add(1, Ordering::Relaxed);
         }
 
-        self.inner.total_delegation_latency_ns
+        self.inner
+            .total_delegation_latency_ns
             .fetch_add(duration.as_nanos() as u64, Ordering::Relaxed);
     }
 
     /// Record fallback from delegation to direct execution
     pub fn record_delegation_fallback(&self) {
-        self.inner.delegation_fallback_count.fetch_add(1, Ordering::Relaxed);
+        self.inner
+            .delegation_fallback_count
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     /// Record direct execution latency (for comparison)
     pub fn record_direct_execution(&self, duration: Duration) {
-        self.inner.total_direct_execution_latency_ns
+        self.inner
+            .total_direct_execution_latency_ns
             .fetch_add(duration.as_nanos() as u64, Ordering::Relaxed);
     }
 
@@ -128,15 +148,23 @@ impl OrchestratorMetrics {
             delegated_tasks_failure: self.inner.delegated_tasks_failure.load(Ordering::Relaxed),
 
             avg_delegation_latency_ms: if delegated_total > 0 {
-                (self.inner.total_delegation_latency_ns.load(Ordering::Relaxed)
-                    / delegated_total / 1_000_000) as f64
+                (self
+                    .inner
+                    .total_delegation_latency_ns
+                    .load(Ordering::Relaxed)
+                    / delegated_total
+                    / 1_000_000) as f64
             } else {
                 0.0
             },
 
             avg_direct_execution_latency_ms: if total_evals > 0 {
-                (self.inner.total_direct_execution_latency_ns.load(Ordering::Relaxed)
-                    / total_evals / 1_000_000) as f64
+                (self
+                    .inner
+                    .total_direct_execution_latency_ns
+                    .load(Ordering::Relaxed)
+                    / total_evals
+                    / 1_000_000) as f64
             } else {
                 0.0
             },
@@ -144,13 +172,17 @@ impl OrchestratorMetrics {
             delegation_fallback_count: self.inner.delegation_fallback_count.load(Ordering::Relaxed),
 
             avg_plan_steps: if total_evals > 0 {
-                self.inner.avg_plan_steps.load(Ordering::Relaxed) as f64 / total_evals as f64 / 100.0
+                self.inner.avg_plan_steps.load(Ordering::Relaxed) as f64
+                    / total_evals as f64
+                    / 100.0
             } else {
                 0.0
             },
 
             avg_confidence: if total_evals > 0 {
-                self.inner.avg_confidence.load(Ordering::Relaxed) as f64 / total_evals as f64 / 100.0
+                self.inner.avg_confidence.load(Ordering::Relaxed) as f64
+                    / total_evals as f64
+                    / 100.0
             } else {
                 0.0
             },
@@ -236,33 +268,42 @@ impl OrchestratorMetricsSnapshot {
 
         // Red flags
         if success_rate < 0.7 {
-            return (false, format!(
-                "Low success rate: {:.1}% (threshold: 70%)",
-                success_rate * 100.0
-            ));
+            return (
+                false,
+                format!(
+                    "Low success rate: {:.1}% (threshold: 70%)",
+                    success_rate * 100.0
+                ),
+            );
         }
 
         if trigger_rate < 0.05 {
-            return (false, format!(
-                "Rarely triggers: {:.1}% of plans (threshold: 5%)",
-                trigger_rate * 100.0
-            ));
+            return (
+                false,
+                format!(
+                    "Rarely triggers: {:.1}% of plans (threshold: 5%)",
+                    trigger_rate * 100.0
+                ),
+            );
         }
 
         if overhead > 5000.0 {
-            return (false, format!(
-                "Excessive overhead: {:.1}ms (threshold: 5000ms)",
-                overhead
-            ));
+            return (
+                false,
+                format!("Excessive overhead: {:.1}ms (threshold: 5000ms)", overhead),
+            );
         }
 
         // Green lights
-        (true, format!(
-            "Delegation healthy: {:.1}% success, {:.1}% trigger rate, {:.1}ms overhead",
-            success_rate * 100.0,
-            trigger_rate * 100.0,
-            overhead
-        ))
+        (
+            true,
+            format!(
+                "Delegation healthy: {:.1}% success, {:.1}% trigger rate, {:.1}ms overhead",
+                success_rate * 100.0,
+                trigger_rate * 100.0,
+                overhead
+            ),
+        )
     }
 }
 

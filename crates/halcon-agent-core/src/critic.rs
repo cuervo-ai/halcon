@@ -22,7 +22,7 @@
 use serde::{Deserialize, Serialize};
 use tracing::debug;
 
-use crate::goal::{ConfidenceScore, GoalSpec};
+use crate::goal::GoalSpec;
 
 // ─── CriticSignal ─────────────────────────────────────────────────────────────
 
@@ -34,7 +34,10 @@ pub enum CriticSignal {
     /// Slow progress — inject the given hint string into the next round's context.
     InjectHint { hint: String, alignment_score: f32 },
     /// Stalled — trigger the AdaptivePlanner to generate a revised plan.
-    Replan { reason: String, alignment_score: f32 },
+    Replan {
+        reason: String,
+        alignment_score: f32,
+    },
     /// Irrecoverable — exit the loop and synthesise from current evidence.
     Terminate { reason: String },
 }
@@ -75,9 +78,9 @@ pub struct CriticConfig {
 impl Default for CriticConfig {
     fn default() -> Self {
         Self {
-            hint_threshold: 0.05,    // < 5% delta → inject hint
-            replan_threshold: 0.01,  // < 1% delta → replan
-            max_stall_rounds: 3,     // 3 consecutive stall rounds → terminate
+            hint_threshold: 0.05,   // < 5% delta → inject hint
+            replan_threshold: 0.01, // < 1% delta → replan
+            max_stall_rounds: 3,    // 3 consecutive stall rounds → terminate
             healthy_score_floor: 0.1,
         }
     }
@@ -134,7 +137,11 @@ pub struct InLoopCritic {
 
 impl InLoopCritic {
     pub fn new(config: CriticConfig) -> Self {
-        Self { config, stall_count: 0, delta_history: Vec::new() }
+        Self {
+            config,
+            stall_count: 0,
+            delta_history: Vec::new(),
+        }
     }
 
     /// Evaluate one round and return a [`CriticSignal`].
@@ -228,15 +235,21 @@ impl InLoopCritic {
             format!(
                 "Round {} had tool errors and made no progress (delta={:.3}). \
                  Try alternative tools or a different approach.",
-                m.round, m.delta()
+                m.round,
+                m.delta()
             )
         } else if m.tools_invoked.is_empty() {
-            format!("Round {} invoked no tools — plan step may be ambiguous.", m.round)
+            format!(
+                "Round {} invoked no tools — plan step may be ambiguous.",
+                m.round
+            )
         } else {
             format!(
                 "Round {} invoked {:?} but goal confidence did not improve (delta={:.3}). \
                  These tools may not address the goal — consider more targeted ones.",
-                m.round, m.tools_invoked, m.delta()
+                m.round,
+                m.tools_invoked,
+                m.delta()
             )
         }
     }
@@ -257,21 +270,21 @@ impl InLoopCritic {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::goal::{GoalSpec, VerifiableCriterion, CriterionKind};
+    use crate::goal::{CriterionKind, GoalSpec, VerifiableCriterion};
     use uuid::Uuid;
 
     fn dummy_goal() -> GoalSpec {
         GoalSpec {
             id: Uuid::new_v4(),
             intent: "test goal".into(),
-            criteria: vec![
-                VerifiableCriterion {
-                    description: "criterion 1".into(),
-                    weight: 1.0,
-                    kind: CriterionKind::KeywordPresence { keywords: vec!["done".into()] },
-                    threshold: 0.8,
-                }
-            ],
+            criteria: vec![VerifiableCriterion {
+                description: "criterion 1".into(),
+                weight: 1.0,
+                kind: CriterionKind::KeywordPresence {
+                    keywords: vec!["done".into()],
+                },
+                threshold: 0.8,
+            }],
             completion_threshold: 0.8,
             max_rounds: 10,
             latency_sensitive: false,
@@ -317,7 +330,10 @@ mod tests {
 
     #[test]
     fn consecutive_stalls_terminate() {
-        let config = CriticConfig { max_stall_rounds: 2, ..Default::default() };
+        let config = CriticConfig {
+            max_stall_rounds: 2,
+            ..Default::default()
+        };
         let mut critic = InLoopCritic::new(config);
         let goal = dummy_goal();
         // Round 1: stall
@@ -347,17 +363,24 @@ mod tests {
     #[test]
     fn reset_stall_clears_counter() {
         // max_stall_rounds=3: after reset, 2 more stalls (< 3) should NOT terminate.
-        let config = CriticConfig { max_stall_rounds: 3, ..Default::default() };
+        let config = CriticConfig {
+            max_stall_rounds: 3,
+            ..Default::default()
+        };
         let mut critic = InLoopCritic::new(config);
         let goal = dummy_goal();
         critic.evaluate(&metrics(1, 0.5, 0.505), &goal); // stall_count=1
         critic.evaluate(&metrics(2, 0.505, 0.506), &goal); // stall_count=2
         critic.reset_stall(); // stall_count=0
-        // Two more stalls (1, 2) → below max_stall_rounds(3) → Replan not Terminate.
+                              // Two more stalls (1, 2) → below max_stall_rounds(3) → Replan not Terminate.
         critic.evaluate(&metrics(3, 0.506, 0.507), &goal); // stall_count=1
         let signal = critic.evaluate(&metrics(4, 0.507, 0.508), &goal); // stall_count=2 < 3
-        // Signal should be Replan, NOT Terminate.
-        assert!(!signal.is_terminal(), "expected Replan not Terminate, got {:?}", signal);
+                                                                        // Signal should be Replan, NOT Terminate.
+        assert!(
+            !signal.is_terminal(),
+            "expected Replan not Terminate, got {:?}",
+            signal
+        );
     }
 
     #[test]

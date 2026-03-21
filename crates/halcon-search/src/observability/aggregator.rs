@@ -252,8 +252,8 @@ impl MetricsAggregator {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Duration;
     use crate::observability::{QueryInstrumentation, SnapshotStore};
+    use chrono::Duration;
     use halcon_storage::Database;
 
     async fn setup_test_stores() -> (Arc<ObservabilityStore>, Arc<SnapshotStore>) {

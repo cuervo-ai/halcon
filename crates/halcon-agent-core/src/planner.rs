@@ -100,7 +100,11 @@ impl PlanBranch {
         self.children
             .iter()
             .filter(|c| !c.exhausted)
-            .max_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal))
+            .max_by(|a, b| {
+                a.score
+                    .partial_cmp(&b.score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
     }
 }
 
@@ -122,7 +126,11 @@ impl PlanTree {
         self.branches
             .iter()
             .filter(|b| !b.exhausted)
-            .max_by(|a, b| a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal))
+            .max_by(|a, b| {
+                a.score
+                    .partial_cmp(&b.score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
     }
 
     /// Flat list of steps from the best branch (what the loop driver executes).
@@ -140,7 +148,11 @@ impl PlanTree {
             .iter()
             .enumerate()
             .filter(|(_, b)| !b.exhausted)
-            .max_by(|(_, a), (_, b)| a.score.partial_cmp(&b.score).unwrap_or(std::cmp::Ordering::Equal))
+            .max_by(|(_, a), (_, b)| {
+                a.score
+                    .partial_cmp(&b.score)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
             .map(|(i, _)| i);
 
         if let Some(idx) = best_idx {
@@ -215,11 +227,7 @@ impl AdaptivePlanner {
     /// Replan given a stalled tree — generates new branches based on what failed.
     ///
     /// `failed_branch_labels` are the labels of branches that have been exhausted.
-    pub fn replan(
-        &self,
-        goal: &GoalSpec,
-        previous: &PlanTree,
-    ) -> PlanTree {
+    pub fn replan(&self, goal: &GoalSpec, previous: &PlanTree) -> PlanTree {
         // Generate fresh branches but exclude approaches similar to exhausted ones.
         let exhausted_labels: std::collections::HashSet<&str> = previous
             .branches
@@ -248,8 +256,11 @@ impl AdaptivePlanner {
         let mut branches: Vec<PlanBranch> = Vec::new();
 
         // Domain: credential / secret scanning
-        if intent.contains("credential") || intent.contains("secret") || intent.contains("api key")
-            || intent.contains("credencial") || intent.contains("clave")
+        if intent.contains("credential")
+            || intent.contains("secret")
+            || intent.contains("api key")
+            || intent.contains("credencial")
+            || intent.contains("clave")
         {
             branches.push(PlanBranch::new(
                 "secret_scan approach",
@@ -267,9 +278,11 @@ impl AdaptivePlanner {
             branches.push(PlanBranch::new(
                 "semantic_grep approach",
                 vec![
-                    PlanStep::new("Search for patterns like API_KEY, TOKEN, SECRET using semantic_grep")
-                        .with_tools(vec!["semantic_grep".into(), "grep".into()])
-                        .with_criterion("credentials found"),
+                    PlanStep::new(
+                        "Search for patterns like API_KEY, TOKEN, SECRET using semantic_grep",
+                    )
+                    .with_tools(vec!["semantic_grep".into(), "grep".into()])
+                    .with_criterion("credentials found"),
                     PlanStep::new("Verify and deduplicate matches")
                         .with_tools(vec!["file_read".into()]),
                 ],
@@ -277,22 +290,27 @@ impl AdaptivePlanner {
             ));
         }
         // Domain: testing / verification
-        else if intent.contains("test") || intent.contains("coverage") || intent.contains("prueba") {
+        else if intent.contains("test")
+            || intent.contains("coverage")
+            || intent.contains("prueba")
+        {
             branches.push(PlanBranch::new(
                 "test_run approach",
                 vec![
                     PlanStep::new("Run the test suite")
                         .with_tools(vec!["test_run".into(), "bash".into()])
                         .with_criterion("tests pass"),
-                    PlanStep::new("Check coverage report")
-                        .with_tools(vec!["code_coverage".into()]),
+                    PlanStep::new("Check coverage report").with_tools(vec!["code_coverage".into()]),
                 ],
                 0.9,
             ));
         }
         // Domain: code analysis / metrics
-        else if intent.contains("metric") || intent.contains("complexity") || intent.contains("analysis")
-            || intent.contains("análisis") || intent.contains("complejidad")
+        else if intent.contains("metric")
+            || intent.contains("complexity")
+            || intent.contains("analysis")
+            || intent.contains("análisis")
+            || intent.contains("complejidad")
         {
             branches.push(PlanBranch::new(
                 "code_metrics approach",
@@ -302,15 +320,17 @@ impl AdaptivePlanner {
                         .with_criterion("metrics computed"),
                     PlanStep::new("Analyse dependency graph")
                         .with_tools(vec!["dependency_graph".into()]),
-                    PlanStep::new("Summarise findings")
-                        .with_tools(vec!["file_read".into()]),
+                    PlanStep::new("Summarise findings").with_tools(vec!["file_read".into()]),
                 ],
                 0.85,
             ));
         }
         // Domain: file search / reading
-        else if intent.contains("find") || intent.contains("search") || intent.contains("read")
-            || intent.contains("buscar") || intent.contains("leer")
+        else if intent.contains("find")
+            || intent.contains("search")
+            || intent.contains("read")
+            || intent.contains("buscar")
+            || intent.contains("leer")
         {
             branches.push(PlanBranch::new(
                 "glob+read approach",
@@ -318,8 +338,7 @@ impl AdaptivePlanner {
                     PlanStep::new("List matching files with glob")
                         .with_tools(vec!["glob".into()])
                         .with_criterion("files found"),
-                    PlanStep::new("Read relevant files")
-                        .with_tools(vec!["file_read".into()]),
+                    PlanStep::new("Read relevant files").with_tools(vec!["file_read".into()]),
                 ],
                 0.8,
             ));
@@ -344,7 +363,11 @@ impl AdaptivePlanner {
 
         // Pruning.
         branches.retain(|b| b.score >= self.config.prune_threshold);
-        branches.sort_unstable_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        branches.sort_unstable_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         branches.truncate(self.config.max_branches);
 
         for b in &mut branches {
@@ -396,7 +419,10 @@ mod tests {
         let tree = p.plan(&goal("Find exposed credentials in the repository"));
         assert!(!tree.branches.is_empty());
         let best = tree.best_branch().unwrap();
-        assert!(best.steps.iter().any(|s| s.suggested_tools.contains(&"secret_scan".to_string())));
+        assert!(best
+            .steps
+            .iter()
+            .any(|s| s.suggested_tools.contains(&"secret_scan".to_string())));
     }
 
     #[test]
@@ -404,7 +430,10 @@ mod tests {
         let p = AdaptivePlanner::new(PlannerConfig::default());
         let tree = p.plan(&goal("Run the test suite and report coverage"));
         let best = tree.best_branch().unwrap();
-        assert!(best.steps.iter().any(|s| s.suggested_tools.contains(&"test_run".to_string())));
+        assert!(best
+            .steps
+            .iter()
+            .any(|s| s.suggested_tools.contains(&"test_run".to_string())));
     }
 
     #[test]
@@ -439,7 +468,10 @@ mod tests {
 
     #[test]
     fn max_branches_respected() {
-        let config = PlannerConfig { max_branches: 1, ..Default::default() };
+        let config = PlannerConfig {
+            max_branches: 1,
+            ..Default::default()
+        };
         let p = AdaptivePlanner::new(config);
         let tree = p.plan(&goal("find secrets"));
         assert!(tree.branches.len() <= 1);

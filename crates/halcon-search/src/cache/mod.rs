@@ -4,8 +4,8 @@ use crate::config::CacheConfig;
 use crate::error::{Result, SearchError};
 use crate::types::SearchResults;
 
-use std::sync::Arc;
 use halcon_storage::Database;
+use std::sync::Arc;
 
 pub struct ResultCache {
     db: Arc<Database>,
@@ -244,11 +244,6 @@ mod tests {
         let diff = (expires - now).num_seconds();
 
         // Should be ~60 seconds, allow 2 second margin
-        assert!(
-            diff >= 58 && diff <= 62,
-            "Expected TTL ~60s, got {}s",
-            diff
-        );
+        assert!(diff >= 58 && diff <= 62, "Expected TTL ~60s, got {}s", diff);
     }
 }
-

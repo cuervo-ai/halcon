@@ -120,10 +120,7 @@ mod tests {
     async fn channel_multiple_messages() {
         let (a, b) = ChannelTransport::pair(16);
         for i in 0..5 {
-            let msg = TransportMessage::new(
-                TransportMessageKind::Request,
-                serde_json::json!(i),
-            );
+            let msg = TransportMessage::new(TransportMessageKind::Request, serde_json::json!(i));
             a.send(msg).await.unwrap();
         }
         for i in 0..5 {

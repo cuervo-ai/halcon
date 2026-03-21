@@ -117,7 +117,8 @@ impl RepoMap {
         ranked.sort_by(|a, b| b.symbols.len().cmp(&a.symbols.len()));
 
         let mut output = String::from("[Repository Map]\n");
-        let mut budget_remaining = token_budget.saturating_sub(estimate_tokens("[Repository Map]\n"));
+        let mut budget_remaining =
+            token_budget.saturating_sub(estimate_tokens("[Repository Map]\n"));
 
         for file in ranked {
             let entry = format_file_symbols(&file.path, &file.symbols);
@@ -180,8 +181,8 @@ impl RepoMap {
 /// Returns (relative_path, absolute_path) pairs.
 pub fn scan_source_files(root: &Path, max_files: usize) -> Vec<(String, PathBuf)> {
     let extensions = [
-        "rs", "py", "js", "ts", "jsx", "tsx", "go", "java", "c", "cpp", "h", "hpp",
-        "swift", "kt", "rb", "lua", "zig",
+        "rs", "py", "js", "ts", "jsx", "tsx", "go", "java", "c", "cpp", "h", "hpp", "swift", "kt",
+        "rb", "lua", "zig",
     ];
     let skip_dirs = [
         "target",
@@ -779,10 +780,7 @@ fn extract_symbol_name(signature: &str) -> Option<String> {
         // No "for" found — it's `impl Type { ... }`, return the type after impl.
         for word in &words {
             if *word != "impl" && !word.starts_with('<') {
-                let name = word
-                    .split(['<', '{'])
-                    .next()
-                    .unwrap_or(word);
+                let name = word.split(['<', '{']).next().unwrap_or(word);
                 if !name.is_empty() {
                     return Some(name.to_string());
                 }
@@ -798,10 +796,7 @@ fn extract_symbol_name(signature: &str) -> Option<String> {
             | "type" | "const" | "static" | "let" | "class" | "function" | "interface"
             | "export" | "default" | "for" => continue,
             _ => {
-                let name = word
-                    .split(['<', '(', ':', '{'])
-                    .next()
-                    .unwrap_or(word);
+                let name = word.split(['<', '(', ':', '{']).next().unwrap_or(word);
                 if !name.is_empty() {
                     return Some(name.to_string());
                 }
@@ -823,7 +818,9 @@ mod tests {
         let symbols = extract_symbols(code, "lib.rs", "rs");
         assert_eq!(symbols.len(), 1);
         assert_eq!(symbols[0].kind, SymbolKind::Function);
-        assert!(symbols[0].signature.contains("pub fn hello(name: &str) -> String"));
+        assert!(symbols[0]
+            .signature
+            .contains("pub fn hello(name: &str) -> String"));
     }
 
     #[test]
@@ -879,7 +876,8 @@ mod tests {
 
     #[test]
     fn extract_rust_async_fn() {
-        let code = "pub async fn fetch_data(url: &str) -> Result<String> {\n    Ok(\"data\".into())\n}\n";
+        let code =
+            "pub async fn fetch_data(url: &str) -> Result<String> {\n    Ok(\"data\".into())\n}\n";
         let symbols = extract_symbols(code, "fetch.rs", "rs");
         assert_eq!(symbols.len(), 1);
         assert!(symbols[0].signature.contains("pub async fn fetch_data"));
@@ -1037,7 +1035,10 @@ mod tests {
     fn repo_map_search() {
         let files = vec![
             ("src/lib.rs", "pub fn hello() {}\npub fn world() {}\n"),
-            ("src/config.rs", "pub struct Config {}\npub fn hello_config() {}\n"),
+            (
+                "src/config.rs",
+                "pub struct Config {}\npub fn hello_config() {}\n",
+            ),
         ];
         let map = RepoMap::build("/project", &files);
 
@@ -1048,7 +1049,10 @@ mod tests {
 
     #[test]
     fn repo_map_empty_files() {
-        let files: Vec<(&str, &str)> = vec![("src/empty.rs", ""), ("src/comments.rs", "// just comments\n")];
+        let files: Vec<(&str, &str)> = vec![
+            ("src/empty.rs", ""),
+            ("src/comments.rs", "// just comments\n"),
+        ];
         let map = RepoMap::build("/project", &files);
         assert_eq!(map.file_count(), 0);
         assert_eq!(map.symbol_count(), 0);
@@ -1087,28 +1091,24 @@ mod tests {
         let files = vec![
             FileSymbols {
                 path: "a.rs".to_string(),
-                symbols: vec![
-                    Symbol {
-                        file_path: "a.rs".to_string(),
-                        line: 1,
-                        kind: SymbolKind::Struct,
-                        signature: "pub struct Config".to_string(),
-                        indent_level: 0,
-                    },
-                ],
+                symbols: vec![Symbol {
+                    file_path: "a.rs".to_string(),
+                    line: 1,
+                    kind: SymbolKind::Struct,
+                    signature: "pub struct Config".to_string(),
+                    indent_level: 0,
+                }],
                 token_estimate: 10,
             },
             FileSymbols {
                 path: "b.rs".to_string(),
-                symbols: vec![
-                    Symbol {
-                        file_path: "b.rs".to_string(),
-                        line: 1,
-                        kind: SymbolKind::Function,
-                        signature: "pub fn load_config() -> Config".to_string(),
-                        indent_level: 0,
-                    },
-                ],
+                symbols: vec![Symbol {
+                    file_path: "b.rs".to_string(),
+                    line: 1,
+                    kind: SymbolKind::Function,
+                    signature: "pub fn load_config() -> Config".to_string(),
+                    indent_level: 0,
+                }],
                 token_estimate: 10,
             },
         ];

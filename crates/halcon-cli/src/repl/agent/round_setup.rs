@@ -166,7 +166,10 @@ pub(super) async fn run(
         for msg in state.messages.iter_mut() {
             if let halcon_core::types::MessageContent::Blocks(ref mut blocks) = msg.content {
                 for block in blocks.iter_mut() {
-                    if let halcon_core::types::ContentBlock::ToolResult { ref mut content, .. } = block {
+                    if let halcon_core::types::ContentBlock::ToolResult {
+                        ref mut content, ..
+                    } = block
+                    {
                         if content.len() > 2000 {
                             // UTF-8 safe truncation: walk back to a char boundary
                             let mut boundary = 2000;
@@ -181,7 +184,9 @@ pub(super) async fn run(
             }
         }
         if !state.silent {
-            render_sink.info("[K5-2] context compaction applied — truncated old messages and tool outputs");
+            render_sink.info(
+                "[K5-2] context compaction applied — truncated old messages and tool outputs",
+            );
         }
     }
 
@@ -255,7 +260,11 @@ pub(super) async fn run(
                 Ok(summary_text) if !summary_text.is_empty() => {
                     // Use budget-adaptive keep_recent so the preserved window scales
                     // with the provider's actual context window (Fix B extension).
-                    compactor.apply_compaction_with_budget(&mut state.messages, &summary_text, state.tokens.pipeline_budget);
+                    compactor.apply_compaction_with_budget(
+                        &mut state.messages,
+                        &summary_text,
+                        state.tokens.pipeline_budget,
+                    );
                     // Sync session state.messages and re-seed pipeline.
                     session.messages = state.messages.clone();
                     // REMEDIATION FIX C — Preserve L1-L4 on compaction.
@@ -270,7 +279,11 @@ pub(super) async fn run(
                     }
                     let tokens_saved = ContextCompactor::estimate_message_tokens(&state.messages);
                     if !state.silent {
-                        render_sink.compaction_complete(pre_compact_count, state.messages.len(), tokens_saved as u64);
+                        render_sink.compaction_complete(
+                            pre_compact_count,
+                            state.messages.len(),
+                            tokens_saved as u64,
+                        );
                     }
                     tracing::info!(
                         new_message_count = state.messages.len(),
@@ -324,9 +337,7 @@ pub(super) async fn run(
     }
 
     // Token budget pre-check: skip invocation if already over budget.
-    if limits.max_total_tokens > 0
-        && session.total_usage.total() >= limits.max_total_tokens
-    {
+    if limits.max_total_tokens > 0 && session.total_usage.total() >= limits.max_total_tokens {
         if !state.silent {
             render_sink.warning(
                 &format!(
@@ -366,10 +377,15 @@ pub(super) async fn run(
         // the UCB1 strategy bias for this round only. Consumed via take() so subsequent
         // rounds revert to normal StrategyContext routing unless advisory fires again.
         let forced_bias = state.forced_routing_bias.take();
-        let routing_bias_hint: Option<&str> = forced_bias
-            .as_deref()
-            .or_else(|| state.strategy_context.as_ref().and_then(|sc| sc.routing_bias.as_deref()));
-        if let Some(selection) = selector.select_model(&round_context_request, spend, routing_bias_hint) {
+        let routing_bias_hint: Option<&str> = forced_bias.as_deref().or_else(|| {
+            state
+                .strategy_context
+                .as_ref()
+                .and_then(|sc| sc.routing_bias.as_deref())
+        });
+        if let Some(selection) =
+            selector.select_model(&round_context_request, spend, routing_bias_hint)
+        {
             tracing::debug!(
                 model = %selection.model_id,
                 provider = %selection.provider_name,
@@ -377,7 +393,11 @@ pub(super) async fn run(
                 "Model selector override"
             );
             if !state.silent {
-                render_sink.model_selected(&selection.model_id, &selection.provider_name, &selection.reason);
+                render_sink.model_selected(
+                    &selection.model_id,
+                    &selection.provider_name,
+                    &selection.reason,
+                );
             }
             // Switch provider if the selected model belongs to a different one.
             let resolved_provider = if selection.provider_name != provider.name() {
@@ -445,21 +465,30 @@ pub(super) async fn run(
                 state.cached_system = Some(new_instr.clone());
             }
             if !new_instr.is_empty() {
-                tracing::info!(round, "HALCON.md changed — system prompt updated (Feature 1)");
+                tracing::info!(
+                    round,
+                    "HALCON.md changed — system prompt updated (Feature 1)"
+                );
                 state.cached_instructions = Some(new_instr);
             }
         }
     } else {
         // Legacy path: mtime-based polling via ContextPipeline.
         // Performs a stat syscall (~10μs) per instruction file — negligible overhead.
-        if let Some(new_instr) = state.context_pipeline.refresh_instructions(std::path::Path::new(working_dir)) {
+        if let Some(new_instr) = state
+            .context_pipeline
+            .refresh_instructions(std::path::Path::new(working_dir))
+        {
             if let Some(ref mut sys) = state.cached_system {
                 if let Some(ref old_instr) = state.cached_instructions {
                     // Surgically replace the instruction portion within the full system prompt.
                     *sys = sys.replacen(old_instr.as_str(), &new_instr, 1);
                 }
             }
-            tracing::info!(round, "Instruction files changed on disk — system prompt updated");
+            tracing::info!(
+                round,
+                "Instruction files changed on disk — system prompt updated"
+            );
             state.cached_instructions = Some(new_instr);
         }
     }
@@ -491,22 +520,29 @@ pub(super) async fn run(
     // built_messages was already constructed above (before model selection).
     // Phase 42: record context assembly metrics.
     if let Some(metrics) = context_metrics {
-        let approx_tokens = built_messages.iter().map(|m| {
-            match &m.content {
+        let approx_tokens = built_messages
+            .iter()
+            .map(|m| match &m.content {
                 MessageContent::Text(t) => t.len() / 4,
-                MessageContent::Blocks(blocks) => blocks.iter().map(|b| match b {
-                    ContentBlock::Text { text, .. } => text.len() / 4,
-                    _ => 20,
-                }).sum(),
-            }
-        }).sum::<usize>();
+                MessageContent::Blocks(blocks) => blocks
+                    .iter()
+                    .map(|b| match b {
+                        ContentBlock::Text { text, .. } => text.len() / 4,
+                        _ => 20,
+                    })
+                    .sum(),
+            })
+            .sum::<usize>();
         metrics.record_assembly(approx_tokens as u32, 0);
     }
     // Phase 43D: Emit context tier data for TUI panel.
     if !state.silent {
         let l0_tokens = state.context_pipeline.l0().token_count();
         // FIX: Use actual L0 budget from TokenAccountant instead of slot * 50 approximation
-        let l0_cap = state.context_pipeline.accountant().tier_budget(halcon_context::Tier::L0Hot);
+        let l0_cap = state
+            .context_pipeline
+            .accountant()
+            .tier_budget(halcon_context::Tier::L0Hot);
         let l1_tokens = state.context_pipeline.l1().token_count();
         let l1_entries = state.context_pipeline.l1().len();
         let l2_entries = state.context_pipeline.l2().len();
@@ -514,16 +550,18 @@ pub(super) async fn run(
         let l4_entries = state.context_pipeline.l4().len();
         let total = state.context_pipeline.estimated_tokens();
         render_sink.context_tier_update(
-            l0_tokens, l0_cap, l1_tokens, l1_entries,
-            l2_entries, l3_entries, l4_entries, total,
+            l0_tokens, l0_cap, l1_tokens, l1_entries, l2_entries, l3_entries, l4_entries, total,
         );
     }
     // F1 ToolTrust: filter low-trust tools after round 0.
     if state.rounds > 0 {
         let (trusted, hidden) = state.tool_trust.filter_tools(state.cached_tools.clone());
         if hidden > 0 {
-            tracing::info!(hidden = hidden, remaining = trusted.len(),
-                "ToolTrust: removed low-trust tools from surface");
+            tracing::info!(
+                hidden = hidden,
+                remaining = trusted.len(),
+                "ToolTrust: removed low-trust tools from surface"
+            );
             state.cached_tools = trusted;
         }
     }
@@ -650,13 +688,10 @@ pub(super) async fn run(
             // They appear at the END of the system prompt so truncation is safe.
             const AUTONOMOUS_MARKER: &str = "\n\n## Autonomous Agent Behavior\n";
             const TOOL_POLICY_MARKER: &str = "\n\n## Tool Usage Policy\n";
-            let trunc_pos = [
-                sys.find(AUTONOMOUS_MARKER),
-                sys.find(TOOL_POLICY_MARKER),
-            ]
-            .into_iter()
-            .flatten()
-            .min();
+            let trunc_pos = [sys.find(AUTONOMOUS_MARKER), sys.find(TOOL_POLICY_MARKER)]
+                .into_iter()
+                .flatten()
+                .min();
             if let Some(pos) = trunc_pos {
                 tracing::debug!(
                     pos,
@@ -691,8 +726,10 @@ pub(super) async fn run(
 
         // Detect post-orchestration synthesis: if the execution tracker has any
         // steps with outcomes, sub-agents ran and we're now synthesising.
-        let has_orchestrator_results = state.execution_tracker.as_ref()
-            .map_or(false, |t| t.plan().steps.iter().any(|s| s.outcome.is_some()));
+        let has_orchestrator_results = state
+            .execution_tracker
+            .as_ref()
+            .is_some_and(|t| t.plan().steps.iter().any(|s| s.outcome.is_some()));
 
         let is_synthesis_round = state.synthesis.is_synthesis_forced()
             || state.synthesis.synthesis_origin.is_some()
@@ -702,7 +739,10 @@ pub(super) async fn run(
 
         if is_synthesis_round {
             // Guard 1: Cap max_tokens.
-            if round_request.max_tokens.map_or(false, |mt| mt > synthesis_max_tokens) {
+            if round_request
+                .max_tokens
+                .is_some_and(|mt| mt > synthesis_max_tokens)
+            {
                 tracing::debug!(
                     original = round_request.max_tokens,
                     capped = synthesis_max_tokens,
@@ -736,15 +776,21 @@ pub(super) async fn run(
             // FASE 6: TUI observability — signal synthesis phase to the UI.
             if !state.silent {
                 render_sink.phase_started("synthesis", "Synthesising results (no tools)...");
-                render_sink.agent_state_transition("executing", "synthesising", "tools stripped — synthesis mode");
+                render_sink.agent_state_transition(
+                    "executing",
+                    "synthesising",
+                    "tools stripped — synthesis mode",
+                );
             }
         }
     }
 
     // Sprint 2: ProviderNormalizationAdapter — log wire format + validate schema compat.
     {
-        let norm_adapter = super::super::provider_normalization::ProviderNormalizationAdapter
-            ::for_provider(effective_provider.name());
+        let norm_adapter =
+            super::super::provider_normalization::ProviderNormalizationAdapter::for_provider(
+                effective_provider.name(),
+            );
         let norm_result = norm_adapter.validate(&round_request.tools);
         norm_adapter.trace_result(&norm_result, round as u32);
     }
@@ -827,15 +873,18 @@ pub(super) async fn run(
             &round_request.messages,
             false, // no trailing tool use expected — we're about to invoke the model
         );
-        let critical: Vec<_> = violations
-            .iter()
-            .filter(|v| matches!(
+        let critical: Vec<_> =
+            violations
+                .iter()
+                .filter(|v| {
+                    matches!(
                 v,
                 halcon_core::types::validation::ProtocolViolation::OrphanedToolResult { .. }
                 | halcon_core::types::validation::ProtocolViolation::ToolResultWrongRole { .. }
                 | halcon_core::types::validation::ProtocolViolation::DuplicateToolUseId { .. }
-            ))
-            .collect();
+            )
+                })
+                .collect();
 
         if !critical.is_empty() {
             for v in &critical {
@@ -878,7 +927,8 @@ pub(super) async fn run(
 
     // Guardrail pre-invocation check.
     if !guardrails.is_empty() {
-        let input_text = round_request.messages
+        let input_text = round_request
+            .messages
             .iter()
             .rev()
             .find(|m| m.role == Role::User)
@@ -907,7 +957,9 @@ pub(super) async fn run(
             }));
         }
         if halcon_security::has_blocking_violation(&violations) {
-            if !state.silent { render_sink.info("\n[blocked by guardrail]"); }
+            if !state.silent {
+                render_sink.info("\n[blocked by guardrail]");
+            }
             return Ok(RoundSetupOutcome::BreakLoop);
         }
     }
@@ -917,7 +969,8 @@ pub(super) async fn run(
     // When pii_action == Block, detected PII stops the request cold.
     {
         use halcon_core::types::PiiPolicy;
-        let input_text = round_request.messages
+        let input_text = round_request
+            .messages
             .iter()
             .rev()
             .find(|m| m.role == Role::User)
@@ -961,7 +1014,9 @@ pub(super) async fn run(
     if let Some(cache) = response_cache {
         if let Some(entry) = cache.lookup(&round_request).await {
             tracing::info!(round, "Response cache hit");
-            if !state.silent { render_sink.cache_status(true, "response_cache"); }
+            if !state.silent {
+                render_sink.cache_status(true, "response_cache");
+            }
             let round_text = entry.response_text.clone();
 
             // Render the cached response (only if visible).

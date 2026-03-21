@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Main search engine configuration.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SearchEngineConfig {
     pub index: IndexConfig,
     pub query: QueryConfig,
@@ -12,18 +12,6 @@ pub struct SearchEngineConfig {
     /// Enable semantic search (embeddings + hybrid ranking).
     /// Requires downloading embedding model (~23MB) on first use.
     pub enable_semantic_search: bool,
-}
-
-impl Default for SearchEngineConfig {
-    fn default() -> Self {
-        Self {
-            index: IndexConfig::default(),
-            query: QueryConfig::default(),
-            crawl: CrawlConfig::default(),
-            cache: CacheConfig::default(),
-            enable_semantic_search: false, // Disabled by default (requires model download)
-        }
-    }
 }
 
 /// Indexing configuration.
@@ -47,7 +35,7 @@ impl Default for IndexConfig {
             max_documents: 100_000,
             compression_level: 3,
             store_html: true,
-            compute_pagerank: false, // Expensive, disabled by default
+            compute_pagerank: false,  // Expensive, disabled by default
             embedding_batch_size: 32, // Balance between speed and memory
         }
     }

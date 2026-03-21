@@ -20,11 +20,7 @@ use crate::workers::UiCommand;
 use halcon_api::types::chat::MediaAttachmentInline;
 
 /// Entry point: render the full chat view inside the CentralPanel.
-pub fn render(
-    ui: &mut egui::Ui,
-    state: &mut AppState,
-    cmd_tx: &mpsc::Sender<UiCommand>,
-) {
+pub fn render(ui: &mut egui::Ui, state: &mut AppState, cmd_tx: &mpsc::Sender<UiCommand>) {
     // Overlay: permission modal (renders on top of all panels).
     if let Some(ref modal) = state.chat.permission_modal.clone() {
         let session_id = state.chat.active_session.unwrap_or_default();
@@ -74,11 +70,7 @@ pub fn render(
 // Session list (left panel)
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn render_session_list(
-    ui: &mut egui::Ui,
-    state: &mut AppState,
-    cmd_tx: &mpsc::Sender<UiCommand>,
-) {
+fn render_session_list(ui: &mut egui::Ui, state: &mut AppState, cmd_tx: &mpsc::Sender<UiCommand>) {
     ui.add_space(4.0);
     ui.label(
         egui::RichText::new("Sessions")
@@ -118,24 +110,16 @@ fn render_session_list(
                                 .desired_width(120.0)
                                 .hint_text("Session title"),
                         );
-                        if resp.lost_focus()
-                            && ui.input(|i| i.key_pressed(egui::Key::Enter))
-                        {
-                            rename_submitted = Some((
-                                session.id,
-                                state.chat.rename_buffer.trim().to_string(),
-                            ));
+                        if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                            rename_submitted =
+                                Some((session.id, state.chat.rename_buffer.trim().to_string()));
                         }
-                        if resp.lost_focus()
-                            && ui.input(|i| i.key_pressed(egui::Key::Escape))
-                        {
+                        if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Escape)) {
                             rename_cancelled = true;
                         }
                         if ui.small_button("✓").clicked() {
-                            rename_submitted = Some((
-                                session.id,
-                                state.chat.rename_buffer.trim().to_string(),
-                            ));
+                            rename_submitted =
+                                Some((session.id, state.chat.rename_buffer.trim().to_string()));
                         }
                         if ui.small_button("✗").clicked() {
                             rename_cancelled = true;
@@ -144,11 +128,7 @@ fn render_session_list(
                     continue;
                 }
 
-                let label = session
-                    .title
-                    .as_deref()
-                    .unwrap_or("Untitled")
-                    .to_string();
+                let label = session.title.as_deref().unwrap_or("Untitled").to_string();
                 let label_display = if label.len() > 14 {
                     format!("{}…", &label[..13])
                 } else {
@@ -214,7 +194,10 @@ fn render_session_list(
 
     if let Some((id, title)) = rename_submitted {
         if !title.is_empty() {
-            let _ = cmd_tx.try_send(UiCommand::RenameChatSession { session_id: id, title });
+            let _ = cmd_tx.try_send(UiCommand::RenameChatSession {
+                session_id: id,
+                title,
+            });
         }
         state.chat.rename_session_id = None;
         state.chat.rename_buffer.clear();
@@ -242,11 +225,7 @@ fn render_session_list(
 // Chat area (right side)
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn render_chat_area(
-    ui: &mut egui::Ui,
-    state: &mut AppState,
-    cmd_tx: &mpsc::Sender<UiCommand>,
-) {
+fn render_chat_area(ui: &mut egui::Ui, state: &mut AppState, cmd_tx: &mpsc::Sender<UiCommand>) {
     let session_id = state.chat.active_session.unwrap();
 
     // Error banner (top, thin) — shows Retry when the server flagged the error
@@ -261,22 +240,17 @@ fn render_chat_area(
                     if state.chat.error_recoverable && !state.chat.is_streaming {
                         ui.add_space(8.0);
                         if ui
-                            .small_button(
-                                egui::RichText::new("Retry").color(HalconTheme::WARNING),
-                            )
+                            .small_button(egui::RichText::new("Retry").color(HalconTheme::WARNING))
                             .clicked()
                         {
-                            if let Some((content, orchestrate)) =
-                                state.chat.last_message.clone()
-                            {
+                            if let Some((content, orchestrate)) = state.chat.last_message.clone() {
                                 state.chat.error = None;
                                 state.chat.retry_count += 1;
                                 state.chat.error_recoverable = false;
                                 state.chat.is_streaming = true;
                                 state.chat.streaming_token.clear();
                                 state.chat.streaming_token_count = 0;
-                                state.chat.turn_started_at =
-                                    Some(std::time::Instant::now());
+                                state.chat.turn_started_at = Some(std::time::Instant::now());
                                 let _ = cmd_tx.try_send(UiCommand::SendChatMessage {
                                     session_id,
                                     content,
@@ -287,8 +261,7 @@ fn render_chat_area(
                         }
                         if ui
                             .small_button(
-                                egui::RichText::new("Dismiss")
-                                    .color(HalconTheme::TEXT_MUTED),
+                                egui::RichText::new("Dismiss").color(HalconTheme::TEXT_MUTED),
                             )
                             .clicked()
                         {
@@ -360,8 +333,7 @@ fn render_chat_area(
                 }
 
                 // Split the borrow: collect the visible window first, then borrow cache.
-                let messages: Vec<_> =
-                    state.chat.messages.iter().skip(start).cloned().collect();
+                let messages: Vec<_> = state.chat.messages.iter().skip(start).cloned().collect();
                 for msg in &messages {
                     render_message(ui, msg, &mut state.chat.md_cache);
                 }
@@ -371,16 +343,16 @@ fn render_chat_area(
                 if let Some((index, total, ref filename)) = state.chat.media_analysis_progress {
                     ui.add_space(2.0);
                     ui.horizontal(|ui| {
-                        ui.colored_label(
-                            HalconTheme::ACCENT,
-                            egui::RichText::new("◈").size(11.0),
-                        );
+                        ui.colored_label(HalconTheme::ACCENT, egui::RichText::new("◈").size(11.0));
                         let fname = filename.chars().take(30).collect::<String>();
                         ui.colored_label(
                             HalconTheme::TEXT_MUTED,
-                            egui::RichText::new(
-                                format!("Analyzing {}/{}: {fname}…", index + 1, total)
-                            ).size(11.0),
+                            egui::RichText::new(format!(
+                                "Analyzing {}/{}: {fname}…",
+                                index + 1,
+                                total
+                            ))
+                            .size(11.0),
                         );
                     });
                 }
@@ -407,9 +379,11 @@ fn render_chat_area(
                         if state.chat.gaps_detected > 0 {
                             ui.colored_label(
                                 HalconTheme::WARNING,
-                                egui::RichText::new(
-                                    format!("⚠ {} gap(s)", state.chat.gaps_detected)
-                                ).size(10.0),
+                                egui::RichText::new(format!(
+                                    "⚠ {} gap(s)",
+                                    state.chat.gaps_detected
+                                ))
+                                .size(10.0),
                             );
                         }
                     });
@@ -433,10 +407,7 @@ fn render_streaming(ui: &mut egui::Ui, state: &AppState) {
             egui::RichText::new("AI").strong().size(11.0),
         );
         ui.separator();
-        ui.colored_label(
-            HalconTheme::TEXT_MUTED,
-            egui::RichText::new("…").size(10.0),
-        );
+        ui.colored_label(HalconTheme::TEXT_MUTED, egui::RichText::new("…").size(10.0));
     });
 
     if !state.chat.streaming_token.is_empty() {
@@ -448,11 +419,7 @@ fn render_streaming(ui: &mut egui::Ui, state: &AppState) {
                 .size(14.0),
         );
     } else {
-        crate::widgets::thinking_bubble::show(
-            ui,
-            elapsed_secs,
-            state.chat.streaming_token_count,
-        );
+        crate::widgets::thinking_bubble::show(ui, elapsed_secs, state.chat.streaming_token_count);
     }
     ui.add_space(4.0);
 }
@@ -495,7 +462,9 @@ fn render_input_area(
         let attach_btn = ui.add_enabled(
             !is_busy && !state.chat.is_uploading_attachment,
             egui::Button::new(
-                egui::RichText::new("+ Attach").size(10.0).color(HalconTheme::TEXT_SECONDARY),
+                egui::RichText::new("+ Attach")
+                    .size(10.0)
+                    .color(HalconTheme::TEXT_SECONDARY),
             )
             .small()
             .frame(true),
@@ -505,10 +474,13 @@ fn render_input_area(
                 .add_filter("Images", &["jpg", "jpeg", "png", "gif", "webp"])
                 .add_filter("Audio", &["mp3", "wav", "ogg", "m4a", "flac"])
                 .add_filter("Video", &["mp4", "webm", "mov"])
-                .add_filter("Text / Code", &[
-                    "txt", "md", "rs", "py", "js", "ts", "go", "java",
-                    "cpp", "c", "rb", "sh", "json", "yaml", "toml", "csv",
-                ])
+                .add_filter(
+                    "Text / Code",
+                    &[
+                        "txt", "md", "rs", "py", "js", "ts", "go", "java", "cpp", "c", "rb", "sh",
+                        "json", "yaml", "toml", "csv",
+                    ],
+                )
                 .add_filter("All files", &["*"])
                 .pick_file()
             {
@@ -520,7 +492,10 @@ fn render_input_area(
 
         if state.chat.is_uploading_attachment {
             ui.add_space(4.0);
-            ui.colored_label(HalconTheme::TEXT_MUTED, egui::RichText::new("Reading…").size(10.0));
+            ui.colored_label(
+                HalconTheme::TEXT_MUTED,
+                egui::RichText::new("Reading…").size(10.0),
+            );
         }
     });
 
@@ -537,7 +512,9 @@ fn render_input_area(
                     );
                     let rm = ui.add(
                         egui::Button::new(
-                            egui::RichText::new("×").size(10.0).color(HalconTheme::TEXT_MUTED),
+                            egui::RichText::new("×")
+                                .size(10.0)
+                                .color(HalconTheme::TEXT_MUTED),
                         )
                         .small()
                         .frame(false),
@@ -573,16 +550,21 @@ fn render_input_area(
 
     ui.horizontal(|ui| {
         let text_edit = egui::TextEdit::singleline(&mut state.chat.input)
-            .hint_text(if is_busy { "Agent is running…" } else { "Type a message…" })
+            .hint_text(if is_busy {
+                "Agent is running…"
+            } else {
+                "Type a message…"
+            })
             .interactive(!is_busy)
             .desired_width(ui.available_width() - 120.0);
 
         let response = ui.add(text_edit);
 
-        let send_triggered = response.lost_focus()
-            && ui.input(|i| i.key_pressed(egui::Key::Enter))
-            && !is_busy;
-        let send_clicked = ui.add_enabled(!is_busy, egui::Button::new("Send")).clicked();
+        let send_triggered =
+            response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) && !is_busy;
+        let send_clicked = ui
+            .add_enabled(!is_busy, egui::Button::new("Send"))
+            .clicked();
 
         if (send_triggered || send_clicked) && !state.chat.input.trim().is_empty() {
             let content = state.chat.input.trim().to_string();
@@ -601,12 +583,15 @@ fn render_input_area(
                 .collect();
 
             state.chat.input.clear();
-            state.chat.messages.push_back(crate::state::ChatDisplayMessage {
-                id: uuid::Uuid::new_v4(),
-                role: ChatDisplayRole::User,
-                content: content.clone(),
-                timestamp: chrono::Utc::now(),
-            });
+            state
+                .chat
+                .messages
+                .push_back(crate::state::ChatDisplayMessage {
+                    id: uuid::Uuid::new_v4(),
+                    role: ChatDisplayRole::User,
+                    content: content.clone(),
+                    timestamp: chrono::Utc::now(),
+                });
             state.chat.is_streaming = true;
             state.chat.streaming_token.clear();
             state.chat.streaming_token_count = 0;
@@ -646,7 +631,12 @@ fn render_activity_panel(ui: &mut egui::Ui, state: &AppState) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn render_sub_agent_panel(ui: &mut egui::Ui, state: &AppState) {
-    let running = state.chat.sub_agents.iter().filter(|a| a.success.is_none()).count();
+    let running = state
+        .chat
+        .sub_agents
+        .iter()
+        .filter(|a| a.success.is_none())
+        .count();
     let header = if running > 0 {
         format!("Sub-agents — {} running", running)
     } else {
@@ -684,12 +674,9 @@ fn render_sub_agent_panel(ui: &mut egui::Ui, state: &AppState) {
                     ui.horizontal(|ui| {
                         ui.colored_label(color, icon);
                         ui.label(
-                            egui::RichText::new(format!(
-                                "W{} [{id_short}] {desc}{ms}",
-                                agent.wave
-                            ))
-                            .size(10.0)
-                            .color(HalconTheme::TEXT_MUTED),
+                            egui::RichText::new(format!("W{} [{id_short}] {desc}{ms}", agent.wave))
+                                .size(10.0)
+                                .color(HalconTheme::TEXT_MUTED),
                         );
                     });
                     if let Some(ref summary) = agent.summary {
@@ -733,15 +720,11 @@ fn render_message(
     ui.push_id(msg.id, |ui| {
         // Header row: role + timestamp + copy button.
         ui.horizontal(|ui| {
-            ui.colored_label(
-                color,
-                egui::RichText::new(role_label).strong().size(11.0),
-            );
+            ui.colored_label(color, egui::RichText::new(role_label).strong().size(11.0));
             ui.separator();
             ui.colored_label(
                 HalconTheme::TEXT_MUTED,
-                egui::RichText::new(msg.timestamp.format("%H:%M:%S").to_string())
-                    .size(10.0),
+                egui::RichText::new(msg.timestamp.format("%H:%M:%S").to_string()).size(10.0),
             );
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 let copy_btn = ui.add(
@@ -828,13 +811,36 @@ fn render_new_session_dialog(
     // don't have to type model IDs from memory.  Free-text input is still shown
     // below as an override for models not in this list.
     let known_models: std::collections::HashMap<&str, &[&str]> = [
-        ("anthropic",   &["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5-20251001"] as &[&str]),
-        ("claude_code", &["claude-sonnet-4-6", "claude-opus-4-6", "claude-haiku-4-5-20251001"] as &[&str]),
-        ("openai",      &["gpt-4o", "gpt-4o-mini", "o3-mini"] as &[&str]),
-        ("deepseek",    &["deepseek-chat", "deepseek-coder-v2", "deepseek-reasoner"] as &[&str]),
-        ("ollama",      &["llama3.2", "qwen2.5-coder", "mistral"] as &[&str]),
-        ("gemini",      &["gemini-2.0-flash", "gemini-2.5-pro"] as &[&str]),
-    ].iter().cloned().collect();
+        (
+            "anthropic",
+            &[
+                "claude-sonnet-4-6",
+                "claude-opus-4-6",
+                "claude-haiku-4-5-20251001",
+            ] as &[&str],
+        ),
+        (
+            "claude_code",
+            &[
+                "claude-sonnet-4-6",
+                "claude-opus-4-6",
+                "claude-haiku-4-5-20251001",
+            ] as &[&str],
+        ),
+        ("openai", &["gpt-4o", "gpt-4o-mini", "o3-mini"] as &[&str]),
+        (
+            "deepseek",
+            &["deepseek-chat", "deepseek-coder-v2", "deepseek-reasoner"] as &[&str],
+        ),
+        (
+            "ollama",
+            &["llama3.2", "qwen2.5-coder", "mistral"] as &[&str],
+        ),
+        ("gemini", &["gemini-2.0-flash", "gemini-2.5-pro"] as &[&str]),
+    ]
+    .iter()
+    .cloned()
+    .collect();
 
     // Build the provider list: prefer server-reported enabled providers over static list.
     let dynamic_providers: Vec<(String, String)> = state

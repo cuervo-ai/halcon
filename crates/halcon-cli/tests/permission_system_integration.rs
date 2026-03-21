@@ -7,9 +7,9 @@
 //!
 //! These tests verify that all phases work together correctly.
 
+use halcon_cli::repl::adaptive_prompt::RiskLevel;
 use halcon_cli::repl::command_blacklist;
 use halcon_cli::repl::conversational_permission::ConversationalPermissionHandler;
-use halcon_cli::repl::adaptive_prompt::RiskLevel;
 use halcon_cli::tui::permission_context::{PermissionContext, PermissionOption};
 use halcon_core::types::PermissionLevel;
 use serde_json::json;
@@ -35,11 +35,20 @@ fn e2e_blacklist_escalates_to_critical_risk() {
             &json!({"command": cmd}),
         );
 
-        assert_eq!(risk, RiskLevel::Critical, "Command '{}' should be Critical risk", cmd);
+        assert_eq!(
+            risk,
+            RiskLevel::Critical,
+            "Command '{}' should be Critical risk",
+            cmd
+        );
 
         // Verify the blacklist analysis
         let analysis = command_blacklist::analyze_command(cmd);
-        assert!(analysis.is_blacklisted, "Command '{}' should be blacklisted", cmd);
+        assert!(
+            analysis.is_blacklisted,
+            "Command '{}' should be blacklisted",
+            cmd
+        );
         assert_eq!(
             analysis.matched_pattern.unwrap().name,
             expected_pattern,
@@ -69,11 +78,19 @@ fn e2e_safe_commands_not_escalated() {
             &json!({"command": cmd}),
         );
 
-        assert_eq!(risk, expected_risk, "Command '{}' should be {:?}", cmd, expected_risk);
+        assert_eq!(
+            risk, expected_risk,
+            "Command '{}' should be {:?}",
+            cmd, expected_risk
+        );
 
         // Verify NOT blacklisted
         let analysis = command_blacklist::analyze_command(cmd);
-        assert!(!analysis.is_blacklisted, "Command '{}' should NOT be blacklisted", cmd);
+        assert!(
+            !analysis.is_blacklisted,
+            "Command '{}' should NOT be blacklisted",
+            cmd
+        );
     }
 }
 
@@ -148,10 +165,7 @@ fn e2e_progressive_disclosure_filters_advanced() {
     assert_eq!(basic_options.len(), 3, "Should have 3 basic options");
 
     // Advanced options: AlwaysThisTool, ThisDirectory, ThisSession, ThisPattern, NeverThisDirectory = 5
-    let advanced_options: Vec<_> = all_options
-        .iter()
-        .filter(|opt| opt.is_advanced())
-        .collect();
+    let advanced_options: Vec<_> = all_options.iter().filter(|opt| opt.is_advanced()).collect();
     assert_eq!(advanced_options.len(), 5, "Should have 5 advanced options");
 }
 
@@ -214,11 +228,7 @@ fn e2e_complete_bash_permission_flow() {
     // 3. Create TUI context (map RiskLevel types)
     use halcon_cli::tui::permission_context::RiskLevel as TuiRiskLevel;
     let tui_risk = TuiRiskLevel::Critical;
-    let ctx = PermissionContext::new(
-        "bash".to_string(),
-        json!({"command": cmd}),
-        tui_risk,
-    );
+    let ctx = PermissionContext::new("bash".to_string(), json!({"command": cmd}), tui_risk);
 
     // 4. Recommended option should be No (reject)
     assert_eq!(ctx.risk_level.recommended_option(), PermissionOption::No);
@@ -238,18 +248,18 @@ fn e2e_complete_bash_permission_flow() {
 #[test]
 fn e2e_all_blacklist_patterns_active() {
     let dangerous_commands = vec![
-        "rm -rf /",                          // Root filesystem deletion
-        "dd if=/dev/zero of=/dev/sda",       // Disk wipe
-        "mkfs.ext4 /dev/sdb",                // Filesystem creation
-        ":(){ :|:& };:",                     // Fork bomb
-        "chmod -R 777 /",                    // World-writable permissions
-        "setenforce 0",                      // SELinux disable
-        "echo c > /proc/sysrq-trigger",      // Kernel panic
-        "dd if=/dev/zero of=/dev/mem",       // Memory device write
-        "fdisk /dev/sda",                    // Partition table destruction
-        "chown -R nobody /",                 // Global chown
-        "apt remove -y apt",                 // Package manager removal
-        "swapoff -a",                        // Swap disable
+        "rm -rf /",                     // Root filesystem deletion
+        "dd if=/dev/zero of=/dev/sda",  // Disk wipe
+        "mkfs.ext4 /dev/sdb",           // Filesystem creation
+        ":(){ :|:& };:",                // Fork bomb
+        "chmod -R 777 /",               // World-writable permissions
+        "setenforce 0",                 // SELinux disable
+        "echo c > /proc/sysrq-trigger", // Kernel panic
+        "dd if=/dev/zero of=/dev/mem",  // Memory device write
+        "fdisk /dev/sda",               // Partition table destruction
+        "chown -R nobody /",            // Global chown
+        "apt remove -y apt",            // Package manager removal
+        "swapoff -a",                   // Swap disable
     ];
 
     for cmd in dangerous_commands {

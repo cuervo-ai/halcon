@@ -679,7 +679,10 @@ impl PrototypeStore {
     /// Determines embedding dimensionality dynamically from the engine's first embed
     /// call, so that neural engines (Ollama, 768/1024-dim) and hash engines (384-dim)
     /// both work without requiring a compile-time constant.
-    pub fn build_with_engine(rule_set: &ClassifierRuleSet, engine: Box<dyn EmbeddingEngine>) -> Self {
+    pub fn build_with_engine(
+        rule_set: &ClassifierRuleSet,
+        engine: Box<dyn EmbeddingEngine>,
+    ) -> Self {
         // Probe dims from engine — neural models may return ≠ DIMS dimensions.
         let probe = engine.embed("probe");
         let dims = if probe.is_empty() { DIMS } else { probe.len() };

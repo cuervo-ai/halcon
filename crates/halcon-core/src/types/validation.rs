@@ -24,15 +24,9 @@ pub enum ProtocolViolation {
         tool_use_id: String,
     },
     /// A `ToolResult` block appears in a non-`User` message.
-    ToolResultWrongRole {
-        message_index: usize,
-        role: Role,
-    },
+    ToolResultWrongRole { message_index: usize, role: Role },
     /// A `ToolUse` block appears in a non-`Assistant` message.
-    ToolUseWrongRole {
-        message_index: usize,
-        role: Role,
-    },
+    ToolUseWrongRole { message_index: usize, role: Role },
     /// A `ToolUse` ID was never answered by any `ToolResult`.
     UnresolvedToolUse {
         message_index: usize,
@@ -43,19 +37,43 @@ pub enum ProtocolViolation {
 impl std::fmt::Display for ProtocolViolation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ProtocolViolation::OrphanedToolResult { message_index, tool_use_id } => {
+            ProtocolViolation::OrphanedToolResult {
+                message_index,
+                tool_use_id,
+            } => {
                 write!(f, "msg[{message_index}]: orphaned ToolResult with tool_use_id '{tool_use_id}' — no matching ToolUse in preceding Assistant message")
             }
-            ProtocolViolation::DuplicateToolUseId { message_index, tool_use_id } => {
-                write!(f, "msg[{message_index}]: duplicate ToolUse id '{tool_use_id}'")
+            ProtocolViolation::DuplicateToolUseId {
+                message_index,
+                tool_use_id,
+            } => {
+                write!(
+                    f,
+                    "msg[{message_index}]: duplicate ToolUse id '{tool_use_id}'"
+                )
             }
-            ProtocolViolation::ToolResultWrongRole { message_index, role } => {
-                write!(f, "msg[{message_index}]: ToolResult in {role:?} message (expected User)")
+            ProtocolViolation::ToolResultWrongRole {
+                message_index,
+                role,
+            } => {
+                write!(
+                    f,
+                    "msg[{message_index}]: ToolResult in {role:?} message (expected User)"
+                )
             }
-            ProtocolViolation::ToolUseWrongRole { message_index, role } => {
-                write!(f, "msg[{message_index}]: ToolUse in {role:?} message (expected Assistant)")
+            ProtocolViolation::ToolUseWrongRole {
+                message_index,
+                role,
+            } => {
+                write!(
+                    f,
+                    "msg[{message_index}]: ToolUse in {role:?} message (expected Assistant)"
+                )
             }
-            ProtocolViolation::UnresolvedToolUse { message_index, tool_use_id } => {
+            ProtocolViolation::UnresolvedToolUse {
+                message_index,
+                tool_use_id,
+            } => {
                 write!(f, "msg[{message_index}]: ToolUse id '{tool_use_id}' has no matching ToolResult in subsequent messages")
             }
         }
@@ -377,7 +395,10 @@ mod tests {
             assistant_tool_use("t1", "bash"),
         ];
         let v = validate_message_sequence(&msgs, true);
-        assert!(v.is_empty(), "Trailing tool use should be allowed, got: {v:?}");
+        assert!(
+            v.is_empty(),
+            "Trailing tool use should be allowed, got: {v:?}"
+        );
     }
 
     // ── Invalid sequences ──
@@ -430,7 +451,9 @@ mod tests {
             },
         ];
         let v = validate_message_sequence(&msgs, false);
-        assert!(v.iter().any(|v| matches!(v, ProtocolViolation::ToolResultWrongRole { .. })));
+        assert!(v
+            .iter()
+            .any(|v| matches!(v, ProtocolViolation::ToolResultWrongRole { .. })));
     }
 
     #[test]
@@ -447,7 +470,9 @@ mod tests {
             },
         ];
         let v = validate_message_sequence(&msgs, true);
-        assert!(v.iter().any(|v| matches!(v, ProtocolViolation::ToolUseWrongRole { .. })));
+        assert!(v
+            .iter()
+            .any(|v| matches!(v, ProtocolViolation::ToolUseWrongRole { .. })));
     }
 
     #[test]
@@ -565,9 +590,7 @@ mod tests {
 
     #[test]
     fn extract_tool_result_ids_basic() {
-        let msgs = vec![
-            user_multi_result(&[("t1", "ok"), ("t2", "ok")]),
-        ];
+        let msgs = vec![user_multi_result(&[("t1", "ok"), ("t2", "ok")])];
         let ids = extract_tool_result_ids(&msgs);
         assert_eq!(ids.len(), 2);
         assert!(ids.contains("t1"));

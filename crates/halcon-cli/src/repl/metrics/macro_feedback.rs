@@ -28,7 +28,7 @@
 //! The agent loop calls `advance(step_index)` after each step completes, triggering
 //! a feedback emission via the `RenderSink`.
 
-use halcon_core::traits::{ExecutionPlan, PlanStep};
+use halcon_core::traits::ExecutionPlan;
 
 // ── Display Mode ───────────────────────────────────────────────────────────
 
@@ -94,7 +94,10 @@ impl MacroStep {
     pub fn running_line(&self, spinner_frame: usize) -> String {
         const FRAMES: &[char] = &['⠁', '⠃', '⠇', '⠧', '⠷', '⠿', '⠾', '⠼', '⠸', '⠰'];
         let frame = FRAMES[spinner_frame % FRAMES.len()];
-        format!("[{}/{}] {} {}", self.index, self.total, frame, self.description)
+        format!(
+            "[{}/{}] {} {}",
+            self.index, self.total, frame, self.description
+        )
     }
 }
 
@@ -267,7 +270,11 @@ fn clean_description(desc: &str) -> String {
         .strip_prefix("Read and analyse: ")
         .or_else(|| desc.strip_prefix("Read and analyze: "))
     {
-        let sources: Vec<&str> = rest.split(',').map(str::trim).filter(|s| !s.is_empty()).collect();
+        let sources: Vec<&str> = rest
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .collect();
         if sources.len() > 1 {
             // Multiple sources — emit compact count and return early.
             return format!("Analizando {} fuentes", sources.len());
@@ -294,7 +301,10 @@ fn clean_description(desc: &str) -> String {
 
     // ── Step 5: Truncate ─────────────────────────────────────────────────
     if trimmed.chars().count() > MAX_DISPLAY_CHARS {
-        format!("{}…", trimmed.chars().take(MAX_DISPLAY_CHARS).collect::<String>())
+        format!(
+            "{}…",
+            trimmed.chars().take(MAX_DISPLAY_CHARS).collect::<String>()
+        )
     } else {
         trimmed.to_string()
     }
@@ -305,7 +315,10 @@ fn translate_to_user_language(desc: &str) -> String {
     let lower = desc.to_lowercase();
 
     // Synthesis step.
-    if lower.contains("synthesize") || lower.contains("synthesise") || lower.contains("respond to the user") {
+    if lower.contains("synthesize")
+        || lower.contains("synthesise")
+        || lower.contains("respond to the user")
+    {
         return "Sintetizando y respondiendo".to_string();
     }
     if lower.contains("summarize") || lower.contains("summarise") {
@@ -333,7 +346,8 @@ fn translate_to_user_language(desc: &str) -> String {
         }
         return desc.to_string();
     }
-    if lower.contains("file_write") || lower.contains("write file") || lower.contains("create file") {
+    if lower.contains("file_write") || lower.contains("write file") || lower.contains("create file")
+    {
         if lower.starts_with("file_write") {
             return format!("crear{}", &desc["file_write".len()..]);
         }
@@ -350,18 +364,22 @@ fn translate_to_user_language(desc: &str) -> String {
 
     // Bash/execution.
     if lower.starts_with("run ") || lower.starts_with("execute ") || lower.starts_with("bash") {
-        return format!("Ejecutar: {}", desc.splitn(2, ' ').nth(1).unwrap_or(desc));
+        return format!(
+            "Ejecutar: {}",
+            desc.split_once(' ').map(|x| x.1).unwrap_or(desc)
+        );
     }
 
     // Reading/analysis.
-    if lower.starts_with("read ") || lower.starts_with("analyse ") || lower.starts_with("analyze ") {
-        let rest = desc.splitn(2, ' ').nth(1).unwrap_or(desc);
+    if lower.starts_with("read ") || lower.starts_with("analyse ") || lower.starts_with("analyze ")
+    {
+        let rest = desc.split_once(' ').map(|x| x.1).unwrap_or(desc);
         return format!("Analizando {}", rest.to_lowercase());
     }
 
     // Search.
     if lower.starts_with("search ") || lower.starts_with("grep ") || lower.starts_with("find ") {
-        let rest = desc.splitn(2, ' ').nth(1).unwrap_or(desc);
+        let rest = desc.split_once(' ').map(|x| x.1).unwrap_or(desc);
         return format!("Buscando {}", rest.to_lowercase());
     }
 
@@ -488,10 +506,7 @@ mod tests {
 
     #[test]
     fn advance_increments_index() {
-        let plan = make_plan(vec![
-            ("Read", Some("file_read")),
-            ("Synthesize", None),
-        ]);
+        let plan = make_plan(vec![("Read", Some("file_read")), ("Synthesize", None)]);
 
         let mut view = MacroPlanView::from_plan(&plan, FeedbackMode::Compact);
         assert_eq!(view.current_idx(), 0);
@@ -557,7 +572,11 @@ mod tests {
 
     #[test]
     fn clean_description_capitalises_first_char() {
-        assert!(clean_description("read the file").chars().next().unwrap().is_uppercase());
+        assert!(clean_description("read the file")
+            .chars()
+            .next()
+            .unwrap()
+            .is_uppercase());
     }
 
     #[test]
@@ -596,10 +615,7 @@ mod tests {
 
     #[test]
     fn synthesis_step_correctly_identified() {
-        let plan = make_plan(vec![
-            ("Read", Some("file_read")),
-            ("Synthesize", None),
-        ]);
+        let plan = make_plan(vec![("Read", Some("file_read")), ("Synthesize", None)]);
         let view = MacroPlanView::from_plan(&plan, FeedbackMode::Compact);
         assert!(!view.steps[0].is_synthesis);
         assert!(view.steps[1].is_synthesis);
@@ -626,7 +642,10 @@ mod tests {
         // Single source: "Read and analyse: main.rs" → falls through to capitalize.
         let desc = clean_description("Read and analyse: main.rs");
         // Should NOT output "Analizando 1 fuentes" — should produce the filename capitalised.
-        assert!(!desc.contains("fuentes"), "Single source should not emit 'N fuentes'");
+        assert!(
+            !desc.contains("fuentes"),
+            "Single source should not emit 'N fuentes'"
+        );
     }
 
     // ── BUG-M5 regression: case-insensitive edit/write detection ──────────
@@ -636,7 +655,10 @@ mod tests {
         // BUG-M5: "Edit file main.rs" has uppercase E — original code's `desc.replacen("edit ", ...)`
         // couldn't find it (case-sensitive). Must now produce "Editar main.rs".
         let result = translate_to_user_language("Edit file main.rs");
-        assert!(result.contains("Editar"), "Expected 'Editar', got: {result}");
+        assert!(
+            result.contains("Editar"),
+            "Expected 'Editar', got: {result}"
+        );
         assert!(result.contains("main.rs"), "Must preserve filename");
     }
 
@@ -645,15 +667,24 @@ mod tests {
         // "edit file config.toml" contains "edit file" as substring → triggers the branch.
         // Lowercase — was working before BUG-M5 fix; must continue to work after.
         let result = translate_to_user_language("edit file config.toml");
-        assert!(result.contains("Editar"), "lowercase 'edit file' must still work: {result}");
-        assert!(result.contains("config.toml"), "Filename must be preserved: {result}");
+        assert!(
+            result.contains("Editar"),
+            "lowercase 'edit file' must still work: {result}"
+        );
+        assert!(
+            result.contains("config.toml"),
+            "Filename must be preserved: {result}"
+        );
     }
 
     #[test]
     fn translate_modify_keyword_detected() {
         // "modify file Cargo.toml" contains "modify file" as substring → triggers the branch.
         let result = translate_to_user_language("modify file Cargo.toml");
-        assert!(result.contains("Modificar"), "Expected 'Modificar', got: {result}");
+        assert!(
+            result.contains("Modificar"),
+            "Expected 'Modificar', got: {result}"
+        );
     }
 
     // ── BUG-M6 regression: progress bar partial completion not zero ────────
@@ -673,7 +704,10 @@ mod tests {
         view.advance(); // 1/5 complete
         let bar = view.format_progress_bar(4);
         // With float division: round(1/5 * 4) = round(0.8) = 1 filled block.
-        assert!(bar.contains('█'), "First step should produce at least 1 filled block: {bar}");
+        assert!(
+            bar.contains('█'),
+            "First step should produce at least 1 filled block: {bar}"
+        );
         assert!(bar.contains("1/5"));
     }
 
@@ -684,6 +718,9 @@ mod tests {
         view.advance();
         view.advance();
         let bar = view.format_progress_bar(4);
-        assert_eq!(bar, "████ 2/2", "Fully complete plan must have all blocks filled");
+        assert_eq!(
+            bar, "████ 2/2",
+            "Fully complete plan must have all blocks filled"
+        );
     }
 }

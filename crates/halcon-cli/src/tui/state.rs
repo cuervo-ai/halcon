@@ -156,7 +156,6 @@ pub struct AppState {
     pub user_display_name: String,
 
     // --- Phase 93: Cross-Platform SOTA ---
-
     /// Detected host platform for key labels and paste normalization.
     pub platform: Platform,
 
@@ -168,7 +167,6 @@ pub struct AppState {
     pub pending_attachments: Vec<PendingAttachment>,
 
     // --- Phase 95: ThinkingDelta buffer ---
-
     /// Accumulates chain-of-thought tokens from reasoning models (deepseek-reasoner, o1, o3-mini).
     ///
     /// SSE streams emit `ThinkingDelta` as tiny 1-10 char fragments. Instead of creating one
@@ -369,25 +367,41 @@ mod tests {
 
     #[test]
     fn token_budget_fraction_limited() {
-        let budget = TokenBudget { used: 500, limit: 1000, rate_per_minute: 0.0 };
+        let budget = TokenBudget {
+            used: 500,
+            limit: 1000,
+            rate_per_minute: 0.0,
+        };
         assert_eq!(budget.fraction(), Some(0.5));
     }
 
     #[test]
     fn token_budget_fraction_unlimited() {
-        let budget = TokenBudget { used: 500, limit: 0, rate_per_minute: 0.0 };
+        let budget = TokenBudget {
+            used: 500,
+            limit: 0,
+            rate_per_minute: 0.0,
+        };
         assert_eq!(budget.fraction(), None);
     }
 
     #[test]
     fn token_budget_fraction_capped_at_one() {
-        let budget = TokenBudget { used: 2000, limit: 1000, rate_per_minute: 0.0 };
+        let budget = TokenBudget {
+            used: 2000,
+            limit: 1000,
+            rate_per_minute: 0.0,
+        };
         assert_eq!(budget.fraction(), Some(1.0));
     }
 
     #[test]
     fn token_budget_display_limited() {
-        let budget = TokenBudget { used: 450, limit: 1000, rate_per_minute: 0.0 };
+        let budget = TokenBudget {
+            used: 450,
+            limit: 1000,
+            rate_per_minute: 0.0,
+        };
         assert_eq!(budget.display(), "45%");
     }
 
@@ -415,6 +429,9 @@ mod tests {
     fn agent_state_can_be_updated() {
         let mut state = AppState::new();
         state.agent_state = super::super::events::AgentState::Executing;
-        assert_eq!(state.agent_state, super::super::events::AgentState::Executing);
+        assert_eq!(
+            state.agent_state,
+            super::super::events::AgentState::Executing
+        );
     }
 }

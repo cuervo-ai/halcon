@@ -380,12 +380,17 @@ impl StatusState {
             // Provider/model
             spans.push(Span::styled(
                 self.provider.clone(),
-                Style::default().fg(c_accent).add_modifier(Modifier::BOLD).add_modifier(Modifier::UNDERLINED),
+                Style::default()
+                    .fg(c_accent)
+                    .add_modifier(Modifier::BOLD)
+                    .add_modifier(Modifier::UNDERLINED),
             ));
             spans.push(Span::styled("/", Style::default().fg(c_muted)));
             spans.push(Span::styled(
                 self.model.clone(),
-                Style::default().fg(c_text).add_modifier(Modifier::UNDERLINED),
+                Style::default()
+                    .fg(c_text)
+                    .add_modifier(Modifier::UNDERLINED),
             ));
             spans.push(Span::styled(" ↕", Style::default().fg(c_muted)));
             // Provider health indicator

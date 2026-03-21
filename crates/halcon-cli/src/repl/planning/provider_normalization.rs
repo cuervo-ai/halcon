@@ -88,7 +88,10 @@ impl NormalizationWarning {
                 )
             }
             Self::MissingTypeField { tool } => {
-                format!("tool '{}' input_schema is missing the required 'type' field", tool)
+                format!(
+                    "tool '{}' input_schema is missing the required 'type' field",
+                    tool
+                )
             }
             Self::RequiredFieldMissing { tool, field } => {
                 format!(
@@ -209,14 +212,14 @@ impl ProviderNormalizationAdapter {
 
             // Rule 4: Gemini has historically struggled with nested `$defs` / `$ref`.
             // Emit a warning when the schema contains reference keywords.
-            if self.format == ProviderToolFormat::GeminiFunctionDeclarations {
-                if obj.contains_key("$ref") || obj.contains_key("$defs") {
-                    warnings.push(NormalizationWarning::UnsupportedSchemaType {
-                        tool: tool.name.clone(),
-                        schema_type: "$ref/$defs (JSON Schema reference)".to_owned(),
-                        format: self.format,
-                    });
-                }
+            if self.format == ProviderToolFormat::GeminiFunctionDeclarations
+                && (obj.contains_key("$ref") || obj.contains_key("$defs"))
+            {
+                warnings.push(NormalizationWarning::UnsupportedSchemaType {
+                    tool: tool.name.clone(),
+                    schema_type: "$ref/$defs (JSON Schema reference)".to_owned(),
+                    format: self.format,
+                });
             }
         }
 
@@ -412,7 +415,11 @@ mod tests {
     fn validate_valid_tool_anthropic_clean() {
         let adapter = ProviderNormalizationAdapter::for_provider("anthropic");
         let result = adapter.validate(&[tool("file_read", valid_schema())]);
-        assert!(result.is_clean(), "unexpected warnings: {:?}", result.warnings);
+        assert!(
+            result.is_clean(),
+            "unexpected warnings: {:?}",
+            result.warnings
+        );
         assert_eq!(result.tool_count, 1);
         assert_eq!(result.format, ProviderToolFormat::AnthropicInputSchema);
     }
@@ -430,7 +437,10 @@ mod tests {
         let adapter = ProviderNormalizationAdapter::for_provider("gemini");
         let result = adapter.validate(&[tool("grep", valid_schema())]);
         assert!(result.is_clean());
-        assert_eq!(result.format, ProviderToolFormat::GeminiFunctionDeclarations);
+        assert_eq!(
+            result.format,
+            ProviderToolFormat::GeminiFunctionDeclarations
+        );
     }
 
     // ── validate — warnings ───────────────────────────────────────────────────
@@ -450,10 +460,10 @@ mod tests {
         let adapter = ProviderNormalizationAdapter::for_provider("ollama");
         let result = adapter.validate(&[]);
         assert!(
-            !result.warnings.iter().any(|w| matches!(
-                w,
-                NormalizationWarning::OllamaEmulationMode { .. }
-            )),
+            !result
+                .warnings
+                .iter()
+                .any(|w| matches!(w, NormalizationWarning::OllamaEmulationMode { .. })),
             "no tools → no emulation warning"
         );
     }
@@ -510,10 +520,10 @@ mod tests {
         let adapter = ProviderNormalizationAdapter::for_provider("openai");
         let result = adapter.validate(&[tool("ref_tool", schema)]);
         assert!(
-            !result.warnings.iter().any(|w| matches!(
-                w,
-                NormalizationWarning::UnsupportedSchemaType { .. }
-            )),
+            !result
+                .warnings
+                .iter()
+                .any(|w| matches!(w, NormalizationWarning::UnsupportedSchemaType { .. })),
             "openai should not warn about $ref"
         );
     }
@@ -525,15 +535,18 @@ mod tests {
         let good = valid_schema();
 
         let adapter = ProviderNormalizationAdapter::for_provider("anthropic");
-        let result = adapter.validate(&[
-            tool("bad1", bad1),
-            tool("bad2", bad2),
-            tool("good", good),
-        ]);
+        let result =
+            adapter.validate(&[tool("bad1", bad1), tool("bad2", bad2), tool("good", good)]);
 
         // At least one MissingTypeField and one RequiredFieldMissing.
-        assert!(result.warnings.iter().any(|w| matches!(w, NormalizationWarning::MissingTypeField { .. })));
-        assert!(result.warnings.iter().any(|w| matches!(w, NormalizationWarning::RequiredFieldMissing { .. })));
+        assert!(result
+            .warnings
+            .iter()
+            .any(|w| matches!(w, NormalizationWarning::MissingTypeField { .. })));
+        assert!(result
+            .warnings
+            .iter()
+            .any(|w| matches!(w, NormalizationWarning::RequiredFieldMissing { .. })));
         assert_eq!(result.tool_count, 3);
     }
 
@@ -589,7 +602,10 @@ mod tests {
             },
         ];
         for w in &warnings {
-            assert!(!w.message().is_empty(), "message for {w:?} must not be empty");
+            assert!(
+                !w.message().is_empty(),
+                "message for {w:?} must not be empty"
+            );
         }
     }
 }

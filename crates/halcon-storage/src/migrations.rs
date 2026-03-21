@@ -1358,14 +1358,18 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert!(table_exists, "plugin_circuit_state table must exist after M34");
+        assert!(
+            table_exists,
+            "plugin_circuit_state table must exist after M34"
+        );
 
         // Verify insert with valid state works.
         conn.execute(
             "INSERT INTO plugin_circuit_state (plugin_id, state, failure_count, last_failure_at)
              VALUES ('test-plugin', 'degraded', 3, '2026-02-21T00:00:00Z')",
             [],
-        ).expect("should insert into plugin_circuit_state");
+        )
+        .expect("should insert into plugin_circuit_state");
 
         let (state, count): (String, i32) = conn
             .query_row(
@@ -1382,7 +1386,10 @@ mod tests {
             "INSERT INTO plugin_circuit_state (plugin_id, state, failure_count) VALUES ('bad', 'unknown_state', 0)",
             [],
         );
-        assert!(bad_insert.is_err(), "invalid state must be rejected by CHECK constraint");
+        assert!(
+            bad_insert.is_err(),
+            "invalid state must be rejected by CHECK constraint"
+        );
     }
 
     #[test]
@@ -1398,7 +1405,10 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert!(table_exists, "execution_loop_events table must exist after M35");
+        assert!(
+            table_exists,
+            "execution_loop_events table must exist after M35"
+        );
 
         // Verify index exists.
         let index_exists: bool = conn
@@ -1408,7 +1418,10 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert!(index_exists, "idx_loop_events_session index must exist after M35");
+        assert!(
+            index_exists,
+            "idx_loop_events_session index must exist after M35"
+        );
 
         // Verify insert and retrieval work.
         let session_id = uuid::Uuid::new_v4().to_string();
@@ -1416,7 +1429,8 @@ mod tests {
             "INSERT INTO execution_loop_events (session_id, round, event_type, event_json)
              VALUES (?1, 0, 'round_started', '{\"type\":\"round_started\",\"round\":0}')",
             rusqlite::params![session_id],
-        ).expect("should insert loop event");
+        )
+        .expect("should insert loop event");
 
         let (event_type, json): (String, String) = conn
             .query_row(
@@ -1560,7 +1574,10 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(idx_count, 4, "should have 4 metrics indexes (3 original + 1 composite)");
+        assert_eq!(
+            idx_count, 4,
+            "should have 4 metrics indexes (3 original + 1 composite)"
+        );
     }
 
     #[test]
@@ -1732,7 +1749,10 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert!(idx_count >= 3, "should have at least 3 episode indexes, got {idx_count}");
+        assert!(
+            idx_count >= 3,
+            "should have at least 3 episode indexes, got {idx_count}"
+        );
     }
 
     #[test]
@@ -1758,7 +1778,10 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(idx_count, 4, "should have 4 tool_metrics indexes (3 original + 1 from M39 session_tool composite)");
+        assert_eq!(
+            idx_count, 4,
+            "should have 4 tool_metrics indexes (3 original + 1 from M39 session_tool composite)"
+        );
 
         // Verify audit_log session_id column exists.
         let has_session_col: bool = conn
@@ -1858,7 +1881,10 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert!(has_fingerprint, "sessions should have execution_fingerprint column");
+        assert!(
+            has_fingerprint,
+            "sessions should have execution_fingerprint column"
+        );
 
         let has_replay_source: bool = conn
             .query_row(
@@ -1867,7 +1893,10 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert!(has_replay_source, "sessions should have replay_source_session column");
+        assert!(
+            has_replay_source,
+            "sessions should have replay_source_session column"
+        );
 
         // Insert a checkpoint.
         conn.execute(
@@ -2064,7 +2093,10 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert!(has_col, "sessions should have messages_compressed column after M26");
+        assert!(
+            has_col,
+            "sessions should have messages_compressed column after M26"
+        );
 
         // Verify NULL is accepted (old rows without compression).
         conn.execute(
@@ -2081,7 +2113,10 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert!(compressed.is_none(), "messages_compressed should be NULL for old-style row");
+        assert!(
+            compressed.is_none(),
+            "messages_compressed should be NULL for old-style row"
+        );
     }
 
     #[test]
@@ -2107,7 +2142,10 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(idx_count, 2, "should have 2 activity_search_history indexes");
+        assert_eq!(
+            idx_count, 2,
+            "should have 2 activity_search_history indexes"
+        );
 
         // Verify trigger exists
         let trigger_exists: bool = conn

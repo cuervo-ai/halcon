@@ -43,7 +43,14 @@ impl PermissionModal {
     /// * `show_advanced` - Whether to show advanced permission options (AlwaysThisTool, ThisDirectory, etc.)
     /// * `remaining_secs` - Countdown remaining (None = no deadline set).
     /// * `total_secs` - Total countdown duration for progress bar fraction.
-    pub fn render(&self, frame: &mut Frame, area: Rect, show_advanced: bool, remaining_secs: Option<u64>, total_secs: u64) {
+    pub fn render(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        show_advanced: bool,
+        remaining_secs: Option<u64>,
+        total_secs: u64,
+    ) {
         let p = &theme::active().palette;
         let risk_color = self.context.risk_level.color(p);
 
@@ -74,10 +81,7 @@ impl PermissionModal {
 
         // Tool name (prominent, accent color)
         lines.push(Line::from(vec![
-            Span::styled(
-                "Tool: ",
-                Style::default().fg(p.text_dim_ratatui()),
-            ),
+            Span::styled("Tool: ", Style::default().fg(p.text_dim_ratatui())),
             Span::styled(
                 &self.context.tool,
                 Style::default()
@@ -115,10 +119,7 @@ impl PermissionModal {
             for (key, value) in args_summary {
                 lines.push(Line::from(vec![
                     Span::styled("  • ", Style::default().fg(p.muted_ratatui())),
-                    Span::styled(
-                        format!("{}: ", key),
-                        Style::default().fg(p.text_ratatui()),
-                    ),
+                    Span::styled(format!("{}: ", key), Style::default().fg(p.text_ratatui())),
                     Span::styled(value, Style::default().fg(p.text_dim_ratatui())),
                 ]));
             }
@@ -329,15 +330,9 @@ mod tests {
         theme::init("neon", None);
         let p = &theme::active().palette;
 
-        let ctx_low = PermissionContext::new(
-            "test".to_string(),
-            serde_json::json!({}),
-            RiskLevel::Low,
-        );
-        assert_eq!(
-            ctx_low.risk_level.color(p).srgb8(),
-            p.success.srgb8()
-        );
+        let ctx_low =
+            PermissionContext::new("test".to_string(), serde_json::json!({}), RiskLevel::Low);
+        assert_eq!(ctx_low.risk_level.color(p).srgb8(), p.success.srgb8());
 
         let ctx_critical = PermissionContext::new(
             "test".to_string(),
@@ -352,11 +347,7 @@ mod tests {
 
     #[test]
     fn modal_with_empty_args() {
-        let ctx = PermissionContext::new(
-            "tool".to_string(),
-            serde_json::json!({}),
-            RiskLevel::Low,
-        );
+        let ctx = PermissionContext::new("tool".to_string(), serde_json::json!({}), RiskLevel::Low);
         let modal = PermissionModal::new(ctx);
         assert_eq!(modal.context().args_summary(3).len(), 0);
     }

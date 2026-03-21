@@ -59,7 +59,10 @@ pub fn list(db_path: Option<PathBuf>, json: bool) -> Result<()> {
         let s = serde_json::to_string_pretty(&summaries)?;
         println!("{s}");
     } else {
-        println!("{}", crate::audit::summary::SessionSummary::display_header());
+        println!(
+            "{}",
+            crate::audit::summary::SessionSummary::display_header()
+        );
         println!("{}", "─".repeat(110));
         for s in &summaries {
             println!("{}", s.display_row());
@@ -114,7 +117,9 @@ pub fn compliance(
 
     eprintln!(
         "Generating {} compliance report for period {} to {}...",
-        fmt.display_name(), from_date, to_date
+        fmt.display_name(),
+        from_date,
+        to_date
     );
 
     // Collect events in date range using existing query infrastructure.
@@ -122,7 +127,11 @@ pub fn compliance(
     let events = crate::audit::query::collect_events_since(&conn, &from_date, false, false)?;
     let sessions = crate::audit::query::list_sessions(&conn)?;
 
-    eprintln!("Found {} events across {} sessions.", events.len(), sessions.len());
+    eprintln!(
+        "Found {} events across {} sessions.",
+        events.len(),
+        sessions.len()
+    );
 
     let file = std::fs::File::create(&out_path)
         .with_context(|| format!("Cannot create output file: {}", out_path.display()))?;

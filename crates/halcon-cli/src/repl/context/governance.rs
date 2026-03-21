@@ -9,8 +9,8 @@ use std::collections::{HashMap, VecDeque};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use halcon_core::traits::ContextChunk;
 use halcon_context::assembler::estimate_tokens;
+use halcon_core::traits::ContextChunk;
 
 /// Provenance metadata for a single context contribution.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -272,7 +272,10 @@ mod tests {
         let chunks = vec![chunk("instructions", 100, original)];
         let (result, prov) = gov.apply(chunks);
         assert_eq!(result.len(), 1);
-        assert_eq!(result[0].content, original, "should not truncate when no limits set");
+        assert_eq!(
+            result[0].content, original,
+            "should not truncate when no limits set"
+        );
         assert_eq!(prov.len(), 1);
         assert_eq!(prov[0].source_name, "instructions");
     }

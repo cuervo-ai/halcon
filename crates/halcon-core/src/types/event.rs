@@ -356,7 +356,9 @@ mod tests {
         let json = serde_json::to_string(&payload).unwrap();
         assert!(json.contains("\"type\":\"task_created\""));
         let roundtrip: EventPayload = serde_json::from_str(&json).unwrap();
-        assert!(matches!(roundtrip, EventPayload::TaskCreated { ref title, .. } if title == "Read config file"));
+        assert!(
+            matches!(roundtrip, EventPayload::TaskCreated { ref title, .. } if title == "Read config file")
+        );
     }
 
     #[test]
@@ -370,7 +372,10 @@ mod tests {
         let json = serde_json::to_string(&payload).unwrap();
         assert!(json.contains("\"type\":\"task_status_changed\""));
         let roundtrip: EventPayload = serde_json::from_str(&json).unwrap();
-        assert!(matches!(roundtrip, EventPayload::TaskStatusChanged { retry_count: 1, .. }));
+        assert!(matches!(
+            roundtrip,
+            EventPayload::TaskStatusChanged { retry_count: 1, .. }
+        ));
     }
 
     #[test]
@@ -384,7 +389,14 @@ mod tests {
         let json = serde_json::to_string(&payload).unwrap();
         assert!(json.contains("\"type\":\"task_completed\""));
         let roundtrip: EventPayload = serde_json::from_str(&json).unwrap();
-        assert!(matches!(roundtrip, EventPayload::TaskCompleted { duration_ms: 1234, artifact_count: 2, .. }));
+        assert!(matches!(
+            roundtrip,
+            EventPayload::TaskCompleted {
+                duration_ms: 1234,
+                artifact_count: 2,
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -398,7 +410,14 @@ mod tests {
         let json = serde_json::to_string(&payload).unwrap();
         assert!(json.contains("\"type\":\"task_failed\""));
         let roundtrip: EventPayload = serde_json::from_str(&json).unwrap();
-        assert!(matches!(roundtrip, EventPayload::TaskFailed { retry_eligible: true, retry_count: 2, .. }));
+        assert!(matches!(
+            roundtrip,
+            EventPayload::TaskFailed {
+                retry_eligible: true,
+                retry_count: 2,
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -412,7 +431,9 @@ mod tests {
         };
         let json = serde_json::to_string(&payload).unwrap();
         let roundtrip: EventPayload = serde_json::from_str(&json).unwrap();
-        assert!(matches!(roundtrip, EventPayload::ToolExecuted { ref tool, success: true, .. } if tool == "bash"));
+        assert!(
+            matches!(roundtrip, EventPayload::ToolExecuted { ref tool, success: true, .. } if tool == "bash")
+        );
     }
 
     #[test]
@@ -425,7 +446,10 @@ mod tests {
         let json = serde_json::to_string(&payload).unwrap();
         assert!(json.contains("\"plan_id\":null"));
         let roundtrip: EventPayload = serde_json::from_str(&json).unwrap();
-        assert!(matches!(roundtrip, EventPayload::TaskCreated { plan_id: None, .. }));
+        assert!(matches!(
+            roundtrip,
+            EventPayload::TaskCreated { plan_id: None, .. }
+        ));
     }
 
     // --- Phase 40: Reasoning engine event tests ---
@@ -440,7 +464,9 @@ mod tests {
         let json = serde_json::to_string(&payload).unwrap();
         assert!(json.contains("\"type\":\"reasoning_started\""));
         let roundtrip: EventPayload = serde_json::from_str(&json).unwrap();
-        assert!(matches!(roundtrip, EventPayload::ReasoningStarted { ref complexity, .. } if complexity == "Moderate"));
+        assert!(
+            matches!(roundtrip, EventPayload::ReasoningStarted { ref complexity, .. } if complexity == "Moderate")
+        );
     }
 
     #[test]
@@ -453,7 +479,9 @@ mod tests {
         let json = serde_json::to_string(&payload).unwrap();
         assert!(json.contains("\"type\":\"strategy_selected\""));
         let roundtrip: EventPayload = serde_json::from_str(&json).unwrap();
-        assert!(matches!(roundtrip, EventPayload::StrategySelected { confidence, .. } if (confidence - 0.85).abs() < f64::EPSILON));
+        assert!(
+            matches!(roundtrip, EventPayload::StrategySelected { confidence, .. } if (confidence - 0.85).abs() < f64::EPSILON)
+        );
     }
 
     #[test]
@@ -466,7 +494,10 @@ mod tests {
         let json = serde_json::to_string(&payload).unwrap();
         assert!(json.contains("\"type\":\"evaluation_completed\""));
         let roundtrip: EventPayload = serde_json::from_str(&json).unwrap();
-        assert!(matches!(roundtrip, EventPayload::EvaluationCompleted { success: true, .. }));
+        assert!(matches!(
+            roundtrip,
+            EventPayload::EvaluationCompleted { success: true, .. }
+        ));
     }
 
     #[test]
@@ -479,7 +510,9 @@ mod tests {
         let json = serde_json::to_string(&payload).unwrap();
         assert!(json.contains("\"type\":\"experience_recorded\""));
         let roundtrip: EventPayload = serde_json::from_str(&json).unwrap();
-        assert!(matches!(roundtrip, EventPayload::ExperienceRecorded { ref task_type, .. } if task_type == "Debugging"));
+        assert!(
+            matches!(roundtrip, EventPayload::ExperienceRecorded { ref task_type, .. } if task_type == "Debugging")
+        );
     }
 
     #[test]
@@ -492,6 +525,9 @@ mod tests {
         let json = serde_json::to_string(&payload).unwrap();
         assert!(json.contains("\"type\":\"reasoning_retry\""));
         let roundtrip: EventPayload = serde_json::from_str(&json).unwrap();
-        assert!(matches!(roundtrip, EventPayload::ReasoningRetry { attempt: 2, .. }));
+        assert!(matches!(
+            roundtrip,
+            EventPayload::ReasoningRetry { attempt: 2, .. }
+        ));
     }
 }

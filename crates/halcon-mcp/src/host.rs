@@ -92,9 +92,7 @@ impl McpHost {
         // Best-effort: don't fail if notification send fails.
         let _ = self.transport.send(&notif).await;
 
-        self.server_info
-            .as_ref()
-            .ok_or(McpError::NotInitialized)
+        self.server_info.as_ref().ok_or(McpError::NotInitialized)
     }
 
     /// Discover available tools from the MCP server.

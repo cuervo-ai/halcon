@@ -202,7 +202,10 @@ mod tests {
         });
         let agent = LocalToolAgent::new(tool, "/tmp");
         assert_eq!(agent.descriptor().name, "tool:file_read");
-        assert_eq!(agent.descriptor().capabilities[0], AgentCapability::FileOperations);
+        assert_eq!(
+            agent.descriptor().capabilities[0],
+            AgentCapability::FileOperations
+        );
     }
 
     #[test]
@@ -211,7 +214,10 @@ mod tests {
             name: "bash".to_string(),
         });
         let agent = LocalToolAgent::new(tool, "/tmp");
-        assert_eq!(agent.descriptor().capabilities[0], AgentCapability::ShellExecution);
+        assert_eq!(
+            agent.descriptor().capabilities[0],
+            AgentCapability::ShellExecution
+        );
     }
 
     #[test]
@@ -220,7 +226,10 @@ mod tests {
             name: "grep".to_string(),
         });
         let agent = LocalToolAgent::new(tool, "/tmp");
-        assert_eq!(agent.descriptor().capabilities[0], AgentCapability::Research);
+        assert_eq!(
+            agent.descriptor().capabilities[0],
+            AgentCapability::Research
+        );
     }
 
     #[test]

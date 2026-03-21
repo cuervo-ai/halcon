@@ -23,7 +23,6 @@ pub enum CommandResult {
     StateInfo,
 
     // --- Phase 19: Agent Operating Console ---
-
     /// Spawn parallel research agents for a query.
     Research(String),
     /// Inspect a subsystem.
@@ -60,12 +59,10 @@ pub enum CommandResult {
     Analyze,
 
     // --- Phase 94: Project Onboarding ---
-
     /// Initialize project onboarding — generate HALCON.md + .halcon/config.toml.
     Init { dry_run: bool, refresh: bool },
 
     // --- Phase 95: Plugin Auto-Implantation ---
-
     /// Plugin system management.
     Plugins(PluginsSubcmd),
 }
@@ -152,9 +149,7 @@ pub fn handle(input: &str, provider: &str, model: &str) -> CommandResult {
         "orchestrate" | "orch" => handle_orchestrate(args),
         "dry-run" | "dryrun" => handle_dry_run(args),
         "trace" => handle_trace(args),
-        "state" => {
-            CommandResult::StateInfo
-        }
+        "state" => CommandResult::StateInfo,
 
         // --- Phase 19: Agent Operating Console ---
         "research" | "res" => handle_research(args),
@@ -190,7 +185,9 @@ pub fn handle(input: &str, provider: &str, model: &str) -> CommandResult {
             } else if sub == "suggest" {
                 PluginsSubcmd::Suggest
             } else if sub.starts_with("auto") {
-                PluginsSubcmd::Auto { dry_run: sub.contains("--dry-run") }
+                PluginsSubcmd::Auto {
+                    dry_run: sub.contains("--dry-run"),
+                }
             } else if let Some(id) = sub.strip_prefix("disable ") {
                 PluginsSubcmd::Disable(id.trim().to_string())
             } else if let Some(id) = sub.strip_prefix("enable ") {
@@ -848,7 +845,10 @@ mod tests {
 
     #[test]
     fn logs_command() {
-        assert!(matches!(handle("logs", "p", "m"), CommandResult::Logs(None)));
+        assert!(matches!(
+            handle("logs", "p", "m"),
+            CommandResult::Logs(None)
+        ));
         match handle("logs task-123", "p", "m") {
             CommandResult::Logs(Some(f)) => assert_eq!(f, "task-123"),
             other => panic!("Expected Logs(Some), got {other:?}"),
@@ -857,13 +857,19 @@ mod tests {
 
     #[test]
     fn metrics_command() {
-        assert!(matches!(handle("metrics", "p", "m"), CommandResult::Metrics));
+        assert!(matches!(
+            handle("metrics", "p", "m"),
+            CommandResult::Metrics
+        ));
     }
 
     #[test]
     fn trace_browse_command() {
         // No args => TraceInfo (backward compat)
-        assert!(matches!(handle("trace", "p", "m"), CommandResult::TraceInfo));
+        assert!(matches!(
+            handle("trace", "p", "m"),
+            CommandResult::TraceInfo
+        ));
         // With session id => TraceBrowse
         match handle("trace abc123", "p", "m") {
             CommandResult::TraceBrowse(Some(id)) => assert_eq!(id, "abc123"),

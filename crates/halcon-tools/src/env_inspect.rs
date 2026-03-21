@@ -100,13 +100,15 @@ impl Tool for EnvInspectTool {
 
     #[tracing::instrument(skip(self), fields(tool = "env_inspect"))]
     async fn execute(&self, input: ToolInput) -> Result<ToolOutput> {
-        let prefix = input.arguments
+        let prefix = input
+            .arguments
             .get("prefix")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_uppercase();
 
-        let show_sensitive = input.arguments
+        let show_sensitive = input
+            .arguments
             .get("show_sensitive")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
@@ -147,7 +149,11 @@ impl Tool for EnvInspectTool {
         let mut lines: Vec<String> = Vec::with_capacity(vars.len() + 2);
         lines.push(format!(
             "Environment Variables{}:\n",
-            if prefix.is_empty() { String::new() } else { format!(" (prefix: {prefix})") }
+            if prefix.is_empty() {
+                String::new()
+            } else {
+                format!(" (prefix: {prefix})")
+            }
         ));
 
         for (key, value) in &vars {
@@ -259,7 +265,9 @@ mod tests {
         };
         let out = tool.execute(input).await.unwrap();
         assert!(!out.is_error);
-        let count = out.metadata.as_ref().unwrap()["count"].as_u64().unwrap_or(0);
+        let count = out.metadata.as_ref().unwrap()["count"]
+            .as_u64()
+            .unwrap_or(0);
         assert!(count > 0, "should find at least one env var");
     }
 
@@ -273,7 +281,11 @@ mod tests {
         };
         let out = tool.execute(input).await.unwrap();
         assert!(!out.is_error);
-        assert!(out.content.contains("No environment variables"), "content: {}", out.content);
+        assert!(
+            out.content.contains("No environment variables"),
+            "content: {}",
+            out.content
+        );
     }
 
     /// Extended sensitive patterns: database and cloud credentials.
@@ -307,8 +319,8 @@ mod tests {
         assert!(EnvInspectTool::is_sensitive("HMAC_SECRET"));
         // Negative cases — should NOT be masked
         assert!(!EnvInspectTool::is_sensitive("HOME"));
-        assert!(!EnvInspectTool::is_sensitive("REDIS_HOST"));   // host is not sensitive
-        assert!(!EnvInspectTool::is_sensitive("DB_HOST"));      // host is not sensitive
+        assert!(!EnvInspectTool::is_sensitive("REDIS_HOST")); // host is not sensitive
+        assert!(!EnvInspectTool::is_sensitive("DB_HOST")); // host is not sensitive
         assert!(!EnvInspectTool::is_sensitive("SMTP_HOST"));
         assert!(!EnvInspectTool::is_sensitive("LANG"));
         assert!(!EnvInspectTool::is_sensitive("TERM"));

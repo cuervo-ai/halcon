@@ -24,16 +24,16 @@ impl StopConditionEvaluator {
 
     fn evaluate(condition: &StopCondition) -> f64 {
         match condition {
-            StopCondition::EndTurn => 1.0,             // Perfect: model chose to stop
-            StopCondition::ForcedSynthesis => 0.7,    // Good: loop guard intervened
-            StopCondition::Interrupted => 0.5,         // Neutral: user cancelled
-            StopCondition::MaxRounds => 0.4,           // Suboptimal: hit round limit
-            StopCondition::TokenBudget => 0.3,         // Suboptimal: hit token budget
-            StopCondition::DurationBudget => 0.3,      // Suboptimal: hit time budget
-            StopCondition::ProviderError => 0.0,       // Failure: provider error
-            StopCondition::EnvironmentError => 0.0,    // Failure: MCP/env unavailable
-            StopCondition::CostBudget => 0.3,          // Suboptimal: hit cost limit
-            StopCondition::SupervisorDenied => 0.3,    // Governance gate: valid work, blocked write
+            StopCondition::EndTurn => 1.0,          // Perfect: model chose to stop
+            StopCondition::ForcedSynthesis => 0.7,  // Good: loop guard intervened
+            StopCondition::Interrupted => 0.5,      // Neutral: user cancelled
+            StopCondition::MaxRounds => 0.4,        // Suboptimal: hit round limit
+            StopCondition::TokenBudget => 0.3,      // Suboptimal: hit token budget
+            StopCondition::DurationBudget => 0.3,   // Suboptimal: hit time budget
+            StopCondition::ProviderError => 0.0,    // Failure: provider error
+            StopCondition::EnvironmentError => 0.0, // Failure: MCP/env unavailable
+            StopCondition::CostBudget => 0.3,       // Suboptimal: hit cost limit
+            StopCondition::SupervisorDenied => 0.3, // Governance gate: valid work, blocked write
         }
     }
 }

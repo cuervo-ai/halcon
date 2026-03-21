@@ -45,7 +45,9 @@ fn parse_test_output(output: &str) -> Vec<ParsedFailure> {
         parse_cargo_simple(output)
     } else if output.contains("FAIL\t") || output.contains("--- FAIL") {
         parse_go_test(output)
-    } else if output.contains("● ") && (output.contains("jest") || output.contains("JEST") || output.contains("Test Suites:")) {
+    } else if output.contains("● ")
+        && (output.contains("jest") || output.contains("JEST") || output.contains("Test Suites:"))
+    {
         parse_jest(output)
     } else if output.contains("FAIL") && output.contains("vitest") {
         parse_vitest(output)
@@ -80,8 +82,17 @@ fn parse_pytest_simple(output: &str) -> Vec<ParsedFailure> {
         }
         // Also capture FAILED test::path lines
         if line.trim_start().starts_with("FAILED ") {
-            let test_name = line.trim_start().strip_prefix("FAILED ").unwrap_or("").trim();
-            if !test_name.is_empty() && failures.last().map(|f: &ParsedFailure| f.test_name.as_deref()) != Some(Some(test_name)) {
+            let test_name = line
+                .trim_start()
+                .strip_prefix("FAILED ")
+                .unwrap_or("")
+                .trim();
+            if !test_name.is_empty()
+                && failures
+                    .last()
+                    .map(|f: &ParsedFailure| f.test_name.as_deref())
+                    != Some(Some(test_name))
+            {
                 if let Some(last) = failures.last_mut() {
                     last.test_name = Some(test_name.to_string());
                 } else {
@@ -231,8 +242,8 @@ fn parse_jest(output: &str) -> Vec<ParsedFailure> {
             let mut summary_lines: Vec<&str> = vec![test_path];
 
             // Scan forward for the error details and "at Object.<anon> (file:line)"
-            for j in (i + 1)..lines.len().min(i + 30) {
-                let detail = lines[j].trim();
+            for detail_line in lines.iter().take(lines.len().min(i + 30)).skip(i + 1) {
+                let detail = detail_line.trim();
                 if detail.is_empty() || detail.starts_with("● ") {
                     break;
                 }
@@ -252,7 +263,11 @@ fn parse_jest(output: &str) -> Vec<ParsedFailure> {
                 summary_lines.push(detail);
             }
 
-            let summary: String = summary_lines.join("\n").chars().take(MAX_SUMMARY_CHARS).collect();
+            let summary: String = summary_lines
+                .join("\n")
+                .chars()
+                .take(MAX_SUMMARY_CHARS)
+                .collect();
             failures.push(ParsedFailure {
                 failure_type: "JestFail".to_string(),
                 file,
@@ -277,8 +292,15 @@ fn parse_vitest(output: &str) -> Vec<ParsedFailure> {
 
     for line in output.lines() {
         // "FAIL  src/foo.test.ts" or "× test name"
-        if line.trim_start().starts_with("FAIL ") && (line.contains(".test.") || line.contains(".spec.")) {
-            let file = line.trim().strip_prefix("FAIL").unwrap_or("").trim().to_string();
+        if line.trim_start().starts_with("FAIL ")
+            && (line.contains(".test.") || line.contains(".spec."))
+        {
+            let file = line
+                .trim()
+                .strip_prefix("FAIL")
+                .unwrap_or("")
+                .trim()
+                .to_string();
             failures.push(ParsedFailure {
                 failure_type: "VitestFail".to_string(),
                 file: Some(file.clone()),
@@ -289,7 +311,11 @@ fn parse_vitest(output: &str) -> Vec<ParsedFailure> {
         }
         // "× test name" is a vitest failure indicator
         if line.trim_start().starts_with("× ") || line.trim_start().starts_with("✗ ") {
-            let name = line.trim().trim_start_matches(['×', '✗', ' ']).trim().to_string();
+            let name = line
+                .trim()
+                .trim_start_matches(['×', '✗', ' '])
+                .trim()
+                .to_string();
             if let Some(last) = failures.last_mut() {
                 if last.test_name.is_none() {
                     last.test_name = Some(name);
@@ -358,7 +384,11 @@ fn extract_xml_attr(s: &str, attr: &str) -> Option<String> {
     let start = s.find(&needle)? + needle.len();
     let end = s[start..].find('"')?;
     let val = &s[start..start + end];
-    if val.is_empty() { None } else { Some(val.to_string()) }
+    if val.is_empty() {
+        None
+    } else {
+        Some(val.to_string())
+    }
 }
 
 // ─── Tool implementation ───────────────────────────────────────────────────────
@@ -548,7 +578,11 @@ mod tests {
         let failures = parse_test_output(output);
         assert!(!failures.is_empty());
         assert_eq!(failures[0].failure_type, "JestFail");
-        assert!(failures[0].test_name.as_ref().map(|n| n.contains("renders")).unwrap_or(false));
+        assert!(failures[0]
+            .test_name
+            .as_ref()
+            .map(|n| n.contains("renders"))
+            .unwrap_or(false));
     }
 
     // ─── JUnit XML parsing ────────────────────────────────────────────────────
@@ -589,7 +623,10 @@ mod tests {
     fn extract_xml_attr_basic() {
         let s = r#"<testcase name="testFoo" classname="com.example.Test">"#;
         assert_eq!(extract_xml_attr(s, "name"), Some("testFoo".to_string()));
-        assert_eq!(extract_xml_attr(s, "classname"), Some("com.example.Test".to_string()));
+        assert_eq!(
+            extract_xml_attr(s, "classname"),
+            Some("com.example.Test".to_string())
+        );
         assert_eq!(extract_xml_attr(s, "time"), None);
     }
 

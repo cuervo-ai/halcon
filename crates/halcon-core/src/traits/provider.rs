@@ -2,7 +2,9 @@ use async_trait::async_trait;
 use futures::stream::BoxStream;
 
 use crate::error::Result;
-use crate::types::{ModelChunk, ModelInfo, ModelRequest, ProviderHandle, TokenCost, TokenizerHint, ToolFormat};
+use crate::types::{
+    ModelChunk, ModelInfo, ModelRequest, ProviderHandle, TokenCost, TokenizerHint, ToolFormat,
+};
 
 /// Trait for model providers (Anthropic, Ollama, OpenAI, etc.).
 ///

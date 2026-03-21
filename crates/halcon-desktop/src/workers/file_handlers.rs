@@ -27,11 +27,7 @@ pub async fn load_directory(
                 if name.starts_with('.') {
                     continue;
                 }
-                let is_dir = entry
-                    .file_type()
-                    .await
-                    .map(|t| t.is_dir())
-                    .unwrap_or(false);
+                let is_dir = entry.file_type().await.map(|t| t.is_dir()).unwrap_or(false);
                 entries.push(FileDirEntry {
                     name,
                     path: entry.path(),
@@ -66,16 +62,16 @@ pub async fn load_directory(
 ///
 /// Binary files (no valid UTF-8 prefix) are replaced with a placeholder string.
 /// Files larger than 64 KB are truncated with an informational suffix.
-pub async fn load_file(
-    path: PathBuf,
-    msg_tx: &mpsc::Sender<BackendMessage>,
-    repaint: &RepaintFn,
-) {
+pub async fn load_file(path: PathBuf, msg_tx: &mpsc::Sender<BackendMessage>, repaint: &RepaintFn) {
     const MAX_BYTES: usize = 65_536; // 64 KB display limit
     match tokio::fs::read(&path).await {
         Ok(bytes) => {
             let truncated = bytes.len() > MAX_BYTES;
-            let slice = if truncated { &bytes[..MAX_BYTES] } else { &bytes };
+            let slice = if truncated {
+                &bytes[..MAX_BYTES]
+            } else {
+                &bytes
+            };
             // Walk back to a valid UTF-8 char boundary.
             let mut end = slice.len();
             while end > 0 && std::str::from_utf8(&slice[..end]).is_err() {

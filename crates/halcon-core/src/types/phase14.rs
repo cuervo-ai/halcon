@@ -73,7 +73,11 @@ mod tests {
 
     #[test]
     fn dry_run_mode_all_variants_serde() {
-        for mode in [DryRunMode::Off, DryRunMode::Full, DryRunMode::DestructiveOnly] {
+        for mode in [
+            DryRunMode::Off,
+            DryRunMode::Full,
+            DryRunMode::DestructiveOnly,
+        ] {
             let json = serde_json::to_string(&mode).unwrap();
             let parsed: DryRunMode = serde_json::from_str(&json).unwrap();
             assert_eq!(parsed, mode);

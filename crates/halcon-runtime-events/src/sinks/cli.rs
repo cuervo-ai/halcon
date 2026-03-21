@@ -26,13 +26,27 @@ use crate::event::{
 
 // ─── ANSI colour helpers ──────────────────────────────────────────────────────
 
-fn dim(s: &str) -> String { format!("\x1b[2m{s}\x1b[0m") }
-fn cyan(s: &str) -> String { format!("\x1b[36m{s}\x1b[0m") }
-fn green(s: &str) -> String { format!("\x1b[32m{s}\x1b[0m") }
-fn yellow(s: &str) -> String { format!("\x1b[33m{s}\x1b[0m") }
-fn red(s: &str) -> String { format!("\x1b[31m{s}\x1b[0m") }
-fn bold(s: &str) -> String { format!("\x1b[1m{s}\x1b[0m") }
-fn magenta(s: &str) -> String { format!("\x1b[35m{s}\x1b[0m") }
+fn dim(s: &str) -> String {
+    format!("\x1b[2m{s}\x1b[0m")
+}
+fn cyan(s: &str) -> String {
+    format!("\x1b[36m{s}\x1b[0m")
+}
+fn green(s: &str) -> String {
+    format!("\x1b[32m{s}\x1b[0m")
+}
+fn yellow(s: &str) -> String {
+    format!("\x1b[33m{s}\x1b[0m")
+}
+fn red(s: &str) -> String {
+    format!("\x1b[31m{s}\x1b[0m")
+}
+fn bold(s: &str) -> String {
+    format!("\x1b[1m{s}\x1b[0m")
+}
+fn magenta(s: &str) -> String {
+    format!("\x1b[35m{s}\x1b[0m")
+}
 
 // ─── CliEventSink ─────────────────────────────────────────────────────────────
 
@@ -46,6 +60,7 @@ pub struct CliEventSink {
 }
 
 impl CliEventSink {
+    #[must_use]
     pub fn new(verbose: bool) -> Self {
         let colour = Self::detect_colour();
         Self {
@@ -77,7 +92,9 @@ impl CliEventSink {
 }
 
 impl Default for CliEventSink {
-    fn default() -> Self { Self::new(false) }
+    fn default() -> Self {
+        Self::new(false)
+    }
 }
 
 impl EventSink for CliEventSink {
@@ -86,7 +103,12 @@ impl EventSink for CliEventSink {
 
         match &event.kind {
             // ── Session lifecycle ─────────────────────────────────────────────
-            RuntimeEventKind::SessionStarted { query_preview, model, provider, max_rounds } => {
+            RuntimeEventKind::SessionStarted {
+                query_preview,
+                model,
+                provider,
+                max_rounds,
+            } => {
                 self.write_line(&format!(
                     "{} session started — {} / {} (max {} rounds): {}",
                     self.paint("▶", cyan),
@@ -96,7 +118,12 @@ impl EventSink for CliEventSink {
                     self.paint(&truncate(query_preview, 60), dim),
                 ));
             }
-            RuntimeEventKind::SessionEnded { rounds_completed, stop_condition, estimated_cost_usd, .. } => {
+            RuntimeEventKind::SessionEnded {
+                rounds_completed,
+                stop_condition,
+                estimated_cost_usd,
+                ..
+            } => {
                 self.write_line(&format!(
                     "{} session ended — {} rounds, condition={}, cost=${:.4}",
                     self.paint("■", cyan),
@@ -107,7 +134,12 @@ impl EventSink for CliEventSink {
             }
 
             // ── Planning ─────────────────────────────────────────────────────
-            RuntimeEventKind::PlanCreated { goal, steps, replan_count, .. } => {
+            RuntimeEventKind::PlanCreated {
+                goal,
+                steps,
+                replan_count,
+                ..
+            } => {
                 let replan = if *replan_count > 0 {
                     format!(" [replan #{}]", replan_count)
                 } else {
@@ -121,7 +153,11 @@ impl EventSink for CliEventSink {
                     self.paint(&truncate(goal, 60), dim),
                 ));
             }
-            RuntimeEventKind::PlanReplanned { reason, replan_count, .. } => {
+            RuntimeEventKind::PlanReplanned {
+                reason,
+                replan_count,
+                ..
+            } => {
                 self.write_line(&format!(
                     "{} plan replanned (#{}) — {}",
                     self.paint("◈", yellow),
@@ -141,13 +177,18 @@ impl EventSink for CliEventSink {
                     ));
                 }
             }
-            RuntimeEventKind::RoundCompleted { round, action, duration_ms, .. } => {
+            RuntimeEventKind::RoundCompleted {
+                round,
+                action,
+                duration_ms,
+                ..
+            } => {
                 let action_str = match action {
-                    ConvergenceAction::Continue      => dim("continue"),
-                    ConvergenceAction::Synthesize    => green("synthesize"),
-                    ConvergenceAction::Replan        => yellow("replan"),
-                    ConvergenceAction::Halt          => red("halt"),
-                    ConvergenceAction::HaltBudget    => red("halt/budget"),
+                    ConvergenceAction::Continue => dim("continue"),
+                    ConvergenceAction::Synthesize => green("synthesize"),
+                    ConvergenceAction::Replan => yellow("replan"),
+                    ConvergenceAction::Halt => red("halt"),
+                    ConvergenceAction::HaltBudget => red("halt/budget"),
                     ConvergenceAction::HaltMaxRounds => yellow("halt/max_rounds"),
                     ConvergenceAction::HaltUserInterrupt => yellow("halt/interrupt"),
                 };
@@ -158,17 +199,22 @@ impl EventSink for CliEventSink {
                     ));
                 }
             }
-            RuntimeEventKind::RoundScored { round, composite_score, .. } => {
+            RuntimeEventKind::RoundScored {
+                round,
+                composite_score,
+                ..
+            } => {
                 if verbose {
-                    self.write_line(&format!(
-                        "  round {} score: {:.2}",
-                        round, composite_score,
-                    ));
+                    self.write_line(&format!("  round {} score: {:.2}", round, composite_score,));
                 }
             }
 
             // ── Tool execution ────────────────────────────────────────────────
-            RuntimeEventKind::ToolCallStarted { tool_name, is_parallel, .. } => {
+            RuntimeEventKind::ToolCallStarted {
+                tool_name,
+                is_parallel,
+                ..
+            } => {
                 let parallel_mark = if *is_parallel { " ∥" } else { "" };
                 self.write_line(&format!(
                     "  {} {}{parallel_mark}",
@@ -176,27 +222,34 @@ impl EventSink for CliEventSink {
                     self.paint(tool_name, bold),
                 ));
             }
-            RuntimeEventKind::ToolCallCompleted { tool_name, success, duration_ms, .. } => {
+            RuntimeEventKind::ToolCallCompleted {
+                tool_name,
+                success,
+                duration_ms,
+                ..
+            } => {
                 let status = if *success {
                     self.paint("✓", green)
                 } else {
                     self.paint("✗", red)
                 };
                 if verbose {
-                    self.write_line(&format!(
-                        "  {} {} ({}ms)",
-                        status, tool_name, duration_ms,
-                    ));
+                    self.write_line(&format!("  {} {} ({}ms)", status, tool_name, duration_ms,));
                 }
             }
-            RuntimeEventKind::ToolBlocked { tool_name, reason, message, .. } => {
+            RuntimeEventKind::ToolBlocked {
+                tool_name,
+                reason,
+                message,
+                ..
+            } => {
                 let reason_str = match reason {
-                    ToolBlockReason::PermissionDenied    => "permission denied",
-                    ToolBlockReason::GuardrailBlocked    => "guardrail blocked",
-                    ToolBlockReason::CircuitBreakerOpen  => "circuit breaker open",
+                    ToolBlockReason::PermissionDenied => "permission denied",
+                    ToolBlockReason::GuardrailBlocked => "guardrail blocked",
+                    ToolBlockReason::CircuitBreakerOpen => "circuit breaker open",
                     ToolBlockReason::CatastrophicPattern => "catastrophic pattern",
-                    ToolBlockReason::DryRunMode          => "dry-run mode",
-                    ToolBlockReason::BudgetExhausted     => "budget exhausted",
+                    ToolBlockReason::DryRunMode => "dry-run mode",
+                    ToolBlockReason::BudgetExhausted => "budget exhausted",
                 };
                 self.write_line(&format!(
                     "  {} {} blocked: {} — {}",
@@ -222,7 +275,9 @@ impl EventSink for CliEventSink {
                     short_uri(file_uri),
                 ));
             }
-            RuntimeEventKind::EditRejected { file_uri, reason, .. } => {
+            RuntimeEventKind::EditRejected {
+                file_uri, reason, ..
+            } => {
                 let why = reason.as_deref().unwrap_or("no reason given");
                 self.write_line(&format!(
                     "  {} edit rejected: {} ({})",
@@ -249,7 +304,11 @@ impl EventSink for CliEventSink {
             }
 
             // ── Circuit breaker ───────────────────────────────────────────────
-            RuntimeEventKind::CircuitBreakerOpened { resource, failure_count, .. } => {
+            RuntimeEventKind::CircuitBreakerOpened {
+                resource,
+                failure_count,
+                ..
+            } => {
                 self.write_line(&format!(
                     "{} circuit breaker opened: {} ({} failures)",
                     self.paint("⚡", red),
@@ -266,10 +325,14 @@ impl EventSink for CliEventSink {
             }
 
             // ── Guardrails ────────────────────────────────────────────────────
-            RuntimeEventKind::GuardrailTriggered { guardrail_name, action, .. } => {
+            RuntimeEventKind::GuardrailTriggered {
+                guardrail_name,
+                action,
+                ..
+            } => {
                 let action_str = match action {
-                    GuardrailAction::Block  => red("BLOCK"),
-                    GuardrailAction::Warn   => yellow("WARN"),
+                    GuardrailAction::Block => red("BLOCK"),
+                    GuardrailAction::Warn => yellow("WARN"),
                     GuardrailAction::Redact => yellow("REDACT"),
                 };
                 self.write_line(&format!(
@@ -281,8 +344,7 @@ impl EventSink for CliEventSink {
             }
 
             // ── High-frequency events (verbose-gated) ─────────────────────────
-            RuntimeEventKind::ModelToken { .. }
-            | RuntimeEventKind::ReasoningTrace { .. } => {
+            RuntimeEventKind::ModelToken { .. } | RuntimeEventKind::ReasoningTrace { .. } => {
                 // These are intentionally suppressed in normal CLI mode.
                 // The existing ClassicSink / StreamRenderer handles token display.
             }
@@ -290,11 +352,7 @@ impl EventSink for CliEventSink {
             // ── Everything else: silent at non-verbose level ───────────────────
             _ => {
                 if verbose {
-                    self.write_line(&format!(
-                        "  {} {}",
-                        self.paint("·", dim),
-                        event.type_name(),
-                    ));
+                    self.write_line(&format!("  {} {}", self.paint("·", dim), event.type_name(),));
                 }
             }
         }

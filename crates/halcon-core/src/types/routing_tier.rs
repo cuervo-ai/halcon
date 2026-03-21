@@ -35,9 +35,9 @@ impl RoutingTier {
     /// `RoutingTier` enum directly.
     pub fn as_placeholder(self) -> &'static str {
         match self {
-            Self::Fast     => "__fast__",
+            Self::Fast => "__fast__",
             Self::Balanced => "__balanced__",
-            Self::Deep     => "__deep__",
+            Self::Deep => "__deep__",
         }
     }
 
@@ -47,9 +47,9 @@ impl RoutingTier {
     /// New code sets `Some(RoutingTier::Fast.as_bias_str().to_string())`.
     pub fn as_bias_str(self) -> &'static str {
         match self {
-            Self::Fast     => "fast",
+            Self::Fast => "fast",
             Self::Balanced => "balanced",
-            Self::Deep     => "quality",
+            Self::Deep => "quality",
         }
     }
 
@@ -57,12 +57,12 @@ impl RoutingTier {
     ///
     /// Accepts both the clean form (`"fast"`) and the legacy placeholder
     /// form (`"__fast__"`). Case-insensitive. Returns `None` for unknown strings.
-    pub fn from_str(s: &str) -> Option<Self> {
+    pub fn parse_tier(s: &str) -> Option<Self> {
         match s {
-            "fast"     | "__fast__"     => Some(Self::Fast),
+            "fast" | "__fast__" => Some(Self::Fast),
             "balanced" | "__balanced__" => Some(Self::Balanced),
-            "deep"     | "__deep__"     | "quality" => Some(Self::Deep),
-            _                           => None,
+            "deep" | "__deep__" | "quality" => Some(Self::Deep),
+            _ => None,
         }
     }
 
@@ -84,35 +84,41 @@ mod tests {
 
     #[test]
     fn from_str_clean_form() {
-        assert_eq!(RoutingTier::from_str("fast"), Some(RoutingTier::Fast));
-        assert_eq!(RoutingTier::from_str("balanced"), Some(RoutingTier::Balanced));
-        assert_eq!(RoutingTier::from_str("deep"), Some(RoutingTier::Deep));
+        assert_eq!(RoutingTier::parse_tier("fast"), Some(RoutingTier::Fast));
+        assert_eq!(
+            RoutingTier::parse_tier("balanced"),
+            Some(RoutingTier::Balanced)
+        );
+        assert_eq!(RoutingTier::parse_tier("deep"), Some(RoutingTier::Deep));
     }
 
     #[test]
     fn from_str_placeholder_form() {
-        assert_eq!(RoutingTier::from_str("__fast__"), Some(RoutingTier::Fast));
-        assert_eq!(RoutingTier::from_str("__balanced__"), Some(RoutingTier::Balanced));
-        assert_eq!(RoutingTier::from_str("__deep__"), Some(RoutingTier::Deep));
+        assert_eq!(RoutingTier::parse_tier("__fast__"), Some(RoutingTier::Fast));
+        assert_eq!(
+            RoutingTier::parse_tier("__balanced__"),
+            Some(RoutingTier::Balanced)
+        );
+        assert_eq!(RoutingTier::parse_tier("__deep__"), Some(RoutingTier::Deep));
     }
 
     #[test]
     fn from_str_legacy_quality() {
-        assert_eq!(RoutingTier::from_str("quality"), Some(RoutingTier::Deep));
+        assert_eq!(RoutingTier::parse_tier("quality"), Some(RoutingTier::Deep));
     }
 
     #[test]
     fn from_str_unknown() {
-        assert!(RoutingTier::from_str("turbo").is_none());
-        assert!(RoutingTier::from_str("").is_none());
-        assert!(RoutingTier::from_str("FAST").is_none()); // case-sensitive
+        assert!(RoutingTier::parse_tier("turbo").is_none());
+        assert!(RoutingTier::parse_tier("").is_none());
+        assert!(RoutingTier::parse_tier("FAST").is_none()); // case-sensitive
     }
 
     #[test]
     fn placeholder_round_trips() {
         for tier in RoutingTier::all() {
             let p = tier.as_placeholder();
-            assert_eq!(RoutingTier::from_str(p), Some(tier));
+            assert_eq!(RoutingTier::parse_tier(p), Some(tier));
         }
     }
 
@@ -120,7 +126,7 @@ mod tests {
     fn bias_str_round_trips() {
         for tier in RoutingTier::all() {
             let b = tier.as_bias_str();
-            assert_eq!(RoutingTier::from_str(b), Some(tier));
+            assert_eq!(RoutingTier::parse_tier(b), Some(tier));
         }
     }
 

@@ -222,12 +222,10 @@ pub fn suggest_cvd_safe_alternative(
             } else {
                 lo = mid
             }
+        } else if bg_lum < 0.18 {
+            lo = mid
         } else {
-            if bg_lum < 0.18 {
-                lo = mid
-            } else {
-                hi = mid
-            }
+            hi = mid
         }
     }
 

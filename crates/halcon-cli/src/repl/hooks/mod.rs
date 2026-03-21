@@ -79,7 +79,10 @@ impl HookEvent {
         let mut m = HashMap::new();
         m.insert("HALCON_EVENT".to_string(), format!("{:?}", self.name));
         m.insert("HALCON_TOOL_NAME".to_string(), self.tool_name.clone());
-        m.insert("HALCON_TOOL_INPUT".to_string(), self.tool_input_json.clone());
+        m.insert(
+            "HALCON_TOOL_INPUT".to_string(),
+            self.tool_input_json.clone(),
+        );
         m.insert("HALCON_SESSION_ID".to_string(), self.session_id.clone());
         m
     }
@@ -155,8 +158,7 @@ impl HookRunner {
                 continue;
             }
             // For tool events, check the matcher glob.
-            if !event.tool_name.is_empty()
-                && !matcher::tool_matches(&def.matcher, &event.tool_name)
+            if !event.tool_name.is_empty() && !matcher::tool_matches(&def.matcher, &event.tool_name)
             {
                 continue;
             }

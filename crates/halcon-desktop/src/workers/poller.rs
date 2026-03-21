@@ -4,10 +4,7 @@ use tokio::sync::mpsc;
 use super::UiCommand;
 
 /// Background worker that periodically sends refresh commands.
-pub async fn run_poller(
-    cmd_tx: mpsc::Sender<UiCommand>,
-    interval: Duration,
-) {
+pub async fn run_poller(cmd_tx: mpsc::Sender<UiCommand>, interval: Duration) {
     let mut ticker = tokio::time::interval(interval);
     // Skip the first immediate tick.
     ticker.tick().await;

@@ -38,8 +38,8 @@ pub struct ProgressPolicyConfig {
 impl Default for ProgressPolicyConfig {
     fn default() -> Self {
         Self {
-            stall_threshold:       2,
-            regression_threshold:  1,
+            stall_threshold: 2,
+            regression_threshold: 1,
         }
     }
 }
@@ -87,15 +87,11 @@ pub fn evaluate_policy(
     config: &ProgressPolicyConfig,
 ) -> ProgressAction {
     // Regression takes priority (fires at lower threshold by default).
-    if config.regression_threshold > 0
-        && consecutive_regressions >= config.regression_threshold
-    {
+    if config.regression_threshold > 0 && consecutive_regressions >= config.regression_threshold {
         return ProgressAction::TriggerRescueSynthesis;
     }
 
-    if config.stall_threshold > 0
-        && consecutive_stalls >= config.stall_threshold
-    {
+    if config.stall_threshold > 0 && consecutive_stalls >= config.stall_threshold {
         return ProgressAction::TriggerRescueSynthesis;
     }
 
@@ -109,7 +105,10 @@ mod tests {
     use super::*;
 
     fn cfg(stall: u32, regression: u32) -> ProgressPolicyConfig {
-        ProgressPolicyConfig { stall_threshold: stall, regression_threshold: regression }
+        ProgressPolicyConfig {
+            stall_threshold: stall,
+            regression_threshold: regression,
+        }
     }
 
     // ── Default config ────────────────────────────────────────────────────

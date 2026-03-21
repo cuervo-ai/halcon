@@ -144,10 +144,7 @@ impl ProjectInspector {
 
     /// Generate a HALCON.md string from analysis results.
     pub fn generate_halcon_md(analysis: &ProjectAnalysis) -> String {
-        let name = analysis
-            .package_name
-            .as_deref()
-            .unwrap_or("Este Proyecto");
+        let name = analysis.package_name.as_deref().unwrap_or("Este Proyecto");
         let stack = &analysis.project_type;
         let description = analysis
             .description
@@ -192,10 +189,7 @@ impl ProjectInspector {
 
     /// Generate a .halcon/config.toml snippet for the project.
     pub fn generate_project_config(analysis: &ProjectAnalysis) -> String {
-        let name = analysis
-            .package_name
-            .as_deref()
-            .unwrap_or("este-proyecto");
+        let name = analysis.package_name.as_deref().unwrap_or("este-proyecto");
 
         format!(
             "# {name} — Project-level HALCON config\n\
@@ -225,9 +219,7 @@ allowed_directories = [\n\
     }
 
     /// Simple line scan for `name = "..."` (TOML) or `"name": "..."` (JSON-like).
-    fn parse_toml_manifest(
-        path: &std::path::Path,
-    ) -> (Option<String>, Option<String>) {
+    fn parse_toml_manifest(path: &std::path::Path) -> (Option<String>, Option<String>) {
         let content = match std::fs::read_to_string(path) {
             Ok(c) => c,
             Err(_) => return (None, None),
@@ -256,9 +248,7 @@ allowed_directories = [\n\
         (name, description)
     }
 
-    fn parse_json_manifest(
-        path: &std::path::Path,
-    ) -> (Option<String>, Option<String>) {
+    fn parse_json_manifest(path: &std::path::Path) -> (Option<String>, Option<String>) {
         let content = match std::fs::read_to_string(path) {
             Ok(c) => c,
             Err(_) => return (None, None),
@@ -384,7 +374,9 @@ mod tests {
         let analysis = ProjectInspector::analyze(&dir);
         assert_eq!(analysis.project_type, "node");
         assert_eq!(analysis.package_name.as_deref(), Some("myapp"));
-        assert!(analysis.manifest_files.contains(&"package.json".to_string()));
+        assert!(analysis
+            .manifest_files
+            .contains(&"package.json".to_string()));
 
         fs::remove_dir_all(&dir).unwrap();
     }
@@ -397,7 +389,10 @@ mod tests {
             ..ProjectAnalysis::default()
         };
         let md = ProjectInspector::generate_halcon_md(&analysis);
-        assert!(md.contains("awesome-project"), "should contain package name");
+        assert!(
+            md.contains("awesome-project"),
+            "should contain package name"
+        );
         assert!(md.contains("rust"), "should contain stack");
     }
 
@@ -408,7 +403,10 @@ mod tests {
             ..ProjectAnalysis::default()
         };
         let config = ProjectInspector::generate_project_config(&analysis);
-        assert!(config.contains("allowed_directories"), "should have allowed_directories");
+        assert!(
+            config.contains("allowed_directories"),
+            "should have allowed_directories"
+        );
         assert!(config.contains("\".\""), "should include current dir");
     }
 }

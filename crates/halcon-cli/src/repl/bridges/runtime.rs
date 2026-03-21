@@ -128,8 +128,8 @@ impl CliToolRuntime {
             };
 
             // Serialize input arguments as the agent instruction.
-            let instruction = serde_json::to_string(&tool_call.input)
-                .unwrap_or_else(|_| "{}".to_string());
+            let instruction =
+                serde_json::to_string(&tool_call.input).unwrap_or_else(|_| "{}".to_string());
 
             dag.add_node(TaskNode {
                 task_id,
@@ -157,9 +157,7 @@ impl CliToolRuntime {
             .results
             .into_iter()
             .map(|(task_id, response)| {
-                let tool_call = task_to_index
-                    .get(&task_id)
-                    .and_then(|&i| batch.get(i));
+                let tool_call = task_to_index.get(&task_id).and_then(|&i| batch.get(i));
 
                 let (tool_use_id, tool_name) = tool_call
                     .map(|t| (t.id.clone(), t.name.clone()))
@@ -220,8 +218,8 @@ mod tests {
     use super::*;
     use async_trait::async_trait;
     use halcon_core::error::{HalconError, Result as CoreResult};
-    use halcon_core::types::{PermissionLevel, ToolInput, ToolOutput};
     use halcon_core::traits::Tool;
+    use halcon_core::types::{PermissionLevel, ToolInput, ToolOutput};
 
     // ── Helpers ────────────────────────────────────────────────────────────
 
@@ -231,15 +229,23 @@ mod tests {
 
     impl EchoTool {
         fn new(name: &str) -> Self {
-            Self { tool_name: name.to_string() }
+            Self {
+                tool_name: name.to_string(),
+            }
         }
     }
 
     #[async_trait]
     impl Tool for EchoTool {
-        fn name(&self) -> &str { &self.tool_name }
-        fn description(&self) -> &str { "echo tool for testing" }
-        fn permission_level(&self) -> PermissionLevel { PermissionLevel::ReadOnly }
+        fn name(&self) -> &str {
+            &self.tool_name
+        }
+        fn description(&self) -> &str {
+            "echo tool for testing"
+        }
+        fn permission_level(&self) -> PermissionLevel {
+            PermissionLevel::ReadOnly
+        }
 
         async fn execute(&self, input: ToolInput) -> CoreResult<ToolOutput> {
             Ok(ToolOutput {
@@ -261,15 +267,23 @@ mod tests {
 
     impl FailingTool {
         fn new(name: &str) -> Self {
-            Self { tool_name: name.to_string() }
+            Self {
+                tool_name: name.to_string(),
+            }
         }
     }
 
     #[async_trait]
     impl Tool for FailingTool {
-        fn name(&self) -> &str { &self.tool_name }
-        fn description(&self) -> &str { "always fails" }
-        fn permission_level(&self) -> PermissionLevel { PermissionLevel::ReadOnly }
+        fn name(&self) -> &str {
+            &self.tool_name
+        }
+        fn description(&self) -> &str {
+            "always fails"
+        }
+        fn permission_level(&self) -> PermissionLevel {
+            PermissionLevel::ReadOnly
+        }
 
         async fn execute(&self, _input: ToolInput) -> CoreResult<ToolOutput> {
             Err(HalconError::ToolExecutionFailed {
@@ -356,7 +370,11 @@ mod tests {
         let reg = make_echo_registry(&["tool_a", "tool_b", "tool_c"]);
         let rt = CliToolRuntime::from_registry(&reg, "/tmp").await;
 
-        let batch = vec![tool_call("tool_a"), tool_call("tool_b"), tool_call("tool_c")];
+        let batch = vec![
+            tool_call("tool_a"),
+            tool_call("tool_b"),
+            tool_call("tool_c"),
+        ];
         let results = rt.execute_parallel_batch(&batch).await;
 
         assert_eq!(results.len(), 3);
@@ -399,7 +417,7 @@ mod tests {
     #[tokio::test]
     async fn failing_tool_produces_error_result() {
         let reg = make_registry_with(vec![
-            Arc::new(FailingTool::new("fail_tool")) as Arc<dyn Tool>,
+            Arc::new(FailingTool::new("fail_tool")) as Arc<dyn Tool>
         ]);
         let rt = CliToolRuntime::from_registry(&reg, "/tmp").await;
 
@@ -412,7 +430,10 @@ mod tests {
         // Error message is propagated.
         match &results[0].content_block {
             ContentBlock::ToolResult { content, .. } => {
-                assert!(content.contains("Error"), "expected error message, got: {content}");
+                assert!(
+                    content.contains("Error"),
+                    "expected error message, got: {content}"
+                );
             }
             _ => panic!("expected ToolResult"),
         }
@@ -442,12 +463,24 @@ mod tests {
         let reg = make_echo_registry(&["tool_a", "tool_b", "tool_c"]);
         let rt = CliToolRuntime::from_registry(&reg, "/tmp").await;
 
-        let batch = vec![tool_call("tool_a"), tool_call("tool_b"), tool_call("tool_c")];
+        let batch = vec![
+            tool_call("tool_a"),
+            tool_call("tool_b"),
+            tool_call("tool_c"),
+        ];
         let (dag, _) = rt.build_dag(&batch);
 
         let waves = dag.waves().unwrap();
-        assert_eq!(waves.len(), 1, "parallel batch must produce exactly one DAG wave");
-        assert_eq!(waves[0].len(), 3, "all three tools must be in the single wave");
+        assert_eq!(
+            waves.len(),
+            1,
+            "parallel batch must produce exactly one DAG wave"
+        );
+        assert_eq!(
+            waves[0].len(),
+            3,
+            "all three tools must be in the single wave"
+        );
     }
 
     #[tokio::test]
@@ -481,10 +514,15 @@ mod tests {
 
         assert_eq!(results.len(), 1);
         match &results[0].content_block {
-            ContentBlock::ToolResult { content, is_error, .. } => {
+            ContentBlock::ToolResult {
+                content, is_error, ..
+            } => {
                 assert!(!is_error);
                 // EchoTool prepends "echo:" to the serialized args.
-                assert!(content.starts_with("echo:"), "unexpected content: {content}");
+                assert!(
+                    content.starts_with("echo:"),
+                    "unexpected content: {content}"
+                );
             }
             _ => panic!("expected ToolResult"),
         }

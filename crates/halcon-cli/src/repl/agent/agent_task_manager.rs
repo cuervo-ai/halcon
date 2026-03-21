@@ -159,7 +159,10 @@ impl Drop for AgentTaskManager {
     fn drop(&mut self) {
         let aborted = self.abort_all();
         if aborted > 0 {
-            tracing::warn!(aborted, "AgentTaskManager dropped with active tasks, all aborted");
+            tracing::warn!(
+                aborted,
+                "AgentTaskManager dropped with active tasks, all aborted"
+            );
         }
     }
 }
@@ -200,12 +203,16 @@ mod tests {
         let mut manager = AgentTaskManager::new(2);
 
         // Spawn 2 tasks (max limit)
-        manager.spawn_task(async {
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }).unwrap();
-        manager.spawn_task(async {
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }).unwrap();
+        manager
+            .spawn_task(async {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            })
+            .unwrap();
+        manager
+            .spawn_task(async {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            })
+            .unwrap();
 
         // Third spawn should fail
         let result = manager.spawn_task(async {});
@@ -216,9 +223,11 @@ mod tests {
     #[tokio::test]
     async fn poll_task_detects_completion() {
         let mut manager = AgentTaskManager::new(3);
-        let task_id = manager.spawn_task(async {
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }).unwrap();
+        let task_id = manager
+            .spawn_task(async {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            })
+            .unwrap();
 
         // Initially not finished
         assert_eq!(manager.active_count(), 1);
@@ -237,15 +246,21 @@ mod tests {
         let mut manager = AgentTaskManager::new(5);
 
         // Spawn 3 tasks: 2 short, 1 long
-        manager.spawn_task(async {
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }).unwrap();
-        manager.spawn_task(async {
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }).unwrap();
-        manager.spawn_task(async {
-            tokio::time::sleep(Duration::from_millis(500)).await;
-        }).unwrap();
+        manager
+            .spawn_task(async {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            })
+            .unwrap();
+        manager
+            .spawn_task(async {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            })
+            .unwrap();
+        manager
+            .spawn_task(async {
+                tokio::time::sleep(Duration::from_millis(500)).await;
+            })
+            .unwrap();
 
         assert_eq!(manager.active_count(), 3);
 
@@ -261,9 +276,11 @@ mod tests {
     #[tokio::test]
     async fn abort_task_stops_execution() {
         let mut manager = AgentTaskManager::new(3);
-        let task_id = manager.spawn_task(async {
-            tokio::time::sleep(Duration::from_secs(10)).await;
-        }).unwrap();
+        let task_id = manager
+            .spawn_task(async {
+                tokio::time::sleep(Duration::from_secs(10)).await;
+            })
+            .unwrap();
 
         assert_eq!(manager.active_count(), 1);
 
@@ -279,9 +296,11 @@ mod tests {
 
         // Spawn 3 long-running tasks
         for _ in 0..3 {
-            manager.spawn_task(async {
-                tokio::time::sleep(Duration::from_secs(10)).await;
-            }).unwrap();
+            manager
+                .spawn_task(async {
+                    tokio::time::sleep(Duration::from_secs(10)).await;
+                })
+                .unwrap();
         }
 
         assert_eq!(manager.active_count(), 3);
@@ -298,14 +317,18 @@ mod tests {
 
         assert!(manager.can_spawn());
 
-        manager.spawn_task(async {
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }).unwrap();
+        manager
+            .spawn_task(async {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            })
+            .unwrap();
         assert!(manager.can_spawn());
 
-        manager.spawn_task(async {
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }).unwrap();
+        manager
+            .spawn_task(async {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            })
+            .unwrap();
         assert!(!manager.can_spawn()); // At limit
     }
 
@@ -314,12 +337,16 @@ mod tests {
         let mut manager = AgentTaskManager::new(3);
 
         // Spawn 2 tasks
-        let id1 = manager.spawn_task(async {
-            tokio::time::sleep(Duration::from_millis(10)).await;
-        }).unwrap();
-        manager.spawn_task(async {
-            tokio::time::sleep(Duration::from_millis(100)).await;
-        }).unwrap();
+        let id1 = manager
+            .spawn_task(async {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+            })
+            .unwrap();
+        manager
+            .spawn_task(async {
+                tokio::time::sleep(Duration::from_millis(100)).await;
+            })
+            .unwrap();
 
         let metrics = manager.metrics();
         assert_eq!(metrics.active, 2);
@@ -353,9 +380,11 @@ mod tests {
         let mut manager = AgentTaskManager::new(3);
 
         // Spawn long-running task
-        manager.spawn_task(async {
-            tokio::time::sleep(Duration::from_secs(10)).await;
-        }).unwrap();
+        manager
+            .spawn_task(async {
+                tokio::time::sleep(Duration::from_secs(10)).await;
+            })
+            .unwrap();
 
         assert_eq!(manager.active_count(), 1);
 

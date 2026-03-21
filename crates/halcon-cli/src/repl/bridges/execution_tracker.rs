@@ -103,11 +103,13 @@ impl ExecutionTracker {
                 self.plan.steps[idx].outcome = Some(outcome.clone());
 
                 // Emit event.
-                let _ = self.event_tx.send(DomainEvent::new(EventPayload::PlanStepCompleted {
-                    plan_id: self.plan.plan_id,
-                    step_index: idx,
-                    outcome: "success".to_string(),
-                }));
+                let _ = self
+                    .event_tx
+                    .send(DomainEvent::new(EventPayload::PlanStepCompleted {
+                        plan_id: self.plan.plan_id,
+                        step_index: idx,
+                        outcome: "success".to_string(),
+                    }));
 
                 matched.push(MatchedOutcome {
                     step_index: idx,
@@ -140,11 +142,13 @@ impl ExecutionTracker {
                 tracked.step.outcome = Some(outcome.clone());
                 self.plan.steps[idx].outcome = Some(outcome.clone());
 
-                let _ = self.event_tx.send(DomainEvent::new(EventPayload::PlanStepCompleted {
-                    plan_id: self.plan.plan_id,
-                    step_index: idx,
-                    outcome: "failed".to_string(),
-                }));
+                let _ = self
+                    .event_tx
+                    .send(DomainEvent::new(EventPayload::PlanStepCompleted {
+                        plan_id: self.plan.plan_id,
+                        step_index: idx,
+                        outcome: "failed".to_string(),
+                    }));
 
                 matched.push(MatchedOutcome {
                     step_index: idx,
@@ -182,11 +186,7 @@ impl ExecutionTracker {
 
     /// Returns `(completed_count, total_count, elapsed_ms)`.
     pub fn progress(&self) -> (usize, usize, u64) {
-        let completed = self
-            .steps
-            .iter()
-            .filter(|s| s.status.is_terminal())
-            .count();
+        let completed = self.steps.iter().filter(|s| s.status.is_terminal()).count();
         let total = self.steps.len();
         let elapsed = self.plan_start.elapsed().as_millis() as u64;
         (completed, total, elapsed)
@@ -247,7 +247,11 @@ impl ExecutionTracker {
             plan_id: self.plan.plan_id,
             goal: self.plan.goal.clone(),
             total_elapsed_ms: self.plan_start.elapsed().as_millis() as u64,
-            completed_steps: self.steps.iter().filter(|s| s.status == TaskStatus::Completed).count(),
+            completed_steps: self
+                .steps
+                .iter()
+                .filter(|s| s.status == TaskStatus::Completed)
+                .count(),
             total_steps: self.steps.len(),
             steps: self
                 .steps
@@ -263,10 +267,7 @@ impl ExecutionTracker {
                     duration_ms: ts.duration_ms,
                     round: ts.round,
                     delegated_to: ts.delegation.as_ref().map(|d| d.agent_type.clone()),
-                    sub_agent_task_id: ts
-                        .delegation
-                        .as_ref()
-                        .map(|d| d.task_id.to_string()),
+                    sub_agent_task_id: ts.delegation.as_ref().map(|d| d.task_id.to_string()),
                 })
                 .collect(),
         }
@@ -301,11 +302,13 @@ impl ExecutionTracker {
                 };
                 tracked.step.outcome = Some(outcome.clone());
                 self.plan.steps[step_index].outcome = Some(outcome);
-                let _ = self.event_tx.send(DomainEvent::new(EventPayload::PlanStepCompleted {
-                    plan_id: self.plan.plan_id,
-                    step_index,
-                    outcome: "success".to_string(),
-                }));
+                let _ = self
+                    .event_tx
+                    .send(DomainEvent::new(EventPayload::PlanStepCompleted {
+                        plan_id: self.plan.plan_id,
+                        step_index,
+                        outcome: "success".to_string(),
+                    }));
             }
         }
     }
@@ -326,11 +329,13 @@ impl ExecutionTracker {
                 };
                 tracked.step.outcome = Some(outcome.clone());
                 self.plan.steps[step_index].outcome = Some(outcome);
-                let _ = self.event_tx.send(DomainEvent::new(EventPayload::PlanStepCompleted {
-                    plan_id: self.plan.plan_id,
-                    step_index,
-                    outcome: format!("skipped: {}", reason),
-                }));
+                let _ = self
+                    .event_tx
+                    .send(DomainEvent::new(EventPayload::PlanStepCompleted {
+                        plan_id: self.plan.plan_id,
+                        step_index,
+                        outcome: format!("skipped: {}", reason),
+                    }));
             }
         }
     }
@@ -412,14 +417,13 @@ impl ExecutionTracker {
                     .map(|start| (now - start).num_milliseconds().max(0) as u64);
                 tracked.round = Some(round);
 
-                let _ =
-                    self.event_tx
-                        .send(DomainEvent::new(EventPayload::PlanStepCompleted {
-                            plan_id: self.plan.plan_id,
-                            step_index: idx,
-                            outcome: if result.success { "success" } else { "failed" }
-                                .to_string(),
-                        }));
+                let _ = self
+                    .event_tx
+                    .send(DomainEvent::new(EventPayload::PlanStepCompleted {
+                        plan_id: self.plan.plan_id,
+                        step_index: idx,
+                        outcome: if result.success { "success" } else { "failed" }.to_string(),
+                    }));
             }
         }
 
@@ -578,11 +582,8 @@ mod tests {
     #[test]
     fn record_failure_marks_step_failed() {
         let mut tracker = make_tracker(vec![make_step("Read file", "file_read")]);
-        let matched = tracker.record_tool_results(
-            &[],
-            &[("file_read".into(), "not found".into())],
-            1,
-        );
+        let matched =
+            tracker.record_tool_results(&[], &[("file_read".into(), "not found".into())], 1);
         assert_eq!(matched.len(), 1);
         assert_eq!(matched[0].step_index, 0);
         assert!(matches!(matched[0].outcome, StepOutcome::Failed { .. }));
@@ -664,7 +665,10 @@ mod tests {
         ]);
         tracker.record_tool_results(&["file_read".into()], &[], 1);
         let plan = tracker.plan();
-        assert!(matches!(plan.steps[0].outcome, Some(StepOutcome::Success { .. })));
+        assert!(matches!(
+            plan.steps[0].outcome,
+            Some(StepOutcome::Success { .. })
+        ));
         assert!(plan.steps[1].outcome.is_none());
     }
 
@@ -699,9 +703,7 @@ mod tests {
 
     #[test]
     fn reset_plan_replaces_steps() {
-        let mut tracker = make_tracker(vec![
-            make_step("Old step", "file_read"),
-        ]);
+        let mut tracker = make_tracker(vec![make_step("Old step", "file_read")]);
         tracker.record_tool_results(&["file_read".into()], &[], 1);
         assert!(tracker.is_complete());
 
@@ -1095,7 +1097,11 @@ mod tests {
         // Planner uses native "file_read"; MCP tool is "read_text_file".
         let mut tracker = make_tracker(vec![make_step("Read the config", "file_read")]);
         let matched = tracker.record_tool_results(&["read_text_file".into()], &[], 1);
-        assert_eq!(matched.len(), 1, "read_text_file should match file_read plan step via alias");
+        assert_eq!(
+            matched.len(),
+            1,
+            "read_text_file should match file_read plan step via alias"
+        );
         assert_eq!(tracker.tracked_steps()[0].status, TaskStatus::Completed);
     }
 
@@ -1104,7 +1110,11 @@ mod tests {
         // Planner uses "directory_tree"; MCP tool is "list_directory".
         let mut tracker = make_tracker(vec![make_step("List source files", "directory_tree")]);
         let matched = tracker.record_tool_results(&["list_directory".into()], &[], 1);
-        assert_eq!(matched.len(), 1, "list_directory should match directory_tree plan step via alias");
+        assert_eq!(
+            matched.len(),
+            1,
+            "list_directory should match directory_tree plan step via alias"
+        );
         assert_eq!(tracker.tracked_steps()[0].status, TaskStatus::Completed);
     }
 
@@ -1129,7 +1139,11 @@ mod tests {
         // Planner used MCP name "read_text_file"; native "file_read" was executed.
         let mut tracker = make_tracker(vec![make_step("Read file via MCP", "read_text_file")]);
         let matched = tracker.record_tool_results(&["file_read".into()], &[], 1);
-        assert_eq!(matched.len(), 1, "file_read should match read_text_file plan step in reverse");
+        assert_eq!(
+            matched.len(),
+            1,
+            "file_read should match read_text_file plan step in reverse"
+        );
         assert_eq!(tracker.tracked_steps()[0].status, TaskStatus::Completed);
     }
 
@@ -1142,7 +1156,10 @@ mod tests {
         ]);
         // Execute bash — should match nothing.
         let matched = tracker.record_tool_results(&["bash".into()], &[], 1);
-        assert!(matched.is_empty(), "bash must not alias to file_read or grep");
+        assert!(
+            matched.is_empty(),
+            "bash must not alias to file_read or grep"
+        );
         assert_eq!(tracker.tracked_steps()[0].status, TaskStatus::Pending);
         assert_eq!(tracker.tracked_steps()[1].status, TaskStatus::Pending);
     }
@@ -1152,7 +1169,10 @@ mod tests {
         // "file_write" and "file_read" are different operations and must not alias.
         let mut tracker = make_tracker(vec![make_step("Read config", "file_read")]);
         let matched = tracker.record_tool_results(&["file_write".into()], &[], 1);
-        assert!(matched.is_empty(), "file_write must not match file_read plan step");
+        assert!(
+            matched.is_empty(),
+            "file_write must not match file_read plan step"
+        );
         assert_eq!(tracker.tracked_steps()[0].status, TaskStatus::Pending);
     }
 
@@ -1161,8 +1181,14 @@ mod tests {
         // Equivalence must be symmetric: a≡b implies b≡a.
         assert!(tool_names_are_equivalent("file_read", "read_text_file"));
         assert!(tool_names_are_equivalent("read_text_file", "file_read"));
-        assert!(tool_names_are_equivalent("directory_tree", "list_directory"));
-        assert!(tool_names_are_equivalent("list_directory", "directory_tree"));
+        assert!(tool_names_are_equivalent(
+            "directory_tree",
+            "list_directory"
+        ));
+        assert!(tool_names_are_equivalent(
+            "list_directory",
+            "directory_tree"
+        ));
         assert!(tool_names_are_equivalent("bash", "run_bash"));
         assert!(tool_names_are_equivalent("run_bash", "bash"));
     }
@@ -1172,7 +1198,10 @@ mod tests {
         // Every tool name is equivalent to itself.
         assert!(tool_names_are_equivalent("file_read", "file_read"));
         assert!(tool_names_are_equivalent("bash", "bash"));
-        assert!(tool_names_are_equivalent("unknown_tool_xyz", "unknown_tool_xyz"));
+        assert!(tool_names_are_equivalent(
+            "unknown_tool_xyz",
+            "unknown_tool_xyz"
+        ));
     }
 
     #[test]
@@ -1208,7 +1237,10 @@ mod tests {
         tracker.record_tool_results(&["read_text_file".into(), "list_directory".into()], &[], 1);
 
         let (completed_after, total_after, _) = tracker.progress();
-        assert_eq!(completed_after, 2, "both MCP steps should complete plan steps via alias");
+        assert_eq!(
+            completed_after, 2,
+            "both MCP steps should complete plan steps via alias"
+        );
         assert_eq!(total_after, 2);
         assert!(tracker.is_complete());
     }

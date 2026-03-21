@@ -28,18 +28,18 @@ impl DetectedMime {
     pub fn as_mime_str(&self) -> &'static str {
         match self {
             Self::ImageJpeg => "image/jpeg",
-            Self::ImagePng  => "image/png",
+            Self::ImagePng => "image/png",
             Self::ImageWebp => "image/webp",
-            Self::ImageGif  => "image/gif",
-            Self::AudioMp3  => "audio/mpeg",
-            Self::AudioWav  => "audio/wav",
-            Self::AudioOgg  => "audio/ogg",
+            Self::ImageGif => "image/gif",
+            Self::AudioMp3 => "audio/mpeg",
+            Self::AudioWav => "audio/wav",
+            Self::AudioOgg => "audio/ogg",
             Self::AudioFlac => "audio/flac",
-            Self::VideoMp4  => "video/mp4",
+            Self::VideoMp4 => "video/mp4",
             Self::VideoWebm => "video/webm",
-            Self::VideoMkv  => "video/x-matroska",
-            Self::VideoMov  => "video/quicktime",
-            Self::Pdf       => "application/pdf",
+            Self::VideoMkv => "video/x-matroska",
+            Self::VideoMov => "video/quicktime",
+            Self::Pdf => "application/pdf",
         }
     }
 
@@ -47,26 +47,36 @@ impl DetectedMime {
     pub fn to_image_media_type(&self) -> Option<ImageMediaType> {
         match self {
             Self::ImageJpeg => Some(ImageMediaType::Jpeg),
-            Self::ImagePng  => Some(ImageMediaType::Png),
+            Self::ImagePng => Some(ImageMediaType::Png),
             Self::ImageWebp => Some(ImageMediaType::Webp),
-            Self::ImageGif  => Some(ImageMediaType::Gif),
-            _               => None,
+            Self::ImageGif => Some(ImageMediaType::Gif),
+            _ => None,
         }
     }
 
-    pub fn is_image(&self) -> bool { self.to_image_media_type().is_some() }
+    pub fn is_image(&self) -> bool {
+        self.to_image_media_type().is_some()
+    }
     pub fn is_audio(&self) -> bool {
-        matches!(self, Self::AudioMp3 | Self::AudioWav | Self::AudioOgg | Self::AudioFlac)
+        matches!(
+            self,
+            Self::AudioMp3 | Self::AudioWav | Self::AudioOgg | Self::AudioFlac
+        )
     }
     pub fn is_video(&self) -> bool {
-        matches!(self, Self::VideoMp4 | Self::VideoWebm | Self::VideoMkv | Self::VideoMov)
+        matches!(
+            self,
+            Self::VideoMp4 | Self::VideoWebm | Self::VideoMkv | Self::VideoMov
+        )
     }
 }
 
 /// Detect MIME type from magic bytes (requires ≥ 4 bytes).
 pub fn detect_mime(bytes: &[u8]) -> Result<DetectedMime> {
     if bytes.len() < 4 {
-        return Err(MultimodalError::UnsupportedMimeType("file too short".into()));
+        return Err(MultimodalError::UnsupportedMimeType(
+            "file too short".into(),
+        ));
     }
 
     // Images
@@ -118,7 +128,8 @@ pub fn detect_mime(bytes: &[u8]) -> Result<DetectedMime> {
     }
 
     Err(MultimodalError::UnsupportedMimeType(format!(
-        "unknown magic {:02X?}", &bytes[..bytes.len().min(8)]
+        "unknown magic {:02X?}",
+        &bytes[..bytes.len().min(8)]
     )))
 }
 

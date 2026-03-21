@@ -47,8 +47,8 @@ impl AdaptivePalette {
         self.cvd_mode = Some(cvd);
         // Recompute adjusted palette with new CVD mode
         self.adjusted = match self.health_level {
-            HealthLevel::Healthy   => None,
-            HealthLevel::Degraded  => Some(self.apply_warning_tint()),
+            HealthLevel::Healthy => None,
+            HealthLevel::Degraded => Some(self.apply_warning_tint()),
             HealthLevel::Unhealthy => Some(self.apply_critical_palette()),
         };
         self
@@ -60,7 +60,9 @@ impl AdaptivePalette {
     /// have a simulated ΔE ≥ 15 under the active CVD mode.
     #[cfg(feature = "color-science")]
     pub fn validate_health_cvd_safety(&self) -> bool {
-        let Some(cvd) = self.cvd_mode else { return true };
+        let Some(cvd) = self.cvd_mode else {
+            return true;
+        };
         let palette = self.palette();
         use crate::render::color_science::validate_cvd_pair;
         validate_cvd_pair(&palette.running, &palette.planning, cvd, 15.0)
@@ -144,26 +146,26 @@ impl AdaptivePalette {
 
         if self.cvd_mode.is_some() {
             // CVD-safe: blue + orange palette (universally distinguishable)
-            adjusted.running   = ThemeColor::oklch(0.75, 0.18, 225.0); // Blue (safe)
-            adjusted.planning  = ThemeColor::oklch(0.68, 0.20, 38.0);  // Orange (safe)
+            adjusted.running = ThemeColor::oklch(0.75, 0.18, 225.0); // Blue (safe)
+            adjusted.planning = ThemeColor::oklch(0.68, 0.20, 38.0); // Orange (safe)
             adjusted.reasoning = ThemeColor::oklch(0.55, 0.16, 225.0); // Dark blue
-            adjusted.delegated = ThemeColor::oklch(0.62, 0.18, 38.0);  // Dark orange
+            adjusted.delegated = ThemeColor::oklch(0.62, 0.18, 38.0); // Dark orange
 
-            adjusted.success   = ThemeColor::oklch(0.72, 0.16, 225.0); // Blue-tinted
-            adjusted.warning   = ThemeColor::oklch(0.82, 0.18, 38.0);  // Orange alert
-            adjusted.error     = ThemeColor::oklch(0.80, 0.20, 38.0);  // Bright orange
-            adjusted.accent    = ThemeColor::oklch(0.85, 0.14, 225.0); // Light blue
+            adjusted.success = ThemeColor::oklch(0.72, 0.16, 225.0); // Blue-tinted
+            adjusted.warning = ThemeColor::oklch(0.82, 0.18, 38.0); // Orange alert
+            adjusted.error = ThemeColor::oklch(0.80, 0.20, 38.0); // Bright orange
+            adjusted.accent = ThemeColor::oklch(0.85, 0.14, 225.0); // Light blue
         } else {
             // Standard: monochrome red-scale for maximum urgency
-            adjusted.running   = ThemeColor::oklch(0.75, 0.18, 25.0);  // Light red
-            adjusted.planning  = ThemeColor::oklch(0.55, 0.20, 25.0);  // Medium red
-            adjusted.reasoning = ThemeColor::oklch(0.45, 0.22, 25.0);  // Dark red
-            adjusted.delegated = ThemeColor::oklch(0.65, 0.19, 25.0);  // Mid-light red
+            adjusted.running = ThemeColor::oklch(0.75, 0.18, 25.0); // Light red
+            adjusted.planning = ThemeColor::oklch(0.55, 0.20, 25.0); // Medium red
+            adjusted.reasoning = ThemeColor::oklch(0.45, 0.22, 25.0); // Dark red
+            adjusted.delegated = ThemeColor::oklch(0.65, 0.19, 25.0); // Mid-light red
 
-            adjusted.success   = ThemeColor::oklch(0.70, 0.15, 25.0);  // Muted red
-            adjusted.warning   = ThemeColor::oklch(0.80, 0.20, 25.0);  // Bright red
-            adjusted.error     = ThemeColor::oklch(0.60, 0.24, 25.0);  // Vivid red
-            adjusted.accent    = ThemeColor::oklch(0.85, 0.16, 25.0);  // Very light red
+            adjusted.success = ThemeColor::oklch(0.70, 0.15, 25.0); // Muted red
+            adjusted.warning = ThemeColor::oklch(0.80, 0.20, 25.0); // Bright red
+            adjusted.error = ThemeColor::oklch(0.60, 0.24, 25.0); // Vivid red
+            adjusted.accent = ThemeColor::oklch(0.85, 0.16, 25.0); // Very light red
         }
 
         adjusted
@@ -278,7 +280,10 @@ mod tests {
         let second_palette = adaptive.palette();
 
         // Should be identical (no recomputation)
-        assert_eq!(first_palette.running.srgb8(), second_palette.running.srgb8());
+        assert_eq!(
+            first_palette.running.srgb8(),
+            second_palette.running.srgb8()
+        );
     }
 
     #[test]

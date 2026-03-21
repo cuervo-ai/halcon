@@ -267,22 +267,15 @@ impl SemanticCache {
         inner.exact.retain(|_, entry| entry.expires_at > now);
         // Collect live keys into a set first to avoid a simultaneous mutable +
         // immutable borrow of `inner` inside the closure.
-        let live_keys: std::collections::HashSet<String> =
-            inner.exact.keys().cloned().collect();
-        inner
-            .semantic_index
-            .retain(|e| live_keys.contains(&e.key));
+        let live_keys: std::collections::HashSet<String> = inner.exact.keys().cloned().collect();
+        inner.semantic_index.retain(|e| live_keys.contains(&e.key));
     }
 
     /// Number of live (non-expired) entries in the exact-match layer.
     pub fn len(&self) -> usize {
         let now = Instant::now();
         let inner = self.inner.lock().expect("cache lock poisoned");
-        inner
-            .exact
-            .values()
-            .filter(|e| e.expires_at > now)
-            .count()
+        inner.exact.values().filter(|e| e.expires_at > now).count()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -323,8 +316,13 @@ mod tests {
     #[test]
     fn exact_hit_after_set() {
         let c = cache();
-        c.set("hello world", "claude-sonnet-4-6", "tenant-1",
-              r#"{"text":"hi"}"#.to_string(), TTL_DEFAULT);
+        c.set(
+            "hello world",
+            "claude-sonnet-4-6",
+            "tenant-1",
+            r#"{"text":"hi"}"#.to_string(),
+            TTL_DEFAULT,
+        );
         let r = c.get("hello world", "claude-sonnet-4-6", "tenant-1", false);
         assert_eq!(r.outcome, CacheOutcome::ExactHit);
         assert_eq!(r.response.as_deref(), Some(r#"{"text":"hi"}"#));
@@ -341,7 +339,13 @@ mod tests {
     #[test]
     fn tenant_isolation_different_tenants_miss() {
         let c = cache();
-        c.set("same query", "model", "tenant-a", "resp".to_string(), TTL_DEFAULT);
+        c.set(
+            "same query",
+            "model",
+            "tenant-a",
+            "resp".to_string(),
+            TTL_DEFAULT,
+        );
         let r = c.get("same query", "model", "tenant-b", false);
         // Different tenant → different key → miss
         assert_eq!(r.outcome, CacheOutcome::Miss);
@@ -350,7 +354,13 @@ mod tests {
     #[test]
     fn model_isolation_different_models_miss() {
         let c = cache();
-        c.set("same query", "model-a", "tenant", "resp".to_string(), TTL_DEFAULT);
+        c.set(
+            "same query",
+            "model-a",
+            "tenant",
+            "resp".to_string(),
+            TTL_DEFAULT,
+        );
         let r = c.get("same query", "model-b", "tenant", false);
         assert_eq!(r.outcome, CacheOutcome::Miss);
     }
@@ -358,7 +368,13 @@ mod tests {
     #[test]
     fn expired_entry_is_miss() {
         let c = cache();
-        c.set("query", "m", "t", "resp".to_string(), Duration::from_nanos(1));
+        c.set(
+            "query",
+            "m",
+            "t",
+            "resp".to_string(),
+            Duration::from_nanos(1),
+        );
         // Sleep briefly to ensure expiry
         std::thread::sleep(Duration::from_millis(5));
         let r = c.get("query", "m", "t", false);

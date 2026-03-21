@@ -24,7 +24,7 @@ use tracing::{debug, info, instrument, warn};
 use halcon_core::error::{HalconError, Result};
 use halcon_core::traits::ModelProvider;
 use halcon_core::types::{
-    HttpConfig, ModelChunk, ModelInfo, ModelRequest, TokenCost, TokenUsage, StopReason,
+    HttpConfig, ModelChunk, ModelInfo, ModelRequest, StopReason, TokenCost, TokenUsage,
 };
 
 use crate::anthropic::types::{ApiRequest, SseEvent};
@@ -64,27 +64,44 @@ impl BedrockProvider {
     fn default_models() -> Vec<ModelInfo> {
         let base = vec![
             ("anthropic.claude-sonnet-4-6", "Claude Sonnet 4.6 (Bedrock)"),
-            ("anthropic.claude-sonnet-4-5-20250929-v1:0", "Claude Sonnet 4.5 (Bedrock)"),
-            ("anthropic.claude-haiku-4-5-20251001-v1:0", "Claude Haiku 4.5 (Bedrock)"),
+            (
+                "anthropic.claude-sonnet-4-5-20250929-v1:0",
+                "Claude Sonnet 4.5 (Bedrock)",
+            ),
+            (
+                "anthropic.claude-haiku-4-5-20251001-v1:0",
+                "Claude Haiku 4.5 (Bedrock)",
+            ),
             ("anthropic.claude-opus-4-6", "Claude Opus 4.6 (Bedrock)"),
             // Cross-region inference profile IDs
-            ("us.anthropic.claude-sonnet-4-6", "Claude Sonnet 4.6 US (Bedrock)"),
-            ("eu.anthropic.claude-sonnet-4-6", "Claude Sonnet 4.6 EU (Bedrock)"),
-            ("ap.anthropic.claude-sonnet-4-6", "Claude Sonnet 4.6 AP (Bedrock)"),
+            (
+                "us.anthropic.claude-sonnet-4-6",
+                "Claude Sonnet 4.6 US (Bedrock)",
+            ),
+            (
+                "eu.anthropic.claude-sonnet-4-6",
+                "Claude Sonnet 4.6 EU (Bedrock)",
+            ),
+            (
+                "ap.anthropic.claude-sonnet-4-6",
+                "Claude Sonnet 4.6 AP (Bedrock)",
+            ),
         ];
-        base.into_iter().map(|(id, name)| ModelInfo {
-            id: id.into(),
-            name: name.into(),
-            provider: "bedrock".into(),
-            context_window: 200_000,
-            max_output_tokens: 8192,
-            supports_streaming: true,
-            supports_tools: true,
-            supports_vision: true,
-            supports_reasoning: false,
-            cost_per_input_token: 3.0 / 1_000_000.0,
-            cost_per_output_token: 15.0 / 1_000_000.0,
-        }).collect()
+        base.into_iter()
+            .map(|(id, name)| ModelInfo {
+                id: id.into(),
+                name: name.into(),
+                provider: "bedrock".into(),
+                context_window: 200_000,
+                max_output_tokens: 8192,
+                supports_streaming: true,
+                supports_tools: true,
+                supports_vision: true,
+                supports_reasoning: false,
+                cost_per_input_token: 3.0 / 1_000_000.0,
+                cost_per_output_token: 15.0 / 1_000_000.0,
+            })
+            .collect()
     }
 
     /// Construct from AWS environment variables.
@@ -107,7 +124,10 @@ impl BedrockProvider {
     ///
     /// Format: {base_url}/model/{modelId}/invoke-with-response-stream
     fn invoke_url(&self, model: &str) -> String {
-        format!("{}/model/{}/invoke-with-response-stream", self.base_url, model)
+        format!(
+            "{}/model/{}/invoke-with-response-stream",
+            self.base_url, model
+        )
     }
 
     /// Build base HTTP headers (Content-Type only; SigV4 adds Authorization).
@@ -205,7 +225,8 @@ impl ModelProvider for BedrockProvider {
             }
 
             // Build a fresh request each attempt (SigV4 includes a timestamp).
-            let mut req = self.client
+            let mut req = self
+                .client
                 .post(&url)
                 .headers(headers.clone())
                 .body(body_bytes.clone())
@@ -216,11 +237,12 @@ impl ModelProvider for BedrockProvider {
                 })?;
 
             // Sign the request with SigV4.
-            auth::sign_request(&mut req, &self.credentials, "bedrock")
-                .map_err(|e| HalconError::ApiError {
+            auth::sign_request(&mut req, &self.credentials, "bedrock").map_err(|e| {
+                HalconError::ApiError {
                     message: format!("bedrock: SigV4 signing failed: {e}"),
                     status: None,
-                })?;
+                }
+            })?;
 
             let response = match tokio::time::timeout(timeout, self.client.execute(req)).await {
                 Ok(Ok(resp)) => resp,

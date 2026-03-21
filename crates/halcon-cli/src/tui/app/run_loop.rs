@@ -133,16 +133,20 @@ impl TuiApp {
                     self.state.focus = FocusZone::Prompt;
                     self.state.agent_control = crate::tui::state::AgentControl::Running;
                     self.agent_started_at = None;
-                    self.prompt.set_input_state(crate::tui::input_state::InputState::Idle);
+                    self.prompt
+                        .set_input_state(crate::tui::input_state::InputState::Idle);
 
                     // Alert user
                     self.activity_model.push_warning(
-                        &format!("Agent watchdog triggered after {} seconds - UI unlocked", elapsed_secs),
-                        Some("The agent may have hung. Check logs for details.")
+                        &format!(
+                            "Agent watchdog triggered after {} seconds - UI unlocked",
+                            elapsed_secs
+                        ),
+                        Some("The agent may have hung. Check logs for details."),
                     );
                     self.toasts.push(Toast::new(
                         format!("Agent timeout ({elapsed_secs}s) - UI force-unlocked"),
-                        ToastLevel::Warning
+                        ToastLevel::Warning,
                     ));
                 }
             }
@@ -186,9 +190,9 @@ impl TuiApp {
                     if area.height > chip_rows + 1 {
                         // Split: [chip rows] + [prompt area]
                         use ratatui::layout::{Constraint, Direction, Layout};
+                        use ratatui::style::{Modifier, Style as RStyle};
                         use ratatui::text::{Line, Span};
                         use ratatui::widgets::Paragraph;
-                        use ratatui::style::{Modifier, Style as RStyle};
                         let split = Layout::default()
                             .direction(Direction::Vertical)
                             .constraints([Constraint::Length(chip_rows), Constraint::Min(1)])
@@ -205,7 +209,7 @@ impl TuiApp {
                             let icon = match att.modality {
                                 "image" => "◫",
                                 "audio" => "♫",
-                                _       => "▶",
+                                _ => "▶",
                             };
                             let chip_text = format!(" {} {} × ", icon, att.display_name);
                             spans.push(Span::styled(chip_text, chip_style));
@@ -234,9 +238,9 @@ impl TuiApp {
 
                 // Phase I2 Fix: Render styled Momoto send button if area available
                 if let Some(btn_area) = button_area {
+                    use ratatui::style::{Modifier, Style};
                     use ratatui::text::{Line, Span};
                     use ratatui::widgets::Paragraph;
-                    use ratatui::style::{Modifier, Style};
 
                     let p = &crate::render::theme::active().palette;
                     let input_state = self.prompt.input_state();
@@ -249,18 +253,22 @@ impl TuiApp {
                             } else {
                                 ("  ► Send  ", p.success_ratatui(), p.bg_panel_ratatui())
                             }
-                        },
+                        }
                         super::super::input_state::InputState::Sending => {
                             ("  ↑ Sending", p.planning_ratatui(), p.bg_panel_ratatui())
-                        },
+                        }
                         super::super::input_state::InputState::LockedByPermission => {
                             ("  🔒 Locked", p.destructive_ratatui(), p.bg_panel_ratatui())
-                        },
+                        }
                     };
 
-                    let button = Paragraph::new(Line::from(vec![
-                        Span::styled(btn_text, Style::default().bg(btn_bg).fg(btn_fg).add_modifier(Modifier::BOLD))
-                    ]));
+                    let button = Paragraph::new(Line::from(vec![Span::styled(
+                        btn_text,
+                        Style::default()
+                            .bg(btn_bg)
+                            .fg(btn_fg)
+                            .add_modifier(Modifier::BOLD),
+                    )]));
 
                     frame.render_widget(button, btn_area);
                     self.submit_button_area = btn_area; // For mouse click detection (optional)
@@ -269,7 +277,8 @@ impl TuiApp {
                 // Render side panel if visible.
                 if let Some(panel_area) = mode_layout.side_panel {
                     self.last_panel_area = panel_area;
-                    self.panel.render(frame, panel_area, self.state.panel_section);
+                    self.panel
+                        .render(frame, panel_area, self.state.panel_section);
                 }
 
                 // Render inspector panel in Expert mode — event log.
@@ -283,7 +292,9 @@ impl TuiApp {
                     let total = self.event_log.len();
                     let skip = total.saturating_sub(inner_height);
 
-                    let lines: Vec<Line<'_>> = self.event_log.iter()
+                    let lines: Vec<Line<'_>> = self
+                        .event_log
+                        .iter()
                         .skip(skip)
                         .map(|entry| {
                             let ts = format!("{:>6}ms ", entry.offset_ms);
@@ -294,18 +305,18 @@ impl TuiApp {
                         })
                         .collect();
 
-                    let inspector = Paragraph::new(lines)
-                        .block(
-                            Block::default()
-                                .borders(Borders::ALL)
-                                .title(format!(" Inspector ({total}) "))
-                                .border_style(Style::default().fg(c_border_insp)),
-                        );
+                    let inspector = Paragraph::new(lines).block(
+                        Block::default()
+                            .borders(Borders::ALL)
+                            .title(format!(" Inspector ({total}) "))
+                            .border_style(Style::default().fg(c_border_insp)),
+                    );
                     frame.render_widget(inspector, inspector_area);
                 }
 
                 // Phase B1: Clean up completed expansion animations
-                self.expansion_animations.retain(|_, anim| !anim.is_complete());
+                self.expansion_animations
+                    .retain(|_, anim| !anim.is_complete());
 
                 // Phase B4: Save activity area for mouse event routing
                 self.last_activity_area = mode_layout.activity;
@@ -334,7 +345,8 @@ impl TuiApp {
                 self.status.reasoning_strategy = self.panel.reasoning.strategy.clone();
                 // Phase A3: Update contextual hints when Activity focused
                 self.status.activity_hints = if self.state.focus == FocusZone::Activity {
-                    self.activity_controller.contextual_actions(&self.activity_navigator, &self.activity_model)
+                    self.activity_controller
+                        .contextual_actions(&self.activity_navigator, &self.activity_model)
                 } else {
                     Vec::new()
                 };
@@ -371,10 +383,12 @@ impl TuiApp {
                 // Model button: after session ID + separator " │ " (3 chars).
                 // Covers "provider/model ↕" — underlined clickable area.
                 let model_x = mode_layout.status.x + 20 + sid_len + 3;
-                let model_w = (self.status.provider.chars().count()
+                let model_w = (
+                    self.status.provider.chars().count()
                     + 1  // "/"
                     + self.status.model.chars().count()
-                    + 2  // " ↕"
+                    + 2
+                    // " ↕"
                 ) as u16;
                 self.model_button_area = Rect {
                     x: model_x,
@@ -403,16 +417,34 @@ impl TuiApp {
                     }
                     Some(OverlayKind::Search) => {
                         let match_count = self.search_matches.len();
-                        let current = if match_count > 0 { self.search_current + 1 } else { 0 };
-                        overlay::render_search(frame, area, &self.state.overlay.input, match_count, current);
+                        let current = if match_count > 0 {
+                            self.search_current + 1
+                        } else {
+                            0
+                        };
+                        overlay::render_search(
+                            frame,
+                            area,
+                            &self.state.overlay.input,
+                            match_count,
+                            current,
+                        );
                     }
                     Some(OverlayKind::PermissionPrompt { .. }) => {
                         // Phase 2.2: Render permission modal with momoto colors + countdown bar.
                         if let Some(ref modal) = self.permission_modal {
-                            let remaining_secs = self.state.overlay.permission_deadline
-                                .map(|d| d.saturating_duration_since(std::time::Instant::now()).as_secs());
+                            let remaining_secs = self.state.overlay.permission_deadline.map(|d| {
+                                d.saturating_duration_since(std::time::Instant::now())
+                                    .as_secs()
+                            });
                             let total_secs = self.state.overlay.permission_total_secs;
-                            modal.render(frame, area, self.state.overlay.show_advanced_permissions, remaining_secs, total_secs);
+                            modal.render(
+                                frame,
+                                area,
+                                self.state.overlay.show_advanced_permissions,
+                                remaining_secs,
+                                total_secs,
+                            );
                         } else if let Some(ref conv_overlay) = self.conversational_overlay {
                             // Fallback to conversational overlay (legacy).
                             conv_overlay.render(area, frame.buffer_mut());
@@ -454,7 +486,12 @@ impl TuiApp {
                             self.sudo_has_cached,
                         );
                     }
-                    Some(OverlayKind::InitWizard { step, preview, save_path, dry_run }) => {
+                    Some(OverlayKind::InitWizard {
+                        step,
+                        preview,
+                        save_path,
+                        dry_run,
+                    }) => {
                         overlay::render_init_wizard(
                             frame,
                             area,
@@ -465,7 +502,11 @@ impl TuiApp {
                             self.state.spinner_frame,
                         );
                     }
-                    Some(OverlayKind::PluginSuggest { suggestions, selected, dry_run }) => {
+                    Some(OverlayKind::PluginSuggest {
+                        suggestions,
+                        selected,
+                        dry_run,
+                    }) => {
                         overlay::render_plugin_suggest(
                             frame,
                             area,
@@ -474,7 +515,13 @@ impl TuiApp {
                             *dry_run,
                         );
                     }
-                    Some(OverlayKind::UpdateAvailable { current, remote, notes, published_at, size_bytes }) => {
+                    Some(OverlayKind::UpdateAvailable {
+                        current,
+                        remote,
+                        notes,
+                        published_at,
+                        size_bytes,
+                    }) => {
                         overlay::render_update_available(
                             frame,
                             area,
@@ -485,7 +532,12 @@ impl TuiApp {
                             *size_bytes,
                         );
                     }
-                    Some(OverlayKind::ModelSelector { models, selected, current_model, error_context }) => {
+                    Some(OverlayKind::ModelSelector {
+                        models,
+                        selected,
+                        current_model,
+                        error_context,
+                    }) => {
                         overlay::render_model_selector(
                             frame,
                             area,
@@ -788,7 +840,10 @@ impl TuiApp {
             }
 
             if self.state.should_quit {
-                tracing::debug!(iterations = loop_iterations, "TUI loop exiting: should_quit = true");
+                tracing::debug!(
+                    iterations = loop_iterations,
+                    "TUI loop exiting: should_quit = true"
+                );
                 break;
             }
         }

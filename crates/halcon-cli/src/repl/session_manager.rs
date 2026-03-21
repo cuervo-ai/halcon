@@ -84,21 +84,12 @@ pub async fn auto_save(session: &Session, async_db: &AsyncDatabase) {
 ///
 /// `model` and `provider` are embedded in the memory entry metadata for
 /// attribution and cross-session analytics.
-pub fn save(
-    session: &Session,
-    db: &Database,
-    model: &str,
-    provider: &str,
-    config: &AppConfig,
-) {
+pub fn save(session: &Session, db: &Database, model: &str, provider: &str, config: &AppConfig) {
     if session.messages.is_empty() {
         return;
     }
     if let Err(e) = db.save_session(session) {
-        crate::render::feedback::user_warning(
-            &format!("failed to save session — {e}"),
-            None,
-        );
+        crate::render::feedback::user_warning(&format!("failed to save session — {e}"), None);
     } else {
         tracing::debug!("Session {} saved", session.id);
         // Auto-derive title from first user message when none is stored yet.
@@ -182,16 +173,17 @@ pub fn summarize_to_memory(
             "tokens": session.total_usage.input_tokens + session.total_usage.output_tokens,
         }),
         created_at: chrono::Utc::now(),
-        expires_at: config.memory.default_ttl_days.map(|days| {
-            chrono::Utc::now() + chrono::Duration::days(days as i64)
-        }),
+        expires_at: config
+            .memory
+            .default_ttl_days
+            .map(|days| chrono::Utc::now() + chrono::Duration::days(days as i64)),
         relevance_score: 0.8,
     };
 
     match db.insert_memory(&entry) {
-        Ok(true)  => tracing::debug!("Session summary stored in memory"),
+        Ok(true) => tracing::debug!("Session summary stored in memory"),
         Ok(false) => tracing::debug!("Session summary already exists (duplicate hash)"),
-        Err(e)    => tracing::warn!("Failed to store session summary: {e}"),
+        Err(e) => tracing::warn!("Failed to store session summary: {e}"),
     }
 }
 
@@ -275,7 +267,10 @@ mod tests {
         super::auto_save(&session, &adb).await;
 
         let loaded = adb.load_session(sid).await.unwrap();
-        assert!(loaded.is_some(), "session must be saved after repeated auto_save calls");
+        assert!(
+            loaded.is_some(),
+            "session must be saved after repeated auto_save calls"
+        );
     }
 
     // ── save (sync) tests ─────────────────────────────────────────────────────
@@ -314,7 +309,10 @@ mod tests {
 
         // Verify a memory entry was created.
         let entries = db_arc.search_memory_fts("Session", 100).unwrap();
-        assert!(!entries.is_empty(), "auto_summarize should have written a memory entry");
+        assert!(
+            !entries.is_empty(),
+            "auto_summarize should have written a memory entry"
+        );
     }
 
     #[test]
@@ -326,7 +324,10 @@ mod tests {
         super::save(&session, &db_arc, "deepseek-chat", "deepseek", &cfg);
 
         let entries = db_arc.search_memory_fts("Session", 100).unwrap();
-        assert!(entries.is_empty(), "no memory entry when auto_summarize is disabled");
+        assert!(
+            entries.is_empty(),
+            "no memory entry when auto_summarize is disabled"
+        );
     }
 
     // ── summarize_to_memory tests ─────────────────────────────────────────────
@@ -340,7 +341,10 @@ mod tests {
         super::summarize_to_memory(&session, &db_arc, "m", "p", &cfg);
 
         let entries = db_arc.search_memory_fts("Session", 100).unwrap();
-        assert!(entries.is_empty(), "empty session must not create a memory entry");
+        assert!(
+            entries.is_empty(),
+            "empty session must not create a memory entry"
+        );
     }
 
     #[test]
@@ -352,8 +356,14 @@ mod tests {
         super::summarize_to_memory(&session, &db_arc, "model", "provider", &cfg);
 
         let entries = db_arc.search_memory_fts("Session", 100).unwrap();
-        assert!(!entries.is_empty(), "user messages must create a memory entry");
-        assert!(entries[0].content.contains("user message 0"), "entry must reference user message content");
+        assert!(
+            !entries.is_empty(),
+            "user messages must create a memory entry"
+        );
+        assert!(
+            entries[0].content.contains("user message 0"),
+            "entry must reference user message content"
+        );
     }
 
     #[test]
@@ -367,7 +377,11 @@ mod tests {
         super::summarize_to_memory(&session, &db_arc, "m", "p", &cfg);
 
         let entries = db_arc.search_memory_fts("Session", 100).unwrap();
-        assert_eq!(entries.len(), 1, "duplicate hash must yield exactly one entry");
+        assert_eq!(
+            entries.len(),
+            1,
+            "duplicate hash must yield exactly one entry"
+        );
     }
 
     #[test]
@@ -428,7 +442,10 @@ mod tests {
     fn derive_title_uses_first_user_message() {
         let session = session_with_messages(2);
         let title = super::derive_title(&session).unwrap();
-        assert!(title.contains("user message 0"), "must use first user message, got: {title}");
+        assert!(
+            title.contains("user message 0"),
+            "must use first user message, got: {title}"
+        );
     }
 
     #[test]
@@ -440,7 +457,10 @@ mod tests {
             content: MessageContent::Text(long),
         });
         let title = super::derive_title(&session).unwrap();
-        assert!(title.ends_with('…'), "truncated title must end with ellipsis");
+        assert!(
+            title.ends_with('…'),
+            "truncated title must end with ellipsis"
+        );
         // 72 chars + "…" (3 bytes for UTF-8 ellipsis, but 1 char)
         assert!(title.chars().count() == 73, "must be 72 chars + ellipsis");
     }
@@ -465,7 +485,10 @@ mod tests {
             content: MessageContent::Text("line one\nline two\nline three".into()),
         });
         let title = super::derive_title(&session).unwrap();
-        assert!(!title.contains('\n'), "newlines must be replaced with spaces");
+        assert!(
+            !title.contains('\n'),
+            "newlines must be replaced with spaces"
+        );
         assert!(title.contains("line one"), "content must be preserved");
     }
 

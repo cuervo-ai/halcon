@@ -16,7 +16,7 @@ use halcon_core::{
     types::{PermissionLevel, ToolInput, ToolOutput},
 };
 use serde_json::{json, Value};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use tokio::process::Command;
 
 pub struct DependencyGraphTool {
@@ -74,12 +74,7 @@ impl DependencyGraphTool {
         }
     }
 
-    async fn run_npm_ls(
-        depth: u32,
-        filter: Option<&str>,
-        dir: &str,
-        timeout_secs: u64,
-    ) -> String {
+    async fn run_npm_ls(depth: u32, filter: Option<&str>, dir: &str, timeout_secs: u64) -> String {
         let depth_str = depth.to_string();
         let result = tokio::time::timeout(
             std::time::Duration::from_secs(timeout_secs),
@@ -141,19 +136,23 @@ impl DependencyGraphTool {
         let mut max_depth = 0u32;
 
         for line in output.lines() {
-            let depth = line.chars().take_while(|c| *c == ' ' || *c == '│' || *c == '├' || *c == '└' || *c == '─').count();
+            let depth = line
+                .chars()
+                .take_while(|c| *c == ' ' || *c == '│' || *c == '├' || *c == '└' || *c == '─')
+                .count();
             let adjusted_depth = (depth / 4) as u32;
             max_depth = max_depth.max(adjusted_depth);
 
             // Extract crate name
-            let trimmed = line.trim_start_matches(|c: char| !c.is_alphanumeric() && c != '_' && c != '-');
+            let trimmed =
+                line.trim_start_matches(|c: char| !c.is_alphanumeric() && c != '_' && c != '-');
             if let Some(name) = trimmed.split_whitespace().next() {
                 if !name.is_empty() {
                     all_deps.insert(name.to_string());
                     if adjusted_depth == 1 {
                         direct.insert(name.to_string());
                     }
-                    if line.contains("(*)" ) {
+                    if line.contains("(*)") {
                         cycles.push(name.to_string());
                     }
                 }
@@ -182,7 +181,7 @@ impl DependencyGraphTool {
                 stats.cycle_hints.len()
             ));
         }
-        s.push_str("\n");
+        s.push('\n');
         s.push_str(output);
         s
     }
@@ -248,7 +247,10 @@ impl Tool for DependencyGraphTool {
         PermissionLevel::ReadOnly
     }
 
-    async fn execute(&self, input: ToolInput) -> Result<ToolOutput, halcon_core::error::HalconError> {
+    async fn execute(
+        &self,
+        input: ToolInput,
+    ) -> Result<ToolOutput, halcon_core::error::HalconError> {
         let args = &input.arguments;
         let dir = args["path"].as_str().unwrap_or(&input.working_directory);
         let depth = args["depth"].as_u64().unwrap_or(3).clamp(1, 10) as u32;
@@ -262,14 +264,20 @@ impl Tool for DependencyGraphTool {
 
         let (raw_output, stats) = match ecosystem {
             "rust" => {
-                let out = Self::run_cargo_tree(package, depth, filter, dir, self.timeout_secs).await;
+                let out =
+                    Self::run_cargo_tree(package, depth, filter, dir, self.timeout_secs).await;
                 let stats = Self::parse_cargo_tree_stats(&out);
                 (out, stats)
             }
             "node" => {
                 let out = Self::run_npm_ls(depth, filter, dir, self.timeout_secs).await;
                 let stats = DependencyStats {
-                    direct_count: out.lines().filter(|l| !l.contains('/') || l.trim_start_matches('/').matches('/').count() <= 2).count(),
+                    direct_count: out
+                        .lines()
+                        .filter(|l| {
+                            !l.contains('/') || l.trim_start_matches('/').matches('/').count() <= 2
+                        })
+                        .count(),
                     total_count: out.lines().count(),
                     max_depth: depth,
                     cycle_hints: vec![],
@@ -370,10 +378,9 @@ mod tests {
 
     #[tokio::test]
     async fn detect_ecosystem_rust() {
-        let eco = DependencyGraphTool::detect_ecosystem(
-            "/Users/oscarvalois/Documents/Github/cuervo-cli",
-        )
-        .await;
+        let eco =
+            DependencyGraphTool::detect_ecosystem("/Users/oscarvalois/Documents/Github/cuervo-cli")
+                .await;
         assert_eq!(eco, "rust");
     }
 
@@ -389,8 +396,13 @@ mod tests {
             .await
             .unwrap();
         assert!(!out.is_error, "error: {}", out.content);
-        assert!(out.content.contains("rust") || out.content.contains("Dependency") || out.content.contains("halcon"),
-            "content: {}", out.content);
+        assert!(
+            out.content.contains("rust")
+                || out.content.contains("Dependency")
+                || out.content.contains("halcon"),
+            "content: {}",
+            out.content
+        );
     }
 
     #[tokio::test]

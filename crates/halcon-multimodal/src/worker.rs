@@ -68,7 +68,10 @@ mod tests {
     #[tokio::test]
     async fn submit_cpu_work_returns_result() {
         let pool = MediaWorkerPool::new(2).unwrap();
-        let result = pool.submit(|| Ok::<u32, MultimodalError>(42)).await.unwrap();
+        let result = pool
+            .submit(|| Ok::<u32, MultimodalError>(42))
+            .await
+            .unwrap();
         assert_eq!(result, 42);
     }
 
@@ -89,7 +92,9 @@ mod tests {
         for i in 0u32..8 {
             let p = Arc::clone(&pool);
             handles.push(tokio::spawn(async move {
-                p.submit(move || Ok::<u32, MultimodalError>(i * 2)).await.unwrap()
+                p.submit(move || Ok::<u32, MultimodalError>(i * 2))
+                    .await
+                    .unwrap()
             }));
         }
         let mut results: Vec<u32> = futures::future::join_all(handles)

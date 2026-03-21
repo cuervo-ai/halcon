@@ -10,7 +10,7 @@
 
 use std::path::{Path, PathBuf};
 
-use super::schema::{AgentDefinition, AgentFrontmatter, AgentScope, resolve_model_alias};
+use super::schema::{resolve_model_alias, AgentDefinition, AgentFrontmatter, AgentScope};
 
 /// Load a single agent definition file.  Returns `None` on parse error (details
 /// are logged via `tracing::warn!`).
@@ -59,18 +59,14 @@ pub fn load_agent_file(path: &Path, scope: AgentScope) -> Option<AgentDefinition
 pub fn load_scope(scope: AgentScope, working_dir: &Path) -> Vec<AgentDefinition> {
     let dir = match scope {
         AgentScope::Session => return vec![], // session scope uses load_session_files()
-        AgentScope::Project => {
-            match find_halcon_agents_dir(working_dir) {
-                Some(d) => d,
-                None => return vec![],
-            }
-        }
-        AgentScope::User => {
-            match dirs::home_dir() {
-                Some(home) => home.join(".halcon").join("agents"),
-                None => return vec![],
-            }
-        }
+        AgentScope::Project => match find_halcon_agents_dir(working_dir) {
+            Some(d) => d,
+            None => return vec![],
+        },
+        AgentScope::User => match dirs::home_dir() {
+            Some(home) => home.join(".halcon").join("agents"),
+            None => return vec![],
+        },
     };
 
     load_agents_from_dir(&dir, scope)
@@ -212,7 +208,8 @@ mod tests {
 
     #[test]
     fn body_with_multiple_sections() {
-        let content = "---\nname: foo\ndescription: x\n---\n\n## Section 1\n\nText.\n\n## Section 2";
+        let content =
+            "---\nname: foo\ndescription: x\n---\n\n## Section 1\n\nText.\n\n## Section 2";
         let (_, body) = split_frontmatter(content);
         assert!(body.contains("Section 1"));
         assert!(body.contains("Section 2"));
@@ -222,8 +219,8 @@ mod tests {
 
     #[test]
     fn loads_minimal_agent_file() {
-        use tempfile::NamedTempFile;
         use std::io::Write;
+        use tempfile::NamedTempFile;
 
         let mut f = NamedTempFile::new().unwrap();
         writeln!(f, "---").unwrap();
@@ -242,8 +239,8 @@ mod tests {
 
     #[test]
     fn loads_agent_with_model_alias() {
-        use tempfile::NamedTempFile;
         use std::io::Write;
+        use tempfile::NamedTempFile;
 
         let mut f = NamedTempFile::new().unwrap();
         writeln!(f, "---").unwrap();
@@ -253,13 +250,16 @@ mod tests {
         writeln!(f, "---").unwrap();
 
         let def = load_agent_file(f.path(), AgentScope::User).unwrap();
-        assert_eq!(def.resolved_model, Some("claude-haiku-4-5-20251001".to_string()));
+        assert_eq!(
+            def.resolved_model,
+            Some("claude-haiku-4-5-20251001".to_string())
+        );
     }
 
     #[test]
     fn loads_agent_with_tools_and_max_turns() {
-        use tempfile::NamedTempFile;
         use std::io::Write;
+        use tempfile::NamedTempFile;
 
         let mut f = NamedTempFile::new().unwrap();
         writeln!(f, "---").unwrap();
@@ -276,8 +276,8 @@ mod tests {
 
     #[test]
     fn returns_none_for_bad_yaml() {
-        use tempfile::NamedTempFile;
         use std::io::Write;
+        use tempfile::NamedTempFile;
 
         let mut f = NamedTempFile::new().unwrap();
         writeln!(f, "---").unwrap();
@@ -298,8 +298,8 @@ mod tests {
 
     #[test]
     fn loads_all_md_files_from_dir() {
-        use tempfile::TempDir;
         use std::io::Write;
+        use tempfile::TempDir;
 
         let dir = TempDir::new().unwrap();
 

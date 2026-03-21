@@ -35,31 +35,46 @@ const K: [u32; 64] = [
 
 /// SHA-256 initial hash values (first 32 bits of fractional parts of square roots of first 8 primes).
 const H0: [u32; 8] = [
-    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a,
-    0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
+    0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
 ];
 
 fn sha256_block(state: &mut [u32; 8], block: &[u8; 64]) {
     let mut w = [0u32; 64];
     for i in 0..16 {
-        w[i] = u32::from_be_bytes([block[i*4], block[i*4+1], block[i*4+2], block[i*4+3]]);
+        w[i] = u32::from_be_bytes([
+            block[i * 4],
+            block[i * 4 + 1],
+            block[i * 4 + 2],
+            block[i * 4 + 3],
+        ]);
     }
     for i in 16..64 {
-        let s0 = w[i-15].rotate_right(7) ^ w[i-15].rotate_right(18) ^ (w[i-15] >> 3);
-        let s1 = w[i-2].rotate_right(17) ^ w[i-2].rotate_right(19) ^ (w[i-2] >> 10);
-        w[i] = w[i-16].wrapping_add(s0).wrapping_add(w[i-7]).wrapping_add(s1);
+        let s0 = w[i - 15].rotate_right(7) ^ w[i - 15].rotate_right(18) ^ (w[i - 15] >> 3);
+        let s1 = w[i - 2].rotate_right(17) ^ w[i - 2].rotate_right(19) ^ (w[i - 2] >> 10);
+        w[i] = w[i - 16]
+            .wrapping_add(s0)
+            .wrapping_add(w[i - 7])
+            .wrapping_add(s1);
     }
     let [mut a, mut b, mut c, mut d, mut e, mut f, mut g, mut h] = *state;
     for i in 0..64 {
         let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
         let ch = (e & f) ^ ((!e) & g);
-        let temp1 = h.wrapping_add(s1).wrapping_add(ch).wrapping_add(K[i]).wrapping_add(w[i]);
+        let temp1 = h
+            .wrapping_add(s1)
+            .wrapping_add(ch)
+            .wrapping_add(K[i])
+            .wrapping_add(w[i]);
         let s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
         let maj = (a & b) ^ (a & c) ^ (b & c);
         let temp2 = s0.wrapping_add(maj);
-        h = g; g = f; f = e;
+        h = g;
+        g = f;
+        f = e;
         e = d.wrapping_add(temp1);
-        d = c; c = b; b = a;
+        d = c;
+        c = b;
+        b = a;
         a = temp1.wrapping_add(temp2);
     }
     state[0] = state[0].wrapping_add(a);
@@ -89,7 +104,7 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
     }
     let mut out = [0u8; 32];
     for (i, &word) in state.iter().enumerate() {
-        out[i*4..i*4+4].copy_from_slice(&word.to_be_bytes());
+        out[i * 4..i * 4 + 4].copy_from_slice(&word.to_be_bytes());
     }
     out
 }
@@ -104,8 +119,8 @@ fn to_base64(bytes: &[u8]) -> String {
     let mut i = 0;
     while i + 2 < bytes.len() {
         let b0 = bytes[i] as usize;
-        let b1 = bytes[i+1] as usize;
-        let b2 = bytes[i+2] as usize;
+        let b1 = bytes[i + 1] as usize;
+        let b2 = bytes[i + 2] as usize;
         out.push(TABLE[b0 >> 2] as char);
         out.push(TABLE[((b0 & 3) << 4) | (b1 >> 4)] as char);
         out.push(TABLE[((b1 & 0xf) << 2) | (b2 >> 6)] as char);
@@ -120,7 +135,7 @@ fn to_base64(bytes: &[u8]) -> String {
         out.push_str("==");
     } else if rem == 2 {
         let b0 = bytes[i] as usize;
-        let b1 = bytes[i+1] as usize;
+        let b1 = bytes[i + 1] as usize;
         out.push(TABLE[b0 >> 2] as char);
         out.push(TABLE[((b0 & 3) << 4) | (b1 >> 4)] as char);
         out.push(TABLE[(b1 & 0xf) << 2] as char);
@@ -134,16 +149,22 @@ fn to_base64(bytes: &[u8]) -> String {
 pub struct ChecksumTool;
 
 impl ChecksumTool {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 }
 
 impl Default for ChecksumTool {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[async_trait]
 impl Tool for ChecksumTool {
-    fn name(&self) -> &str { "checksum" }
+    fn name(&self) -> &str {
+        "checksum"
+    }
 
     fn description(&self) -> &str {
         "Compute and verify SHA-256 checksums. Operations: \
@@ -152,7 +173,9 @@ impl Tool for ChecksumTool {
          set encoding=base64 for base64 output."
     }
 
-    fn permission_level(&self) -> PermissionLevel { PermissionLevel::ReadOnly }
+    fn permission_level(&self) -> PermissionLevel {
+        PermissionLevel::ReadOnly
+    }
 
     fn input_schema(&self) -> serde_json::Value {
         json!({
@@ -207,48 +230,42 @@ impl Tool for ChecksumTool {
 
         let content = match operation {
             "content" => {
-                let text = args["content"]
-                    .as_str()
-                    .ok_or_else(|| HalconError::InvalidInput(
-                        "content required for operation=content".into()
-                    ))?;
+                let text = args["content"].as_str().ok_or_else(|| {
+                    HalconError::InvalidInput("content required for operation=content".into())
+                })?;
                 let hash = sha256(text.as_bytes());
                 format!("SHA-256 ({encoding}): {}", encode(&hash))
             }
 
             "file" => {
-                let path = args["path"]
-                    .as_str()
-                    .ok_or_else(|| HalconError::InvalidInput(
-                        "path required for operation=file".into()
-                    ))?;
-                let bytes = tokio::fs::read(path).await.map_err(|e| {
-                    HalconError::ToolExecutionFailed {
-                        tool: "checksum".into(),
-                        message: format!("Failed to read '{path}': {e}"),
-                    }
+                let path = args["path"].as_str().ok_or_else(|| {
+                    HalconError::InvalidInput("path required for operation=file".into())
                 })?;
+                let bytes =
+                    tokio::fs::read(path)
+                        .await
+                        .map_err(|e| HalconError::ToolExecutionFailed {
+                            tool: "checksum".into(),
+                            message: format!("Failed to read '{path}': {e}"),
+                        })?;
                 let hash = sha256(&bytes);
                 format!("SHA-256 {path}\n{}", encode(&hash))
             }
 
             "verify" => {
-                let path = args["path"]
-                    .as_str()
-                    .ok_or_else(|| HalconError::InvalidInput(
-                        "path required for operation=verify".into()
-                    ))?;
-                let expected = args["expected"]
-                    .as_str()
-                    .ok_or_else(|| HalconError::InvalidInput(
-                        "expected required for operation=verify".into()
-                    ))?;
-                let bytes = tokio::fs::read(path).await.map_err(|e| {
-                    HalconError::ToolExecutionFailed {
-                        tool: "checksum".into(),
-                        message: format!("Failed to read '{path}': {e}"),
-                    }
+                let path = args["path"].as_str().ok_or_else(|| {
+                    HalconError::InvalidInput("path required for operation=verify".into())
                 })?;
+                let expected = args["expected"].as_str().ok_or_else(|| {
+                    HalconError::InvalidInput("expected required for operation=verify".into())
+                })?;
+                let bytes =
+                    tokio::fs::read(path)
+                        .await
+                        .map_err(|e| HalconError::ToolExecutionFailed {
+                            tool: "checksum".into(),
+                            message: format!("Failed to read '{path}': {e}"),
+                        })?;
                 let hash = sha256(&bytes);
                 let computed = to_hex(&hash);
                 let expected_lower = expected.to_lowercase();
@@ -260,14 +277,12 @@ impl Tool for ChecksumTool {
             }
 
             "manifest" => {
-                let paths = args["paths"]
-                    .as_array()
-                    .ok_or_else(|| HalconError::InvalidInput(
-                        "paths array required for operation=manifest".into()
-                    ))?;
+                let paths = args["paths"].as_array().ok_or_else(|| {
+                    HalconError::InvalidInput("paths array required for operation=manifest".into())
+                })?;
                 if paths.is_empty() {
                     return Err(HalconError::InvalidInput(
-                        "paths array must not be empty".into()
+                        "paths array must not be empty".into(),
                     ));
                 }
                 let mut lines = vec![format!("SHA-256 Manifest ({encoding}):")];
@@ -287,9 +302,9 @@ impl Tool for ChecksumTool {
             }
 
             _ => {
-                return Err(HalconError::InvalidInput(
-                    format!("Unknown operation: {operation}")
-                ))
+                return Err(HalconError::InvalidInput(format!(
+                    "Unknown operation: {operation}"
+                )))
             }
         };
 

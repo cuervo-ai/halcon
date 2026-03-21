@@ -92,7 +92,6 @@ pub enum PatternType {
     Regex,
 }
 
-
 /// Persistent permission rule with scoping and pattern matching.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PermissionRule {

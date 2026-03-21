@@ -1006,10 +1006,8 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
             &policy.embedding_endpoint,
             &policy.embedding_model,
         );
-        let mut vector_store = halcon_context::VectorMemoryStore::load_from_disk_with_engine(
-            index_path,
-            embed_engine,
-        );
+        let mut vector_store =
+            halcon_context::VectorMemoryStore::load_from_disk_with_engine(index_path, embed_engine);
         if vector_store.is_empty() {
             vector_store.load_from_standard_locations(std::path::Path::new(working_dir), repo_name);
             if !vector_store.is_empty() {
@@ -2322,8 +2320,8 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
 
         // Phase A: track tool suppression for ResponseTrust classification.
         // round_request.tools is empty when tools were suppressed by capability orchestration.
-        state.tools_suppressed_last_round = round_request.tools.is_empty()
-            && !state.cached_tools.is_empty();
+        state.tools_suppressed_last_round =
+            round_request.tools.is_empty() && !state.cached_tools.is_empty();
         if state.tools_suppressed_last_round && !state.silent {
             let suppressed_count = state.cached_tools.len();
             loop_events::emit(
@@ -2526,10 +2524,8 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
 
         // Phase D: Emit runtime metrics for the completed round.
         {
-            let metrics = super::metrics_sink::AgentMetricsSink::new(
-                state.session_id.to_string(),
-                trace_db,
-            );
+            let metrics =
+                super::metrics_sink::AgentMetricsSink::new(state.session_id.to_string(), trace_db);
             metrics.gauge(
                 "agent_round_completed",
                 1.0,

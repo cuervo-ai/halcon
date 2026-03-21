@@ -87,11 +87,15 @@ impl HttpTransport {
             req = req.bearer_auth(token);
         }
 
-        let resp = req.send().await.map_err(|e| McpError::Transport(e.to_string()))?;
+        let resp = req
+            .send()
+            .await
+            .map_err(|e| McpError::Transport(e.to_string()))?;
 
         if resp.status() == reqwest::StatusCode::UNAUTHORIZED {
             return Err(McpError::Transport(
-                "HTTP 401 Unauthorized — run `halcon mcp auth <name>` to refresh OAuth token".into(),
+                "HTTP 401 Unauthorized — run `halcon mcp auth <name>` to refresh OAuth token"
+                    .into(),
             ));
         }
 
@@ -102,9 +106,11 @@ impl HttpTransport {
             )));
         }
 
-        let json: Value = resp.json().await.map_err(|e| McpError::Transport(e.to_string()))?;
-        let parsed: JsonRpcResponse =
-            serde_json::from_value(json).map_err(McpError::Json)?;
+        let json: Value = resp
+            .json()
+            .await
+            .map_err(|e| McpError::Transport(e.to_string()))?;
+        let parsed: JsonRpcResponse = serde_json::from_value(json).map_err(McpError::Json)?;
         Ok(parsed)
     }
 
@@ -121,7 +127,10 @@ impl HttpTransport {
             req = req.bearer_auth(token);
         }
 
-        let resp = req.send().await.map_err(|e| McpError::Transport(e.to_string()))?;
+        let resp = req
+            .send()
+            .await
+            .map_err(|e| McpError::Transport(e.to_string()))?;
         if !resp.status().is_success() && resp.status() != reqwest::StatusCode::NO_CONTENT {
             tracing::warn!(
                 method,
@@ -148,7 +157,8 @@ impl HttpTransport {
         let (tx, rx) = mpsc::channel(buffer);
 
         let handle = tokio::spawn(async move {
-            let mut req = client.get(&url)
+            let mut req = client
+                .get(&url)
                 .header("Accept", "text/event-stream")
                 .header("Cache-Control", "no-cache")
                 .timeout(SSE_CONNECT_TIMEOUT);

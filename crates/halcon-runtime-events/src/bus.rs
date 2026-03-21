@@ -164,10 +164,10 @@ impl EventSink for EventBusSink {
         // Re-emit through the bus, preserving the original event's kind.
         // This allows EventBusSink to act as a bridge between direct EventSink
         // callers and EventBus subscribers.
-        let _ = self.bus.sender.send(RuntimeEvent::new(
-            self.session_id,
-            event.kind.clone(),
-        ));
+        let _ = self
+            .bus
+            .sender
+            .send(RuntimeEvent::new(self.session_id, event.kind.clone()));
     }
 }
 
@@ -182,7 +182,10 @@ pub struct EventBus;
 
 #[cfg(not(feature = "bus"))]
 impl EventBus {
-    pub fn new(_capacity: usize) -> Self { Self }
+    #[must_use]
+    pub fn new(_capacity: usize) -> Self {
+        Self
+    }
 
     #[inline(always)]
     pub fn emit(&self, _session_id: Uuid, _kind: RuntimeEventKind) {}
@@ -201,12 +204,15 @@ mod tests {
         let bus = EventBus::new(16);
         let mut rx = bus.subscribe();
 
-        bus.emit(session, RuntimeEventKind::SessionStarted {
-            query_preview: "test query".into(),
-            model: "claude-sonnet-4-6".into(),
-            provider: "anthropic".into(),
-            max_rounds: 10,
-        });
+        bus.emit(
+            session,
+            RuntimeEventKind::SessionStarted {
+                query_preview: "test query".into(),
+                model: "claude-sonnet-4-6".into(),
+                provider: "anthropic".into(),
+                max_rounds: 10,
+            },
+        );
 
         let event = rx.recv().await.expect("should receive event");
         assert_eq!(event.session_id, session);
@@ -218,12 +224,15 @@ mod tests {
         let session = Uuid::new_v4();
         let bus = EventBus::new(4);
         // No subscribers — emit should not panic.
-        bus.emit(session, RuntimeEventKind::RoundStarted {
-            round: 1,
-            model: "claude-haiku-4-5-20251001".into(),
-            tools_allowed: true,
-            token_budget_remaining: 8192,
-        });
+        bus.emit(
+            session,
+            RuntimeEventKind::RoundStarted {
+                round: 1,
+                model: "claude-haiku-4-5-20251001".into(),
+                tools_allowed: true,
+                token_budget_remaining: 8192,
+            },
+        );
     }
 
     #[tokio::test]
@@ -233,13 +242,16 @@ mod tests {
         let mut rx1 = bus.subscribe();
         let mut rx2 = bus.subscribe();
 
-        bus.emit(session, RuntimeEventKind::BudgetWarning {
-            tokens_used: 6500,
-            tokens_total: 8000,
-            pct_used: 0.81,
-            time_elapsed_ms: 10_000,
-            time_limit_ms: 120_000,
-        });
+        bus.emit(
+            session,
+            RuntimeEventKind::BudgetWarning {
+                tokens_used: 6500,
+                tokens_total: 8000,
+                pct_used: 0.81,
+                time_elapsed_ms: 10_000,
+                time_limit_ms: 120_000,
+            },
+        );
 
         let e1 = rx1.recv().await.unwrap();
         let e2 = rx2.recv().await.unwrap();
@@ -265,14 +277,17 @@ mod tests {
         let mut rx = bus.subscribe();
         let sink = EventBusSink::new(bus, session);
 
-        let ev = RuntimeEvent::new(session, RuntimeEventKind::SessionEnded {
-            rounds_completed: 4,
-            stop_condition: "end_turn".into(),
-            total_tokens: 12_345,
-            estimated_cost_usd: 0.003,
-            duration_ms: 15_000,
-            fingerprint: None,
-        });
+        let ev = RuntimeEvent::new(
+            session,
+            RuntimeEventKind::SessionEnded {
+                rounds_completed: 4,
+                stop_condition: "end_turn".into(),
+                total_tokens: 12_345,
+                estimated_cost_usd: 0.003,
+                duration_ms: 15_000,
+                fingerprint: None,
+            },
+        );
         sink.emit(&ev);
 
         let received = rx.recv().await.unwrap();

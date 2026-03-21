@@ -25,8 +25,8 @@
 //! | Extended     | 10     |  5         |  1      | optional      |
 //! | DeepAnalysis | 20     | 10         |  3      | recommended   |
 
-use super::domain_detector::TechnicalDomain;
 use super::complexity_estimator::ComplexityLevel;
+use super::domain_detector::TechnicalDomain;
 use super::risk_assessor::ExecutionRisk;
 
 // ── Routing mode ─────────────────────────────────────────────────────────────
@@ -108,7 +108,9 @@ impl SlaRouter {
             return RoutingDecision::for_mode(
                 RoutingMode::DeepAnalysis,
                 match risk {
-                    ExecutionRisk::High => "DeepAnalysis: high-risk task requires exhaustive execution",
+                    ExecutionRisk::High => {
+                        "DeepAnalysis: high-risk task requires exhaustive execution"
+                    }
                     _ => "DeepAnalysis: domain mandates deep analysis mode",
                 },
             );

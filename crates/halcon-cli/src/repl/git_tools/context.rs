@@ -40,13 +40,13 @@ impl WorktreeStatus {
     /// Human-readable label for the status.
     pub fn label(&self) -> &'static str {
         match self {
-            WorktreeStatus::Clean            => "clean",
-            WorktreeStatus::Staged           => "staged",
-            WorktreeStatus::Modified         => "modified",
+            WorktreeStatus::Clean => "clean",
+            WorktreeStatus::Staged => "staged",
+            WorktreeStatus::Modified => "modified",
             WorktreeStatus::StagedAndModified => "staged+modified",
-            WorktreeStatus::UntrackedOnly    => "untracked",
-            WorktreeStatus::Conflicted       => "conflicted",
-            WorktreeStatus::DetachedHead     => "detached HEAD",
+            WorktreeStatus::UntrackedOnly => "untracked",
+            WorktreeStatus::Conflicted => "conflicted",
+            WorktreeStatus::DetachedHead => "detached HEAD",
         }
     }
 }
@@ -123,10 +123,7 @@ impl GitContext {
 
         // Conflicts.
         if !self.conflict_files.is_empty() {
-            out.push_str(&format!(
-                "Conflicts ({}):\n",
-                self.conflict_files.len()
-            ));
+            out.push_str(&format!("Conflicts ({}):\n", self.conflict_files.len()));
             for f in &self.conflict_files {
                 out.push_str(&format!("  - {f}\n"));
             }
@@ -170,10 +167,7 @@ pub fn collect(path: &std::path::Path) -> Option<GitContext> {
     } else {
         None
     };
-    let head_sha = head
-        .peel_to_commit()
-        .ok()
-        .map(|c| format!("{:.7}", c.id()));
+    let head_sha = head.peel_to_commit().ok().map(|c| format!("{:.7}", c.id()));
     let last_commit_subject = head
         .peel_to_commit()
         .ok()
@@ -271,7 +265,9 @@ fn upstream_divergence(repo: &git2::Repository, head: &git2::Reference) -> (usiz
         None => return (0, 0),
     };
     let upstream_ref = format!("refs/remotes/origin/{branch_name}");
-    let remote_oid = match repo.find_reference(&upstream_ref).ok()
+    let remote_oid = match repo
+        .find_reference(&upstream_ref)
+        .ok()
         .and_then(|r| r.peel_to_commit().ok())
     {
         Some(c) => c.id(),
@@ -279,7 +275,6 @@ fn upstream_divergence(repo: &git2::Repository, head: &git2::Reference) -> (usiz
     };
 
     repo.graph_ahead_behind(local_oid, remote_oid)
-        .map(|(a, b)| (a, b))
         .unwrap_or((0, 0))
 }
 
@@ -288,7 +283,9 @@ trait BoolExt {
     fn not(self) -> bool;
 }
 impl BoolExt for bool {
-    fn not(self) -> bool { !self }
+    fn not(self) -> bool {
+        !self
+    }
 }
 
 // ── tests ─────────────────────────────────────────────────────────────────────

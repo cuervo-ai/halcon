@@ -129,7 +129,9 @@ fn parse_cargo_output(output: &str) -> TestSuiteResult {
 
         // "test tests::my_test ... ok" or "FAILED"
         if (trimmed.starts_with("test ") || trimmed.starts_with("test "))
-            && (trimmed.ends_with("ok") || trimmed.ends_with("FAILED") || trimmed.ends_with("ignored"))
+            && (trimmed.ends_with("ok")
+                || trimmed.ends_with("FAILED")
+                || trimmed.ends_with("ignored"))
         {
             if trimmed.ends_with("ok") {
                 result.passed += 1;
@@ -225,7 +227,11 @@ fn parse_pytest_output(output: &str) -> TestSuiteResult {
             result.passed += 1;
         } else if trimmed.starts_with("FAILED ") {
             result.failed += 1;
-            let name = trimmed.strip_prefix("FAILED ").unwrap_or("").trim().to_string();
+            let name = trimmed
+                .strip_prefix("FAILED ")
+                .unwrap_or("")
+                .trim()
+                .to_string();
             result.failures.push(TestFailure {
                 name,
                 file: None,
@@ -234,7 +240,11 @@ fn parse_pytest_output(output: &str) -> TestSuiteResult {
             });
         } else if trimmed.starts_with("ERROR ") {
             result.failed += 1;
-            let name = trimmed.strip_prefix("ERROR ").unwrap_or("").trim().to_string();
+            let name = trimmed
+                .strip_prefix("ERROR ")
+                .unwrap_or("")
+                .trim()
+                .to_string();
             result.failures.push(TestFailure {
                 name,
                 file: None,
@@ -310,8 +320,8 @@ fn parse_jest_output(output: &str) -> TestSuiteResult {
         let trimmed = line.trim();
 
         // "Tests:  5 passed, 2 failed, 7 total"
-        if trimmed.starts_with("Tests:") {
-            for part in trimmed[6..].split(',') {
+        if let Some(stripped) = trimmed.strip_prefix("Tests:") {
+            for part in stripped.split(',') {
                 let p = part.trim();
                 if let Some(n) = extract_number_before(p, "passed") {
                     result.passed = n;
@@ -326,8 +336,8 @@ fn parse_jest_output(output: &str) -> TestSuiteResult {
         }
 
         // "Time: 1.234 s"
-        if trimmed.starts_with("Time:") {
-            let secs: f64 = trimmed[5..]
+        if let Some(time_stripped) = trimmed.strip_prefix("Time:") {
+            let secs: f64 = time_stripped
                 .split_whitespace()
                 .next()
                 .and_then(|s| s.parse().ok())
@@ -423,9 +433,9 @@ fn extract_number_before(s: &str, keyword: &str) -> Option<u32> {
 
 fn extract_coverage_pct(line: &str) -> Option<f64> {
     // Find a number followed by %
-    let mut chars = line.chars().peekable();
+    let chars = line.chars().peekable();
     let mut last_num = String::new();
-    while let Some(c) = chars.next() {
+    for c in chars {
         if c.is_ascii_digit() || c == '.' {
             last_num.push(c);
         } else if c == '%' && !last_num.is_empty() {
@@ -479,48 +489,53 @@ impl Tool for TestRunTool {
             .map(|s| s.to_string());
 
         // Determine command
-        let (program, args, framework) = if let Some(cmd) = input
-            .arguments
-            .get("command")
-            .and_then(|v| v.as_str())
-        {
-            // Custom command — split on whitespace
-            let parts: Vec<String> = cmd.split_whitespace().map(|s| s.to_string()).collect();
-            if parts.is_empty() {
-                return Err(HalconError::InvalidInput("test_run: 'command' must not be empty".into()));
-            }
-            let prog = parts[0].clone();
-            let rest = parts[1..].to_vec();
-            (prog, rest, None::<TestFramework>)
-        } else {
-            match detect_framework(working_dir) {
-                Some(fw) => {
-                    let (p, a) = build_default_command(&fw, coverage, filter.as_deref());
-                    let fw_clone = fw.clone();
-                    (p, a, Some(fw_clone))
-                }
-                None => {
+        let (program, args, framework) =
+            if let Some(cmd) = input.arguments.get("command").and_then(|v| v.as_str()) {
+                // Custom command — split on whitespace
+                let parts: Vec<String> = cmd.split_whitespace().map(|s| s.to_string()).collect();
+                if parts.is_empty() {
                     return Err(HalconError::InvalidInput(
-                        "test_run: could not detect test framework. \
-                         Provide 'command' explicitly or ensure Cargo.toml, \
-                         package.json, pyproject.toml, or go.mod exists."
-                            .into(),
+                        "test_run: 'command' must not be empty".into(),
                     ));
                 }
-            }
-        };
+                let prog = parts[0].clone();
+                let rest = parts[1..].to_vec();
+                (prog, rest, None::<TestFramework>)
+            } else {
+                match detect_framework(working_dir) {
+                    Some(fw) => {
+                        let (p, a) = build_default_command(&fw, coverage, filter.as_deref());
+                        let fw_clone = fw.clone();
+                        (p, a, Some(fw_clone))
+                    }
+                    None => {
+                        return Err(HalconError::InvalidInput(
+                            "test_run: could not detect test framework. \
+                         Provide 'command' explicitly or ensure Cargo.toml, \
+                         package.json, pyproject.toml, or go.mod exists."
+                                .into(),
+                        ));
+                    }
+                }
+            };
 
         // Build command
         let mut cmd = Command::new(&program);
         cmd.args(&args).current_dir(working_dir);
 
         // Inject test filter for known frameworks if not in custom command
-        if framework.is_some() {
+        if let Some(ref fw) = framework {
             if let Some(ref f) = filter {
-                match framework.as_ref().unwrap() {
-                    TestFramework::Cargo => { cmd.arg(f); }
-                    TestFramework::Pytest => { cmd.arg(f); }
-                    TestFramework::GoTest => { cmd.args(["-run", f.as_str()]); }
+                match fw {
+                    TestFramework::Cargo => {
+                        cmd.arg(f);
+                    }
+                    TestFramework::Pytest => {
+                        cmd.arg(f);
+                    }
+                    TestFramework::GoTest => {
+                        cmd.args(["-run", f.as_str()]);
+                    }
                     _ => {}
                 }
             }
@@ -528,19 +543,16 @@ impl Tool for TestRunTool {
 
         let start = Instant::now();
 
-        let output = tokio::time::timeout(
-            Duration::from_secs(self.timeout_secs),
-            cmd.output(),
-        )
-        .await
-        .map_err(|_| HalconError::ToolExecutionFailed {
-            tool: "test_run".into(),
-            message: format!("Tests timed out after {}s", self.timeout_secs),
-        })?
-        .map_err(|e| HalconError::ToolExecutionFailed {
-            tool: "test_run".into(),
-            message: format!("Failed to run tests: {e}"),
-        })?;
+        let output = tokio::time::timeout(Duration::from_secs(self.timeout_secs), cmd.output())
+            .await
+            .map_err(|_| HalconError::ToolExecutionFailed {
+                tool: "test_run".into(),
+                message: format!("Tests timed out after {}s", self.timeout_secs),
+            })?
+            .map_err(|e| HalconError::ToolExecutionFailed {
+                tool: "test_run".into(),
+                message: format!("Failed to run tests: {e}"),
+            })?;
 
         let elapsed_ms = start.elapsed().as_millis() as u64;
 
@@ -597,10 +609,7 @@ impl Tool for TestRunTool {
         } else {
             format!(
                 "✗ {} failed, {} passed, {} skipped in {}ms",
-                suite.failed,
-                suite.passed,
-                suite.skipped,
-                suite.duration_ms
+                suite.failed, suite.passed, suite.skipped, suite.duration_ms
             )
         };
 
@@ -638,7 +647,10 @@ impl Tool for TestRunTool {
                 .collect::<Vec<_>>()
                 .join("\n");
 
-            format!("{summary}\n\nFailing tests:\n{failure_lines}\n\n---\n{}", suite.raw_output.trim())
+            format!(
+                "{summary}\n\nFailing tests:\n{failure_lines}\n\n---\n{}",
+                suite.raw_output.trim()
+            )
         };
 
         Ok(ToolOutput {
@@ -680,10 +692,7 @@ fn build_default_command(
         TestFramework::Cargo => {
             if coverage {
                 // Use cargo-llvm-cov if available, else plain test
-                (
-                    "cargo".into(),
-                    vec!["llvm-cov".into(), "--text".into()],
-                )
+                ("cargo".into(), vec!["llvm-cov".into(), "--text".into()])
             } else {
                 ("cargo".into(), vec!["test".into()])
             }
@@ -695,14 +704,8 @@ fn build_default_command(
             }
             ("pytest".into(), args)
         }
-        TestFramework::Jest => (
-            "npx".into(),
-            vec!["jest".into(), "--no-coverage".into()],
-        ),
-        TestFramework::Vitest => (
-            "npx".into(),
-            vec!["vitest".into(), "run".into()],
-        ),
+        TestFramework::Jest => ("npx".into(), vec!["jest".into(), "--no-coverage".into()]),
+        TestFramework::Vitest => ("npx".into(), vec!["vitest".into(), "run".into()]),
         TestFramework::GoTest => {
             let mut args = vec!["test".to_string(), "./...".to_string()];
             if coverage {
@@ -721,7 +724,10 @@ mod tests {
 
     #[test]
     fn extract_coverage_pct_basic() {
-        assert_eq!(extract_coverage_pct("coverage: 87.5% of statements"), Some(87.5));
+        assert_eq!(
+            extract_coverage_pct("coverage: 87.5% of statements"),
+            Some(87.5)
+        );
         assert_eq!(extract_coverage_pct("TOTAL  1234  56  95.46%"), Some(95.46));
         assert_eq!(extract_coverage_pct("no coverage here"), None);
     }
@@ -869,8 +875,7 @@ Time: 2.500 s\n";
     #[tokio::test]
     #[ignore = "runs cargo test on the workspace (self-referential, CI-only via explicit --ignored)"]
     async fn runs_cargo_test_on_this_workspace() {
-        let workspace = std::env::var("CARGO_MANIFEST_DIR")
-            .unwrap_or_else(|_| "/tmp".to_string());
+        let workspace = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_else(|_| "/tmp".to_string());
         let t = TestRunTool::new(300);
         let input = ToolInput {
             tool_use_id: "t".into(),

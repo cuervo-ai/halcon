@@ -121,8 +121,11 @@ impl StrategyWeights {
 
     /// Sum of all 5 weights.
     fn total(&self) -> f64 {
-        self.drift_weight + self.evidence_weight + self.utility_weight
-            + self.cycle_weight + self.sla_weight
+        self.drift_weight
+            + self.evidence_weight
+            + self.utility_weight
+            + self.cycle_weight
+            + self.sla_weight
     }
 
     /// Renormalize weights to sum to `target` (default ~0.85).
@@ -227,7 +230,7 @@ impl StrategyWeightManager {
 
         // Rule 3: SLA pressure → boost sla_weight
         // Use utility_score as proxy for SLA pressure (lower utility ≈ higher pressure late)
-        if feedback.combined_score < 0.30 as f32 {
+        if feedback.combined_score < 0.30_f32 {
             self.current.drift_weight += 0.02_f64.min(max_shift);
             changed = true;
             rationale = "low score drift boost";
@@ -264,9 +267,9 @@ impl StrategyWeightManager {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::convergence_controller::ConvergenceAction;
     use super::super::round_feedback::LoopSignal;
+    use super::*;
 
     fn default_policy() -> Arc<PolicyConfig> {
         Arc::new(PolicyConfig::default())
@@ -392,7 +395,10 @@ mod tests {
         let mut manager = StrategyWeightManager::new(default_policy());
         let feedback = make_feedback();
         let result = manager.adjust(&feedback, &ProblemClass::DeterministicLinear);
-        assert!(result.is_none(), "normal feedback should not trigger adjustment");
+        assert!(
+            result.is_none(),
+            "normal feedback should not trigger adjustment"
+        );
     }
 
     #[test]
@@ -401,7 +407,10 @@ mod tests {
         let mut feedback = make_feedback();
         feedback.cycle_severity = 0.8;
         let result = manager.adjust(&feedback, &ProblemClass::DeterministicLinear);
-        assert!(result.is_some(), "high cycle severity should trigger adjustment");
+        assert!(
+            result.is_some(),
+            "high cycle severity should trigger adjustment"
+        );
         let adj = result.unwrap();
         assert_eq!(adj.rationale, "cycle severity boost");
         assert!(!adj.bounded);
@@ -426,12 +435,16 @@ mod tests {
             sla_weight: 0.30,
         };
         weights.renormalize(0.85);
-        assert!((weights.total() - 0.85).abs() < 1e-4, "renormalized total should be 0.85");
+        assert!(
+            (weights.total() - 0.85).abs() < 1e-4,
+            "renormalized total should be 0.85"
+        );
     }
 
     #[test]
     fn phase5_weights_manager_from_class() {
-        let manager = StrategyWeightManager::from_class(ProblemClass::SLAConstrained, default_policy());
+        let manager =
+            StrategyWeightManager::from_class(ProblemClass::SLAConstrained, default_policy());
         assert!((manager.current().sla_weight - 0.40).abs() < 1e-4);
         assert!((manager.baseline().sla_weight - 0.40).abs() < 1e-4);
     }

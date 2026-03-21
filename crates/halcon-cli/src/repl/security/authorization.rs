@@ -76,7 +76,8 @@ impl AuthorizationState {
     /// cannot silently accumulate across a long session.
     pub fn prune_expired_always_allowed(&mut self) {
         let ttl = self.always_allowed_ttl;
-        self.always_allowed.retain(|_, granted_at| granted_at.elapsed() < ttl);
+        self.always_allowed
+            .retain(|_, granted_at| granted_at.elapsed() < ttl);
     }
 }
 
@@ -158,7 +159,7 @@ impl AuthorizationPolicy for SessionMemoryPolicy {
         } else if state
             .always_allowed
             .get(tool_name)
-            .map_or(false, |granted_at| granted_at.elapsed() < state.always_allowed_ttl)
+            .is_some_and(|granted_at| granted_at.elapsed() < state.always_allowed_ttl)
         {
             Some(PermissionDecision::AllowedAlways)
         } else {
@@ -237,7 +238,9 @@ impl AuthorizationMiddleware {
 
         Self {
             policies: vec![
-                Box::new(crate::repl::ci_detection::CIDetectionPolicy::new(auto_approve_in_ci)),
+                Box::new(crate::repl::ci_detection::CIDetectionPolicy::new(
+                    auto_approve_in_ci,
+                )),
                 Box::new(NonInteractivePolicy),
                 Box::new(PermissionLevelPolicy),
                 Box::new(SessionMemoryPolicy),
@@ -290,18 +293,21 @@ impl AuthorizationMiddleware {
         let prompt = Self::format_prompt(tool_name, input);
         let timeout = self.prompt_timeout;
 
-        let answer = tokio::time::timeout(timeout, tokio::task::spawn_blocking(move || {
-            let mut stderr = io::stderr();
-            if stderr.write_all(prompt.as_bytes()).is_err() || stderr.flush().is_err() {
-                return String::new();
-            }
-            let mut line = String::new();
-            let stdin = io::stdin();
-            if stdin.lock().read_line(&mut line).is_err() {
-                return String::new();
-            }
-            line.trim().to_lowercase()
-        }))
+        let answer = tokio::time::timeout(
+            timeout,
+            tokio::task::spawn_blocking(move || {
+                let mut stderr = io::stderr();
+                if stderr.write_all(prompt.as_bytes()).is_err() || stderr.flush().is_err() {
+                    return String::new();
+                }
+                let mut line = String::new();
+                let stdin = io::stdin();
+                if stdin.lock().read_line(&mut line).is_err() {
+                    return String::new();
+                }
+                line.trim().to_lowercase()
+            }),
+        )
         .await;
 
         let answer_str = match answer {
@@ -326,9 +332,7 @@ impl AuthorizationMiddleware {
     /// Format the permission prompt string (with deny-always option).
     pub fn format_prompt(tool_name: &str, input: &ToolInput) -> String {
         let summary = summarize_input(tool_name, input);
-        format!(
-            "\nAllow {tool_name} [{summary}]? [y]es [n]o [a]lways [d]eny always: "
-        )
+        format!("\nAllow {tool_name} [{summary}]? [y]es [n]o [a]lways [d]eny always: ")
     }
 
     /// Apply a user answer and update session state.
@@ -336,7 +340,9 @@ impl AuthorizationMiddleware {
         match answer {
             "y" | "yes" => PermissionDecision::Allowed,
             "a" | "always" => {
-                self.state.always_allowed.insert(tool_name.to_string(), Instant::now());
+                self.state
+                    .always_allowed
+                    .insert(tool_name.to_string(), Instant::now());
                 PermissionDecision::AllowedAlways
             }
             "d" | "deny" => {
@@ -403,7 +409,8 @@ impl AuthorizationMiddleware {
     ) -> Self {
         let persistent_policy = Box::new(PersistentRulesPolicy::new(matcher, db));
         // Insert before SessionMemoryPolicy (which is last in default chain)
-        self.policies.insert(self.policies.len() - 1, persistent_policy);
+        self.policies
+            .insert(self.policies.len() - 1, persistent_policy);
         self
     }
 }
@@ -419,7 +426,16 @@ fn summarize_input(tool_name: &str, input: &ToolInput) -> String {
             .as_str()
             .map(|c| {
                 if c.len() > 60 {
-                    format!("{}...", &c[..{ let mut _fcb = (57).min(c.len()); while _fcb > 0 && !c.is_char_boundary(_fcb) { _fcb -= 1; } _fcb }])
+                    format!(
+                        "{}...",
+                        &c[..{
+                            let mut _fcb = (57).min(c.len());
+                            while _fcb > 0 && !c.is_char_boundary(_fcb) {
+                                _fcb -= 1;
+                            }
+                            _fcb
+                        }]
+                    )
                 } else {
                     c.to_string()
                 }
@@ -432,7 +448,16 @@ fn summarize_input(tool_name: &str, input: &ToolInput) -> String {
         _ => {
             let s = serde_json::to_string(&input.arguments).unwrap_or_default();
             if s.len() > 60 {
-                format!("{}...", &s[..{ let mut _fcb = (57).min(s.len()); while _fcb > 0 && !s.is_char_boundary(_fcb) { _fcb -= 1; } _fcb }])
+                format!(
+                    "{}...",
+                    &s[..{
+                        let mut _fcb = (57).min(s.len());
+                        while _fcb > 0 && !s.is_char_boundary(_fcb) {
+                            _fcb -= 1;
+                        }
+                        _fcb
+                    }]
+                )
             } else {
                 s
             }
@@ -510,7 +535,9 @@ mod tests {
     #[test]
     fn session_allow_always() {
         let mut state = AuthorizationState::new(true);
-        state.always_allowed.insert("bash".to_string(), Instant::now());
+        state
+            .always_allowed
+            .insert("bash".to_string(), Instant::now());
         let policy = SessionMemoryPolicy;
         let input = dummy_input(serde_json::json!({}));
         let result = policy.evaluate("bash", PermissionLevel::Destructive, &input, &state);
@@ -532,7 +559,9 @@ mod tests {
         // If both sets contain the tool, deny wins.
         let mut state = AuthorizationState::new(true);
         state.always_denied.insert("bash".to_string());
-        state.always_allowed.insert("bash".to_string(), Instant::now());
+        state
+            .always_allowed
+            .insert("bash".to_string(), Instant::now());
         let policy = SessionMemoryPolicy;
         let input = dummy_input(serde_json::json!({}));
         let result = policy.evaluate("bash", PermissionLevel::Destructive, &input, &state);
@@ -700,7 +729,9 @@ mod tests {
     #[test]
     fn needs_prompt_after_always_false() {
         let mut mw = AuthorizationMiddleware::new(true, false, 30);
-        mw.state.always_allowed.insert("bash".to_string(), Instant::now());
+        mw.state
+            .always_allowed
+            .insert("bash".to_string(), Instant::now());
         assert!(!mw.needs_prompt("bash", PermissionLevel::Destructive));
     }
 
@@ -772,11 +803,8 @@ mod tests {
             }
         }
 
-        let mw = AuthorizationMiddleware::with_policies(
-            vec![Box::new(OnlyAllowFileRead)],
-            true,
-            30,
-        );
+        let mw =
+            AuthorizationMiddleware::with_policies(vec![Box::new(OnlyAllowFileRead)], true, 30);
 
         assert_eq!(
             mw.auto_decide("file_read", PermissionLevel::Destructive),
@@ -844,8 +872,8 @@ mod tests {
     #[test]
     fn persistent_rules_policy_integration() {
         use crate::repl::rule_matcher::RuleMatcher;
-        use halcon_storage::Database;
         use halcon_core::types::{PermissionRule, RuleScope};
+        use halcon_storage::Database;
         use std::path::PathBuf;
         use std::sync::{Arc, Mutex};
 
@@ -868,8 +896,8 @@ mod tests {
         matcher.lock().unwrap().load_rules(rules).unwrap();
 
         // Create middleware with persistent rules
-        let mw = AuthorizationMiddleware::new(true, false, 30)
-            .with_persistent_rules(matcher, async_db);
+        let mw =
+            AuthorizationMiddleware::new(true, false, 30).with_persistent_rules(matcher, async_db);
 
         // bash should auto-allow via PersistentRulesPolicy
         let input = dummy_input(serde_json::json!({"command": "ls"}));
@@ -880,8 +908,8 @@ mod tests {
     #[test]
     fn persistent_rules_policy_directory_scoped() {
         use crate::repl::rule_matcher::RuleMatcher;
-        use halcon_storage::Database;
         use halcon_core::types::{PermissionRule, RuleScope};
+        use halcon_storage::Database;
         use std::path::PathBuf;
         use std::sync::{Arc, Mutex};
 
@@ -929,8 +957,8 @@ mod tests {
         let matcher = Arc::new(Mutex::new(RuleMatcher::new(PathBuf::from("/tmp"))));
 
         // No rules loaded
-        let mw = AuthorizationMiddleware::new(true, false, 30)
-            .with_persistent_rules(matcher, async_db);
+        let mw =
+            AuthorizationMiddleware::new(true, false, 30).with_persistent_rules(matcher, async_db);
 
         // Should abstain (no matching rule)
         let decision = mw.auto_decide("bash", PermissionLevel::Destructive);
@@ -944,9 +972,14 @@ mod tests {
     fn always_allowed_fresh_entry_is_valid() {
         // A freshly-inserted always_allowed entry must be honoured.
         let mut state = AuthorizationState::new(true);
-        state.always_allowed.insert("bash".to_string(), Instant::now());
+        state
+            .always_allowed
+            .insert("bash".to_string(), Instant::now());
         state.prune_expired_always_allowed();
-        assert!(state.always_allowed.contains_key("bash"), "fresh entry must survive prune");
+        assert!(
+            state.always_allowed.contains_key("bash"),
+            "fresh entry must survive prune"
+        );
         let policy = SessionMemoryPolicy;
         let input = dummy_input(serde_json::json!({}));
         let result = policy.evaluate("bash", PermissionLevel::Destructive, &input, &state);
@@ -961,7 +994,10 @@ mod tests {
         let stale = Instant::now() - Duration::from_secs(400);
         state.always_allowed.insert("bash".to_string(), stale);
         state.prune_expired_always_allowed();
-        assert!(!state.always_allowed.contains_key("bash"), "expired entry must be pruned");
+        assert!(
+            !state.always_allowed.contains_key("bash"),
+            "expired entry must be pruned"
+        );
         let policy = SessionMemoryPolicy;
         let input = dummy_input(serde_json::json!({}));
         let result = policy.evaluate("bash", PermissionLevel::Destructive, &input, &state);
@@ -992,7 +1028,10 @@ mod tests {
         })
         .join(); // join returns Err(poison) — expected
 
-        assert!(matcher.is_poisoned(), "lock must be poisoned after thread panic");
+        assert!(
+            matcher.is_poisoned(),
+            "lock must be poisoned after thread panic"
+        );
 
         let policy = PersistentRulesPolicy::new(matcher, async_db);
         let state = AuthorizationState::new(true);

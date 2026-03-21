@@ -158,10 +158,12 @@ impl ModelProvider for VertexProvider {
         use crate::anthropic::AnthropicProvider;
 
         // Fetch ADC token (gcp-auth caches internally).
-        let token = auth::get_access_token().await.map_err(|e| HalconError::ApiError {
-            message: format!("Vertex ADC token error: {e}"),
-            status: None,
-        })?;
+        let token = auth::get_access_token()
+            .await
+            .map_err(|e| HalconError::ApiError {
+                message: format!("Vertex ADC token error: {e}"),
+                status: None,
+            })?;
 
         let api_request = AnthropicProvider::build_api_request_pub(request);
         let url = self.gcp_config.stream_raw_predict_url(&api_request.model);
@@ -179,11 +181,12 @@ impl ModelProvider for VertexProvider {
         headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
         headers.insert(
             reqwest::header::AUTHORIZATION,
-            HeaderValue::from_str(&format!("Bearer {token}"))
-                .map_err(|e| HalconError::ApiError {
+            HeaderValue::from_str(&format!("Bearer {token}")).map_err(|e| {
+                HalconError::ApiError {
                     message: format!("vertex: invalid auth header: {e}"),
                     status: None,
-                })?,
+                }
+            })?,
         );
 
         let timeout = Duration::from_secs(self.http_config.request_timeout_secs);
@@ -198,7 +201,8 @@ impl ModelProvider for VertexProvider {
                 tokio::time::sleep(delay).await;
             }
 
-            let send_fut = self.client
+            let send_fut = self
+                .client
                 .post(&url)
                 .headers(headers.clone())
                 .body(body_bytes.clone())

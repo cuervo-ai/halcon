@@ -20,8 +20,8 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::time::Duration;
 use tracing::{debug, warn};
@@ -189,15 +189,12 @@ impl DagOrchestrator {
             let wave: Vec<SubTask> = {
                 let ts = tasks.lock().await;
                 let done = completed.lock().await;
-                ts.iter()
-                    .filter(|t| t.is_ready(&done))
-                    .cloned()
-                    .collect()
+                ts.iter().filter(|t| t.is_ready(&done)).cloned().collect()
             };
 
             if wave.is_empty() {
                 let ts = tasks.lock().await;
-                let done = completed.lock().await;
+                let _done = completed.lock().await;
                 let has_pending = ts.iter().any(|t| t.status == SubTaskStatus::Pending);
                 if has_pending {
                     warn!(
@@ -251,7 +248,8 @@ impl DagOrchestrator {
                             async move {
                                 let id = task.id;
                                 let timeout = Duration::from_secs(task.timeout_secs);
-                                let result = tokio::time::timeout(timeout, exec.execute(&task, &ctx)).await;
+                                let result =
+                                    tokio::time::timeout(timeout, exec.execute(&task, &ctx)).await;
                                 let outcome = match result {
                                     Ok(Ok(r)) => Ok(r),
                                     Ok(Err(e)) => Err(e),
@@ -280,7 +278,8 @@ impl DagOrchestrator {
             for (task_id, outcome) in wave_results {
                 match outcome {
                     Ok(result) => {
-                        self.total_tokens.fetch_add(result.tokens_consumed, Ordering::Relaxed);
+                        self.total_tokens
+                            .fetch_add(result.tokens_consumed, Ordering::Relaxed);
                         all_outputs.insert(task_id, result.output_text.clone());
 
                         // Update task status.
@@ -337,8 +336,13 @@ impl DagOrchestrator {
         }
 
         // Kahn's algorithm for cycle detection.
-        let mut in_degree: HashMap<Uuid, usize> = tasks.iter().map(|t| (t.id, t.depends_on.len())).collect();
-        let mut queue: Vec<Uuid> = in_degree.iter().filter(|(_, &d)| d == 0).map(|(k, _)| *k).collect();
+        let mut in_degree: HashMap<Uuid, usize> =
+            tasks.iter().map(|t| (t.id, t.depends_on.len())).collect();
+        let mut queue: Vec<Uuid> = in_degree
+            .iter()
+            .filter(|(_, &d)| d == 0)
+            .map(|(k, _)| *k)
+            .collect();
         let mut processed = 0;
 
         // Build reverse adjacency for cycle detection.
@@ -374,7 +378,10 @@ impl DagOrchestrator {
         for task in wave {
             for dep_id in &task.depends_on {
                 if let Some(output) = prior_outputs.get(dep_id) {
-                    ctx.push_str(&format!("=== Output from predecessor {} ===\n{}\n\n", dep_id, output));
+                    ctx.push_str(&format!(
+                        "=== Output from predecessor {} ===\n{}\n\n",
+                        dep_id, output
+                    ));
                 }
             }
         }
@@ -408,7 +415,9 @@ mod tests {
     }
 
     fn orch(output: &str) -> DagOrchestrator {
-        let exec = Arc::new(MockExecutor { output: output.into() });
+        let exec = Arc::new(MockExecutor {
+            output: output.into(),
+        });
         DagOrchestrator::new(exec, OrchestratorConfig::default())
     }
 
@@ -424,10 +433,7 @@ mod tests {
     #[tokio::test]
     async fn two_independent_tasks_parallel() {
         let o = orch("ok");
-        let tasks = vec![
-            SubTask::new("t1", "task 1"),
-            SubTask::new("t2", "task 2"),
-        ];
+        let tasks = vec![SubTask::new("t1", "task 1"), SubTask::new("t2", "task 2")];
         let result = o.execute(tasks).await.unwrap();
         assert_eq!(result.tasks_completed, 2);
     }
@@ -473,10 +479,7 @@ mod tests {
     #[tokio::test]
     async fn token_budget_tracked() {
         let o = orch("ok");
-        let tasks = vec![
-            SubTask::new("t1", "task 1"),
-            SubTask::new("t2", "task 2"),
-        ];
+        let tasks = vec![SubTask::new("t1", "task 1"), SubTask::new("t2", "task 2")];
         let result = o.execute(tasks).await.unwrap();
         // MockExecutor consumes 100 tokens per task
         assert_eq!(result.total_tokens, 200);

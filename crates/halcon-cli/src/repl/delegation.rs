@@ -89,7 +89,9 @@ impl DelegationRouter {
 
                 // Must have a specific tool_name.
                 // Defense: DeepSeek sometimes emits "null" string; treat as None.
-                let tool_name = step.tool_name.as_deref()
+                let tool_name = step
+                    .tool_name
+                    .as_deref()
                     .filter(|t| *t != "null" && !t.is_empty())?;
 
                 // Must meet confidence threshold.
@@ -260,15 +262,25 @@ impl DelegationRouter {
 
         match tool {
             // File and directory operations (Coder agent) — halcon native tools
-            "file_read" | "file_write" | "file_edit" | "file_delete" | "file_inspect"
-            | "directory_tree" | "list_directory_with_sizes" | "list_directory"
-            | "read_multiple_files" | "edit_file" | "apply_patch" => {
-                StepCapability::FileOperations
-            }
+            "file_read"
+            | "file_write"
+            | "file_edit"
+            | "file_delete"
+            | "file_inspect"
+            | "directory_tree"
+            | "list_directory_with_sizes"
+            | "list_directory"
+            | "read_multiple_files"
+            | "edit_file"
+            | "apply_patch" => StepCapability::FileOperations,
             // MCP filesystem server tools — named differently from halcon native tools
             // (@modelcontextprotocol/server-filesystem: read_file, write_file, etc.)
-            "read_file" | "write_file" | "create_directory" | "move_file"
-            | "get_file_info" | "list_allowed_directories" => StepCapability::FileOperations,
+            "read_file"
+            | "write_file"
+            | "create_directory"
+            | "move_file"
+            | "get_file_info"
+            | "list_allowed_directories" => StepCapability::FileOperations,
             // Code execution (Coder agent)
             "bash" | "run_command" | "terminal" | "code_execution" | "dep_check"
             | "code_metrics" => StepCapability::CodeExecution,
@@ -276,8 +288,8 @@ impl DelegationRouter {
             "grep" | "glob" | "fuzzy_find" | "symbol_search" | "native_search"
             | "semantic_grep" | "ast_search" | "search_files" => StepCapability::Search,
             // Git operations (Coder agent)
-            "git_status" | "git_diff" | "git_log" | "git_add" | "git_commit"
-            | "git_push" | "git_pull" | "git_branch" => StepCapability::GitOperations,
+            "git_status" | "git_diff" | "git_log" | "git_add" | "git_commit" | "git_push"
+            | "git_pull" | "git_branch" => StepCapability::GitOperations,
             // Web access (Chat agent)
             "web_search" | "web_fetch" | "http_request" => StepCapability::WebAccess,
             // Plugin sentinel tools → treat as code execution (needs real tools, not Chat)
@@ -358,15 +370,25 @@ impl DelegationRouter {
     /// Checks for common file type keywords and returns a sensible default name.
     fn infer_file_path(description: &str) -> String {
         let lower = description.to_lowercase();
-        if lower.contains(".html") || lower.contains("html") || lower.contains("web page") || lower.contains("webpage") {
+        if lower.contains(".html")
+            || lower.contains("html")
+            || lower.contains("web page")
+            || lower.contains("webpage")
+        {
             "output.html".to_string()
-        } else if lower.contains(".py") || lower.contains("python script") || lower.contains("python program") {
+        } else if lower.contains(".py")
+            || lower.contains("python script")
+            || lower.contains("python program")
+        {
             "script.py".to_string()
         } else if lower.contains(".js") || lower.contains("javascript") {
             "script.js".to_string()
         } else if lower.contains(".ts") || lower.contains("typescript") {
             "script.ts".to_string()
-        } else if lower.contains(".sh") || lower.contains("shell script") || lower.contains("bash script") {
+        } else if lower.contains(".sh")
+            || lower.contains("shell script")
+            || lower.contains("bash script")
+        {
             "script.sh".to_string()
         } else if lower.contains(".md") || lower.contains("markdown") || lower.contains("readme") {
             "README.md".to_string()
@@ -438,67 +460,100 @@ mod tests {
     #[test]
     fn classify_file_read() {
         let step = make_step("Read file", Some("file_read"), 0.9);
-        assert_eq!(DelegationRouter::classify_step(&step), StepCapability::FileOperations);
+        assert_eq!(
+            DelegationRouter::classify_step(&step),
+            StepCapability::FileOperations
+        );
     }
 
     #[test]
     fn classify_file_write() {
         let step = make_step("Write file", Some("file_write"), 0.9);
-        assert_eq!(DelegationRouter::classify_step(&step), StepCapability::FileOperations);
+        assert_eq!(
+            DelegationRouter::classify_step(&step),
+            StepCapability::FileOperations
+        );
     }
 
     #[test]
     fn classify_file_edit() {
         let step = make_step("Edit file", Some("file_edit"), 0.9);
-        assert_eq!(DelegationRouter::classify_step(&step), StepCapability::FileOperations);
+        assert_eq!(
+            DelegationRouter::classify_step(&step),
+            StepCapability::FileOperations
+        );
     }
 
     #[test]
     fn classify_bash() {
         let step = make_step("Run command", Some("bash"), 0.9);
-        assert_eq!(DelegationRouter::classify_step(&step), StepCapability::CodeExecution);
+        assert_eq!(
+            DelegationRouter::classify_step(&step),
+            StepCapability::CodeExecution
+        );
     }
 
     #[test]
     fn classify_grep() {
         let step = make_step("Search files", Some("grep"), 0.9);
-        assert_eq!(DelegationRouter::classify_step(&step), StepCapability::Search);
+        assert_eq!(
+            DelegationRouter::classify_step(&step),
+            StepCapability::Search
+        );
     }
 
     #[test]
     fn classify_glob() {
         let step = make_step("Find files", Some("glob"), 0.9);
-        assert_eq!(DelegationRouter::classify_step(&step), StepCapability::Search);
+        assert_eq!(
+            DelegationRouter::classify_step(&step),
+            StepCapability::Search
+        );
     }
 
     #[test]
     fn classify_git_status() {
         let step = make_step("Check status", Some("git_status"), 0.9);
-        assert_eq!(DelegationRouter::classify_step(&step), StepCapability::GitOperations);
+        assert_eq!(
+            DelegationRouter::classify_step(&step),
+            StepCapability::GitOperations
+        );
     }
 
     #[test]
     fn classify_git_diff() {
         let step = make_step("Show diff", Some("git_diff"), 0.9);
-        assert_eq!(DelegationRouter::classify_step(&step), StepCapability::GitOperations);
+        assert_eq!(
+            DelegationRouter::classify_step(&step),
+            StepCapability::GitOperations
+        );
     }
 
     #[test]
     fn classify_web_search() {
         let step = make_step("Search web", Some("web_search"), 0.9);
-        assert_eq!(DelegationRouter::classify_step(&step), StepCapability::WebAccess);
+        assert_eq!(
+            DelegationRouter::classify_step(&step),
+            StepCapability::WebAccess
+        );
     }
 
     #[test]
     fn classify_none_tool() {
         let step = make_step("Synthesize", None, 1.0);
-        assert_eq!(DelegationRouter::classify_step(&step), StepCapability::General);
+        assert_eq!(
+            DelegationRouter::classify_step(&step),
+            StepCapability::General
+        );
     }
 
     #[test]
     fn classify_unknown_tool() {
         let step = make_step("Custom", Some("custom_tool"), 0.9);
-        assert_eq!(DelegationRouter::classify_step(&step), StepCapability::General);
+        assert_eq!(
+            DelegationRouter::classify_step(&step),
+            StepCapability::General
+        );
     }
 
     #[test]
@@ -514,7 +569,10 @@ mod tests {
         let router = DelegationRouter::new(true);
         let plan = make_plan(vec![make_step("Read file", Some("file_read"), 0.9)]);
         let decisions = router.analyze_plan(&plan);
-        assert!(decisions.is_empty(), "Single-step plans should not be delegated");
+        assert!(
+            decisions.is_empty(),
+            "Single-step plans should not be delegated"
+        );
     }
 
     #[test]
@@ -526,7 +584,11 @@ mod tests {
             make_step("Edit file", Some("file_edit"), 0.9),
         ]);
         let decisions = router.analyze_plan(&plan);
-        assert_eq!(decisions.len(), 2, "Two-step plans with tool_names should now be delegated");
+        assert_eq!(
+            decisions.len(),
+            2,
+            "Two-step plans with tool_names should now be delegated"
+        );
     }
 
     #[test]
@@ -535,7 +597,10 @@ mod tests {
         let router = DelegationRouter::new(true);
         let plan = make_plan(vec![make_step("Read file", Some("file_read"), 0.9)]);
         let decisions = router.analyze_plan(&plan);
-        assert!(decisions.is_empty(), "Single-step plans should not be delegated");
+        assert!(
+            decisions.is_empty(),
+            "Single-step plans should not be delegated"
+        );
     }
 
     #[test]
@@ -628,9 +693,15 @@ mod tests {
         // Model inherited.
         assert_eq!(tasks[0].1.model.as_deref(), Some("deepseek-chat"));
         // Instructions are prefixed with tool-use directive to force immediate tool execution.
-        assert!(tasks[0].1.instruction.starts_with("IMPORTANT: Call the `file_read` tool NOW"));
+        assert!(tasks[0]
+            .1
+            .instruction
+            .starts_with("IMPORTANT: Call the `file_read` tool NOW"));
         assert!(tasks[0].1.instruction.contains("Task: Read file"));
-        assert!(tasks[2].1.instruction.starts_with("IMPORTANT: Call the `bash` tool NOW"));
+        assert!(tasks[2]
+            .1
+            .instruction
+            .starts_with("IMPORTANT: Call the `bash` tool NOW"));
         assert!(tasks[2].1.instruction.contains("Task: Run tests"));
         // Agent types mapped correctly.
         assert_eq!(tasks[0].1.agent_type, AgentType::Coder); // FileOperations
@@ -752,9 +823,15 @@ mod tests {
         let decisions = router.analyze_plan(&plan);
         let tasks = router.build_tasks(&plan, &decisions, "model");
         assert_eq!(tasks.len(), 3);
-        assert!(tasks[0].1.instruction.starts_with("IMPORTANT: Call the `file_read` tool NOW"));
+        assert!(tasks[0]
+            .1
+            .instruction
+            .starts_with("IMPORTANT: Call the `file_read` tool NOW"));
         assert!(tasks[0].1.instruction.contains("Task: Read"));
-        assert!(tasks[2].1.instruction.starts_with("IMPORTANT: Call the `bash` tool NOW"));
+        assert!(tasks[2]
+            .1
+            .instruction
+            .starts_with("IMPORTANT: Call the `bash` tool NOW"));
         assert!(tasks[2].1.instruction.contains("Task: Test"));
     }
 
@@ -766,18 +843,21 @@ mod tests {
         let router = DelegationRouter::new(true);
         let mut step = make_step("Write the HTML game to disk", Some("file_write"), 0.9);
         step.expected_args = Some(serde_json::json!({"path": "/tmp/game.html", "content": "..."}));
-        let plan = make_plan(vec![
-            step,
-            make_step("Run tests", Some("bash"), 0.9),
-        ]);
+        let plan = make_plan(vec![step, make_step("Run tests", Some("bash"), 0.9)]);
         let decisions = router.analyze_plan(&plan);
         let tasks = router.build_tasks(&plan, &decisions, "deepseek-chat");
 
         let file_write_task = &tasks[0].1;
-        assert!(file_write_task.instruction.contains("/tmp/game.html"),
-            "Instruction must contain explicit path from expected_args");
-        assert!(file_write_task.instruction.contains("path=\"/tmp/game.html\""),
-            "Instruction must include file_write path= directive");
+        assert!(
+            file_write_task.instruction.contains("/tmp/game.html"),
+            "Instruction must contain explicit path from expected_args"
+        );
+        assert!(
+            file_write_task
+                .instruction
+                .contains("path=\"/tmp/game.html\""),
+            "Instruction must include file_write path= directive"
+        );
     }
 
     /// file_write step with no expected_args but HTML description → inferred .html path.
@@ -792,8 +872,11 @@ mod tests {
         let tasks = router.build_tasks(&plan, &decisions, "deepseek-chat");
 
         let file_write_task = &tasks[0].1;
-        assert!(file_write_task.instruction.contains("output.html"),
-            "HTML description must infer .html path, got: {}", file_write_task.instruction);
+        assert!(
+            file_write_task.instruction.contains("output.html"),
+            "HTML description must infer .html path, got: {}",
+            file_write_task.instruction
+        );
     }
 
     /// file_write step with Python description → inferred .py path.
@@ -801,15 +884,22 @@ mod tests {
     fn file_write_infers_python_path_from_description() {
         let router = DelegationRouter::new(true);
         let plan = make_plan(vec![
-            make_step("Write a Python script to sort files", Some("file_write"), 0.9),
+            make_step(
+                "Write a Python script to sort files",
+                Some("file_write"),
+                0.9,
+            ),
             make_step("Run tests", Some("bash"), 0.9),
         ]);
         let decisions = router.analyze_plan(&plan);
         let tasks = router.build_tasks(&plan, &decisions, "deepseek-chat");
 
         let file_write_task = &tasks[0].1;
-        assert!(file_write_task.instruction.contains("script.py"),
-            "Python description must infer .py path, got: {}", file_write_task.instruction);
+        assert!(
+            file_write_task.instruction.contains("script.py"),
+            "Python description must infer .py path, got: {}",
+            file_write_task.instruction
+        );
     }
 
     /// Non-file_write tools do NOT get a path_hint appended.
@@ -824,8 +914,11 @@ mod tests {
         let tasks = router.build_tasks(&plan, &decisions, "deepseek-chat");
 
         for (_, task) in &tasks {
-            assert!(!task.instruction.contains("Target file path:"),
-                "Only file_write tasks should have path hints, got: {}", task.instruction);
+            assert!(
+                !task.instruction.contains("Target file path:"),
+                "Only file_write tasks should have path hints, got: {}",
+                task.instruction
+            );
         }
     }
 
@@ -833,26 +926,50 @@ mod tests {
 
     #[test]
     fn infer_html_variants() {
-        assert_eq!(DelegationRouter::infer_file_path("create an HTML game"), "output.html");
-        assert_eq!(DelegationRouter::infer_file_path("write a web page"), "output.html");
-        assert_eq!(DelegationRouter::infer_file_path("build a .html file"), "output.html");
+        assert_eq!(
+            DelegationRouter::infer_file_path("create an HTML game"),
+            "output.html"
+        );
+        assert_eq!(
+            DelegationRouter::infer_file_path("write a web page"),
+            "output.html"
+        );
+        assert_eq!(
+            DelegationRouter::infer_file_path("build a .html file"),
+            "output.html"
+        );
     }
 
     #[test]
     fn infer_python_variants() {
-        assert_eq!(DelegationRouter::infer_file_path("python script to parse logs"), "script.py");
-        assert_eq!(DelegationRouter::infer_file_path("write a .py program"), "script.py");
+        assert_eq!(
+            DelegationRouter::infer_file_path("python script to parse logs"),
+            "script.py"
+        );
+        assert_eq!(
+            DelegationRouter::infer_file_path("write a .py program"),
+            "script.py"
+        );
     }
 
     #[test]
     fn infer_shell_variants() {
-        assert_eq!(DelegationRouter::infer_file_path("write a bash script"), "script.sh");
-        assert_eq!(DelegationRouter::infer_file_path("create shell script"), "script.sh");
+        assert_eq!(
+            DelegationRouter::infer_file_path("write a bash script"),
+            "script.sh"
+        );
+        assert_eq!(
+            DelegationRouter::infer_file_path("create shell script"),
+            "script.sh"
+        );
     }
 
     #[test]
     fn infer_default_for_unknown() {
-        assert_eq!(DelegationRouter::infer_file_path("write some output"), "output.txt");
+        assert_eq!(
+            DelegationRouter::infer_file_path("write some output"),
+            "output.txt"
+        );
         assert_eq!(DelegationRouter::infer_file_path(""), "output.txt");
     }
 
@@ -864,7 +981,11 @@ mod tests {
     /// fell to General/Chat because it wasn't listed in classify_step.
     #[test]
     fn classify_mcp_search_files_is_search_not_general() {
-        let step = make_step("Search for cuervo/zuclubit files", Some("search_files"), 0.9);
+        let step = make_step(
+            "Search for cuervo/zuclubit files",
+            Some("search_files"),
+            0.9,
+        );
         assert_eq!(
             DelegationRouter::classify_step(&step),
             StepCapability::Search,
@@ -876,21 +997,30 @@ mod tests {
     #[test]
     fn classify_mcp_read_file_is_file_operations() {
         let step = make_step("Read document", Some("read_file"), 0.9);
-        assert_eq!(DelegationRouter::classify_step(&step), StepCapability::FileOperations);
+        assert_eq!(
+            DelegationRouter::classify_step(&step),
+            StepCapability::FileOperations
+        );
     }
 
     /// write_file (MCP filesystem, different from halcon native "file_write") → FileOperations.
     #[test]
     fn classify_mcp_write_file_is_file_operations() {
         let step = make_step("Write output", Some("write_file"), 0.9);
-        assert_eq!(DelegationRouter::classify_step(&step), StepCapability::FileOperations);
+        assert_eq!(
+            DelegationRouter::classify_step(&step),
+            StepCapability::FileOperations
+        );
     }
 
     /// create_directory (MCP filesystem) → FileOperations.
     #[test]
     fn classify_mcp_create_directory_is_file_operations() {
         let step = make_step("Create output dir", Some("create_directory"), 0.9);
-        assert_eq!(DelegationRouter::classify_step(&step), StepCapability::FileOperations);
+        assert_eq!(
+            DelegationRouter::classify_step(&step),
+            StepCapability::FileOperations
+        );
     }
 
     /// move_file / get_file_info / list_allowed_directories (MCP filesystem) → FileOperations.
@@ -924,7 +1054,8 @@ mod tests {
     /// Previously, empty set → orchestrator gave sub-agent all 63 tools → DeepSeek confused.
     #[test]
     fn general_capability_includes_primary_tool_not_empty() {
-        let tools = DelegationRouter::tools_for_capability(&StepCapability::General, "some_custom_tool");
+        let tools =
+            DelegationRouter::tools_for_capability(&StepCapability::General, "some_custom_tool");
         assert!(
             tools.contains("some_custom_tool"),
             "General fallback must always include the primary tool for surface narrowing"
@@ -978,9 +1109,15 @@ mod tests {
     fn search_files_remap_includes_full_native_search_surface() {
         let tools = DelegationRouter::tools_for_capability(&StepCapability::Search, "search_files");
         assert!(tools.contains("grep"), "must include grep");
-        assert!(tools.contains("native_search"), "must include native_search");
+        assert!(
+            tools.contains("native_search"),
+            "must include native_search"
+        );
         assert!(tools.contains("glob"), "must include glob");
-        assert!(!tools.contains("search_files"), "must NOT include broken MCP search_files");
+        assert!(
+            !tools.contains("search_files"),
+            "must NOT include broken MCP search_files"
+        );
     }
 
     /// Other Search tools (grep, native_search, glob) are NOT remapped — only search_files.
@@ -1057,8 +1194,15 @@ mod tests {
         ]);
         let decisions = router.analyze_plan(&plan);
         // Only step 0 should be delegated — "null" string should be filtered out.
-        assert_eq!(decisions.len(), 1, "tool_name=\"null\" must not be delegated");
-        assert_eq!(decisions[0].0, 0, "only step 0 (read_multiple_files) should delegate");
+        assert_eq!(
+            decisions.len(),
+            1,
+            "tool_name=\"null\" must not be delegated"
+        );
+        assert_eq!(
+            decisions[0].0, 0,
+            "only step 0 (read_multiple_files) should delegate"
+        );
     }
 
     /// Regression: read_multiple_files plan step must produce allowed_tools={"file_read"}
@@ -1069,7 +1213,11 @@ mod tests {
     fn read_multiple_files_step_canonicalized_to_file_read() {
         let router = DelegationRouter::new(true).with_min_confidence(0.5);
         let plan = make_plan(vec![
-            make_step("Leer archivos clave del proyecto", Some("read_multiple_files"), 0.9),
+            make_step(
+                "Leer archivos clave del proyecto",
+                Some("read_multiple_files"),
+                0.9,
+            ),
             make_step("Sintetizar", None, 1.0),
         ]);
         let decisions = router.analyze_plan(&plan);

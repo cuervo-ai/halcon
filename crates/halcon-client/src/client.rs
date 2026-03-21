@@ -21,9 +21,7 @@ pub struct HalconClient {
 impl HalconClient {
     /// Create a new client with the given configuration.
     pub fn new(config: ClientConfig) -> Result<Self, ClientError> {
-        let http = HttpClient::builder()
-            .timeout(config.timeout)
-            .build()?;
+        let http = HttpClient::builder().timeout(config.timeout).build()?;
         Ok(Self { http, config })
     }
 
@@ -109,10 +107,7 @@ impl HalconClient {
     }
 
     /// Get a tool's execution history.
-    pub async fn tool_history(
-        &self,
-        name: &str,
-    ) -> Result<Vec<ToolExecutionRecord>, ClientError> {
+    pub async fn tool_history(&self, name: &str) -> Result<Vec<ToolExecutionRecord>, ClientError> {
         self.get(&format!("tools/{name}/history")).await
     }
 
@@ -136,11 +131,8 @@ impl HalconClient {
         graceful: bool,
         reason: Option<String>,
     ) -> Result<ShutdownResponse, ClientError> {
-        self.post(
-            "system/shutdown",
-            &ShutdownRequest { graceful, reason },
-        )
-        .await
+        self.post("system/shutdown", &ShutdownRequest { graceful, reason })
+            .await
     }
 
     // ── Config ───────────────────────────────────────────
@@ -188,7 +180,8 @@ impl HalconClient {
         &self,
         session_id: Uuid,
     ) -> Result<ListMessagesResponse, ClientError> {
-        self.get(&format!("chat/sessions/{session_id}/messages")).await
+        self.get(&format!("chat/sessions/{session_id}/messages"))
+            .await
     }
 
     /// Submit a user message to a chat session.
@@ -219,7 +212,8 @@ impl HalconClient {
         &self,
         session_id: Uuid,
     ) -> Result<serde_json::Value, ClientError> {
-        self.delete(&format!("chat/sessions/{session_id}/active")).await
+        self.delete(&format!("chat/sessions/{session_id}/active"))
+            .await
     }
 
     /// Resolve a permission request in a chat session.
@@ -238,10 +232,7 @@ impl HalconClient {
 
     /// Check if the server is reachable.
     pub async fn health_check(&self) -> Result<bool, ClientError> {
-        let url = format!(
-            "{}/health",
-            self.config.base_url.trim_end_matches('/')
-        );
+        let url = format!("{}/health", self.config.base_url.trim_end_matches('/'));
         let resp = self.http.get(&url).send().await?;
         Ok(resp.status().is_success())
     }
@@ -252,7 +243,6 @@ impl HalconClient {
     pub async fn event_stream(&self) -> Result<EventStream, ClientError> {
         EventStream::connect(&self.config).await
     }
-
 
     // ── HTTP helpers ────────────────────────────────────
 
@@ -315,10 +305,7 @@ impl HalconClient {
         self.handle_response(resp).await
     }
 
-    async fn delete<T: serde::de::DeserializeOwned>(
-        &self,
-        path: &str,
-    ) -> Result<T, ClientError> {
+    async fn delete<T: serde::de::DeserializeOwned>(&self, path: &str) -> Result<T, ClientError> {
         let url = self.config.api_url(path);
         let resp = self
             .http

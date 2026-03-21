@@ -67,12 +67,18 @@ pub enum ImageMediaType {
 impl ImageMediaType {
     /// Detect image type from the first bytes of file data.
     pub fn from_magic(bytes: &[u8]) -> Option<Self> {
-        if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) { return Some(Self::Jpeg); }
-        if bytes.starts_with(&[0x89, 0x50, 0x4E, 0x47]) { return Some(Self::Png); }
+        if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+            return Some(Self::Jpeg);
+        }
+        if bytes.starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
+            return Some(Self::Png);
+        }
         if bytes.len() >= 12 && bytes.starts_with(b"RIFF") && &bytes[8..12] == b"WEBP" {
             return Some(Self::Webp);
         }
-        if bytes.starts_with(b"GIF8") { return Some(Self::Gif); }
+        if bytes.starts_with(b"GIF8") {
+            return Some(Self::Gif);
+        }
         None
     }
 
@@ -80,9 +86,9 @@ impl ImageMediaType {
     pub fn as_mime_str(self) -> &'static str {
         match self {
             Self::Jpeg => "image/jpeg",
-            Self::Png  => "image/png",
+            Self::Png => "image/png",
             Self::Webp => "image/webp",
-            Self::Gif  => "image/gif",
+            Self::Gif => "image/gif",
         }
     }
 }
@@ -91,7 +97,10 @@ impl ImageMediaType {
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub enum ImageSource {
     /// Base64-encoded image data with known media type.
-    Base64 { media_type: ImageMediaType, data: String },
+    Base64 {
+        media_type: ImageMediaType,
+        data: String,
+    },
     /// A URL pointing to an image (not supported by all providers).
     Url { url: String },
     /// A local filesystem path (must be resolved before API use).
@@ -121,7 +130,11 @@ pub enum ContentBlock {
     Image { source: ImageSource },
     /// The result of audio transcription.
     #[serde(rename = "audio_transcript")]
-    AudioTranscript { text: String, duration_secs: Option<f32>, confidence: Option<f32> },
+    AudioTranscript {
+        text: String,
+        duration_secs: Option<f32>,
+        confidence: Option<f32>,
+    },
 }
 
 /// Conversation role.
@@ -225,7 +238,11 @@ mod tests {
 
     #[test]
     fn token_usage_reasoning_tokens_defaults_to_none() {
-        let usage = TokenUsage { input_tokens: 10, output_tokens: 5, ..Default::default() };
+        let usage = TokenUsage {
+            input_tokens: 10,
+            output_tokens: 5,
+            ..Default::default()
+        };
         assert!(usage.reasoning_tokens.is_none());
     }
 

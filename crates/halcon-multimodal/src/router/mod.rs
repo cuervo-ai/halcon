@@ -19,20 +19,20 @@ use policy::{RoutingDecision, RoutingPolicy};
 /// returns a transient error (e.g., 429/503), the router retries with each
 /// fallback provider in order before propagating the error.
 pub struct HybridRouter {
-    policy:     RoutingPolicy,
-    cache:      Option<MediaCache>,
-    api:        Arc<dyn MultimodalProvider>,
-    local:      Option<Arc<dyn MultimodalProvider>>,
-    metrics:    Arc<MultimodalMetrics>,
+    policy: RoutingPolicy,
+    cache: Option<MediaCache>,
+    api: Arc<dyn MultimodalProvider>,
+    local: Option<Arc<dyn MultimodalProvider>>,
+    metrics: Arc<MultimodalMetrics>,
     /// Secondary providers tried when the primary `api` returns an error.
-    fallbacks:  Vec<Arc<dyn MultimodalProvider>>,
+    fallbacks: Vec<Arc<dyn MultimodalProvider>>,
 }
 
 impl std::fmt::Debug for HybridRouter {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("HybridRouter")
-            .field("policy",  &self.policy)
-            .field("cache",   &self.cache)
+            .field("policy", &self.policy)
+            .field("cache", &self.cache)
             .field("metrics", &self.metrics)
             .finish()
     }
@@ -40,13 +40,20 @@ impl std::fmt::Debug for HybridRouter {
 
 impl HybridRouter {
     pub fn new(
-        policy:  RoutingPolicy,
-        cache:   Option<MediaCache>,
-        api:     Arc<dyn MultimodalProvider>,
-        local:   Option<Arc<dyn MultimodalProvider>>,
+        policy: RoutingPolicy,
+        cache: Option<MediaCache>,
+        api: Arc<dyn MultimodalProvider>,
+        local: Option<Arc<dyn MultimodalProvider>>,
         metrics: Arc<MultimodalMetrics>,
     ) -> Self {
-        Self { policy, cache, api, local, metrics, fallbacks: vec![] }
+        Self {
+            policy,
+            cache,
+            api,
+            local,
+            metrics,
+            fallbacks: vec![],
+        }
     }
 
     /// Register additional providers to try if the primary API fails.
@@ -61,10 +68,14 @@ impl HybridRouter {
     }
 
     /// Name of the primary (API) provider.
-    pub fn provider_name(&self) -> &str { self.api.name() }
+    pub fn provider_name(&self) -> &str {
+        self.api.name()
+    }
 
     /// Returns true if the primary provider supports audio transcription.
-    pub fn supports_audio(&self) -> bool { self.api.supports_modality("audio") }
+    pub fn supports_audio(&self) -> bool {
+        self.api.supports_modality("audio")
+    }
 
     /// Analyze media: check cache → route → store result → return.
     pub async fn analyze(
@@ -104,8 +115,11 @@ impl HybridRouter {
         };
 
         // Provider fallback chain: on primary error, try each fallback in order.
-        let result = if primary_result.is_err() && !self.fallbacks.is_empty() {
-            let mut last_err = primary_result.unwrap_err();
+        let result = if let Err(initial_err) = primary_result {
+            if self.fallbacks.is_empty() {
+                return Err(initial_err);
+            }
+            let mut last_err = initial_err;
             let mut succeeded = None;
             for fb in &self.fallbacks {
                 self.metrics.inc_api_request();
@@ -133,12 +147,18 @@ impl HybridRouter {
             primary_result
         };
 
-        let analysis = result.map_err(|e| { self.metrics.inc_error(); e })?;
+        let analysis = result.inspect_err(|_e| {
+            self.metrics.inc_error();
+        })?;
 
         // Per-modality counters
-        if media.is_image()      { self.metrics.record_image(); }
-        else if media.is_audio() { self.metrics.record_audio(); }
-        else if media.is_video() { self.metrics.record_video(); }
+        if media.is_image() {
+            self.metrics.record_image();
+        } else if media.is_audio() {
+            self.metrics.record_audio();
+        } else if media.is_video() {
+            self.metrics.record_video();
+        }
 
         // Cache store (best-effort)
         if let Some(cache) = &self.cache {
@@ -157,22 +177,34 @@ mod tests {
     use super::*;
     use crate::error::MultimodalError;
     use crate::provider::MockMultimodalProvider;
-    use crate::security::{ValidatedMedia, mime::DetectedMime};
+    use crate::security::{mime::DetectedMime, ValidatedMedia};
 
     /// A provider that always returns an error (for testing fallback).
     struct AlwaysErrorProvider;
 
     #[async_trait::async_trait]
     impl crate::provider::MultimodalProvider for AlwaysErrorProvider {
-        fn name(&self) -> &str { "always-error" }
-        fn supports_modality(&self, _: &str) -> bool { true }
-        async fn analyze(&self, _: &ValidatedMedia, _: Option<&str>) -> crate::error::Result<crate::provider::MediaAnalysis> {
+        fn name(&self) -> &str {
+            "always-error"
+        }
+        fn supports_modality(&self, _: &str) -> bool {
+            true
+        }
+        async fn analyze(
+            &self,
+            _: &ValidatedMedia,
+            _: Option<&str>,
+        ) -> crate::error::Result<crate::provider::MediaAnalysis> {
             Err(MultimodalError::Internal("simulated API failure".into()))
         }
     }
 
     fn jpeg_media() -> ValidatedMedia {
-        ValidatedMedia { data: vec![0xFF, 0xD8, 0xFF, 0xD9], mime: DetectedMime::ImageJpeg, original_size: 4 }
+        ValidatedMedia {
+            data: vec![0xFF, 0xD8, 0xFF, 0xD9],
+            mime: DetectedMime::ImageJpeg,
+            original_size: 4,
+        }
     }
 
     fn make_router() -> HybridRouter {
@@ -188,7 +220,7 @@ mod tests {
     #[tokio::test]
     async fn router_returns_analysis() {
         let router = make_router();
-        let media  = jpeg_media();
+        let media = jpeg_media();
         let result = router.analyze(&media, Some("describe")).await.unwrap();
         assert_eq!(result.modality, "image");
     }
@@ -196,7 +228,7 @@ mod tests {
     #[tokio::test]
     async fn metrics_increment_on_request() {
         let metrics = MultimodalMetrics::new();
-        let router  = HybridRouter::new(
+        let router = HybridRouter::new(
             RoutingPolicy::default(),
             None,
             Arc::new(MockMultimodalProvider),
@@ -225,7 +257,10 @@ mod tests {
         .with_fallbacks(vec![Arc::new(MockMultimodalProvider)]);
 
         let result = router.analyze(&jpeg_media(), None).await.unwrap();
-        assert_eq!(result.modality, "image", "fallback should return image analysis");
+        assert_eq!(
+            result.modality, "image",
+            "fallback should return image analysis"
+        );
         // Primary + fallback = 2 api_requests incremented.
         assert_eq!(metrics.snapshot().api_requests, 2);
     }

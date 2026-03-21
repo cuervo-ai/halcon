@@ -136,8 +136,10 @@ pub fn select_mutation(
     }
 
     // 4. SwitchExecutionMode: investigating with good evidence + high drift
-    if matches!(signals.execution_intent, ExecutionIntentPhase::Investigation)
-        && signals.evidence_coverage > 0.60
+    if matches!(
+        signals.execution_intent,
+        ExecutionIntentPhase::Investigation
+    ) && signals.evidence_coverage > 0.60
         && signals.drift_score > thresholds.drift_threshold
     {
         return MutationRationale {
@@ -152,7 +154,9 @@ pub fn select_mutation(
         && signals.plan_completion_fraction < 0.30
     {
         return MutationRationale {
-            mutation: StrategyMutation::ReplanWithDecomposition { failing_step_idx: 0 },
+            mutation: StrategyMutation::ReplanWithDecomposition {
+                failing_step_idx: 0,
+            },
             primary_signal: "clustered tool failures in early plan steps",
             confidence: 0.65,
         };
@@ -262,7 +266,10 @@ mod tests {
             ..base_signals()
         };
         let r = select_mutation(&signals, &StrategyThresholds::default());
-        assert!(matches!(r.mutation, StrategyMutation::ReplanWithDecomposition { .. }));
+        assert!(matches!(
+            r.mutation,
+            StrategyMutation::ReplanWithDecomposition { .. }
+        ));
     }
 
     #[test]
@@ -344,7 +351,10 @@ mod tests {
             ..base_signals()
         };
         let r = select_mutation(&signals, &StrategyThresholds::default());
-        assert!(!matches!(r.mutation, StrategyMutation::ReplanWithDecomposition { .. }));
+        assert!(!matches!(
+            r.mutation,
+            StrategyMutation::ReplanWithDecomposition { .. }
+        ));
     }
 
     #[test]

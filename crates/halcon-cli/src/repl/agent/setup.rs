@@ -59,12 +59,11 @@ pub(super) fn build_context_pipeline(
         "Context pipeline budget derived from model context window"
     );
 
-    let mut pipeline = halcon_context::ContextPipeline::new(
-        &halcon_context::ContextPipelineConfig {
+    let mut pipeline =
+        halcon_context::ContextPipeline::new(&halcon_context::ContextPipelineConfig {
             max_context_tokens: pipeline_budget,
             ..Default::default()
-        },
-    );
+        });
 
     if let Some(ref sys) = request.system {
         pipeline.initialize(sys, std::path::Path::new(working_dir));

@@ -193,8 +193,9 @@ impl EditTransaction {
             old_content.replacen(old_string, new_string, 1)
         };
 
-        let preview = PatchPreviewEngine::preview_file_edit(path, old_string, new_string, replace_all)
-            .await?;
+        let preview =
+            PatchPreviewEngine::preview_file_edit(path, old_string, new_string, replace_all)
+                .await?;
 
         self.operations.push(StagedOperation::WriteFile {
             path: canonical,
@@ -235,7 +236,11 @@ impl EditTransaction {
                         // Best-effort rollback of already-applied files.
                         let _ = self.rollback_applied(&applied).await;
                         return Err(e).with_context(|| {
-                            format!("Transaction {} commit failed on {}", self.id, path.display())
+                            format!(
+                                "Transaction {} commit failed on {}",
+                                self.id,
+                                path.display()
+                            )
                         });
                     }
                     applied.push(path.clone());
@@ -257,7 +262,11 @@ impl EditTransaction {
                         self.status = TransactionStatus::Failed;
                         let _ = self.rollback_applied(&applied).await;
                         return Err(e).with_context(|| {
-                            format!("Transaction {} delete failed on {}", self.id, path.display())
+                            format!(
+                                "Transaction {} delete failed on {}",
+                                self.id,
+                                path.display()
+                            )
                         });
                     }
                     applied.push(path.clone());
@@ -281,7 +290,11 @@ impl EditTransaction {
         }
 
         warn!(txn = %self.id, "Rolling back transaction");
-        let paths: Vec<_> = self.operations.iter().map(|o| o.path().to_path_buf()).collect();
+        let paths: Vec<_> = self
+            .operations
+            .iter()
+            .map(|o| o.path().to_path_buf())
+            .collect();
         self.rollback_applied(&paths).await?;
         self.status = TransactionStatus::RolledBack;
         Ok(())
@@ -430,7 +443,6 @@ pub async fn write_atomic(path: &Path, content: &[u8]) -> Result<()> {
         // Check disk space (rough heuristic: available > 2 × content size).
         #[cfg(unix)]
         {
-            use std::os::unix::fs::MetadataExt;
             let parent = path.parent().unwrap_or(std::path::Path::new("."));
             if let Ok(stat) = nix_stat(parent) {
                 let available = stat;
@@ -462,8 +474,9 @@ pub async fn write_atomic(path: &Path, content: &[u8]) -> Result<()> {
             drop(f);
 
             // Atomic rename.
-            std::fs::rename(&tmp_path, &path)
-                .with_context(|| format!("Cannot rename {} → {}", tmp_path.display(), path.display()))?;
+            std::fs::rename(&tmp_path, &path).with_context(|| {
+                format!("Cannot rename {} → {}", tmp_path.display(), path.display())
+            })?;
 
             Ok(())
         })();
@@ -485,15 +498,14 @@ fn nix_stat(path: &Path) -> Result<u64> {
     use std::ffi::CString;
     use std::mem::MaybeUninit;
 
-    let c_path = CString::new(path.to_str().unwrap_or("."))
-        .context("Invalid path for statvfs")?;
+    let c_path = CString::new(path.to_str().unwrap_or(".")).context("Invalid path for statvfs")?;
 
     unsafe {
         let mut stat: MaybeUninit<libc::statvfs> = MaybeUninit::uninit();
         if libc::statvfs(c_path.as_ptr(), stat.as_mut_ptr()) == 0 {
             let s = stat.assume_init();
             // Cast both fields to u64 — types vary by platform (Darwin vs Linux).
-            Ok(s.f_bavail as u64 * s.f_bsize as u64)
+            Ok(s.f_bavail as u64 * s.f_bsize)
         } else {
             Ok(u64::MAX) // can't check → assume OK
         }
@@ -536,8 +548,12 @@ mod tests {
         std::fs::write(&b, "b_old").unwrap();
 
         let mut txn = EditTransaction::new();
-        txn.stage_write(a.to_str().unwrap(), b"a_new").await.unwrap();
-        txn.stage_write(b.to_str().unwrap(), b"b_new").await.unwrap();
+        txn.stage_write(a.to_str().unwrap(), b"a_new")
+            .await
+            .unwrap();
+        txn.stage_write(b.to_str().unwrap(), b"b_new")
+            .await
+            .unwrap();
         txn.commit().await.unwrap();
 
         assert_eq!(std::fs::read_to_string(&a).unwrap(), "a_new");
@@ -551,7 +567,9 @@ mod tests {
         std::fs::write(&path, "fn old() {}").unwrap();
 
         let mut txn = EditTransaction::new();
-        txn.stage_write(path.to_str().unwrap(), b"fn new() {}").await.unwrap();
+        txn.stage_write(path.to_str().unwrap(), b"fn new() {}")
+            .await
+            .unwrap();
 
         // Rollback without committing.
         txn.rollback().await.unwrap();
@@ -568,7 +586,9 @@ mod tests {
         std::fs::write(&path, "original").unwrap();
 
         let mut txn = EditTransaction::new();
-        txn.stage_write(path.to_str().unwrap(), b"new").await.unwrap();
+        txn.stage_write(path.to_str().unwrap(), b"new")
+            .await
+            .unwrap();
         txn.rollback().await.unwrap();
         txn.rollback().await.unwrap(); // second call: no error
         assert_eq!(txn.status, TransactionStatus::RolledBack);
@@ -614,8 +634,12 @@ mod tests {
         std::fs::write(&critical, "fn authenticate() {}").unwrap();
 
         let mut txn = EditTransaction::new();
-        txn.stage_write(low.to_str().unwrap(), b"# updated docs").await.unwrap();
-        txn.stage_write(critical.to_str().unwrap(), b"fn authenticate() { todo!() }").await.unwrap();
+        txn.stage_write(low.to_str().unwrap(), b"# updated docs")
+            .await
+            .unwrap();
+        txn.stage_write(critical.to_str().unwrap(), b"fn authenticate() { todo!() }")
+            .await
+            .unwrap();
 
         // auth.rs → Critical
         assert_eq!(txn.max_risk_tier(), RiskTier::Critical);
@@ -628,7 +652,9 @@ mod tests {
         std::fs::write(&path, "v1").unwrap();
 
         let mut txn = EditTransaction::new();
-        txn.stage_write(path.to_str().unwrap(), b"v2").await.unwrap();
+        txn.stage_write(path.to_str().unwrap(), b"v2")
+            .await
+            .unwrap();
         txn.commit().await.unwrap();
 
         let result = txn.stage_write(path.to_str().unwrap(), b"v3").await;

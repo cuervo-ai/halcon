@@ -5,8 +5,8 @@
 //! [`super::connection::run_connection_worker`].
 
 use halcon_api::types::chat::{
-    CreateSessionRequest, MediaAttachmentInline, PermissionDecisionStr,
-    ResolvePermissionRequest, SubmitMessageRequest,
+    CreateSessionRequest, MediaAttachmentInline, PermissionDecisionStr, ResolvePermissionRequest,
+    SubmitMessageRequest,
 };
 use halcon_client::HalconClient;
 use tokio::sync::mpsc;
@@ -108,11 +108,7 @@ pub async fn send_message(
     (repaint)();
 }
 
-pub async fn cancel_execution(
-    c: &HalconClient,
-    repaint: &RepaintFn,
-    session_id: Uuid,
-) {
+pub async fn cancel_execution(c: &HalconClient, repaint: &RepaintFn, session_id: Uuid) {
     if let Err(e) = c.cancel_chat_execution(session_id).await {
         tracing::warn!(error = %e, session_id = %session_id, "failed to cancel chat");
     }
@@ -139,11 +135,7 @@ pub async fn resolve_permission(
     (repaint)();
 }
 
-pub async fn delete_session(
-    c: &HalconClient,
-    repaint: &RepaintFn,
-    session_id: Uuid,
-) {
+pub async fn delete_session(c: &HalconClient, repaint: &RepaintFn, session_id: Uuid) {
     if let Err(e) = c.delete_chat_session(session_id).await {
         tracing::warn!(error = %e, "failed to delete chat session");
     }

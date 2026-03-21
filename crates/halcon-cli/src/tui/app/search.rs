@@ -19,7 +19,12 @@ impl TuiApp {
                     // Fire-and-forget save (don't block UI on database I/O)
                     tokio::spawn(async move {
                         let _ = db_clone
-                            .save_search_history(query_clone, search_mode.to_string(), match_count, None)
+                            .save_search_history(
+                                query_clone,
+                                search_mode.to_string(),
+                                match_count,
+                                None,
+                            )
                             .await;
                     });
                 }
@@ -34,7 +39,8 @@ impl TuiApp {
                 self.activity_navigator.selected_index = Some(line_idx);
                 // Phase 3 SRCH-003: Highlight first match on search entry
                 let palette = &crate::render::theme::active().palette;
-                self.highlights.start_medium(&format!("search_{}", line_idx), palette.accent);
+                self.highlights
+                    .start_medium(&format!("search_{}", line_idx), palette.accent);
             }
         }
     }
@@ -52,7 +58,8 @@ impl TuiApp {
 
         // Phase B3: Add highlight pulse to current match
         let palette = &crate::render::theme::active().palette;
-        self.highlights.start_medium(&format!("search_{}", line_idx), palette.accent);
+        self.highlights
+            .start_medium(&format!("search_{}", line_idx), palette.accent);
     }
 
     /// Navigate to the previous search match.
@@ -72,6 +79,7 @@ impl TuiApp {
 
         // Phase B3: Add highlight pulse to current match
         let palette = &crate::render::theme::active().palette;
-        self.highlights.start_medium(&format!("search_{}", line_idx), palette.accent);
+        self.highlights
+            .start_medium(&format!("search_{}", line_idx), palette.accent);
     }
 }

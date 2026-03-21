@@ -36,9 +36,9 @@ impl TaskBacklog {
 
         // Auto-set Ready/Blocked based on dependencies.
         let has_unsatisfied_deps = task.depends_on.iter().any(|dep_id| {
-            self.tasks
-                .get(dep_id)
-                .map_or(true, |t| !t.status.is_terminal() || t.status == StructuredTaskStatus::Failed)
+            self.tasks.get(dep_id).map_or(true, |t| {
+                !t.status.is_terminal() || t.status == StructuredTaskStatus::Failed
+            })
         });
 
         if task.status == StructuredTaskStatus::Pending {
@@ -150,15 +150,12 @@ impl TaskBacklog {
             .tasks
             .get_mut(&task_id)
             .ok_or_else(|| format!("task not found: {task_id}"))?;
-        let new_status = task
-            .status
-            .transition_to(StructuredTaskStatus::Completed)?;
+        let new_status = task.status.transition_to(StructuredTaskStatus::Completed)?;
         task.status = new_status;
         task.finished_at = Some(chrono::Utc::now());
         if let Some(started) = task.started_at {
-            task.duration_ms = Some(
-                (chrono::Utc::now() - started).num_milliseconds().max(0) as u64,
-            );
+            task.duration_ms =
+                Some((chrono::Utc::now() - started).num_milliseconds().max(0) as u64);
         }
         task.provenance = provenance;
         task.artifacts = artifacts;
@@ -178,9 +175,8 @@ impl TaskBacklog {
         task.error = Some(error);
         task.finished_at = Some(chrono::Utc::now());
         if let Some(started) = task.started_at {
-            task.duration_ms = Some(
-                (chrono::Utc::now() - started).num_milliseconds().max(0) as u64,
-            );
+            task.duration_ms =
+                Some((chrono::Utc::now() - started).num_milliseconds().max(0) as u64);
         }
 
         // Always transition to Failed first (Running→Failed is valid).
@@ -435,7 +431,9 @@ mod tests {
     fn ready_wave_respects_max() {
         let mut backlog = TaskBacklog::new();
         for i in 0..5 {
-            backlog.add_task(make_task(&format!("T{i}"), i as u32)).unwrap();
+            backlog
+                .add_task(make_task(&format!("T{i}"), i as u32))
+                .unwrap();
         }
 
         let wave = backlog.ready_wave(3);
@@ -454,8 +452,13 @@ mod tests {
         backlog.add_task(task).unwrap();
 
         // Ready → Running (valid)
-        backlog.transition(id, StructuredTaskStatus::Running).unwrap();
-        assert_eq!(backlog.get(id).unwrap().status, StructuredTaskStatus::Running);
+        backlog
+            .transition(id, StructuredTaskStatus::Running)
+            .unwrap();
+        assert_eq!(
+            backlog.get(id).unwrap().status,
+            StructuredTaskStatus::Running
+        );
 
         // Running → Ready (invalid)
         assert!(backlog.transition(id, StructuredTaskStatus::Ready).is_err());
@@ -467,19 +470,22 @@ mod tests {
         let task = make_task("T", 5);
         let id = task.task_id;
         backlog.add_task(task).unwrap();
-        backlog.transition(id, StructuredTaskStatus::Running).unwrap();
+        backlog
+            .transition(id, StructuredTaskStatus::Running)
+            .unwrap();
 
         let prov = TaskProvenance {
             model: Some("gpt-4o".into()),
             ..Default::default()
         };
-        backlog
-            .complete_task(id, Some(prov), Vec::new())
-            .unwrap();
+        backlog.complete_task(id, Some(prov), Vec::new()).unwrap();
 
         let t = backlog.get(id).unwrap();
         assert_eq!(t.status, StructuredTaskStatus::Completed);
-        assert_eq!(t.provenance.as_ref().unwrap().model.as_deref(), Some("gpt-4o"));
+        assert_eq!(
+            t.provenance.as_ref().unwrap().model.as_deref(),
+            Some("gpt-4o")
+        );
         assert!(t.finished_at.is_some());
     }
 
@@ -490,11 +496,16 @@ mod tests {
         task.retry_policy.max_retries = 2;
         let id = task.task_id;
         backlog.add_task(task).unwrap();
-        backlog.transition(id, StructuredTaskStatus::Running).unwrap();
+        backlog
+            .transition(id, StructuredTaskStatus::Running)
+            .unwrap();
 
         let affected = backlog.fail_task(id, "timeout".into()).unwrap();
         assert!(affected.is_empty()); // No cascade when retrying.
-        assert_eq!(backlog.get(id).unwrap().status, StructuredTaskStatus::Retrying);
+        assert_eq!(
+            backlog.get(id).unwrap().status,
+            StructuredTaskStatus::Retrying
+        );
         assert_eq!(backlog.get(id).unwrap().retry_count, 1);
     }
 
@@ -505,10 +516,15 @@ mod tests {
         task.retry_policy.max_retries = 0; // No retries allowed.
         let id = task.task_id;
         backlog.add_task(task).unwrap();
-        backlog.transition(id, StructuredTaskStatus::Running).unwrap();
+        backlog
+            .transition(id, StructuredTaskStatus::Running)
+            .unwrap();
 
         let affected = backlog.fail_task(id, "fatal".into()).unwrap();
-        assert_eq!(backlog.get(id).unwrap().status, StructuredTaskStatus::Failed);
+        assert_eq!(
+            backlog.get(id).unwrap().status,
+            StructuredTaskStatus::Failed
+        );
         // No dependents to cascade.
         assert!(affected.is_empty());
     }
@@ -529,7 +545,9 @@ mod tests {
         backlog.add_task(t3).unwrap();
 
         // Transition T1 to Running → Failed.
-        backlog.transition(id1, StructuredTaskStatus::Running).unwrap();
+        backlog
+            .transition(id1, StructuredTaskStatus::Running)
+            .unwrap();
         let mut task1 = backlog.get_mut(id1).unwrap();
         task1.retry_policy.max_retries = 0;
 
@@ -538,8 +556,14 @@ mod tests {
         // T2 and T3 should be Skipped.
         assert!(affected.contains(&id2));
         assert!(affected.contains(&id3));
-        assert_eq!(backlog.get(id2).unwrap().status, StructuredTaskStatus::Skipped);
-        assert_eq!(backlog.get(id3).unwrap().status, StructuredTaskStatus::Skipped);
+        assert_eq!(
+            backlog.get(id2).unwrap().status,
+            StructuredTaskStatus::Skipped
+        );
+        assert_eq!(
+            backlog.get(id3).unwrap().status,
+            StructuredTaskStatus::Skipped
+        );
     }
 
     #[test]
@@ -552,10 +576,10 @@ mod tests {
         assert!(!backlog.is_complete());
         assert_eq!(backlog.progress(), (0, 0, 1));
 
-        backlog.transition(id1, StructuredTaskStatus::Running).unwrap();
         backlog
-            .complete_task(id1, None, Vec::new())
+            .transition(id1, StructuredTaskStatus::Running)
             .unwrap();
+        backlog.complete_task(id1, None, Vec::new()).unwrap();
 
         assert!(backlog.is_complete());
         assert_eq!(backlog.progress(), (1, 0, 1));
@@ -572,13 +596,21 @@ mod tests {
         let id2 = t2.task_id;
         backlog.add_task(t2).unwrap();
 
-        assert_eq!(backlog.get(id2).unwrap().status, StructuredTaskStatus::Blocked);
+        assert_eq!(
+            backlog.get(id2).unwrap().status,
+            StructuredTaskStatus::Blocked
+        );
 
         // Complete T1 → T2 should become Ready.
-        backlog.transition(id1, StructuredTaskStatus::Running).unwrap();
+        backlog
+            .transition(id1, StructuredTaskStatus::Running)
+            .unwrap();
         backlog.complete_task(id1, None, Vec::new()).unwrap();
 
-        assert_eq!(backlog.get(id2).unwrap().status, StructuredTaskStatus::Ready);
+        assert_eq!(
+            backlog.get(id2).unwrap().status,
+            StructuredTaskStatus::Ready
+        );
     }
 
     // ── Audit fix tests ───────────────────────────────────────────────────────
@@ -626,8 +658,12 @@ mod tests {
         backlog.add_task(t2).unwrap();
 
         // Transition T1: Ready → Running → Failed.
-        backlog.transition(id1, StructuredTaskStatus::Running).unwrap();
-        backlog.transition(id1, StructuredTaskStatus::Failed).unwrap();
+        backlog
+            .transition(id1, StructuredTaskStatus::Running)
+            .unwrap();
+        backlog
+            .transition(id1, StructuredTaskStatus::Failed)
+            .unwrap();
 
         // T2 was Blocked on T1; after T1 fails it must be Skipped.
         assert_eq!(
@@ -653,9 +689,16 @@ mod tests {
         let id2 = t2.task_id;
         backlog.add_task(t2).unwrap();
 
-        backlog.transition(id1, StructuredTaskStatus::Running).unwrap();
-        backlog.transition(id1, StructuredTaskStatus::Completed).unwrap();
+        backlog
+            .transition(id1, StructuredTaskStatus::Running)
+            .unwrap();
+        backlog
+            .transition(id1, StructuredTaskStatus::Completed)
+            .unwrap();
 
-        assert_eq!(backlog.get(id2).unwrap().status, StructuredTaskStatus::Ready);
+        assert_eq!(
+            backlog.get(id2).unwrap().status,
+            StructuredTaskStatus::Ready
+        );
     }
 }

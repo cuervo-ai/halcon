@@ -2,17 +2,17 @@
 //! `UiCommand` variants to focused handler modules, and spawns the WebSocket
 //! event loop task on successful connect.
 
-use halcon_client::{ClientConfig, HalconClient};
 use halcon_api::types::agent::InvokeAgentRequest;
 use halcon_api::types::task::{AgentSelectorSpec, SubmitTaskRequest, TaskNodeSpec};
+use halcon_client::{ClientConfig, HalconClient};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-use super::{BackendMessage, UiCommand};
-use super::{chat_handlers, file_handlers, media_handlers};
 use super::ws_loop::run_ws_event_loop;
+use super::{chat_handlers, file_handlers, media_handlers};
+use super::{BackendMessage, UiCommand};
 
 /// Background worker that manages the client connection and processes commands.
 ///
@@ -63,7 +63,8 @@ pub async fn run_connection_worker(
                                 Ok(stream) => {
                                     let tx2 = msg_tx.clone();
                                     let rp2 = repaint.clone();
-                                    ws_handle = Some(tokio::spawn(run_ws_event_loop(stream, tx2, rp2)));
+                                    ws_handle =
+                                        Some(tokio::spawn(run_ws_event_loop(stream, tx2, rp2)));
                                     tracing::info!("WebSocket event stream started");
                                 }
                                 Err(e) => {
@@ -107,8 +108,12 @@ pub async fn run_connection_worker(
             UiCommand::RefreshAgents => {
                 if let Some(ref c) = client {
                     match c.list_agents().await {
-                        Ok(agents) => { let _ = msg_tx.try_send(BackendMessage::AgentsUpdated(agents)); }
-                        Err(e) => { tracing::warn!(error = %e, "failed to refresh agents"); }
+                        Ok(agents) => {
+                            let _ = msg_tx.try_send(BackendMessage::AgentsUpdated(agents));
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, "failed to refresh agents");
+                        }
                     }
                     (repaint)();
                 }
@@ -116,8 +121,12 @@ pub async fn run_connection_worker(
             UiCommand::RefreshTasks => {
                 if let Some(ref c) = client {
                     match c.list_tasks().await {
-                        Ok(tasks) => { let _ = msg_tx.try_send(BackendMessage::TasksUpdated(tasks)); }
-                        Err(e) => { tracing::warn!(error = %e, "failed to refresh tasks"); }
+                        Ok(tasks) => {
+                            let _ = msg_tx.try_send(BackendMessage::TasksUpdated(tasks));
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, "failed to refresh tasks");
+                        }
                     }
                     (repaint)();
                 }
@@ -125,8 +134,12 @@ pub async fn run_connection_worker(
             UiCommand::RefreshTools => {
                 if let Some(ref c) = client {
                     match c.list_tools().await {
-                        Ok(tools) => { let _ = msg_tx.try_send(BackendMessage::ToolsUpdated(tools)); }
-                        Err(e) => { tracing::warn!(error = %e, "failed to refresh tools"); }
+                        Ok(tools) => {
+                            let _ = msg_tx.try_send(BackendMessage::ToolsUpdated(tools));
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, "failed to refresh tools");
+                        }
                     }
                     (repaint)();
                 }
@@ -134,8 +147,12 @@ pub async fn run_connection_worker(
             UiCommand::RefreshMetrics => {
                 if let Some(ref c) = client {
                     match c.metrics().await {
-                        Ok(m) => { let _ = msg_tx.try_send(BackendMessage::MetricsUpdated(m)); }
-                        Err(e) => { tracing::warn!(error = %e, "failed to refresh metrics"); }
+                        Ok(m) => {
+                            let _ = msg_tx.try_send(BackendMessage::MetricsUpdated(m));
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, "failed to refresh metrics");
+                        }
                     }
                     (repaint)();
                 }
@@ -143,8 +160,12 @@ pub async fn run_connection_worker(
             UiCommand::RefreshStatus => {
                 if let Some(ref c) = client {
                     match c.system_status().await {
-                        Ok(s) => { let _ = msg_tx.try_send(BackendMessage::SystemStatusUpdated(s)); }
-                        Err(e) => { tracing::warn!(error = %e, "failed to refresh status"); }
+                        Ok(s) => {
+                            let _ = msg_tx.try_send(BackendMessage::SystemStatusUpdated(s));
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, "failed to refresh status");
+                        }
                     }
                     (repaint)();
                 }
@@ -152,7 +173,9 @@ pub async fn run_connection_worker(
             UiCommand::RefreshConfig => {
                 if let Some(ref c) = client {
                     match c.get_config().await {
-                        Ok(cfg) => { let _ = msg_tx.try_send(BackendMessage::ConfigLoaded(cfg)); }
+                        Ok(cfg) => {
+                            let _ = msg_tx.try_send(BackendMessage::ConfigLoaded(cfg));
+                        }
                         Err(e) => {
                             tracing::warn!(error = %e, "failed to refresh config");
                             let _ = msg_tx.try_send(BackendMessage::ConfigError(e.to_string()));
@@ -164,7 +187,9 @@ pub async fn run_connection_worker(
             UiCommand::UpdateConfig(update) => {
                 if let Some(ref c) = client {
                     match c.update_config(*update).await {
-                        Ok(cfg) => { let _ = msg_tx.try_send(BackendMessage::ConfigUpdated(cfg)); }
+                        Ok(cfg) => {
+                            let _ = msg_tx.try_send(BackendMessage::ConfigUpdated(cfg));
+                        }
                         Err(e) => {
                             tracing::warn!(error = %e, "failed to update config");
                             let _ = msg_tx.try_send(BackendMessage::ConfigError(e.to_string()));
@@ -209,9 +234,14 @@ pub async fn run_connection_worker(
             }
 
             // ── Chat commands — delegated to chat_handlers ───────────────────
-            UiCommand::CreateChatSession { model, provider, title } => {
+            UiCommand::CreateChatSession {
+                model,
+                provider,
+                title,
+            } => {
                 if let Some(ref c) = client {
-                    chat_handlers::create_session(c, &msg_tx, &repaint, model, provider, title).await;
+                    chat_handlers::create_session(c, &msg_tx, &repaint, model, provider, title)
+                        .await;
                 }
             }
             UiCommand::LoadChatSessions => {
@@ -224,9 +254,23 @@ pub async fn run_connection_worker(
                     chat_handlers::load_messages(c, &msg_tx, &repaint, session_id).await;
                 }
             }
-            UiCommand::SendChatMessage { session_id, content, orchestrate, attachments } => {
+            UiCommand::SendChatMessage {
+                session_id,
+                content,
+                orchestrate,
+                attachments,
+            } => {
                 if let Some(ref c) = client {
-                    chat_handlers::send_message(c, &msg_tx, &repaint, session_id, content, orchestrate, attachments).await;
+                    chat_handlers::send_message(
+                        c,
+                        &msg_tx,
+                        &repaint,
+                        session_id,
+                        content,
+                        orchestrate,
+                        attachments,
+                    )
+                    .await;
                 }
             }
             UiCommand::CancelChatExecution { session_id } => {
@@ -234,9 +278,14 @@ pub async fn run_connection_worker(
                     chat_handlers::cancel_execution(c, &repaint, session_id).await;
                 }
             }
-            UiCommand::ResolvePermission { session_id, request_id, approve } => {
+            UiCommand::ResolvePermission {
+                session_id,
+                request_id,
+                approve,
+            } => {
                 if let Some(ref c) = client {
-                    chat_handlers::resolve_permission(c, &repaint, session_id, request_id, approve).await;
+                    chat_handlers::resolve_permission(c, &repaint, session_id, request_id, approve)
+                        .await;
                 }
             }
             UiCommand::DeleteChatSession { session_id } => {
@@ -270,7 +319,10 @@ pub async fn run_connection_worker(
             }
 
             // ── Agent / task fire-and-forget ──────────────────────────────────
-            UiCommand::InvokeAgent { agent_id, instruction } => {
+            UiCommand::InvokeAgent {
+                agent_id,
+                instruction,
+            } => {
                 if let Some(ref c) = client {
                     let req = InvokeAgentRequest {
                         instruction,
@@ -285,7 +337,10 @@ pub async fn run_connection_worker(
                     (repaint)();
                 }
             }
-            UiCommand::SubmitTask { instruction, agent_id } => {
+            UiCommand::SubmitTask {
+                instruction,
+                agent_id,
+            } => {
                 if let Some(ref c) = client {
                     let node = TaskNodeSpec {
                         task_id: Uuid::new_v4(),

@@ -62,7 +62,11 @@ impl WebSearchTool {
             "Found {} results in {}ms {}\n\n",
             results.total_count,
             results.elapsed_ms,
-            if results.from_cache { "⚡ (cached)" } else { "" }
+            if results.from_cache {
+                "⚡ (cached)"
+            } else {
+                ""
+            }
         ));
 
         output.push_str("| Rank | Score | Title | URL |\n");
@@ -70,7 +74,13 @@ impl WebSearchTool {
 
         for (i, result) in results.results.iter().enumerate() {
             let title = result.document.title.chars().take(60).collect::<String>();
-            let url = result.document.url.to_string().chars().take(70).collect::<String>();
+            let url = result
+                .document
+                .url
+                .to_string()
+                .chars()
+                .take(70)
+                .collect::<String>();
             output.push_str(&format!(
                 "| {} | {:.2} | {} | {} |\n",
                 i + 1,
@@ -122,11 +132,9 @@ impl Tool for WebSearchTool {
 
     async fn execute(&self, input: ToolInput) -> Result<ToolOutput> {
         // Extract and validate query
-        let query = input.arguments["query"]
-            .as_str()
-            .ok_or_else(|| {
-                HalconError::InvalidInput("web_search requires 'query' string".into())
-            })?;
+        let query = input.arguments["query"].as_str().ok_or_else(|| {
+            HalconError::InvalidInput("web_search requires 'query' string".into())
+        })?;
 
         if query.trim().is_empty() {
             return Err(HalconError::InvalidInput(
@@ -135,34 +143,35 @@ impl Tool for WebSearchTool {
         }
 
         // Get database reference (fail fast if not initialized)
-        let db = self.db.as_ref().ok_or_else(|| {
-            HalconError::ToolExecutionFailed {
+        let db = self
+            .db
+            .as_ref()
+            .ok_or_else(|| HalconError::ToolExecutionFailed {
                 tool: "web_search".to_string(),
                 message: "Database not initialized. Search index unavailable.".to_string(),
-            }
-        })?;
+            })?;
 
         // Create search engine (lightweight facade, no heavy initialization)
         let search_engine = halcon_search::SearchEngine::new(
             db.clone(),
             halcon_search::SearchEngineConfig::default(),
         )
-        .map_err(|e| {
-            HalconError::ToolExecutionFailed {
-                tool: "web_search".to_string(),
-                message: format!("Failed to initialize search engine: {}", e),
-            }
+        .map_err(|e| HalconError::ToolExecutionFailed {
+            tool: "web_search".to_string(),
+            message: format!("Failed to initialize search engine: {}", e),
         })?;
 
         // Execute search (async, non-blocking for agent)
         // SearchEngine uses tokio::spawn_blocking for SQLite I/O
         // Agent can process other tasks concurrently
-        let results = search_engine.search(query).await.map_err(|e| {
-            HalconError::ToolExecutionFailed {
-                tool: "web_search".to_string(),
-                message: format!("Search failed: {}", e),
-            }
-        })?;
+        let results =
+            search_engine
+                .search(query)
+                .await
+                .map_err(|e| HalconError::ToolExecutionFailed {
+                    tool: "web_search".to_string(),
+                    message: format!("Search failed: {}", e),
+                })?;
 
         // Format results for LLM consumption
         let content = Self::format_results(&results);
@@ -280,10 +289,18 @@ mod tests {
     fn description_mentions_local_not_internet() {
         let tool = WebSearchTool::new(None);
         let desc = tool.description();
-        assert!(desc.contains("LOCAL") || desc.contains("local"), "desc: {desc}");
-        assert!(desc.contains("FTS5") || desc.contains("index"), "desc: {desc}");
-        assert!(desc.to_lowercase().contains("not the internet") || desc.contains("crawled"),
-            "description should clarify this is NOT a web search: {desc}");
+        assert!(
+            desc.contains("LOCAL") || desc.contains("local"),
+            "desc: {desc}"
+        );
+        assert!(
+            desc.contains("FTS5") || desc.contains("index"),
+            "desc: {desc}"
+        );
+        assert!(
+            desc.to_lowercase().contains("not the internet") || desc.contains("crawled"),
+            "description should clarify this is NOT a web search: {desc}"
+        );
     }
 
     #[test]

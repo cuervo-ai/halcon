@@ -632,7 +632,7 @@ impl AdvancedScorer {
             confidence_components: conf_breakdown.confidence_components,
         };
 
-        AdvancedScore::new(after.clone(), impact, effort, confidence).with_breakdown(breakdown)
+        AdvancedScore::new(*after, impact, effort, confidence).with_breakdown(breakdown)
     }
 
     /// Get the confidence calculator for recording outcomes

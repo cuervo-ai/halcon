@@ -148,7 +148,10 @@ mod tests {
         let result = build_injection(dir.path(), "nonexistent-repo");
         assert!(result.is_some());
         let text = result.unwrap();
-        assert!(text.starts_with("## Agent Memory"), "must start with section header");
+        assert!(
+            text.starts_with("## Agent Memory"),
+            "must start with section header"
+        );
         assert!(text.contains("entry one"));
     }
 

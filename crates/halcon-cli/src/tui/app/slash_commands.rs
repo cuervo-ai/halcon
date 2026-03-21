@@ -9,7 +9,8 @@ impl TuiApp {
             "pause" => {
                 use crate::tui::state::AgentControl;
                 if !self.state.agent_running {
-                    self.activity_model.push_warning("[pause] No agent is running", None);
+                    self.activity_model
+                        .push_warning("[pause] No agent is running", None);
                     return;
                 }
                 self.state.agent_control = AgentControl::Paused;
@@ -19,7 +20,8 @@ impl TuiApp {
             "resume" => {
                 use crate::tui::state::AgentControl;
                 if self.state.agent_control != AgentControl::Paused {
-                    self.activity_model.push_warning("[resume] Agent is not paused", None);
+                    self.activity_model
+                        .push_warning("[resume] Agent is not paused", None);
                     return;
                 }
                 self.state.agent_control = AgentControl::Running;
@@ -29,16 +31,19 @@ impl TuiApp {
             "step" => {
                 use crate::tui::state::AgentControl;
                 if !self.state.agent_running {
-                    self.activity_model.push_warning("[step] No agent is running", None);
+                    self.activity_model
+                        .push_warning("[step] No agent is running", None);
                     return;
                 }
                 self.state.agent_control = AgentControl::StepMode;
                 let _ = self.ctrl_tx.send(ControlEvent::Step);
-                self.activity_model.push_info("[control] ⏭ Step mode — executing one agent step");
+                self.activity_model
+                    .push_info("[control] ⏭ Step mode — executing one agent step");
             }
             "cancel" => {
                 if !self.state.agent_running {
-                    self.activity_model.push_warning("[cancel] No agent is running", None);
+                    self.activity_model
+                        .push_warning("[cancel] No agent is running", None);
                     return;
                 }
                 let _ = self.ctrl_tx.send(ControlEvent::CancelAgent);
@@ -49,7 +54,11 @@ impl TuiApp {
             "status" => {
                 let provider = self.status.current_provider();
                 let model = self.status.current_model();
-                let agent_state = if self.state.agent_running { "running" } else { "idle" };
+                let agent_state = if self.state.agent_running {
+                    "running"
+                } else {
+                    "idle"
+                };
                 let session = self.status.session_id();
                 self.activity_model.push_info(&format!(
                     "[status] Provider: {provider} | Model: {model} | Agent: {agent_state} | Session: {session}"
@@ -59,13 +68,13 @@ impl TuiApp {
                 let session = self.status.session_id();
                 let provider = self.status.current_provider();
                 let model = self.status.current_model();
-                self.activity_model.push_info(&format!(
-                    "[session] ID: {session} | {provider}/{model}"
-                ));
+                self.activity_model
+                    .push_info(&format!("[session] ID: {session} | {provider}/{model}"));
             }
             "metrics" => {
                 let metrics = self.panel.metrics_summary();
-                self.activity_model.push_info(&format!("[metrics] {metrics}"));
+                self.activity_model
+                    .push_info(&format!("[metrics] {metrics}"));
             }
             "context" => {
                 let ctx = self.panel.context_summary();
@@ -83,7 +92,8 @@ impl TuiApp {
             }
             "why" => {
                 let reasoning = self.panel.reasoning_summary();
-                self.activity_model.push_info(&format!("[reasoning] {reasoning}"));
+                self.activity_model
+                    .push_info(&format!("[reasoning] {reasoning}"));
             }
             "inspect" => {
                 let provider = self.status.current_provider();
@@ -109,7 +119,8 @@ impl TuiApp {
             "plan" => {
                 self.state.panel_visible = true;
                 self.state.panel_section = crate::tui::state::PanelSection::Plan;
-                self.activity_model.push_info("[plan] Side panel switched to Plan view");
+                self.activity_model
+                    .push_info("[plan] Side panel switched to Plan view");
             }
             "panel" => {
                 self.state.panel_visible = !self.state.panel_visible;
@@ -136,8 +147,8 @@ impl TuiApp {
                 // the wizard from Step 0 → Step 1.
                 if let Some(ref tx) = self.ui_tx_for_bg {
                     let tx = tx.clone();
-                    let cwd = std::env::current_dir()
-                        .unwrap_or_else(|_| std::path::PathBuf::from("."));
+                    let cwd =
+                        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
                     tokio::spawn(async move {
                         super::super::project_analyzer::analyze_and_emit(tx, cwd).await;
                     });
@@ -156,18 +167,24 @@ impl TuiApp {
             }
             "dry-run" | "dryrun" => {
                 self.state.dry_run_active = !self.state.dry_run_active;
-                let state = if self.state.dry_run_active { "ON" } else { "OFF" };
+                let state = if self.state.dry_run_active {
+                    "ON"
+                } else {
+                    "OFF"
+                };
                 self.activity_model.push_info(&format!(
                     "[dry-run] Dry-run mode {state} — destructive tools will be skipped"
                 ));
             }
             "reasoning" => {
                 let summary = self.panel.reasoning_summary();
-                self.activity_model.push_info(&format!("[reasoning] {summary}"));
+                self.activity_model
+                    .push_info(&format!("[reasoning] {summary}"));
             }
             "experts" | "expert" => {
                 self.handle_action(input::InputAction::CycleUiMode);
-                self.activity_model.push_info("[mode] Cycled UI display mode");
+                self.activity_model
+                    .push_info("[mode] Cycled UI display mode");
             }
             other => {
                 self.activity_model.push_warning(

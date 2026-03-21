@@ -3834,8 +3834,8 @@ fn phase6_e_quality_cost_multiplier_responds_to_failure_and_success() {
 /// This verifies the evaluator and reward pipeline both handle the new variant.
 #[test]
 fn p2c_cost_budget_stop_condition_scores_correctly() {
-    use crate::repl::metrics::evaluator::{AgentLoopOutcome, CompositeEvaluator};
     use super::super::reward_pipeline::{compute_reward, RawRewardSignals};
+    use crate::repl::metrics::evaluator::{AgentLoopOutcome, CompositeEvaluator};
 
     // Evaluator: CostBudget should score 0.3 (same as TokenBudget / DurationBudget).
     let outcome = AgentLoopOutcome {

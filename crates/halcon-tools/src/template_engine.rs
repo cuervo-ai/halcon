@@ -26,7 +26,7 @@ impl TemplateEngineTool {
 
     /// Convert "hello_world" or "Hello World" → "HelloWorld" (PascalCase).
     fn pascal_case(s: &str) -> String {
-        s.split(|c: char| c == '_' || c == '-' || c == ' ')
+        s.split(['_', '-', ' '])
             .map(|word| {
                 let mut chars = word.chars();
                 match chars.next() {
@@ -97,7 +97,9 @@ impl TemplateEngineTool {
         while let Some(start) = rest.find("{{") {
             out.push_str(&rest[..start]);
             rest = &rest[start + 2..];
-            let end = rest.find("}}").ok_or_else(|| "Unclosed {{ in template".to_string())?;
+            let end = rest
+                .find("}}")
+                .ok_or_else(|| "Unclosed {{ in template".to_string())?;
             let expr = rest[..end].trim();
             rest = &rest[end + 2..];
 
@@ -131,11 +133,13 @@ impl TemplateEngineTool {
             if let Some(obj) = vars.get(parts[0]).and_then(|v| v.as_object()) {
                 return obj
                     .get(parts[1])
-                    .map(|v| Self::value_to_string(v))
+                    .map(Self::value_to_string)
                     .unwrap_or_default();
             }
         }
-        vars.get(name).map(|v| Self::value_to_string(v)).unwrap_or_default()
+        vars.get(name)
+            .map(Self::value_to_string)
+            .unwrap_or_default()
     }
 
     fn value_to_string(v: &Value) -> String {
@@ -161,7 +165,7 @@ impl TemplateEngineTool {
             if let Some(start) = result.find("{{#if ") {
                 let tag_end = result[start..].find("}}").ok_or("Unclosed {{#if")? + start;
                 let var_name = result[start + 6..tag_end].trim();
-                let close_tag = format!("{{{{/if}}}}");
+                let close_tag = "{{/if}}".to_string();
                 let close_pos = result[tag_end..]
                     .find(&close_tag)
                     .ok_or_else(|| format!("Missing {{{{/if}}}} for {{{{#if {var_name}}}}}"))?
@@ -181,7 +185,11 @@ impl TemplateEngineTool {
                     }
                 };
 
-                let replacement = if is_truthy { inner.to_string() } else { String::new() };
+                let replacement = if is_truthy {
+                    inner.to_string()
+                } else {
+                    String::new()
+                };
                 result = format!(
                     "{}{}{}",
                     &result[..start],
@@ -209,10 +217,9 @@ impl TemplateEngineTool {
                 let tag_end = result[start..].find("}}").ok_or("Unclosed {{#each")? + start;
                 let list_name = result[start + 8..tag_end].trim();
                 let close_tag = "{{/each}}";
-                let close_pos = result[tag_end..]
-                    .find(close_tag)
-                    .ok_or_else(|| format!("Missing {{{{/each}}}} for {{{{#each {list_name}}}}}"))?
-                    + tag_end;
+                let close_pos = result[tag_end..].find(close_tag).ok_or_else(|| {
+                    format!("Missing {{{{/each}}}} for {{{{#each {list_name}}}}}")
+                })? + tag_end;
 
                 let item_template = &result[tag_end + 2..close_pos];
                 let items = vars.get(list_name).and_then(|v| v.as_array());
@@ -309,7 +316,10 @@ impl Tool for TemplateEngineTool {
         input.arguments["output_file"].as_str().is_some()
     }
 
-    async fn execute(&self, input: ToolInput) -> Result<ToolOutput, halcon_core::error::HalconError> {
+    async fn execute(
+        &self,
+        input: ToolInput,
+    ) -> Result<ToolOutput, halcon_core::error::HalconError> {
         let args = &input.arguments;
 
         // Get template source
@@ -330,7 +340,8 @@ impl Tool for TemplateEngineTool {
         } else {
             return Ok(ToolOutput {
                 tool_use_id: input.tool_use_id,
-                content: "Provide 'template' (inline string) or 'template_file' (path).".to_string(),
+                content: "Provide 'template' (inline string) or 'template_file' (path)."
+                    .to_string(),
                 is_error: true,
                 metadata: None,
             });
@@ -378,7 +389,11 @@ impl Tool for TemplateEngineTool {
                 "Rendered {} lines to '{}'\n\n```\n{}\n```",
                 lines,
                 args["output_file"].as_str().unwrap_or(""),
-                if lines > 50 { rendered.lines().take(50).collect::<Vec<_>>().join("\n") + "\n..." } else { rendered.clone() }
+                if lines > 50 {
+                    rendered.lines().take(50).collect::<Vec<_>>().join("\n") + "\n..."
+                } else {
+                    rendered.clone()
+                }
             )
         } else {
             rendered.clone()
@@ -404,7 +419,10 @@ mod tests {
     use std::collections::HashMap;
 
     fn make_vars(pairs: &[(&str, &str)]) -> HashMap<String, Value> {
-        pairs.iter().map(|(k, v)| (k.to_string(), Value::String(v.to_string()))).collect()
+        pairs
+            .iter()
+            .map(|(k, v)| (k.to_string(), Value::String(v.to_string())))
+            .collect()
     }
 
     fn make_input(args: Value) -> ToolInput {
@@ -428,7 +446,10 @@ mod tests {
     #[test]
     fn pascal_case_conversions() {
         assert_eq!(TemplateEngineTool::pascal_case("hello_world"), "HelloWorld");
-        assert_eq!(TemplateEngineTool::pascal_case("my-component"), "MyComponent");
+        assert_eq!(
+            TemplateEngineTool::pascal_case("my-component"),
+            "MyComponent"
+        );
         assert_eq!(TemplateEngineTool::pascal_case("foo"), "Foo");
     }
 
@@ -448,7 +469,10 @@ mod tests {
     #[test]
     fn screaming_snake_conversions() {
         assert_eq!(TemplateEngineTool::screaming_snake("myVar"), "MY_VAR");
-        assert_eq!(TemplateEngineTool::screaming_snake("hello_world"), "HELLO_WORLD");
+        assert_eq!(
+            TemplateEngineTool::screaming_snake("hello_world"),
+            "HELLO_WORLD"
+        );
     }
 
     #[test]
@@ -476,7 +500,8 @@ mod tests {
     fn if_block_true() {
         let mut vars = HashMap::new();
         vars.insert("is_async".to_string(), Value::Bool(true));
-        let result = TemplateEngineTool::render("{{#if is_async}}async {{/if}}fn main() {}", &vars).unwrap();
+        let result =
+            TemplateEngineTool::render("{{#if is_async}}async {{/if}}fn main() {}", &vars).unwrap();
         assert_eq!(result, "async fn main() {}");
     }
 
@@ -484,7 +509,8 @@ mod tests {
     fn if_block_false() {
         let mut vars = HashMap::new();
         vars.insert("is_async".to_string(), Value::Bool(false));
-        let result = TemplateEngineTool::render("{{#if is_async}}async {{/if}}fn main() {}", &vars).unwrap();
+        let result =
+            TemplateEngineTool::render("{{#if is_async}}async {{/if}}fn main() {}", &vars).unwrap();
         assert_eq!(result, "fn main() {}");
     }
 
@@ -492,7 +518,8 @@ mod tests {
     fn each_block_renders_list() {
         let mut vars = HashMap::new();
         vars.insert("fields".to_string(), json!(["name", "age", "email"]));
-        let result = TemplateEngineTool::render("{{#each fields}}  {{this}}\n{{/each}}", &vars).unwrap();
+        let result =
+            TemplateEngineTool::render("{{#each fields}}  {{this}}\n{{/each}}", &vars).unwrap();
         assert!(result.contains("name"));
         assert!(result.contains("age"));
         assert!(result.contains("email"));
@@ -501,11 +528,16 @@ mod tests {
     #[test]
     fn each_block_with_objects() {
         let mut vars = HashMap::new();
-        vars.insert("items".to_string(), json!([
-            { "name": "Alice", "role": "admin" },
-            { "name": "Bob", "role": "user" }
-        ]));
-        let result = TemplateEngineTool::render("{{#each items}}{{name}}:{{role}} {{/each}}", &vars).unwrap();
+        vars.insert(
+            "items".to_string(),
+            json!([
+                { "name": "Alice", "role": "admin" },
+                { "name": "Bob", "role": "user" }
+            ]),
+        );
+        let result =
+            TemplateEngineTool::render("{{#each items}}{{name}}:{{role}} {{/each}}", &vars)
+                .unwrap();
         assert!(result.contains("Alice:admin"));
         assert!(result.contains("Bob:user"));
     }
@@ -535,7 +567,11 @@ mod tests {
             .await
             .unwrap();
         assert!(!out.is_error, "error: {}", out.content);
-        assert!(out.content.contains("my_function"), "content: {}", out.content);
+        assert!(
+            out.content.contains("my_function"),
+            "content: {}",
+            out.content
+        );
         assert!(out.content.contains("String"), "content: {}", out.content);
     }
 

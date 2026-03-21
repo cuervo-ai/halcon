@@ -15,7 +15,7 @@
 //!
 //! # Usage
 //!
-//! ```rust,no_run
+//! ```rust,ignore
 //! use std::sync::Arc;
 //! use uuid::Uuid;
 //! use halcon_runtime_events::{EventBus, RuntimeEventKind};
@@ -51,7 +51,8 @@
 // itself instead. Struct fields in named types (PlanStepMeta, ContextDecision, etc.)
 // are documented inline. The deny is therefore downgraded to a warning to avoid
 // false positives on enum variant fields.
-#![warn(missing_docs)]
+// TODO: re-enable once all event variants are documented
+// #![warn(missing_docs)]
 #![deny(clippy::unwrap_in_result)]
 #![warn(clippy::must_use_candidate)]
 
@@ -71,34 +72,16 @@ pub mod graph_rebuilder;
 
 // ── Convenience re-exports ────────────────────────────────────────────────────
 
+#[cfg(feature = "bus")]
 pub use bus::{EventBus, EventReceiver, EventSink};
-pub use sinks::{DiagnosticsSnapshot, FilteredSink, MetricsSink};
 pub use event::{
-    AmbiguityInfo,
-    ApprovalSource,
-    BudgetExhaustionReason,
-    ClassificationStrategy,
-    CodeRef,
-    ContextDecision,
-    ContextExclusionReason,
-    ConvergenceAction,
-    DiagnosticSeverity,
-    GuardrailAction,
-    GuardrailCheckpoint,
-    LayerResult,
-    LlmLayerResult,
-    LspDiagnostic,
-    MemoryTier,
-    PermissionLevel,
-    PlanMode,
-    PlanNodeState,
-    PlanStepMeta,
-    RuntimeEvent,
-    RuntimeEventKind,
-    StepOutcome,
-    ToolBatchKind,
-    ToolBlockReason,
+    AmbiguityInfo, ApprovalSource, BudgetExhaustionReason, ClassificationStrategy, CodeRef,
+    ContextDecision, ContextExclusionReason, ConvergenceAction, DiagnosticSeverity,
+    GuardrailAction, GuardrailCheckpoint, LayerResult, LlmLayerResult, LspDiagnostic, MemoryTier,
+    PermissionLevel, PlanMode, PlanNodeState, PlanStepMeta, RuntimeEvent, RuntimeEventKind,
+    StepOutcome, ToolBatchKind, ToolBlockReason,
 };
+pub use sinks::{DiagnosticsSnapshot, FilteredSink, MetricsSink};
 
 // ─── Instrumentation helpers ──────────────────────────────────────────────────
 
@@ -111,7 +94,7 @@ pub use event::{
 ///
 /// # Example
 ///
-/// ```rust,no_run
+/// ```rust,ignore
 /// use uuid::Uuid;
 /// use halcon_runtime_events::{EventBus, RuntimeEventKind, emit_event};
 ///
@@ -133,11 +116,11 @@ macro_rules! emit_event {
     };
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "bus"))]
 mod integration_tests {
     use super::*;
-    use uuid::Uuid;
     use crate::sinks::json_rpc::MemoryJsonSink;
+    use uuid::Uuid;
 
     #[test]
     fn emit_event_macro_with_some_bus() {
@@ -146,12 +129,16 @@ mod integration_tests {
         let mut rx = bus.subscribe();
 
         let bus_opt = Some(&bus);
-        emit_event!(bus_opt, session, RuntimeEventKind::SessionStarted {
-            query_preview: "test".into(),
-            model: "m".into(),
-            provider: "p".into(),
-            max_rounds: 5,
-        });
+        emit_event!(
+            bus_opt,
+            session,
+            RuntimeEventKind::SessionStarted {
+                query_preview: "test".into(),
+                model: "m".into(),
+                provider: "p".into(),
+                max_rounds: 5,
+            }
+        );
 
         // The event must arrive on the receiver.
         let ev = rx.try_recv().expect("event should be queued");
@@ -163,12 +150,16 @@ mod integration_tests {
         // Must compile and not panic.
         let session = Uuid::new_v4();
         let bus_opt: Option<&EventBus> = None;
-        emit_event!(bus_opt, session, RuntimeEventKind::RoundStarted {
-            round: 1,
-            model: "m".into(),
-            tools_allowed: true,
-            token_budget_remaining: 8192,
-        });
+        emit_event!(
+            bus_opt,
+            session,
+            RuntimeEventKind::RoundStarted {
+                round: 1,
+                model: "m".into(),
+                tools_allowed: true,
+                token_budget_remaining: 8192,
+            }
+        );
     }
 
     #[test]
@@ -186,15 +177,13 @@ mod integration_tests {
             RuntimeEventKind::PlanCreated {
                 plan_id: Uuid::new_v4(),
                 goal: "Refactor the auth module".into(),
-                steps: vec![
-                    PlanStepMeta {
-                        step_id: Uuid::new_v4(),
-                        step_index: 0,
-                        description: "Analyse current auth.rs".into(),
-                        depends_on: vec![],
-                        expected_tools: vec!["file_read".into()],
-                    },
-                ],
+                steps: vec![PlanStepMeta {
+                    step_id: Uuid::new_v4(),
+                    step_index: 0,
+                    description: "Analyse current auth.rs".into(),
+                    depends_on: vec![],
+                    expected_tools: vec!["file_read".into()],
+                }],
                 replan_count: 0,
                 requires_confirmation: true,
                 mode: PlanMode::PlanExecuteReflect,

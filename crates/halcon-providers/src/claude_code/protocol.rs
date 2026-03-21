@@ -18,7 +18,9 @@
 
 use serde::{Deserialize, Serialize};
 
-use halcon_core::types::{ContentBlock, MessageContent, ModelChunk, ModelRequest, Role, StopReason, TokenUsage};
+use halcon_core::types::{
+    ContentBlock, MessageContent, ModelChunk, ModelRequest, Role, StopReason, TokenUsage,
+};
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Outgoing request types (halcon → claude stdin)
@@ -122,7 +124,9 @@ pub struct NdjsonAssistantMessage {
 #[derive(Debug, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum NdjsonAssistantContent {
-    Text { text: String },
+    Text {
+        text: String,
+    },
     /// tool_use, thinking, and other future block types are silently skipped.
     #[serde(other)]
     Unknown,
@@ -268,13 +272,22 @@ pub fn ndjson_chunk_to_model_chunks(chunk: NdjsonChunk) -> Vec<ModelChunk> {
                     // Strip leading/trailing whitespace — some models (e.g. Opus) prepend
                     // "\n\n" to responses which would render as blank lines in the terminal.
                     let trimmed = text.trim().to_string();
-                    if trimmed.is_empty() { None } else { Some(ModelChunk::TextDelta(trimmed)) }
+                    if trimmed.is_empty() {
+                        None
+                    } else {
+                        Some(ModelChunk::TextDelta(trimmed))
+                    }
                 }
                 NdjsonAssistantContent::Unknown => None,
             })
             .collect(),
 
-        NdjsonChunk::Result { cost_usd: _, usage, is_error, error } => {
+        NdjsonChunk::Result {
+            cost_usd: _,
+            usage,
+            is_error,
+            error,
+        } => {
             if is_error {
                 let msg = error.unwrap_or_else(|| "claude-code returned an error".to_string());
                 return vec![ModelChunk::Error(msg)];
@@ -341,10 +354,16 @@ mod tests {
     use halcon_core::types::{ChatMessage, ModelRequest};
 
     fn user_msg(text: &str) -> ChatMessage {
-        ChatMessage { role: Role::User, content: MessageContent::Text(text.into()) }
+        ChatMessage {
+            role: Role::User,
+            content: MessageContent::Text(text.into()),
+        }
     }
     fn assistant_msg(text: &str) -> ChatMessage {
-        ChatMessage { role: Role::Assistant, content: MessageContent::Text(text.into()) }
+        ChatMessage {
+            role: Role::Assistant,
+            content: MessageContent::Text(text.into()),
+        }
     }
 
     fn req_with_messages(messages: Vec<ChatMessage>) -> ModelRequest {
@@ -396,8 +415,10 @@ mod tests {
         let mut req = req_with_messages(vec![user_msg("hi")]);
         req.system = Some("You are a tester.".into());
         let line = request_to_ndjson(&req, "s");
-        assert!(!line.contains("You are a tester."),
-            "system prompt must NOT be embedded in the NDJSON line");
+        assert!(
+            !line.contains("You are a tester."),
+            "system prompt must NOT be embedded in the NDJSON line"
+        );
     }
 
     #[test]
@@ -428,7 +449,9 @@ mod tests {
         let chunk = NdjsonChunk::Assistant {
             message: NdjsonAssistantMessage {
                 role: Some("assistant".into()),
-                content: vec![NdjsonAssistantContent::Text { text: "Hello!".into() }],
+                content: vec![NdjsonAssistantContent::Text {
+                    text: "Hello!".into(),
+                }],
             },
         };
         let out = ndjson_chunk_to_model_chunks(chunk);
@@ -442,7 +465,9 @@ mod tests {
         let chunk = NdjsonChunk::Assistant {
             message: NdjsonAssistantMessage {
                 role: None,
-                content: vec![NdjsonAssistantContent::Text { text: "\n\nHALCON_CC_OK".into() }],
+                content: vec![NdjsonAssistantContent::Text {
+                    text: "\n\nHALCON_CC_OK".into(),
+                }],
             },
         };
         let out = ndjson_chunk_to_model_chunks(chunk);
@@ -455,11 +480,16 @@ mod tests {
         let chunk = NdjsonChunk::Assistant {
             message: NdjsonAssistantMessage {
                 role: None,
-                content: vec![NdjsonAssistantContent::Text { text: "\n\n".into() }],
+                content: vec![NdjsonAssistantContent::Text {
+                    text: "\n\n".into(),
+                }],
             },
         };
         let out = ndjson_chunk_to_model_chunks(chunk);
-        assert!(out.is_empty(), "whitespace-only text should produce no chunks");
+        assert!(
+            out.is_empty(),
+            "whitespace-only text should produce no chunks"
+        );
     }
 
     #[test]
@@ -477,7 +507,9 @@ mod tests {
         };
         let out = ndjson_chunk_to_model_chunks(chunk);
         assert_eq!(out.len(), 2);
-        assert!(matches!(&out[0], ModelChunk::Usage(u) if u.input_tokens == 10 && u.output_tokens == 20));
+        assert!(
+            matches!(&out[0], ModelChunk::Usage(u) if u.input_tokens == 10 && u.output_tokens == 20)
+        );
         assert!(matches!(&out[1], ModelChunk::Done(StopReason::EndTurn)));
     }
 
@@ -509,15 +541,22 @@ mod tests {
 
     #[test]
     fn result_error_no_message_uses_fallback() {
-        let chunk =
-            NdjsonChunk::Result { cost_usd: None, usage: None, is_error: true, error: None };
+        let chunk = NdjsonChunk::Result {
+            cost_usd: None,
+            usage: None,
+            is_error: true,
+            error: None,
+        };
         let out = ndjson_chunk_to_model_chunks(chunk);
         assert!(matches!(&out[0], ModelChunk::Error(_)));
     }
 
     #[test]
     fn system_chunk_produces_empty() {
-        let chunk = NdjsonChunk::System { subtype: "init".into(), model: None };
+        let chunk = NdjsonChunk::System {
+            subtype: "init".into(),
+            model: None,
+        };
         assert!(ndjson_chunk_to_model_chunks(chunk).is_empty());
     }
 
@@ -547,7 +586,9 @@ mod tests {
                 role: None,
                 content: vec![
                     NdjsonAssistantContent::Unknown,
-                    NdjsonAssistantContent::Text { text: "visible".into() },
+                    NdjsonAssistantContent::Text {
+                        text: "visible".into(),
+                    },
                 ],
             },
         };

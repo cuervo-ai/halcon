@@ -156,19 +156,13 @@ impl AgentRegistry {
     }
 
     /// Invoke a registered agent by ID, tracking usage.
-    pub async fn invoke(
-        &self,
-        id: &Uuid,
-        request: AgentRequest,
-    ) -> Result<AgentResponse> {
+    pub async fn invoke(&self, id: &Uuid, request: AgentRequest) -> Result<AgentResponse> {
         let agent = {
             let agents = self.agents.read().await;
             agents
                 .get(id)
                 .map(|ra| ra.agent.clone())
-                .ok_or_else(|| RuntimeError::AgentNotFound {
-                    id: id.to_string(),
-                })?
+                .ok_or_else(|| RuntimeError::AgentNotFound { id: id.to_string() })?
         };
 
         let result = agent.invoke(request).await;
@@ -313,7 +307,9 @@ mod tests {
         ));
         registry.register(agent).await;
 
-        let found = registry.find_by_capability(&AgentCapability::CodeGeneration).await;
+        let found = registry
+            .find_by_capability(&AgentCapability::CodeGeneration)
+            .await;
         assert_eq!(found.len(), 1);
         assert_eq!(found[0].descriptor().name, "coder");
     }
@@ -334,14 +330,18 @@ mod tests {
         registry.register(a1).await;
         registry.register(a2).await;
 
-        let found = registry.find_by_capability(&AgentCapability::CodeGeneration).await;
+        let found = registry
+            .find_by_capability(&AgentCapability::CodeGeneration)
+            .await;
         assert_eq!(found.len(), 2);
     }
 
     #[tokio::test]
     async fn find_by_capability_none() {
         let registry = AgentRegistry::new();
-        let found = registry.find_by_capability(&AgentCapability::WebSearch).await;
+        let found = registry
+            .find_by_capability(&AgentCapability::WebSearch)
+            .await;
         assert!(found.is_empty());
     }
 
@@ -432,7 +432,11 @@ mod tests {
         let a1 = Arc::new(MockAgent::new(
             "generalist",
             AgentKind::Llm,
-            vec![AgentCapability::CodeGeneration, AgentCapability::Testing, AgentCapability::FileOperations],
+            vec![
+                AgentCapability::CodeGeneration,
+                AgentCapability::Testing,
+                AgentCapability::FileOperations,
+            ],
         ));
         let a2 = Arc::new(MockAgent::new(
             "specialist",

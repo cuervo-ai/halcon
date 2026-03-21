@@ -109,7 +109,12 @@ pub fn deepseek_reasoning_sse(reasoning: &str, text: &str) -> String {
 /// Build a config TOML for a single provider pointing at a mock server.
 ///
 /// Uses the real config structure: `[models.providers.<name>]` with `api_base` and `api_key_env`.
-pub fn single_provider_config(provider: &str, base_url: &str, api_key_env: &str, model: &str) -> String {
+pub fn single_provider_config(
+    provider: &str,
+    base_url: &str,
+    api_key_env: &str,
+    model: &str,
+) -> String {
     let resilience = r#"
 [resilience]
 enabled = false

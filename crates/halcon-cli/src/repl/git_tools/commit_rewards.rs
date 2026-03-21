@@ -173,9 +173,7 @@ impl CommitRewardTracker {
         match subject {
             None | Some("") => 0.3,
             Some(s) => {
-                let is_conventional = CONVENTIONAL_PREFIXES
-                    .iter()
-                    .any(|p| s.starts_with(p));
+                let is_conventional = CONVENTIONAL_PREFIXES.iter().any(|p| s.starts_with(p));
                 if is_conventional {
                     1.0
                 } else if s.len() >= 20 {
@@ -190,8 +188,19 @@ impl CommitRewardTracker {
 
 /// Conventional commit type prefixes (from the Conventional Commits spec).
 const CONVENTIONAL_PREFIXES: &[&str] = &[
-    "feat:", "fix:", "chore:", "docs:", "style:", "refactor:",
-    "perf:", "test:", "build:", "ci:", "revert:", "feat(", "fix(",
+    "feat:",
+    "fix:",
+    "chore:",
+    "docs:",
+    "style:",
+    "refactor:",
+    "perf:",
+    "test:",
+    "build:",
+    "ci:",
+    "revert:",
+    "feat(",
+    "fix(",
 ];
 
 // ── tests ──────────────────────────────────────────────────────────────────────
@@ -255,11 +264,20 @@ mod tests {
         assert_eq!(rewards.len(), 3);
 
         // feat: → 1.0
-        assert!((rewards[0].2 - 1.0).abs() < 0.01, "expected 1.0 for conventional commit");
+        assert!(
+            (rewards[0].2 - 1.0).abs() < 0.01,
+            "expected 1.0 for conventional commit"
+        );
         // "small fix" < 20 chars → 0.6
-        assert!((rewards[1].2 - 0.6).abs() < 0.01, "expected 0.6 for short non-conventional");
+        assert!(
+            (rewards[1].2 - 0.6).abs() < 0.01,
+            "expected 0.6 for short non-conventional"
+        );
         // empty subject → 0.3
-        assert!((rewards[2].2 - 0.3).abs() < 0.01, "expected 0.3 for empty subject");
+        assert!(
+            (rewards[2].2 - 0.3).abs() < 0.01,
+            "expected 0.3 for empty subject"
+        );
     }
 
     #[test]
@@ -271,7 +289,11 @@ mod tests {
         let first = t.flush_rewards();
         let second = t.flush_rewards();
         assert_eq!(first.len(), 1);
-        assert_eq!(second.len(), 0, "second flush should be empty (already scored)");
+        assert_eq!(
+            second.len(),
+            0,
+            "second flush should be empty (already scored)"
+        );
     }
 
     #[test]
@@ -283,14 +305,23 @@ mod tests {
             ("", 0.3),
         ];
         for (subject, expected) in cases {
-            let actual = CommitRewardTracker::score_commit(if subject.is_empty() { None } else { Some(subject) });
-            assert!((actual - expected).abs() < 0.01, "subject={subject:?} expected={expected} actual={actual}");
+            let actual = CommitRewardTracker::score_commit(if subject.is_empty() {
+                None
+            } else {
+                Some(subject)
+            });
+            assert!(
+                (actual - expected).abs() < 0.01,
+                "subject={subject:?} expected={expected} actual={actual}"
+            );
         }
     }
 
     #[test]
     fn score_long_non_conventional() {
-        let score = CommitRewardTracker::score_commit(Some("A commit message that is quite long and descriptive"));
+        let score = CommitRewardTracker::score_commit(Some(
+            "A commit message that is quite long and descriptive",
+        ));
         assert!((score - 0.8).abs() < 0.01);
     }
 

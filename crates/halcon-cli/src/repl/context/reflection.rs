@@ -94,17 +94,13 @@ impl ContextSource for ReflectionSource {
         let mut scored: Vec<(f64, &halcon_storage::MemoryEntry)> = entries
             .iter()
             .map(|e| {
-                let age_days =
-                    (now - e.created_at).num_seconds().max(0) as f64 / 86400.0;
+                let age_days = (now - e.created_at).num_seconds().max(0) as f64 / 86400.0;
                 let score = score_reflection(e.relevance_score, age_days);
                 (score, e)
             })
             .collect();
 
-        scored.sort_by(|a, b| {
-            b.0.partial_cmp(&a.0)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
+        scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
         scored.truncate(self.max_reflections);
 
         // Phase 4: Build context chunk.
@@ -130,7 +126,9 @@ mod tests {
     use std::sync::Arc;
 
     fn test_async_db() -> AsyncDatabase {
-        AsyncDatabase::new(Arc::new(halcon_storage::Database::open_in_memory().unwrap()))
+        AsyncDatabase::new(Arc::new(
+            halcon_storage::Database::open_in_memory().unwrap(),
+        ))
     }
 
     #[test]
@@ -167,9 +165,7 @@ mod tests {
             session_id: None,
             entry_type: halcon_storage::MemoryEntryType::Reflection,
             content: "Check file exists before reading".into(),
-            content_hash: hex::encode(sha2::Sha256::digest(
-                b"Check file exists before reading",
-            )),
+            content_hash: hex::encode(sha2::Sha256::digest(b"Check file exists before reading")),
             metadata: serde_json::json!({}),
             created_at: chrono::Utc::now(),
             expires_at: None,
@@ -185,7 +181,9 @@ mod tests {
         };
         let chunks = source.gather(&query).await.unwrap();
         assert_eq!(chunks.len(), 1);
-        assert!(chunks[0].content.contains("Check file exists before reading"));
+        assert!(chunks[0]
+            .content
+            .contains("Check file exists before reading"));
         assert!(chunks[0].content.contains("Self-Reflections"));
         assert_eq!(chunks[0].priority, 85);
     }
@@ -254,9 +252,7 @@ mod tests {
             session_id: None,
             entry_type: halcon_storage::MemoryEntryType::Reflection,
             content: "Always run tests before committing".into(),
-            content_hash: hex::encode(sha2::Sha256::digest(
-                b"Always run tests before committing",
-            )),
+            content_hash: hex::encode(sha2::Sha256::digest(b"Always run tests before committing")),
             metadata: serde_json::json!({}),
             created_at: chrono::Utc::now(),
             expires_at: None,
@@ -325,7 +321,10 @@ mod tests {
             .lines()
             .filter(|l| l.starts_with("- "))
             .collect();
-        assert!(lines[0].contains("integration points"), "high-relevance should be first");
+        assert!(
+            lines[0].contains("integration points"),
+            "high-relevance should be first"
+        );
     }
 
     #[test]
@@ -347,7 +346,13 @@ mod tests {
     fn score_reflection_relevance_multiplier() {
         let base = score_reflection(1.0, 7.0);
         let boosted = score_reflection(1.5, 7.0);
-        assert!(boosted > base, "higher relevance should produce higher score");
-        assert!((boosted / base - 1.5).abs() < 0.01, "should scale linearly with relevance");
+        assert!(
+            boosted > base,
+            "higher relevance should produce higher score"
+        );
+        assert!(
+            (boosted / base - 1.5).abs() < 0.01,
+            "should scale linearly with relevance"
+        );
     }
 }

@@ -1,11 +1,6 @@
 use std::collections::HashMap;
 
-use axum::{
-    extract::Request,
-    http::StatusCode,
-    middleware::Next,
-    response::Response,
-};
+use axum::{extract::Request, http::StatusCode, middleware::Next, response::Response};
 use halcon_auth::Role;
 use subtle::ConstantTimeEq;
 
@@ -36,8 +31,7 @@ pub async fn auth_middleware(
             let provided = token.as_bytes();
             // Constant-time comparison: only passes when lengths and contents match.
             // Length equality check first (length is not secret for fixed-size tokens).
-            let valid = expected.len() == provided.len()
-                && bool::from(expected.ct_eq(provided));
+            let valid = expected.len() == provided.len() && bool::from(expected.ct_eq(provided));
             if valid {
                 Ok(next.run(request).await)
             } else {
@@ -94,7 +88,10 @@ pub fn load_token_roles_from_env() -> HashMap<String, Role> {
             continue;
         }
         let Some((token, role_str)) = entry.split_once(':') else {
-            tracing::warn!(entry, "HALCON_TOKEN_ROLES: malformed entry (expected token:Role) — skipping");
+            tracing::warn!(
+                entry,
+                "HALCON_TOKEN_ROLES: malformed entry (expected token:Role) — skipping"
+            );
             continue;
         };
         let token = token.trim().to_string();
@@ -108,7 +105,10 @@ pub fn load_token_roles_from_env() -> HashMap<String, Role> {
                 map.insert(token, role);
             }
             None => {
-                tracing::warn!(role = role_str, "HALCON_TOKEN_ROLES: unknown role name — skipping");
+                tracing::warn!(
+                    role = role_str,
+                    "HALCON_TOKEN_ROLES: unknown role name — skipping"
+                );
             }
         }
     }
@@ -122,7 +122,11 @@ mod tests {
     #[test]
     fn generate_token_is_64_hex_chars() {
         let token = generate_token();
-        assert_eq!(token.len(), 64, "token must be 64 hex characters (256 bits)");
+        assert_eq!(
+            token.len(),
+            64,
+            "token must be 64 hex characters (256 bits)"
+        );
         assert!(
             token.chars().all(|c| c.is_ascii_hexdigit()),
             "token must contain only lowercase hex characters, got: {token}"
@@ -132,11 +136,7 @@ mod tests {
     #[test]
     fn generate_token_is_lowercase() {
         let token = generate_token();
-        assert_eq!(
-            token,
-            token.to_lowercase(),
-            "token must be lowercase hex"
-        );
+        assert_eq!(token, token.to_lowercase(), "token must be lowercase hex");
     }
 
     #[test]
@@ -175,7 +175,10 @@ mod tests {
         let t1 = generate_token();
         let t2 = generate_token();
         // Two independently generated 256-bit tokens must not compare equal.
-        assert!(!bool::from(t1.as_bytes().ct_eq(t2.as_bytes())), "distinct tokens must not match");
+        assert!(
+            !bool::from(t1.as_bytes().ct_eq(t2.as_bytes())),
+            "distinct tokens must not match"
+        );
     }
 
     #[test]

@@ -132,6 +132,7 @@ impl Default for ChatState {
 }
 
 /// File explorer state: directory tree, selection, lazy-load cache.
+#[derive(Default)]
 pub struct FileState {
     /// User-editable project root path (text input).
     pub root: String,
@@ -149,21 +150,8 @@ pub struct FileState {
     pub error: Option<String>,
 }
 
-impl Default for FileState {
-    fn default() -> Self {
-        Self {
-            root: String::new(),
-            dir_cache: HashMap::new(),
-            expanded: HashSet::new(),
-            selected: None,
-            content: None,
-            loading: false,
-            error: None,
-        }
-    }
-}
-
 /// Agent / task fire-and-forget operation inputs and last error.
+#[derive(Default)]
 pub struct OpsState {
     /// Text buffer for the inline agent invocation input.
     pub invoke_agent_input: String,
@@ -171,16 +159,6 @@ pub struct OpsState {
     pub submit_task_input: String,
     /// Error from the last InvokeAgent or SubmitTask command.
     pub error: Option<String>,
-}
-
-impl Default for OpsState {
-    fn default() -> Self {
-        Self {
-            invoke_agent_input: String::new(),
-            submit_task_input: String::new(),
-            error: None,
-        }
-    }
 }
 
 /// Rolling metric trend charts (fed on each MetricsUpdated, rendered in Metrics view).
@@ -329,10 +307,12 @@ pub struct ChatPermissionModal {
 #[derive(Debug, Clone)]
 pub struct DesktopAttachment {
     /// Unique identifier (local, not server-side).
+    #[allow(dead_code)]
     pub id: uuid::Uuid,
     /// Original file name shown in the UI chip.
     pub name: String,
     /// Absolute path on disk (used for drag-and-drop display).
+    #[allow(dead_code)]
     pub path: std::path::PathBuf,
     /// MIME type detected from magic bytes or file extension.
     pub content_type: String,
@@ -362,7 +342,7 @@ impl DesktopAttachment {
             "image" => "🖼",
             "audio" => "🔊",
             "video" => "🎬",
-            _       => "📄",
+            _ => "📄",
         }
     }
 
@@ -384,6 +364,7 @@ pub struct SubAgentEntry {
     pub sub_agent_id: String,
     pub description: String,
     pub wave: usize,
+    #[allow(dead_code)]
     pub allowed_tools: Vec<String>,
     /// None = still running, Some(true) = success, Some(false) = failed.
     pub success: Option<bool>,

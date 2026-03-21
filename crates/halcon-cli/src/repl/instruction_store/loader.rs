@@ -64,8 +64,14 @@ pub fn load_all_scopes(working_dir: &Path, active_file_globs: &[String]) -> Load
 
         // 3b. .halcon/rules/*.md — only activated when paths: globs match
         let rules_dir = halcon_dir.join("rules");
-        rules::load_rules_dir(&rules_dir, working_dir, active_file_globs,
-                              &mut parts, &mut sources, &mut seen);
+        rules::load_rules_dir(
+            &rules_dir,
+            working_dir,
+            active_file_globs,
+            &mut parts,
+            &mut sources,
+            &mut seen,
+        );
     }
 
     // ── Scope 4: Managed (/etc/halcon/HALCON.md) ────────────────────────────

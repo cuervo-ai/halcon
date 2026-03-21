@@ -32,85 +32,191 @@ const CORE_TOOLS: &[&str] = &["file_read", "bash", "grep"];
 /// Message prefixes that indicate a pure conversational exchange (no task tools needed).
 /// Only matched when the message is ≤ 8 words AND starts with one of these.
 const GREETING_PREFIXES: &[&str] = &[
-    "hello", "hi ", "hey ", "hola", "buenos", "buenas", "good morning", "good afternoon",
-    "thanks", "thank you", "gracias", "ok ", "okay", "sure", "yes", "no ",
-    "what is your", "what are you", "quién eres", "qué eres",
-    "how are you", "cómo estás",
+    "hello",
+    "hi ",
+    "hey ",
+    "hola",
+    "buenos",
+    "buenas",
+    "good morning",
+    "good afternoon",
+    "thanks",
+    "thank you",
+    "gracias",
+    "ok ",
+    "okay",
+    "sure",
+    "yes",
+    "no ",
+    "what is your",
+    "what are you",
+    "quién eres",
+    "qué eres",
+    "how are you",
+    "cómo estás",
     // Knowledge questions (short Q&A, no task implied)
-    "what is", "what's", "qué es", "cuál es",
+    "what is",
+    "what's",
+    "qué es",
+    "cuál es",
     // Spanish direct-answer requests — no task implied
-    "responde", "dime", "explícame", "dí ", "solo di", "solo responde",
+    "responde",
+    "dime",
+    "explícame",
+    "dí ",
+    "solo di",
+    "solo responde",
     // English direct-answer requests
-    "just say", "just answer", "answer only", "respond with", "say ",
+    "just say",
+    "just answer",
+    "answer only",
+    "respond with",
+    "say ",
     // Affirmations / confirmations
-    "funciona", "perfecto", "entendido", "listo", "correcto",
+    "funciona",
+    "perfecto",
+    "entendido",
+    "listo",
+    "correcto",
 ];
 
 /// Keywords that signal each intent category.
 const FILE_KEYWORDS: &[&str] = &[
-    "read", "write", "edit", "create file", "delete file", "list files",
-    "directory", "tree", "inspect", "file",
+    "read",
+    "write",
+    "edit",
+    "create file",
+    "delete file",
+    "list files",
+    "directory",
+    "tree",
+    "inspect",
+    "file",
     // Analysis / exploration (en+es) — project/codebase investigation tasks
-    "analyze", "analiza", "analysis", "análisis",
-    "explore", "explora", "explorar",
-    "examine", "examina", "examinar",
-    "review", "revisa", "revisar",
+    "analyze",
+    "analiza",
+    "analysis",
+    "análisis",
+    "explore",
+    "explora",
+    "explorar",
+    "examine",
+    "examina",
+    "examinar",
+    "review",
+    "revisa",
+    "revisar",
     // NOTE: "show" removed — too generic (matches "show the git diff" → Mixed instead of GitOperation)
-    "muestra", "muéstrame",
+    "muestra",
+    "muéstrame",
     // NOTE: "project"/"proyecto" removed — too broad (matches "compile the project" → Mixed)
-    "codebase", "código", "repository", "repositorio",
-    "structure", "estructura",
-    "check", "verifica",
-    "open", "abre",
+    "codebase",
+    "código",
+    "repository",
+    "repositorio",
+    "structure",
+    "estructura",
+    "check",
+    "verifica",
+    "open",
+    "abre",
     // NOTE: "what is"/"qué es" removed — knowledge Q&A, moved to GREETING_PREFIXES
     "qué hay",
-    "list", "lista",
-    "contents", "contenido",
+    "list",
+    "lista",
+    "contents",
+    "contenido",
 ];
 const EXEC_KEYWORDS: &[&str] = &[
-    "run", "execute", "compile", "test", "build", "script", "command",
-    "install", "npm", "cargo", "make",
-    // Spanish execution keywords
-    "ejecuta", "ejecutar", "compila", "prueba",
-    "instala",
+    "run", "execute", "compile", "test", "build", "script", "command", "install", "npm", "cargo",
+    "make", // Spanish execution keywords
+    "ejecuta", "ejecutar", "compila", "prueba", "instala",
 ];
 const SEARCH_KEYWORDS: &[&str] = &[
-    "find", "search", "grep", "look for", "where is", "locate", "symbol",
+    "find",
+    "search",
+    "grep",
+    "look for",
+    "where is",
+    "locate",
+    "symbol",
     // Broader discovery — the most common cause of agent path failures
-    "where", "donde", "donde está", "dónde",
-    "busca", "buscar", "encuentra", "encontrar",
-    "which", "cuál",
-    "discover", "descubre",
-    "path", "ruta", "ubicación", "location",
+    "where",
+    "donde",
+    "donde está",
+    "dónde",
+    "busca",
+    "buscar",
+    "encuentra",
+    "encontrar",
+    "which",
+    "cuál",
+    "discover",
+    "descubre",
+    "path",
+    "ruta",
+    "ubicación",
+    "location",
 ];
 const GIT_KEYWORDS: &[&str] = &[
-    "commit", "diff", "status", "log", "branch", "push", "pull", "merge",
-    "git", "staged",
+    "commit",
+    "diff",
+    "status",
+    "log",
+    "branch",
+    "push",
+    "pull",
+    "merge",
+    "git",
+    "staged",
     // Spanish git terms
-    "rama", "historial", "cambios",
+    "rama",
+    "historial",
+    "cambios",
 ];
 const WEB_KEYWORDS: &[&str] = &[
-    "fetch", "download", "url", "web", "http", "api call", "request",
-    "search", "find online", "look up", "index", "crawl",
+    "fetch",
+    "download",
+    "url",
+    "web",
+    "http",
+    "api call",
+    "request",
+    "search",
+    "find online",
+    "look up",
+    "index",
+    "crawl",
     // Spanish web terms
-    "descarga", "busca en internet", "busca online",
+    "descarga",
+    "busca en internet",
+    "busca online",
 ];
 
 /// Tool names associated with each intent.
 const FILE_TOOLS: &[&str] = &[
-    "file_read", "file_write", "file_edit", "file_delete", "file_inspect",
+    "file_read",
+    "file_write",
+    "file_edit",
+    "file_delete",
+    "file_inspect",
     "directory_tree",
 ];
-const EXEC_TOOLS: &[&str] = &["bash", "background_start", "background_output", "background_kill"];
+const EXEC_TOOLS: &[&str] = &[
+    "bash",
+    "background_start",
+    "background_output",
+    "background_kill",
+];
 const SEARCH_TOOLS: &[&str] = &["grep", "glob", "fuzzy_find", "symbol_search"];
 const GIT_TOOLS: &[&str] = &["git_status", "git_diff", "git_log", "git_add", "git_commit"];
 const WEB_TOOLS: &[&str] = &[
-    "native_search",       // Primary search (halcon-search semantic + BM25)
-    "native_crawl",        // Indexing capability
-    "native_index_query",  // Index introspection
-    "web_fetch",           // Direct URL fetch
-    "http_request",        // HTTP write operations
-    "web_search",          // Fast search (halcon-search FTS5 + BM25)
+    "native_search",      // Primary search (halcon-search semantic + BM25)
+    "native_crawl",       // Indexing capability
+    "native_index_query", // Index introspection
+    "web_fetch",          // Direct URL fetch
+    "http_request",       // HTTP write operations
+    "web_search",         // Fast search (halcon-search FTS5 + BM25)
 ];
 
 /// Check if `text` contains `keyword` as a word (not a substring of another word).
@@ -187,9 +293,7 @@ impl ToolSelector {
                 // (no actionable task implied). Anything longer → Mixed (send all tools)
                 // so the model can decide whether tools are needed.
                 let word_count = user_message.split_whitespace().count();
-                let is_greeting = GREETING_PREFIXES
-                    .iter()
-                    .any(|g| lower.starts_with(g));
+                let is_greeting = GREETING_PREFIXES.iter().any(|g| lower.starts_with(g));
                 if word_count <= 8 && is_greeting {
                     TaskIntent::Conversational
                 } else if word_count < 30 {
@@ -251,14 +355,19 @@ impl ToolSelector {
 
 /// Tools that require a git repository to function.
 const GIT_DEPENDENT_TOOLS: &[&str] = &[
-    "git_status", "git_diff", "git_log", "git_add", "git_commit",
-    "git_branch", "git_stash", "git_push", "git_pull",
+    "git_status",
+    "git_diff",
+    "git_log",
+    "git_add",
+    "git_commit",
+    "git_branch",
+    "git_stash",
+    "git_push",
+    "git_pull",
 ];
 
 /// Tools that require CI configuration to function.
-const CI_DEPENDENT_TOOLS: &[&str] = &[
-    "ci_logs", "ci_status", "ci_trigger", "pipeline_status",
-];
+const CI_DEPENDENT_TOOLS: &[&str] = &["ci_logs", "ci_status", "ci_trigger", "pipeline_status"];
 
 /// Environment context for tool filtering.
 ///
@@ -288,7 +397,10 @@ impl EnvironmentContext {
             || path.join(".travis.yml").exists()
             || path.join("azure-pipelines.yml").exists();
 
-        Self { is_git_repo, has_ci_config }
+        Self {
+            is_git_repo,
+            has_ci_config,
+        }
     }
 
     /// Filter tools based on environment availability.
@@ -296,7 +408,8 @@ impl EnvironmentContext {
     /// Removes tools that depend on unavailable environment features (e.g., git
     /// tools when not in a git repo). Returns the filtered tool list.
     pub fn filter_tools(&self, tools: Vec<ToolDefinition>) -> Vec<ToolDefinition> {
-        tools.into_iter()
+        tools
+            .into_iter()
             .filter(|tool| {
                 let name = tool.name.as_str();
                 // Remove git tools when not in a git repo
@@ -346,43 +459,73 @@ mod tests {
     #[test]
     fn classify_file_operation() {
         let s = ToolSelector::new(true);
-        assert_eq!(s.classify_intent("read the config file"), TaskIntent::FileOperation);
-        assert_eq!(s.classify_intent("create file foo.txt"), TaskIntent::FileOperation);
+        assert_eq!(
+            s.classify_intent("read the config file"),
+            TaskIntent::FileOperation
+        );
+        assert_eq!(
+            s.classify_intent("create file foo.txt"),
+            TaskIntent::FileOperation
+        );
     }
 
     #[test]
     fn classify_code_execution() {
         let s = ToolSelector::new(true);
-        assert_eq!(s.classify_intent("run the tests"), TaskIntent::CodeExecution);
-        assert_eq!(s.classify_intent("compile the project"), TaskIntent::CodeExecution);
+        assert_eq!(
+            s.classify_intent("run the tests"),
+            TaskIntent::CodeExecution
+        );
+        assert_eq!(
+            s.classify_intent("compile the project"),
+            TaskIntent::CodeExecution
+        );
     }
 
     #[test]
     fn classify_search() {
         let s = ToolSelector::new(true);
-        assert_eq!(s.classify_intent("find the login function"), TaskIntent::Search);
-        assert_eq!(s.classify_intent("where is the config struct"), TaskIntent::Search);
+        assert_eq!(
+            s.classify_intent("find the login function"),
+            TaskIntent::Search
+        );
+        assert_eq!(
+            s.classify_intent("where is the config struct"),
+            TaskIntent::Search
+        );
     }
 
     #[test]
     fn classify_git_operation() {
         let s = ToolSelector::new(true);
-        assert_eq!(s.classify_intent("show the git diff"), TaskIntent::GitOperation);
-        assert_eq!(s.classify_intent("commit the changes"), TaskIntent::GitOperation);
+        assert_eq!(
+            s.classify_intent("show the git diff"),
+            TaskIntent::GitOperation
+        );
+        assert_eq!(
+            s.classify_intent("commit the changes"),
+            TaskIntent::GitOperation
+        );
     }
 
     #[test]
     fn classify_web_access() {
         let s = ToolSelector::new(true);
         assert_eq!(s.classify_intent("fetch the url"), TaskIntent::WebAccess);
-        assert_eq!(s.classify_intent("call the http endpoint"), TaskIntent::WebAccess);
+        assert_eq!(
+            s.classify_intent("call the http endpoint"),
+            TaskIntent::WebAccess
+        );
     }
 
     #[test]
     fn classify_conversational_short() {
         let s = ToolSelector::new(true);
         assert_eq!(s.classify_intent("hello"), TaskIntent::Conversational);
-        assert_eq!(s.classify_intent("what is Rust?"), TaskIntent::Conversational);
+        assert_eq!(
+            s.classify_intent("what is Rust?"),
+            TaskIntent::Conversational
+        );
     }
 
     #[test]
@@ -413,31 +556,52 @@ mod tests {
     fn classify_knowledge_question_conversational() {
         // "what is X?" knowledge questions should be Conversational (short, no task).
         let s = ToolSelector::new(true);
-        assert_eq!(s.classify_intent("what is Rust?"), TaskIntent::Conversational);
-        assert_eq!(s.classify_intent("what's the difference?"), TaskIntent::Conversational);
+        assert_eq!(
+            s.classify_intent("what is Rust?"),
+            TaskIntent::Conversational
+        );
+        assert_eq!(
+            s.classify_intent("what's the difference?"),
+            TaskIntent::Conversational
+        );
     }
 
     #[test]
     fn classify_show_git_not_mixed() {
         // "show the git diff" — "show" removed from FILE_KEYWORDS, so only GIT matches → GitOperation.
         let s = ToolSelector::new(true);
-        assert_eq!(s.classify_intent("show the git diff"), TaskIntent::GitOperation);
+        assert_eq!(
+            s.classify_intent("show the git diff"),
+            TaskIntent::GitOperation
+        );
     }
 
     #[test]
     fn classify_file_keyword_still_wins_for_directories() {
         // Removing "show" must not regress file operations that use other file keywords.
         let s = ToolSelector::new(true);
-        assert_eq!(s.classify_intent("show me the directory tree"), TaskIntent::FileOperation);
-        assert_eq!(s.classify_intent("list the files"), TaskIntent::FileOperation);
+        assert_eq!(
+            s.classify_intent("show me the directory tree"),
+            TaskIntent::FileOperation
+        );
+        assert_eq!(
+            s.classify_intent("list the files"),
+            TaskIntent::FileOperation
+        );
     }
 
     #[test]
     fn classify_compile_without_project_keyword() {
         // "project" removed from FILE_KEYWORDS — "compile the project" should be CodeExecution.
         let s = ToolSelector::new(true);
-        assert_eq!(s.classify_intent("compile the project"), TaskIntent::CodeExecution);
-        assert_eq!(s.classify_intent("build the project"), TaskIntent::CodeExecution);
+        assert_eq!(
+            s.classify_intent("compile the project"),
+            TaskIntent::CodeExecution
+        );
+        assert_eq!(
+            s.classify_intent("build the project"),
+            TaskIntent::CodeExecution
+        );
     }
 
     #[test]
@@ -514,14 +678,20 @@ mod tests {
         // grep is both core and search → included
         // glob is search → included
         // symbol_search is search → included
-        assert_eq!(names, vec!["file_read", "bash", "grep", "glob", "symbol_search"]);
+        assert_eq!(
+            names,
+            vec!["file_read", "bash", "grep", "glob", "symbol_search"]
+        );
     }
 
     // ── EnvironmentContext tests (FASE 5) ──
 
     #[test]
     fn env_filter_removes_git_tools_when_no_git() {
-        let ctx = EnvironmentContext { is_git_repo: false, has_ci_config: true };
+        let ctx = EnvironmentContext {
+            is_git_repo: false,
+            has_ci_config: true,
+        };
         let tools = vec![
             make_tool("file_read"),
             make_tool("git_status"),
@@ -536,7 +706,10 @@ mod tests {
 
     #[test]
     fn env_filter_keeps_git_tools_when_git_exists() {
-        let ctx = EnvironmentContext { is_git_repo: true, has_ci_config: false };
+        let ctx = EnvironmentContext {
+            is_git_repo: true,
+            has_ci_config: false,
+        };
         let tools = vec![
             make_tool("file_read"),
             make_tool("git_status"),
@@ -549,7 +722,10 @@ mod tests {
 
     #[test]
     fn env_filter_removes_ci_tools_when_no_ci() {
-        let ctx = EnvironmentContext { is_git_repo: true, has_ci_config: false };
+        let ctx = EnvironmentContext {
+            is_git_repo: true,
+            has_ci_config: false,
+        };
         let tools = vec![
             make_tool("file_read"),
             make_tool("ci_logs"),
@@ -563,7 +739,10 @@ mod tests {
 
     #[test]
     fn env_filter_keeps_all_when_environment_complete() {
-        let ctx = EnvironmentContext { is_git_repo: true, has_ci_config: true };
+        let ctx = EnvironmentContext {
+            is_git_repo: true,
+            has_ci_config: true,
+        };
         let tools = vec![
             make_tool("file_read"),
             make_tool("git_status"),
@@ -576,7 +755,10 @@ mod tests {
 
     #[test]
     fn env_filter_empty_input_returns_empty() {
-        let ctx = EnvironmentContext { is_git_repo: false, has_ci_config: false };
+        let ctx = EnvironmentContext {
+            is_git_repo: false,
+            has_ci_config: false,
+        };
         let filtered = ctx.filter_tools(vec![]);
         assert!(filtered.is_empty());
     }

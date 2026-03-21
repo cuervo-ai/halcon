@@ -71,10 +71,7 @@ pub async fn run(
 }
 
 /// Run stdio transport.
-async fn run_stdio(
-    tools: Vec<Arc<dyn halcon_core::traits::Tool>>,
-    work_dir: String,
-) -> Result<()> {
+async fn run_stdio(tools: Vec<Arc<dyn halcon_core::traits::Tool>>, work_dir: String) -> Result<()> {
     let server = McpServer::new(tools, work_dir);
     server.run().await?;
     Ok(())

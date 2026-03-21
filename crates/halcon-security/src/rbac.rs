@@ -223,7 +223,10 @@ impl RbacPolicy {
 
     /// Grant a permission to a role.
     pub fn grant(&mut self, role: Role, permission: Permission) {
-        self.grants.entry(role.key()).or_default().insert(permission);
+        self.grants
+            .entry(role.key())
+            .or_default()
+            .insert(permission);
     }
 
     /// Revoke a specific permission from a role.
@@ -260,9 +263,7 @@ impl RbacPolicy {
 
     /// Return `true` if `role` has **any** grants in this policy.
     pub fn has_any_grant(&self, role: &Role) -> bool {
-        self.grants
-            .get(&role.key())
-            .map_or(false, |s| !s.is_empty())
+        self.grants.get(&role.key()).is_some_and(|s| !s.is_empty())
     }
 }
 
@@ -286,7 +287,10 @@ mod tests {
 
     #[test]
     fn role_display_custom() {
-        assert_eq!(Role::Custom("analyst".to_string()).to_string(), "custom:analyst");
+        assert_eq!(
+            Role::Custom("analyst".to_string()).to_string(),
+            "custom:analyst"
+        );
     }
 
     // ─── Admin: all access ───────────────────────────────────────────────────

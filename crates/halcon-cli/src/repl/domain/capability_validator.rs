@@ -19,14 +19,9 @@ pub enum ValidationResult {
         alternatives: Vec<String>,
     },
     /// Required environment feature is unavailable.
-    MissingEnvironment {
-        feature: String,
-        detail: String,
-    },
+    MissingEnvironment { feature: String, detail: String },
     /// Step is fundamentally impossible to execute.
-    Impossible {
-        reason: String,
-    },
+    Impossible { reason: String },
 }
 
 /// Aggregated validation for an entire plan.
@@ -63,7 +58,12 @@ impl Default for EnvironmentSnapshot {
 
 /// Tools that require git to be available.
 const GIT_TOOLS: &[&str] = &[
-    "git_status", "git_diff", "git_log", "git_commit", "git_add", "git_branch",
+    "git_status",
+    "git_diff",
+    "git_log",
+    "git_commit",
+    "git_add",
+    "git_branch",
 ];
 
 /// Tools that require network access.
@@ -106,7 +106,10 @@ pub fn validate_step(
     if GIT_TOOLS.contains(&canonical) && !env.has_git {
         return ValidationResult::MissingEnvironment {
             feature: "git".to_string(),
-            detail: format!("tool '{}' requires git, but no repository detected", canonical),
+            detail: format!(
+                "tool '{}' requires git, but no repository detected",
+                canonical
+            ),
         };
     }
     if NETWORK_TOOLS.contains(&canonical) && !env.has_network {
@@ -153,13 +156,7 @@ pub fn validate_plan(
     let mut has_invalid = false;
 
     for (idx, (desc, tool)) in steps.iter().enumerate() {
-        let result = validate_step(
-            desc,
-            tool.as_deref(),
-            available_tools,
-            blocked_tools,
-            env,
-        );
+        let result = validate_step(desc, tool.as_deref(), available_tools, blocked_tools, env);
         if result != ValidationResult::Valid {
             has_invalid = true;
             if auto_skip {
@@ -272,7 +269,9 @@ mod tests {
             &[],
             &env,
         );
-        assert!(matches!(result, ValidationResult::MissingEnvironment { feature, .. } if feature == "git"));
+        assert!(
+            matches!(result, ValidationResult::MissingEnvironment { feature, .. } if feature == "git")
+        );
     }
 
     #[test]
@@ -288,7 +287,9 @@ mod tests {
             &[],
             &env,
         );
-        assert!(matches!(result, ValidationResult::MissingEnvironment { feature, .. } if feature == "network"));
+        assert!(
+            matches!(result, ValidationResult::MissingEnvironment { feature, .. } if feature == "network")
+        );
     }
 
     #[test]
@@ -340,12 +341,13 @@ mod tests {
 
     #[test]
     fn phase3_capability_validate_plan_no_auto_skip() {
-        let steps = vec![
-            ("Deploy to prod".to_string(), Some("ci_trigger".to_string())),
-        ];
+        let steps = vec![("Deploy to prod".to_string(), Some("ci_trigger".to_string()))];
         let plan = validate_plan(&steps, &basic_tools(), &[], &default_env(), false);
         assert!(plan.has_invalid_steps);
-        assert!(plan.skip_indices.is_empty(), "auto_skip=false means no skip_indices");
+        assert!(
+            plan.skip_indices.is_empty(),
+            "auto_skip=false means no skip_indices"
+        );
     }
 
     #[test]

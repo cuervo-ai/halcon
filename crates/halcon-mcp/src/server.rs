@@ -452,9 +452,7 @@ mod tests {
             "name": "nonexistent",
             "arguments": {}
         });
-        let resp = server
-            .handle_request(5, "tools/call", Some(params))
-            .await;
+        let resp = server.handle_request(5, "tools/call", Some(params)).await;
         assert!(resp.error.is_some());
         let err = resp.error.unwrap();
         assert_eq!(err.code, error_codes::INVALID_PARAMS);
@@ -481,9 +479,7 @@ mod tests {
     #[tokio::test]
     async fn handle_unknown_method() {
         let server = make_server();
-        let resp = server
-            .handle_request(8, "unknown/method", None)
-            .await;
+        let resp = server.handle_request(8, "unknown/method", None).await;
         assert!(resp.error.is_some());
         assert_eq!(resp.error.unwrap().code, error_codes::METHOD_NOT_FOUND);
     }
@@ -511,8 +507,7 @@ mod tests {
 
     #[test]
     fn error_response_format() {
-        let resp =
-            McpServer::error_response(Some(10), error_codes::INTERNAL_ERROR, "test error");
+        let resp = McpServer::error_response(Some(10), error_codes::INTERNAL_ERROR, "test error");
         assert_eq!(resp.id, Some(10));
         assert!(resp.result.is_none());
         let err = resp.error.unwrap();

@@ -84,7 +84,11 @@ impl ExecutionGraph {
     /// Must be called before `total_cost()`. Safe to call multiple times (idempotent given
     /// same parameters). Policy values are passed as primitives to avoid a cross-crate
     /// dependency on `PolicyConfig`.
-    pub fn assign_base_costs(&mut self, avg_input_tokens_per_step: usize, tool_cost_multiplier: usize) {
+    pub fn assign_base_costs(
+        &mut self,
+        avg_input_tokens_per_step: usize,
+        tool_cost_multiplier: usize,
+    ) {
         for node in &mut self.nodes {
             node.base_cost = match node.modality {
                 Modality::Text => avg_input_tokens_per_step,
@@ -119,9 +123,8 @@ impl ExecutionGraph {
         }
 
         // Cost lookup: node_id → base_cost.
-        let cost_map: HashMap<usize, usize> = self.nodes.iter()
-            .map(|n| (n.id.0, n.base_cost))
-            .collect();
+        let cost_map: HashMap<usize, usize> =
+            self.nodes.iter().map(|n| (n.id.0, n.base_cost)).collect();
 
         // DFS from start node (node 0) with visited set.
         let start = self.nodes[0].id.0;

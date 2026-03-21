@@ -6,7 +6,7 @@
 //! - Material system evaluation
 //! - Batch recommendation operations
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use halcon_cli::render::intelligent_theme::{IntelligentPaletteBuilder, QualityThresholds};
 use momoto_core::Color;
 
@@ -54,16 +54,12 @@ fn bench_quality_scorer_baseline(c: &mut Criterion) {
 
     let scorer = QualityScorer::new();
     let fg = Color::from_srgb8(240, 240, 240); // Light text
-    let bg = Color::from_srgb8(24, 26, 27);    // Dark background
+    let bg = Color::from_srgb8(24, 26, 27); // Dark background
     let context = RecommendationContext::body_text();
 
     c.bench_function("quality_scorer_baseline", |b| {
         b.iter(|| {
-            let score = scorer.score(
-                black_box(fg),
-                black_box(bg),
-                black_box(context),
-            );
+            let score = scorer.score(black_box(fg), black_box(bg), black_box(context));
             black_box(score)
         });
     });
@@ -83,7 +79,8 @@ fn bench_palette_assessment_baseline(c: &mut Criterion) {
         min_confidence: 0.6,
     };
     let builder = IntelligentPaletteBuilder::with_thresholds(thresholds);
-    let palette_meta = builder.generate_from_hue(210.0)
+    let palette_meta = builder
+        .generate_from_hue(210.0)
         .expect("Failed to generate baseline palette");
 
     c.bench_function("palette_assessment_baseline", |b| {
@@ -336,7 +333,8 @@ fn bench_batch_palette_generation(c: &mut Criterion) {
             &count,
             |b, &count| {
                 b.iter(|| {
-                    let results: Vec<_> = hues.iter()
+                    let results: Vec<_> = hues
+                        .iter()
                         .take(count)
                         .filter_map(|&hue| builder.generate_from_hue(hue))
                         .collect();
@@ -397,7 +395,7 @@ fn bench_oklch_conversions(c: &mut Criterion) {
 /// Target: <1µs for WCAG, <2µs for APCA
 fn bench_contrast_calculations(c: &mut Criterion) {
     use momoto_core::ContrastMetric;
-    use momoto_metrics::{WCAGMetric, APCAMetric};
+    use momoto_metrics::{APCAMetric, WCAGMetric};
 
     let fg = Color::from_srgb8(255, 255, 255);
     let bg = Color::from_srgb8(0, 0, 0);
@@ -465,7 +463,8 @@ fn bench_optimize_fast_config(c: &mut Criterion) {
     c.bench_function("adaptive_optimize_fast", |b| {
         b.iter(|| {
             let builder_local = IntelligentPaletteBuilder::with_thresholds(thresholds);
-            let mut optimizer = AdaptivePaletteOptimizer::with_config(builder_local, config.clone());
+            let mut optimizer =
+                AdaptivePaletteOptimizer::with_config(builder_local, config.clone());
             let result = optimizer.optimize_from_hue(black_box(210.0));
             black_box(result)
         });
@@ -490,7 +489,8 @@ fn bench_optimize_default_config(c: &mut Criterion) {
     c.bench_function("adaptive_optimize_default", |b| {
         b.iter(|| {
             let builder_local = IntelligentPaletteBuilder::with_thresholds(thresholds);
-            let mut optimizer = AdaptivePaletteOptimizer::with_config(builder_local, config.clone());
+            let mut optimizer =
+                AdaptivePaletteOptimizer::with_config(builder_local, config.clone());
             let result = optimizer.optimize_from_hue(black_box(210.0));
             black_box(result)
         });
@@ -515,7 +515,8 @@ fn bench_optimize_high_quality_config(c: &mut Criterion) {
     c.bench_function("adaptive_optimize_high_quality", |b| {
         b.iter(|| {
             let builder_local = IntelligentPaletteBuilder::with_thresholds(thresholds);
-            let mut optimizer = AdaptivePaletteOptimizer::with_config(builder_local, config.clone());
+            let mut optimizer =
+                AdaptivePaletteOptimizer::with_config(builder_local, config.clone());
             let result = optimizer.optimize_from_hue(black_box(210.0));
             black_box(result)
         });

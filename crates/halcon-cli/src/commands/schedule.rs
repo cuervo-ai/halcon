@@ -11,8 +11,6 @@
 //!
 //! See US-scheduler (PASO 4-C).
 
-use std::sync::Arc;
-
 use anyhow::{Context, Result};
 
 use halcon_storage::Database;
@@ -59,7 +57,10 @@ pub fn list(db: &Database) -> Result<()> {
         return Ok(());
     }
 
-    println!("{:<38} {:<20} {:<15} {:<12}", "ID", "NAME", "CRON", "STATUS");
+    println!(
+        "{:<38} {:<20} {:<15} {:<12}",
+        "ID", "NAME", "CRON", "STATUS"
+    );
     println!("{}", "─".repeat(90));
     for task in &tasks {
         let status = if task.enabled { "enabled" } else { "disabled" };
@@ -82,8 +83,7 @@ pub fn list(db: &Database) -> Result<()> {
 
 /// Disable a scheduled task (stops it from running on schedule).
 pub fn disable(db: &Database, id: &str) -> Result<()> {
-    let n = db_set_scheduled_task_enabled(db, id, false)
-        .context("failed to disable task")?;
+    let n = db_set_scheduled_task_enabled(db, id, false).context("failed to disable task")?;
     if n == 0 {
         anyhow::bail!("task not found: {id}");
     }
@@ -93,8 +93,7 @@ pub fn disable(db: &Database, id: &str) -> Result<()> {
 
 /// Enable a previously disabled scheduled task.
 pub fn enable(db: &Database, id: &str) -> Result<()> {
-    let n = db_set_scheduled_task_enabled(db, id, true)
-        .context("failed to enable task")?;
+    let n = db_set_scheduled_task_enabled(db, id, true).context("failed to enable task")?;
     if n == 0 {
         anyhow::bail!("task not found: {id}");
     }
@@ -146,8 +145,7 @@ mod tests {
     #[test]
     fn test_add_and_list() {
         let db = make_db();
-        add(&db, "weekly-scan", "0 2 * * 1", "Run security scan", None)
-            .expect("add task");
+        add(&db, "weekly-scan", "0 2 * * 1", "Run security scan", None).expect("add task");
         let tasks = db_list_scheduled_tasks(&db).expect("list");
         assert_eq!(tasks.len(), 1);
         assert_eq!(tasks[0].name, "weekly-scan");

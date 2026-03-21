@@ -3,9 +3,7 @@
 use super::color;
 
 /// Braille-pattern spinner frames for neon-themed animation.
-pub const NEON_SPINNER_FRAMES: &[&str] = &[
-    "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏",
-];
+pub const NEON_SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 /// ASCII fallback spinner frames for non-Unicode terminals.
 pub const ASCII_SPINNER_FRAMES: &[&str] = &["|", "/", "-", "\\"];
@@ -30,7 +28,9 @@ pub fn spinner_frames() -> &'static [&'static str] {
 
 /// Returns the branded frame set for a given agent phase label.
 pub fn phase_frames(phase: &str) -> &'static [&'static str] {
-    if !color::unicode_enabled() { return ASCII_SPINNER_FRAMES; }
+    if !color::unicode_enabled() {
+        return ASCII_SPINNER_FRAMES;
+    }
     match phase {
         "thinking" | "reasoning" | "reflecting" => FALCON_EYE_FRAMES,
         "planning" => WING_SWEEP_FRAMES,

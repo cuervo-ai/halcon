@@ -81,10 +81,7 @@ pub struct AgentOptional<'a> {
     pub model_selector: Option<&'a super::super::model_selector::ModelSelector>,
     pub critic_provider: Option<Arc<dyn ModelProvider>>,
     pub critic_model: Option<String>,
-    pub plugin_registry: Option<
-        std::sync::Arc<
-            std::sync::Mutex<super::super::plugins::PluginRegistry>,
-        >,
-    >,
+    pub plugin_registry:
+        Option<std::sync::Arc<std::sync::Mutex<super::super::plugins::PluginRegistry>>>,
     pub strategy_context: Option<StrategyContext>,
 }

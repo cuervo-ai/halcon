@@ -43,7 +43,7 @@ pub(crate) struct SubAgentContext {
 }
 
 /// Estadísticas de uso en runtime por source (para Context Servers modal).
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct SourceStats {
     /// Tokens totales procesados por este source.
     pub total_tokens: u32,
@@ -51,16 +51,6 @@ pub(crate) struct SourceStats {
     pub last_query: Option<Instant>,
     /// Número total de consultas exitosas.
     pub query_count: u64,
-}
-
-impl Default for SourceStats {
-    fn default() -> Self {
-        Self {
-            total_tokens: 0,
-            last_query: None,
-            query_count: 0,
-        }
-    }
 }
 
 /// Central facade coordinating context pipeline + sources + governance + metrics.
@@ -154,7 +144,8 @@ impl ContextManager {
         self.last_system_prompt = system_prompt.clone();
 
         let duration_us = start.elapsed().as_micros() as u64;
-        self.metrics.record_assembly(total_source_tokens, duration_us);
+        self.metrics
+            .record_assembly(total_source_tokens, duration_us);
 
         AssembledContext {
             system_prompt,
@@ -212,9 +203,7 @@ impl ContextManager {
             let name = s.name();
             let priority = s.priority();
             // Unwrap safe: all sources initialized in constructor
-            let stats = self.source_stats.get(name)
-                .cloned()
-                .unwrap_or_default();
+            let stats = self.source_stats.get(name).cloned().unwrap_or_default();
             (name, priority, stats)
         })
     }
@@ -335,13 +324,11 @@ mod tests {
 
     #[tokio::test]
     async fn assemble_with_sources() {
-        let mut mgr = test_manager(vec![
-            Box::new(MockSource {
-                name: "test",
-                priority: 10,
-                content: "hello world",
-            }),
-        ]);
+        let mut mgr = test_manager(vec![Box::new(MockSource {
+            name: "test",
+            priority: 10,
+            content: "hello world",
+        })]);
         let result = mgr.assemble(&test_query()).await;
         assert!(result.system_prompt.is_some());
         assert_eq!(result.system_prompt.unwrap(), "hello world");
@@ -372,13 +359,11 @@ mod tests {
 
     #[tokio::test]
     async fn metrics_updated_after_assembly() {
-        let mut mgr = test_manager(vec![
-            Box::new(MockSource {
-                name: "s",
-                priority: 1,
-                content: "data",
-            }),
-        ]);
+        let mut mgr = test_manager(vec![Box::new(MockSource {
+            name: "s",
+            priority: 1,
+            content: "data",
+        })]);
         mgr.assemble(&test_query()).await;
         let snap = mgr.metrics().snapshot();
         assert_eq!(snap.assemblies, 1);
@@ -414,13 +399,11 @@ mod tests {
 
     #[tokio::test]
     async fn scoped_for_sub_agent_includes_system_prompt() {
-        let mut mgr = test_manager(vec![
-            Box::new(MockSource {
-                name: "src",
-                priority: 10,
-                content: "system prompt content",
-            }),
-        ]);
+        let mut mgr = test_manager(vec![Box::new(MockSource {
+            name: "src",
+            priority: 10,
+            content: "system prompt content",
+        })]);
         // Assemble to populate last_system_prompt
         mgr.assemble(&test_query()).await;
         let scoped = mgr.scoped_for_sub_agent("do task X", 5);
@@ -436,7 +419,7 @@ mod tests {
             mgr.add_message(ChatMessage {
                 role: halcon_core::types::Role::User,
                 content: halcon_core::types::MessageContent::Text(format!("msg {i}")),
-                });
+            });
         }
         let scoped = mgr.scoped_for_sub_agent("task", 3);
         assert!(scoped.seed_messages.len() <= 3);

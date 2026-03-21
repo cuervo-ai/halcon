@@ -80,14 +80,12 @@ impl Tool for CenzontleMcpTool {
             arguments: input.arguments,
         };
 
-        let resp =
-            self.client
-                .call_mcp_tool(&req)
-                .await
-                .map_err(|e| HalconError::ToolExecutionFailed {
-                    tool: self.prefixed_name.clone(),
-                    message: format!("Cenzontle MCP tool call failed: {e}"),
-                })?;
+        let resp = self.client.call_mcp_tool(&req).await.map_err(|e| {
+            HalconError::ToolExecutionFailed {
+                tool: self.prefixed_name.clone(),
+                message: format!("Cenzontle MCP tool call failed: {e}"),
+            }
+        })?;
 
         Ok(ToolOutput {
             tool_use_id: input.tool_use_id,
@@ -191,8 +189,7 @@ impl CenzontleMcpManager {
         self.tool_count = registered;
         info!(
             count = registered,
-            "Cenzontle MCP bridge: registered tools with '{}' prefix",
-            TOOL_PREFIX
+            "Cenzontle MCP bridge: registered tools with '{}' prefix", TOOL_PREFIX
         );
     }
 

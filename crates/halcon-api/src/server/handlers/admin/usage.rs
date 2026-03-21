@@ -100,7 +100,9 @@ pub async fn claude_code_usage(
         thirty_days_ago.format("%Y-%m-%d").to_string()
     });
 
-    let storage_rows = db.inner().query_user_usage(&starting_at, params.user_id.as_deref())
+    let storage_rows = db
+        .inner()
+        .query_user_usage(&starting_at, params.user_id.as_deref())
         .map_err(|e| ApiError::internal(format!("usage query failed: {e}")))?;
 
     // Map storage rows to API response types.
@@ -131,9 +133,9 @@ pub async fn usage_summary(
         let thirty_days_ago = chrono::Utc::now() - chrono::Duration::days(30);
         thirty_days_ago.format("%Y-%m-%d").to_string()
     });
-    let to = params.to.unwrap_or_else(|| {
-        chrono::Utc::now().format("%Y-%m-%d").to_string()
-    });
+    let to = params
+        .to
+        .unwrap_or_else(|| chrono::Utc::now().format("%Y-%m-%d").to_string());
 
     let db = match state.db {
         Some(ref d) => d.clone(),
@@ -151,7 +153,9 @@ pub async fn usage_summary(
         }
     };
 
-    let s = db.inner().query_usage_summary(&from, &to)
+    let s = db
+        .inner()
+        .query_usage_summary(&from, &to)
         .map_err(|e| ApiError::internal(format!("summary query failed: {e}")))?;
 
     Ok(Json(UsageSummary {
@@ -205,7 +209,10 @@ mod tests {
     #[test]
     fn claude_code_usage_query_all_optional() {
         // Verify the query struct can be constructed with all-None fields.
-        let q = ClaudeCodeUsageQuery { starting_at: None, user_id: None };
+        let q = ClaudeCodeUsageQuery {
+            starting_at: None,
+            user_id: None,
+        };
         assert!(q.starting_at.is_none());
         assert!(q.user_id.is_none());
     }

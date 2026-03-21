@@ -159,7 +159,10 @@ mod tests {
         });
         let s = score(&result, &MemoryTrigger::TaskSuccess);
         // 0.2 (task) + 0.1 (achieved) + 0.16 (conf×0.2) + 0.05 (EndTurn) = 0.51
-        assert!(s > 0.3, "TaskSuccess + critic achieved should exceed threshold, got {s}");
+        assert!(
+            s > 0.3,
+            "TaskSuccess + critic achieved should exceed threshold, got {s}"
+        );
     }
 
     #[test]
@@ -196,7 +199,10 @@ mod tests {
             tool_name: "file_read".into(),
             failure_count: 2,
         }];
-        assert_eq!(classify_trigger(&result), Some(MemoryTrigger::ErrorRecovery));
+        assert_eq!(
+            classify_trigger(&result),
+            Some(MemoryTrigger::ErrorRecovery)
+        );
     }
 
     #[test]

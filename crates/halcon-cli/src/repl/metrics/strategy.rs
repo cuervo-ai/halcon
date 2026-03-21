@@ -6,7 +6,7 @@
 //! - Records divergence and hypothetical outcomes
 //! - Does NOT affect actual execution
 
-use crate::repl::strategy_selector::{StrategySelector, ReasoningStrategy};
+use crate::repl::strategy_selector::{ReasoningStrategy, StrategySelector};
 use crate::repl::task_analyzer::TaskAnalyzer;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -83,9 +83,13 @@ impl StrategyMetrics {
 
         // Track agreement vs divergence
         if ucb1_would_plan == actual_used_planning {
-            self.inner.ucb1_vs_heuristic_match.fetch_add(1, Ordering::Relaxed);
+            self.inner
+                .ucb1_vs_heuristic_match
+                .fetch_add(1, Ordering::Relaxed);
         } else {
-            self.inner.ucb1_vs_heuristic_diverge.fetch_add(1, Ordering::Relaxed);
+            self.inner
+                .ucb1_vs_heuristic_diverge
+                .fetch_add(1, Ordering::Relaxed);
 
             tracing::debug!(
                 query_len = query.len(),
@@ -141,25 +145,34 @@ impl StrategyMetricsSnapshot {
 
         // If divergence is <5%, UCB1 is redundant with heuristic
         if divergence_rate < 0.05 {
-            return (false, format!(
-                "UCB1 agrees {:.1}% of the time — redundant with heuristic",
-                self.agreement_rate() * 100.0
-            ));
+            return (
+                false,
+                format!(
+                    "UCB1 agrees {:.1}% of the time — redundant with heuristic",
+                    self.agreement_rate() * 100.0
+                ),
+            );
         }
 
         // If divergence is >20%, UCB1 is making different choices
         if divergence_rate > 0.20 {
-            return (true, format!(
-                "UCB1 diverges {:.1}% — provides different strategy selection",
-                divergence_rate * 100.0
-            ));
+            return (
+                true,
+                format!(
+                    "UCB1 diverges {:.1}% — provides different strategy selection",
+                    divergence_rate * 100.0
+                ),
+            );
         }
 
         // 5-20% divergence: marginal value
-        (true, format!(
-            "UCB1 provides modest differentiation: {:.1}% divergence",
-            divergence_rate * 100.0
-        ))
+        (
+            true,
+            format!(
+                "UCB1 provides modest differentiation: {:.1}% divergence",
+                divergence_rate * 100.0
+            ),
+        )
     }
 }
 
@@ -177,7 +190,7 @@ mod tests {
         // Complex query → heuristic likely chooses planning
         metrics.record_decision_shadow(
             "analyze the codebase architecture and generate a comprehensive report",
-            true
+            true,
         );
 
         let snapshot = metrics.snapshot();

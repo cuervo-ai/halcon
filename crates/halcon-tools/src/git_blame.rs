@@ -33,7 +33,7 @@ impl GitBlameTool {
         dir: &str,
         timeout_secs: u64,
     ) -> Result<String, String> {
-        let mut args = vec!["blame", "--porcelain"];
+        let args = vec!["blame", "--porcelain"];
 
         let range;
         if let (Some(s), Some(e)) = (line_start, line_end) {
@@ -127,7 +127,12 @@ impl GitBlameTool {
     }
 
     fn format_text(lines: &[BlameLine], show_summary: bool) -> String {
-        let max_author = lines.iter().map(|l| l.author.len()).max().unwrap_or(10).min(20);
+        let max_author = lines
+            .iter()
+            .map(|l| l.author.len())
+            .max()
+            .unwrap_or(10)
+            .min(20);
         let mut out = String::new();
         for l in lines {
             let date = format_timestamp(l.author_time);
@@ -313,7 +318,10 @@ impl Tool for GitBlameTool {
         PermissionLevel::ReadOnly
     }
 
-    async fn execute(&self, input: ToolInput) -> Result<ToolOutput, halcon_core::error::HalconError> {
+    async fn execute(
+        &self,
+        input: ToolInput,
+    ) -> Result<ToolOutput, halcon_core::error::HalconError> {
         let args = &input.arguments;
         let file = match args["file"].as_str() {
             Some(f) if !f.is_empty() => f,
@@ -388,7 +396,8 @@ impl Tool for GitBlameTool {
             if show_stats {
                 out.push_str("\n### Author Stats\n");
                 for s in Self::author_stats(&lines) {
-                    out.push_str(&format!("  {} — {} lines ({})\n",
+                    out.push_str(&format!(
+                        "  {} — {} lines ({})\n",
                         s["author"].as_str().unwrap_or("?"),
                         s["lines"],
                         s["pct"].as_str().unwrap_or("?")
@@ -396,7 +405,8 @@ impl Tool for GitBlameTool {
                 }
                 out.push_str("\n### Hot Lines (most recently changed)\n");
                 for h in Self::hot_lines(&lines) {
-                    out.push_str(&format!("  L{} {} {} — {}\n",
+                    out.push_str(&format!(
+                        "  L{} {} {} — {}\n",
                         h["line"],
                         h["date"].as_str().unwrap_or(""),
                         h["author"].as_str().unwrap_or(""),
@@ -432,7 +442,10 @@ mod tests {
         assert_eq!(t.permission_level(), PermissionLevel::ReadOnly);
         let schema = t.input_schema();
         assert_eq!(schema["type"], "object");
-        assert!(schema["required"].as_array().unwrap().contains(&json!("file")));
+        assert!(schema["required"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("file")));
     }
 
     #[test]
@@ -471,8 +484,22 @@ mod tests {
     #[test]
     fn author_stats_single() {
         let lines = vec![
-            BlameLine { hash: "abc".into(), author: "Alice".into(), author_time: 0, summary: "".into(), line_no: 1, content: "a".into() },
-            BlameLine { hash: "abc".into(), author: "Alice".into(), author_time: 0, summary: "".into(), line_no: 2, content: "b".into() },
+            BlameLine {
+                hash: "abc".into(),
+                author: "Alice".into(),
+                author_time: 0,
+                summary: "".into(),
+                line_no: 1,
+                content: "a".into(),
+            },
+            BlameLine {
+                hash: "abc".into(),
+                author: "Alice".into(),
+                author_time: 0,
+                summary: "".into(),
+                line_no: 2,
+                content: "b".into(),
+            },
         ];
         let stats = GitBlameTool::author_stats(&lines);
         assert_eq!(stats.len(), 1);
@@ -501,11 +528,14 @@ mod tests {
     #[tokio::test]
     async fn execute_missing_file_arg() {
         let tool = GitBlameTool::new(5);
-        let out = tool.execute(ToolInput {
-            tool_use_id: "t1".into(),
-            arguments: serde_json::json!({}),
-            working_directory: "/tmp".into(),
-        }).await.unwrap();
+        let out = tool
+            .execute(ToolInput {
+                tool_use_id: "t1".into(),
+                arguments: serde_json::json!({}),
+                working_directory: "/tmp".into(),
+            })
+            .await
+            .unwrap();
         assert!(out.is_error);
         assert!(out.content.contains("Missing"));
     }
@@ -513,27 +543,33 @@ mod tests {
     #[tokio::test]
     async fn execute_nonexistent_file() {
         let tool = GitBlameTool::new(5);
-        let out = tool.execute(ToolInput {
-            tool_use_id: "t1".into(),
-            arguments: serde_json::json!({ "file": "nonexistent_no_file.rs" }),
-            working_directory: "/tmp".into(),
-        }).await.unwrap();
+        let out = tool
+            .execute(ToolInput {
+                tool_use_id: "t1".into(),
+                arguments: serde_json::json!({ "file": "nonexistent_no_file.rs" }),
+                working_directory: "/tmp".into(),
+            })
+            .await
+            .unwrap();
         assert!(out.is_error || !out.content.is_empty());
     }
 
     #[tokio::test]
     async fn execute_real_repo_file() {
         let tool = GitBlameTool::new(30);
-        let out = tool.execute(ToolInput {
-            tool_use_id: "t1".into(),
-            arguments: serde_json::json!({
-                "file": "Cargo.toml",
-                "line_start": 1,
-                "line_end": 5,
-                "stats": true
-            }),
-            working_directory: "/Users/oscarvalois/Documents/Github/cuervo-cli".into(),
-        }).await.unwrap();
+        let out = tool
+            .execute(ToolInput {
+                tool_use_id: "t1".into(),
+                arguments: serde_json::json!({
+                    "file": "Cargo.toml",
+                    "line_start": 1,
+                    "line_end": 5,
+                    "stats": true
+                }),
+                working_directory: "/Users/oscarvalois/Documents/Github/cuervo-cli".into(),
+            })
+            .await
+            .unwrap();
         assert!(!out.is_error, "error: {}", out.content);
         // Should contain blame annotations
         assert!(!out.content.is_empty());

@@ -46,9 +46,13 @@ impl MediaContextSource {
 
 #[async_trait]
 impl ContextSource for MediaContextSource {
-    fn name(&self) -> &str { "media_index" }
+    fn name(&self) -> &str {
+        "media_index"
+    }
 
-    fn priority(&self) -> u32 { 55 } // Below repo_map (60), above MCP (50)
+    fn priority(&self) -> u32 {
+        55
+    } // Below repo_map (60), above MCP (50)
 
     async fn gather(&self, query: &ContextQuery) -> Result<Vec<ContextChunk>> {
         // Only search if there is a user message to embed.
@@ -61,7 +65,8 @@ impl ContextSource for MediaContextSource {
         let query_embedding = text_to_embedding_512(user_message);
 
         // Search index for top-K similar media.
-        let results = self.index
+        let results = self
+            .index
             .search(query_embedding, None, self.top_k)
             .await
             .unwrap_or_default(); // Best-effort: context is not critical path.
@@ -82,8 +87,7 @@ impl ContextSource for MediaContextSource {
                     .unwrap_or("media");
 
                 let temporal = match (entry.clip_start_secs, entry.clip_end_secs) {
-                    (Some(start), Some(end)) =>
-                        format!(" [{:.1}s–{:.1}s]", start, end),
+                    (Some(start), Some(end)) => format!(" [{:.1}s–{:.1}s]", start, end),
                     _ => String::new(),
                 };
 
@@ -110,14 +114,16 @@ impl ContextSource for MediaContextSource {
 
                 // Token estimate: base overhead + description length / 4 chars per token.
                 let estimated_tokens: usize = 40
-                    + entry.description.as_deref()
+                    + entry
+                        .description
+                        .as_deref()
                         .map(|d| d.len() / 4)
                         .unwrap_or(0);
 
                 ContextChunk {
                     content,
-                    source:           "media_index".into(),
-                    priority:         55,
+                    source: "media_index".into(),
+                    priority: 55,
                     estimated_tokens,
                 }
             })
@@ -175,7 +181,7 @@ fn tokenize(text: &str) -> impl Iterator<Item = String> + '_ {
 /// FNV-1a hash producing a stable usize for any string.
 fn fnv1a_hash(s: &str) -> usize {
     const FNV_OFFSET: u64 = 14_695_981_039_346_656_037;
-    const FNV_PRIME:  u64 = 1_099_511_628_211;
+    const FNV_PRIME: u64 = 1_099_511_628_211;
     let mut hash = FNV_OFFSET;
     for byte in s.bytes() {
         hash ^= byte as u64;
@@ -192,7 +198,9 @@ mod tests {
     use halcon_storage::{AsyncDatabase, Database};
 
     fn test_index() -> Arc<MediaIndex> {
-        let db = Arc::new(AsyncDatabase::new(Arc::new(Database::open_in_memory().unwrap())));
+        let db = Arc::new(AsyncDatabase::new(Arc::new(
+            Database::open_in_memory().unwrap(),
+        )));
         Arc::new(MediaIndex::new(db))
     }
 
@@ -246,7 +254,10 @@ mod tests {
     fn identical_texts_cosine_one() {
         let emb = text_to_embedding_512("halcon multimodal image analysis system");
         let sim: f32 = emb.iter().zip(emb.iter()).map(|(a, b)| a * b).sum();
-        assert!((sim - 1.0).abs() < 1e-5, "identical texts cosine should be 1.0, got {sim}");
+        assert!(
+            (sim - 1.0).abs() < 1e-5,
+            "identical texts cosine should be 1.0, got {sim}"
+        );
     }
 
     #[test]
@@ -261,7 +272,10 @@ mod tests {
     #[tokio::test]
     async fn gather_returns_empty_when_no_embeddings() {
         let src = MediaContextSource::new(test_index(), 5);
-        let chunks = src.gather(&test_query("what is in the image?")).await.unwrap();
+        let chunks = src
+            .gather(&test_query("what is in the image?"))
+            .await
+            .unwrap();
         assert!(chunks.is_empty());
     }
 
@@ -290,18 +304,24 @@ mod tests {
         // Store an embedding that matches the query vocabulary.
         let desc = "a cat sitting on a window sill orange";
         let embedding = text_to_embedding_512(desc);
-        index.store(
-            "cafecafe01234567".into(),
-            "image".into(),
-            embedding,
-            None,
-            Some("/tmp/cat.jpg".into()),
-            Some(desc.into()),
-        ).await.unwrap();
+        index
+            .store(
+                "cafecafe01234567".into(),
+                "image".into(),
+                embedding,
+                None,
+                Some("/tmp/cat.jpg".into()),
+                Some(desc.into()),
+            )
+            .await
+            .unwrap();
 
         let src = MediaContextSource::new(index, 3);
         // Query shares vocabulary with stored description.
-        let chunks = src.gather(&test_query("cat near the window")).await.unwrap();
+        let chunks = src
+            .gather(&test_query("cat near the window"))
+            .await
+            .unwrap();
         assert!(
             !chunks.is_empty(),
             "should return at least one chunk when index has matching entry"
@@ -313,14 +333,17 @@ mod tests {
     async fn gather_chunk_contains_modality_and_hash() {
         let index = test_index();
         let embedding = text_to_embedding_512("dog playing in the park");
-        index.store(
-            "deadbeef00000000".into(),
-            "image".into(),
-            embedding,
-            None,
-            None,
-            None,
-        ).await.unwrap();
+        index
+            .store(
+                "deadbeef00000000".into(),
+                "image".into(),
+                embedding,
+                None,
+                None,
+                None,
+            )
+            .await
+            .unwrap();
 
         let src = MediaContextSource::new(index, 1);
         let chunks = src.gather(&test_query("dog park playing")).await.unwrap();
@@ -333,19 +356,26 @@ mod tests {
     #[tokio::test]
     async fn gather_with_description_returns_useful_chunk() {
         let index = test_index();
-        let desc = "A photograph showing a mountain landscape with snow-capped peaks and pine trees";
+        let desc =
+            "A photograph showing a mountain landscape with snow-capped peaks and pine trees";
         let embedding = text_to_embedding_512(desc);
-        index.store(
-            "mountainhash0000".into(),
-            "image".into(),
-            embedding,
-            None,
-            Some("/photos/mountain.jpg".into()),
-            Some(desc.into()),
-        ).await.unwrap();
+        index
+            .store(
+                "mountainhash0000".into(),
+                "image".into(),
+                embedding,
+                None,
+                Some("/photos/mountain.jpg".into()),
+                Some(desc.into()),
+            )
+            .await
+            .unwrap();
 
         let src = MediaContextSource::new(index, 3);
-        let chunks = src.gather(&test_query("show me the mountain photo")).await.unwrap();
+        let chunks = src
+            .gather(&test_query("show me the mountain photo"))
+            .await
+            .unwrap();
         if !chunks.is_empty() {
             // Chunk must contain the description, not just the hash.
             assert!(
@@ -368,14 +398,17 @@ mod tests {
     async fn gather_without_description_degrades_gracefully() {
         let index = test_index();
         let embedding = text_to_embedding_512("sunset over ocean waves");
-        index.store(
-            "sunsethashabcd12".into(),
-            "image".into(),
-            embedding,
-            None,
-            None,
-            None,  // no description
-        ).await.unwrap();
+        index
+            .store(
+                "sunsethashabcd12".into(),
+                "image".into(),
+                embedding,
+                None,
+                None,
+                None, // no description
+            )
+            .await
+            .unwrap();
 
         let src = MediaContextSource::new(index, 3);
         let chunks = src.gather(&test_query("sunset ocean waves")).await.unwrap();
@@ -385,7 +418,10 @@ mod tests {
                 chunks[0].content.contains("Content hash:"),
                 "chunk without description should fall back to content hash"
             );
-            assert_eq!(chunks[0].estimated_tokens, 40, "base token estimate for no-description entry");
+            assert_eq!(
+                chunks[0].estimated_tokens, 40,
+                "base token estimate for no-description entry"
+            );
         }
     }
 

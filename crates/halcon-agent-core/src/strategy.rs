@@ -49,7 +49,11 @@ impl StrategyArm {
 
     /// Empirical mean reward.
     pub fn mean_reward(&self) -> f64 {
-        if self.pulls == 0 { 0.0 } else { self.total_reward / self.pulls as f64 }
+        if self.pulls == 0 {
+            0.0
+        } else {
+            self.total_reward / self.pulls as f64
+        }
     }
 
     /// UCB1 score given total pulls `n` across all arms and exploration constant `c`.
@@ -113,13 +117,19 @@ impl StrategyLearner {
         for name in &config.initial_strategies {
             arms.insert(name.clone(), StrategyArm::new(name.clone()));
         }
-        Self { config, arms, total_pulls: 0 }
+        Self {
+            config,
+            arms,
+            total_pulls: 0,
+        }
     }
 
     /// Register a new strategy arm (no-op if already registered).
     pub fn register(&mut self, name: impl Into<String>) {
         let name = name.into();
-        self.arms.entry(name.clone()).or_insert_with(|| StrategyArm::new(name));
+        self.arms
+            .entry(name.clone())
+            .or_insert_with(|| StrategyArm::new(name));
     }
 
     /// Select the strategy with the highest UCB1 score.
@@ -150,7 +160,9 @@ impl StrategyLearner {
     ///
     /// `reward` should be in [0, 1] (e.g., final goal confidence, or 1.0 for success).
     pub fn record_outcome(&mut self, strategy_name: &str, reward: f64, session_id: Uuid) {
-        let arm = self.arms.entry(strategy_name.to_string())
+        let arm = self
+            .arms
+            .entry(strategy_name.to_string())
             .or_insert_with(|| StrategyArm::new(strategy_name));
         arm.pulls += 1;
         arm.total_reward += reward.clamp(0.0, 1.0);
@@ -161,17 +173,24 @@ impl StrategyLearner {
     /// Current statistics for all arms (sorted by mean reward desc).
     pub fn arm_stats(&self) -> Vec<&StrategyArm> {
         let mut arms: Vec<&StrategyArm> = self.arms.values().collect();
-        arms.sort_unstable_by(|a, b| b.mean_reward().partial_cmp(&a.mean_reward())
-            .unwrap_or(std::cmp::Ordering::Equal));
+        arms.sort_unstable_by(|a, b| {
+            b.mean_reward()
+                .partial_cmp(&a.mean_reward())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         arms
     }
 
     /// Return the arm with the highest empirical mean (pure exploitation, no exploration).
     pub fn best_strategy(&self) -> Option<&str> {
-        self.arms.values()
+        self.arms
+            .values()
             .filter(|a| a.pulls > 0)
-            .max_by(|a, b| a.mean_reward().partial_cmp(&b.mean_reward())
-                .unwrap_or(std::cmp::Ordering::Equal))
+            .max_by(|a, b| {
+                a.mean_reward()
+                    .partial_cmp(&b.mean_reward())
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            })
             .map(|a| a.name.as_str())
     }
 

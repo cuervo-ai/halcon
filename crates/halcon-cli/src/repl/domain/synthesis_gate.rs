@@ -137,12 +137,14 @@ pub fn evaluate(trigger: SynthesisTrigger, ctx: &SynthesisContext) -> SynthesisV
     // Suppress GovernanceRescue when convergence ratio is too low to synthesize usefully.
     // Threshold: reflection_score < 0.15 (agent has <15% coverage) AND rounds_executed < 3
     // (very early session). Prevents empty/fabricated synthesis on first-round stalls.
-    let allow = !matches!(
-        trigger,
-        SynthesisTrigger::GovernanceRescue
-    ) || ctx.reflection_score >= 0.15
+    let allow = !matches!(trigger, SynthesisTrigger::GovernanceRescue)
+        || ctx.reflection_score >= 0.15
         || ctx.rounds_executed >= 3;
-    SynthesisVerdict { allow, kind, trigger }
+    SynthesisVerdict {
+        allow,
+        kind,
+        trigger,
+    }
 }
 
 /// Classify synthesis as Organic or Rescue based on trigger semantics.
@@ -152,15 +154,15 @@ pub fn evaluate(trigger: SynthesisTrigger, ctx: &SynthesisContext) -> SynthesisV
 /// - All others → Rescue: synthesis was forced by a failure or budget constraint
 fn classify_kind(trigger: SynthesisTrigger, _ctx: &SynthesisContext) -> SynthesisKind {
     match trigger {
-        SynthesisTrigger::OracleConvergence     => SynthesisKind::Organic,
-        SynthesisTrigger::MaxRoundsReached      => SynthesisKind::Rescue,
-        SynthesisTrigger::LoopGuard             => SynthesisKind::Rescue,
+        SynthesisTrigger::OracleConvergence => SynthesisKind::Organic,
+        SynthesisTrigger::MaxRoundsReached => SynthesisKind::Rescue,
+        SynthesisTrigger::LoopGuard => SynthesisKind::Rescue,
         SynthesisTrigger::ParallelBatchCollapse => SynthesisKind::Rescue,
-        SynthesisTrigger::ReflectionCollapse    => SynthesisKind::Rescue,
-        SynthesisTrigger::ToolExhaustion        => SynthesisKind::Rescue,
-        SynthesisTrigger::ReplanTimeout         => SynthesisKind::Rescue,
-        SynthesisTrigger::ManualInterrupt       => SynthesisKind::Rescue,
-        SynthesisTrigger::GovernanceRescue      => SynthesisKind::Rescue,
+        SynthesisTrigger::ReflectionCollapse => SynthesisKind::Rescue,
+        SynthesisTrigger::ToolExhaustion => SynthesisKind::Rescue,
+        SynthesisTrigger::ReplanTimeout => SynthesisKind::Rescue,
+        SynthesisTrigger::ManualInterrupt => SynthesisKind::Rescue,
+        SynthesisTrigger::GovernanceRescue => SynthesisKind::Rescue,
     }
 }
 
@@ -320,7 +322,10 @@ mod tests {
             ..ctx_default()
         };
         let v = evaluate(SynthesisTrigger::GovernanceRescue, &ctx);
-        assert!(!v.allow, "GovernanceRescue must be suppressed when data is insufficient");
+        assert!(
+            !v.allow,
+            "GovernanceRescue must be suppressed when data is insufficient"
+        );
         assert_eq!(v.kind, SynthesisKind::Rescue);
     }
 
@@ -343,7 +348,10 @@ mod tests {
             ..ctx_default()
         };
         let v = evaluate(SynthesisTrigger::GovernanceRescue, &ctx);
-        assert!(v.allow, "GovernanceRescue must be allowed when reflection_score >= 0.15");
+        assert!(
+            v.allow,
+            "GovernanceRescue must be allowed when reflection_score >= 0.15"
+        );
     }
 
     #[test]
@@ -366,7 +374,11 @@ mod tests {
         ];
         for trigger in hard_stops {
             let v = evaluate(trigger, &insufficient_ctx);
-            assert!(v.allow, "Hard-stop trigger {:?} must always be allowed", trigger);
+            assert!(
+                v.allow,
+                "Hard-stop trigger {:?} must always be allowed",
+                trigger
+            );
         }
     }
 }

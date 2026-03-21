@@ -12,7 +12,6 @@
 /// - **Deployment**: Deployment scripts, Dockerfile, K8s manifests, release tags
 /// - **Monitoring**: Metrics dashboards, alerting rules, observability configs
 /// - **Support**: Bug reports, user feedback, hotfix branches
-
 use halcon_core::types::SdlcPhase;
 use std::collections::HashMap;
 use std::path::Path;
@@ -157,12 +156,16 @@ impl SdlcPhaseDetector {
         let mut map = HashMap::new();
 
         // Code files → Implementation
-        for ext in &["rs", "py", "js", "ts", "go", "java", "cpp", "c", "rb", "php"] {
+        for ext in &[
+            "rs", "py", "js", "ts", "go", "java", "cpp", "c", "rb", "php",
+        ] {
             map.insert(*ext, vec![(SdlcPhase::Implementation, 1.0)]);
         }
 
         // Test files → Testing
-        for ext in &["test.rs", "test.py", "test.js", "test.ts", "spec.ts", "spec.js"] {
+        for ext in &[
+            "test.rs", "test.py", "test.js", "test.ts", "spec.ts", "spec.js",
+        ] {
             map.insert(*ext, vec![(SdlcPhase::Testing, 1.5)]);
         }
 
@@ -170,10 +173,7 @@ impl SdlcPhaseDetector {
         for ext in &["md", "txt", "adoc", "rst"] {
             map.insert(
                 *ext,
-                vec![
-                    (SdlcPhase::Discovery, 0.5),
-                    (SdlcPhase::Planning, 0.5),
-                ],
+                vec![(SdlcPhase::Discovery, 0.5), (SdlcPhase::Planning, 0.5)],
             );
         }
 
@@ -388,7 +388,11 @@ mod tests {
             }
         }
 
-        assert_eq!(phases_covered.len(), 8, "Should have keywords for all 8 SDLC phases");
+        assert_eq!(
+            phases_covered.len(),
+            8,
+            "Should have keywords for all 8 SDLC phases"
+        );
     }
 
     #[test]

@@ -18,7 +18,9 @@ use halcon_core::types::{
 };
 use halcon_core::EventSender;
 
-use super::super::agent_types::{AgentLoopResult, ControlReceiver, CriticVerdictSummary, StopCondition};
+use super::super::agent_types::{
+    AgentLoopResult, ControlReceiver, CriticVerdictSummary, StopCondition,
+};
 use super::super::agent_utils::compute_fingerprint;
 use super::super::conversational_permission::ConversationalPermissionHandler;
 use super::super::evidence_pipeline::detect_operational_claim;
@@ -44,7 +46,9 @@ pub(super) async fn build(
     permissions: &mut ConversationalPermissionHandler,
 ) -> Result<AgentLoopResult> {
     // FSM: entering evaluation phase (1C: advance_phase replaces direct assignment).
-    state.synthesis.advance_phase(super::loop_state::AgentEvent::SynthesisComplete);
+    state
+        .synthesis
+        .advance_phase(super::loop_state::AgentEvent::SynthesisComplete);
 
     // TBAC: pop the plan-derived context if we pushed one.
     if state.tbac_pushed {
@@ -61,7 +65,8 @@ pub(super) async fn build(
     // progress() returns (completed_steps, total_steps, elapsed). Check total > 0 so the
     // LoopCritic runs even when 0 steps completed (e.g. all steps failed or were skipped) —
     // failed plans still warrant adversarial evaluation.
-    let has_plan_execution = state.execution_tracker
+    let has_plan_execution = state
+        .execution_tracker
         .as_ref()
         .map(|t| t.progress().1 > 0)
         .unwrap_or(false);
@@ -95,9 +100,10 @@ pub(super) async fn build(
         );
     }
     if should_run_critic {
-        let original_request = state.messages
+        let original_request = state
+            .messages
             .iter()
-            .rev()  // Use LAST user message (current task), not first (may be greeting)
+            .rev() // Use LAST user message (current task), not first (may be greeting)
             .find(|m| m.role == Role::User)
             .map(|m| match &m.content {
                 MessageContent::Text(t) => t.as_str(),
@@ -107,9 +113,15 @@ pub(super) async fn build(
             .to_string();
 
         if !original_request.is_empty() {
-            let step_summaries: Vec<String> = state.execution_tracker
+            let step_summaries: Vec<String> = state
+                .execution_tracker
                 .as_ref()
-                .map(|t| t.tracked_steps().iter().map(|s| s.step.description.clone()).collect())
+                .map(|t| {
+                    t.tracked_steps()
+                        .iter()
+                        .map(|s| s.step.description.clone())
+                        .collect()
+                })
                 .unwrap_or_default();
 
             // Step 8h: Use critic_provider/critic_model if configured (G2 — critic separation).
@@ -131,7 +143,13 @@ pub(super) async fn build(
             let per_call_timeout = (critic_timeout_secs / 2).max(10);
             let critic_future = async {
                 let mut verdict_opt = critic
-                    .evaluate(&original_request, &state.full_text, &step_summaries, critic_excerpt_len, per_call_timeout)
+                    .evaluate(
+                        &original_request,
+                        &state.full_text,
+                        &step_summaries,
+                        critic_excerpt_len,
+                        per_call_timeout,
+                    )
                     .await;
 
                 // Fallback: if critic_provider was explicitly set (G2 separation) but failed,
@@ -148,7 +166,13 @@ pub(super) async fn build(
                         request.model.clone(),
                     );
                     verdict_opt = fallback_critic
-                        .evaluate(&original_request, &state.full_text, &step_summaries, critic_excerpt_len, per_call_timeout)
+                        .evaluate(
+                            &original_request,
+                            &state.full_text,
+                            &step_summaries,
+                            critic_excerpt_len,
+                            per_call_timeout,
+                        )
                         .await;
                 }
                 verdict_opt
@@ -157,7 +181,9 @@ pub(super) async fn build(
             let verdict_opt = match tokio::time::timeout(
                 std::time::Duration::from_secs(critic_timeout_secs),
                 critic_future,
-            ).await {
+            )
+            .await
+            {
                 Ok(v) => v,
                 Err(_) => {
                     tracing::error!(
@@ -261,7 +287,10 @@ pub(super) async fn build(
             );
         }
         StopCondition::MaxRounds
-    } else if state.synthesis.is_synthesis_forced() || state.guards.loop_guard.plan_complete() || state.guards.loop_guard.detect_oscillation() {
+    } else if state.synthesis.is_synthesis_forced()
+        || state.guards.loop_guard.plan_complete()
+        || state.guards.loop_guard.detect_oscillation()
+    {
         StopCondition::ForcedSynthesis
     } else {
         StopCondition::EndTurn
@@ -281,9 +310,9 @@ pub(super) async fn build(
                 }
             }
             StopCondition::MaxRounds => TerminationSource::MaxRounds,
-            StopCondition::TokenBudget | StopCondition::DurationBudget | StopCondition::CostBudget => {
-                TerminationSource::Budget
-            }
+            StopCondition::TokenBudget
+            | StopCondition::DurationBudget
+            | StopCondition::CostBudget => TerminationSource::Budget,
             StopCondition::Interrupted => TerminationSource::UserInterrupt,
             StopCondition::ProviderError => TerminationSource::ProviderError,
             StopCondition::EnvironmentError => TerminationSource::EnvironmentError,
@@ -307,10 +336,18 @@ pub(super) async fn build(
             confidence: v.confidence,
             gap_count: v.gaps.len(),
         });
-        let plan_ratio = state.execution_tracker.as_ref().map(|t| {
-            let (completed, total, _) = t.progress();
-            if total > 0 { (completed as f32 / total as f32).clamp(0.0, 1.0) } else { 0.0 }
-        }).unwrap_or(0.0);
+        let plan_ratio = state
+            .execution_tracker
+            .as_ref()
+            .map(|t| {
+                let (completed, total, _) = t.progress();
+                if total > 0 {
+                    (completed as f32 / total as f32).clamp(0.0, 1.0)
+                } else {
+                    0.0
+                }
+            })
+            .unwrap_or(0.0);
         let semantic_success = matches!(
             stop_condition,
             StopCondition::EndTurn | StopCondition::ForcedSynthesis
@@ -340,7 +377,9 @@ pub(super) async fn build(
         // StopCondition variant that is added will cause a compile error here, preventing
         // it from silently falling through to a wrong FSM state.
         let (to_state, reason) = match stop_condition {
-            StopCondition::EndTurn | StopCondition::ForcedSynthesis => ("complete", "task finished"),
+            StopCondition::EndTurn | StopCondition::ForcedSynthesis => {
+                ("complete", "task finished")
+            }
             StopCondition::Interrupted => ("idle", "user cancelled"),
             StopCondition::MaxRounds => ("failed", "max rounds reached"),
             StopCondition::EnvironmentError => ("failed", "environment unavailable"),
@@ -361,7 +400,10 @@ pub(super) async fn build(
     let _ = event_tx.send(DomainEvent::new(EventPayload::AgentCompleted {
         agent_type: halcon_core::types::AgentType::Chat,
         result: halcon_core::types::AgentResult {
-            success: matches!(stop_condition, StopCondition::EndTurn | StopCondition::ForcedSynthesis),
+            success: matches!(
+                stop_condition,
+                StopCondition::EndTurn | StopCondition::ForcedSynthesis
+            ),
             summary: format!("{} rounds, {:?}", state.rounds, stop_condition),
             files_modified: vec![],
             tools_used: vec![],
@@ -375,9 +417,12 @@ pub(super) async fn build(
     // Phase 3+ may use the verdict to trigger repair or clarification.
     #[cfg(feature = "completion-validator")]
     {
-        use halcon_core::traits::{CompletionEvidence, CompletionValidator, KeywordCompletionValidator};
+        use halcon_core::traits::{
+            CompletionEvidence, CompletionValidator, KeywordCompletionValidator,
+        };
         // Extract goal text from the last user message.
-        let goal_text = state.messages
+        let goal_text = state
+            .messages
             .iter()
             .rev()
             .find(|m| m.role == Role::User)
@@ -395,10 +440,16 @@ pub(super) async fn build(
                 tool_failures: &[],
                 final_text: &state.full_text,
                 round: state.rounds as u32,
-                plan_steps_completed: state.execution_tracker.as_ref()
-                    .map(|t| t.progress().0).unwrap_or(0),
-                plan_steps_total: state.execution_tracker.as_ref()
-                    .map(|t| t.progress().1).unwrap_or(0),
+                plan_steps_completed: state
+                    .execution_tracker
+                    .as_ref()
+                    .map(|t| t.progress().0)
+                    .unwrap_or(0),
+                plan_steps_total: state
+                    .execution_tracker
+                    .as_ref()
+                    .map(|t| t.progress().1)
+                    .unwrap_or(0),
             };
             let verdict = validator.validate(&evidence).await;
             tracing::debug!(
@@ -449,22 +500,32 @@ pub(super) async fn build(
     }
 
     let execution_fingerprint = compute_fingerprint(&state.messages);
-    let plan_completion_ratio = state.execution_tracker.as_ref().map(|t| {
-        let (completed, total, _) = t.progress();
-        if total > 0 { (completed as f32 / total as f32).clamp(0.0, 1.0) } else { 0.0 }
-    }).unwrap_or(0.0);
+    let plan_completion_ratio = state
+        .execution_tracker
+        .as_ref()
+        .map(|t| {
+            let (completed, total, _) = t.progress();
+            if total > 0 {
+                (completed as f32 / total as f32).clamp(0.0, 1.0)
+            } else {
+                0.0
+            }
+        })
+        .unwrap_or(0.0);
 
     // Phase 7: Wire plan_coherence_score (avg drift from PlanCoherenceChecker) and
     // oscillation_penalty (fraction of force_threshold from ToolLoopGuard) into
     // AgentLoopResult so mod.rs can pass them to reward_pipeline::RawRewardSignals.
     let avg_plan_drift = if state.convergence.drift_replan_count > 0 {
-        (state.convergence.cumulative_drift_score / state.convergence.drift_replan_count as f32).clamp(0.0, 1.0)
+        (state.convergence.cumulative_drift_score / state.convergence.drift_replan_count as f32)
+            .clamp(0.0, 1.0)
     } else {
         0.0 // No replanning occurred — coherence is undefined (treated as perfect in reward_pipeline)
     };
     // Oscillation intensity: consecutive tool rounds as fraction of the force threshold (8 rounds).
     // 0.0 = no sustained tool looping; 1.0 = at/above the hard-limit threshold.
-    let oscillation_penalty = (state.guards.loop_guard.consecutive_rounds() as f32 / 8.0).clamp(0.0, 1.0);
+    let oscillation_penalty =
+        (state.guards.loop_guard.consecutive_rounds() as f32 / 8.0).clamp(0.0, 1.0);
 
     // Phase 2 reward unification: `record_outcome()` has been MOVED to mod.rs so it uses
     // the reward_pipeline's continuous 5-signal reward instead of the coarse 4-value
@@ -491,13 +552,15 @@ pub(super) async fn build(
     // by giving synthesis_coverage() a realistic baseline before reward computation.
     {
         let text = &state.full_text;
-        let good_ids: Vec<_> = state.evidence.graph.unreferenced_evidence()
+        let good_ids: Vec<_> = state
+            .evidence
+            .graph
+            .unreferenced_evidence()
             .iter()
             .filter(|node| {
                 // Heuristic: if the tool_args_summary (e.g. file path) appears in
                 // the synthesis text, assume the evidence was incorporated.
-                !node.tool_args_summary.is_empty()
-                    && text.contains(&node.tool_args_summary)
+                !node.tool_args_summary.is_empty() && text.contains(&node.tool_args_summary)
             })
             .map(|node| node.id)
             .collect();
@@ -521,7 +584,10 @@ pub(super) async fn build(
         cost_usd: state.tokens.call_cost,
         latency_ms: state.loop_start.elapsed().as_millis() as u64,
         execution_fingerprint,
-        timeline_json: state.execution_tracker.as_ref().map(|t| t.to_json().to_string()),
+        timeline_json: state
+            .execution_tracker
+            .as_ref()
+            .map(|t| t.to_json().to_string()),
         ctrl_rx,
         critic_verdict: critic_verdict_holder,
         round_evaluations: state.convergence.round_evaluations,
@@ -547,7 +613,7 @@ pub(super) async fn build(
         // Phase 3 EvidenceGraph: propagate synthesis coverage for reward signal.
         evidence_coverage: state.evidence.graph.synthesis_coverage(),
         // Phase 2 Synthesis Governance: propagate gate classification for reward pipeline.
-        synthesis_kind:    state.synthesis.last_synthesis_kind,
+        synthesis_kind: state.synthesis.last_synthesis_kind,
         synthesis_trigger: state.synthesis.last_synthesis_trigger,
         // GAP-4: propagate routing escalation count for post-session surfacing.
         routing_escalation_count: state.convergence.routing_escalation_count,

@@ -57,7 +57,10 @@ impl ContextSource for EpisodicSource {
 
         for scored in &results {
             let label = scored.entry.entry_type.as_str();
-            let entry_text = format!("- [{}] (score: {:.3}) {}\n", label, scored.score, scored.entry.content);
+            let entry_text = format!(
+                "- [{}] (score: {:.3}) {}\n",
+                label, scored.score, scored.entry.content
+            );
             let entry_tokens = estimate_tokens(&entry_text);
             if total_tokens + entry_tokens > budget {
                 break;
@@ -121,7 +124,9 @@ mod tests {
         let db = test_db();
         // Insert entries matching "rust".
         for i in 0..10 {
-            let content = format!("Rust implementation detail number {i} with some extra padding content for tokens");
+            let content = format!(
+                "Rust implementation detail number {i} with some extra padding content for tokens"
+            );
             let hash = hex::encode(Sha256::digest(content.as_bytes()));
             let entry = halcon_storage::MemoryEntry {
                 entry_id: uuid::Uuid::new_v4(),

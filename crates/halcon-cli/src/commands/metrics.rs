@@ -24,7 +24,8 @@ pub async fn show_baseline(recent: Option<usize>) -> Result<()> {
     println!("=========================\n");
 
     println!("Total Baselines: {}", baselines.len());
-    println!("Date Range: {} to {}\n",
+    println!(
+        "Date Range: {} to {}\n",
         format_timestamp(baselines.last().unwrap().timestamp),
         format_timestamp(baselines.first().unwrap().timestamp)
     );
@@ -37,25 +38,31 @@ pub async fn show_baseline(recent: Option<usize>) -> Result<()> {
     println!("RECENT SESSIONS:");
     println!("----------------");
     for (i, baseline) in baselines.iter().take(5).enumerate() {
-        println!("\n{}. Session {} ({})",
+        println!(
+            "\n{}. Session {} ({})",
             i + 1,
             baseline.session_id.as_deref().unwrap_or("unknown"),
             format_timestamp(baseline.timestamp)
         );
-        println!("   Provider: {} / Model: {}",
-            baseline.metadata.provider,
-            baseline.metadata.model
+        println!(
+            "   Provider: {} / Model: {}",
+            baseline.metadata.provider, baseline.metadata.model
         );
         println!("   Interactions: {}", baseline.metadata.total_interactions);
-        println!("   Features: {}", baseline.metadata.features_enabled.join(", "));
+        println!(
+            "   Features: {}",
+            baseline.metadata.features_enabled.join(", ")
+        );
 
         if let Some(ref orch) = baseline.orchestrator {
             let (keep, reason) = orch.assess_delegation_value();
-            println!("   Delegation: {:.1}% success, {:.1}% trigger rate",
+            println!(
+                "   Delegation: {:.1}% success, {:.1}% trigger rate",
                 orch.delegation_success_rate() * 100.0,
                 orch.delegation_trigger_rate() * 100.0
             );
-            println!("   Assessment: {} - {}",
+            println!(
+                "   Assessment: {} - {}",
                 if keep { "✓ KEEP" } else { "✗ REMOVE" },
                 reason
             );
@@ -82,7 +89,10 @@ pub async fn prune_baselines(keep: usize) -> Result<()> {
     let store = MetricsStore::default_location()?;
     let deleted = store.prune_old_baselines(keep)?;
 
-    println!("Pruned {} old baseline(s), kept {} most recent", deleted, keep);
+    println!(
+        "Pruned {} old baseline(s), kept {} most recent",
+        deleted, keep
+    );
     Ok(())
 }
 

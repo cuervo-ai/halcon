@@ -77,7 +77,12 @@ impl Episode {
     ///
     /// `similarity` is cosine similarity [0,1].
     /// `decay_half_life_hours` is the half-life for exponential recency decay.
-    pub fn relevance_score(&self, similarity: f32, decay_half_life_hours: f64, now: &DateTime<Utc>) -> f32 {
+    pub fn relevance_score(
+        &self,
+        similarity: f32,
+        decay_half_life_hours: f64,
+        now: &DateTime<Utc>,
+    ) -> f32 {
         let age = self.age_hours(now).max(0.0);
         let decay = (-(age / decay_half_life_hours) * std::f64::consts::LN_2).exp() as f32;
         similarity * decay
@@ -106,7 +111,7 @@ impl Default for MemoryConfig {
             max_episodes: 10_000,
             top_k: 5,
             min_similarity: 0.3,
-            decay_half_life_hours: 72.0,  // 3 days
+            decay_half_life_hours: 72.0, // 3 days
             embedding_cache_size: 256,
         }
     }
@@ -134,6 +139,7 @@ pub struct VectorMemory {
     config: MemoryConfig,
     episodes: Mutex<Vec<Episode>>,
     /// Simple LRU for embedding lookups (text → normalised vector).
+    #[allow(dead_code)]
     cache: Mutex<LruCache<String, Vec<f32>>>,
 }
 
@@ -268,7 +274,11 @@ fn cosine_sim(a: &[f32], b: &[f32]) -> f32 {
     if a.len() != b.len() || a.is_empty() {
         return 0.0;
     }
-    a.iter().zip(b.iter()).map(|(x, y)| x * y).sum::<f32>().clamp(-1.0, 1.0)
+    a.iter()
+        .zip(b.iter())
+        .map(|(x, y)| x * y)
+        .sum::<f32>()
+        .clamp(-1.0, 1.0)
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -283,7 +293,14 @@ mod tests {
     }
 
     fn make_episode(intent: &str) -> Episode {
-        Episode::new(Uuid::new_v4(), intent, vec!["bash".into()], "summary", 0.8, true)
+        Episode::new(
+            Uuid::new_v4(),
+            intent,
+            vec!["bash".into()],
+            "summary",
+            0.8,
+            true,
+        )
     }
 
     #[test]
@@ -302,7 +319,10 @@ mod tests {
 
     #[test]
     fn below_min_similarity_filtered() {
-        let config = MemoryConfig { min_similarity: 0.9, ..Default::default() };
+        let config = MemoryConfig {
+            min_similarity: 0.9,
+            ..Default::default()
+        };
         let mem = VectorMemory::new(config);
         // Store with [1,0,0,0], query with [0,1,0,0] → cosine=0 → filtered
         mem.store(make_episode("test"), vec![1.0, 0.0, 0.0, 0.0]);
@@ -312,7 +332,10 @@ mod tests {
 
     #[test]
     fn eviction_at_max_capacity() {
-        let config = MemoryConfig { max_episodes: 3, ..Default::default() };
+        let config = MemoryConfig {
+            max_episodes: 3,
+            ..Default::default()
+        };
         let mem = VectorMemory::new(config);
         for i in 0..5 {
             mem.store(make_episode(&format!("ep {}", i)), unit_vec(4, 1.0));
@@ -322,7 +345,11 @@ mod tests {
 
     #[test]
     fn top_k_limit_respected() {
-        let config = MemoryConfig { top_k: 2, min_similarity: 0.0, ..Default::default() };
+        let config = MemoryConfig {
+            top_k: 2,
+            min_similarity: 0.0,
+            ..Default::default()
+        };
         let mem = VectorMemory::new(config);
         let emb = unit_vec(4, 1.0);
         for i in 0..10 {
@@ -334,7 +361,11 @@ mod tests {
 
     #[test]
     fn results_ranked_by_relevance() {
-        let config = MemoryConfig { top_k: 10, min_similarity: 0.0, ..Default::default() };
+        let config = MemoryConfig {
+            top_k: 10,
+            min_similarity: 0.0,
+            ..Default::default()
+        };
         let mem = VectorMemory::new(config);
         let emb_a = vec![1.0f32, 0.0, 0.0, 0.0];
         let emb_b = vec![0.7f32, 0.7, 0.0, 0.0];

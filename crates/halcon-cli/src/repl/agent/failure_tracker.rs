@@ -117,19 +117,27 @@ impl ToolFailureTracker {
     pub(crate) fn suggest_bash_alternative(command: &str) -> Option<&'static str> {
         let cmd = command.trim_start();
         if cmd.starts_with("grep ") || cmd.starts_with("grep -") {
-            Some("rg (ripgrep) — use `bash` with `rg --type rust <pattern> <path>` \
-                  or the native `search_in_file` tool if available")
+            Some(
+                "rg (ripgrep) — use `bash` with `rg --type rust <pattern> <path>` \
+                  or the native `search_in_file` tool if available",
+            )
         } else if cmd.starts_with("find ") {
-            Some("glob / directory_tree — use the `glob` tool with pattern '**/<name>' \
-                  or `directory_tree` to list files without bash find")
+            Some(
+                "glob / directory_tree — use the `glob` tool with pattern '**/<name>' \
+                  or `directory_tree` to list files without bash find",
+            )
         } else if cmd.starts_with("cat ") || cmd.starts_with("head ") || cmd.starts_with("tail ") {
             Some("file_read tool — use `file_read` with path parameter instead of bash cat/head/tail")
         } else if cmd.starts_with("npm audit") || cmd.starts_with("yarn audit") {
-            Some("Try `npm audit --json` for machine-readable output, \
-                  or `npm ls --depth=0` to inspect top-level dependencies")
+            Some(
+                "Try `npm audit --json` for machine-readable output, \
+                  or `npm ls --depth=0` to inspect top-level dependencies",
+            )
         } else if cmd.starts_with("cargo audit") {
-            Some("Try `cargo audit --json` for machine-readable output, \
-                  or `cargo tree` to inspect the dependency graph")
+            Some(
+                "Try `cargo audit --json` for machine-readable output, \
+                  or `cargo tree` to inspect the dependency graph",
+            )
         } else {
             None
         }
@@ -245,8 +253,15 @@ mod tests {
 
         t.reset_tool("bash");
 
-        assert!(!t.is_tripped("bash", "permission denied"), "should be reset");
-        assert_eq!(t.failure_count("bash", "not found"), 0, "all patterns cleared");
+        assert!(
+            !t.is_tripped("bash", "permission denied"),
+            "should be reset"
+        );
+        assert_eq!(
+            t.failure_count("bash", "not found"),
+            0,
+            "all patterns cleared"
+        );
     }
 
     #[test]
@@ -287,7 +302,10 @@ mod tests {
 
         assert!(!t.is_tripped("bash", "permission denied"), "bash reset");
         assert!(!t.is_tripped("grep", "not found"), "grep reset");
-        assert!(t.tripped_tools().is_empty(), "no tripped tools after reset_all");
+        assert!(
+            t.tripped_tools().is_empty(),
+            "no tripped tools after reset_all"
+        );
     }
 
     #[test]

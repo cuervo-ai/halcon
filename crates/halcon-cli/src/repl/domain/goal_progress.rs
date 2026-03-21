@@ -95,7 +95,9 @@ pub fn compute_progress_delta(
     let evidence_delta = current.accumulated_evidence_score - previous.accumulated_evidence_score;
 
     // distinct_tools_used is monotonically non-decreasing by definition.
-    let new_tools_delta = current.distinct_tools_used.saturating_sub(previous.distinct_tools_used);
+    let new_tools_delta = current
+        .distinct_tools_used
+        .saturating_sub(previous.distinct_tools_used);
 
     let confidence_delta = match (previous.oracle_confidence, current.oracle_confidence) {
         (Some(prev), Some(curr)) => Some(curr - prev),
@@ -173,7 +175,11 @@ mod tests {
         let prev = snap(0, 0, 0, 0.2, None);
         let curr = snap(1, 2, 1, 0.5, None);
         let d = compute_progress_delta(&prev, &curr);
-        assert!((d.evidence_delta - 0.3).abs() < 1e-5, "expected 0.3 got {}", d.evidence_delta);
+        assert!(
+            (d.evidence_delta - 0.3).abs() < 1e-5,
+            "expected 0.3 got {}",
+            d.evidence_delta
+        );
     }
 
     #[test]
@@ -242,25 +248,41 @@ mod tests {
 
     #[test]
     fn verdict_progressing_on_evidence_gain() {
-        let d = ProgressDelta { evidence_delta: 0.1, new_tools_delta: 0, confidence_delta: None };
+        let d = ProgressDelta {
+            evidence_delta: 0.1,
+            new_tools_delta: 0,
+            confidence_delta: None,
+        };
         assert_eq!(evaluate_progress(&d), ProgressVerdict::Progressing);
     }
 
     #[test]
     fn verdict_progressing_on_new_tool() {
-        let d = ProgressDelta { evidence_delta: 0.0, new_tools_delta: 1, confidence_delta: None };
+        let d = ProgressDelta {
+            evidence_delta: 0.0,
+            new_tools_delta: 1,
+            confidence_delta: None,
+        };
         assert_eq!(evaluate_progress(&d), ProgressVerdict::Progressing);
     }
 
     #[test]
     fn verdict_stalled_on_no_change() {
-        let d = ProgressDelta { evidence_delta: 0.0, new_tools_delta: 0, confidence_delta: None };
+        let d = ProgressDelta {
+            evidence_delta: 0.0,
+            new_tools_delta: 0,
+            confidence_delta: None,
+        };
         assert_eq!(evaluate_progress(&d), ProgressVerdict::Stalled);
     }
 
     #[test]
     fn verdict_regressing_on_evidence_loss() {
-        let d = ProgressDelta { evidence_delta: -0.05, new_tools_delta: 2, confidence_delta: None };
+        let d = ProgressDelta {
+            evidence_delta: -0.05,
+            new_tools_delta: 2,
+            confidence_delta: None,
+        };
         // Regressing takes priority even if new tools were used; -0.05 > REGRESSION_EPSILON (0.02)
         assert_eq!(evaluate_progress(&d), ProgressVerdict::Regressing);
     }
@@ -268,27 +290,43 @@ mod tests {
     #[test]
     fn verdict_stalled_on_tiny_evidence_dip_within_epsilon() {
         // A tiny float-noise dip (-0.01 < REGRESSION_EPSILON=0.02) must not trigger Regressing.
-        let d = ProgressDelta { evidence_delta: -0.01, new_tools_delta: 0, confidence_delta: None };
+        let d = ProgressDelta {
+            evidence_delta: -0.01,
+            new_tools_delta: 0,
+            confidence_delta: None,
+        };
         assert_eq!(evaluate_progress(&d), ProgressVerdict::Stalled);
     }
 
     #[test]
     fn verdict_regressing_just_past_epsilon_boundary() {
         // Just past the boundary (-0.021) → Regressing.
-        let d = ProgressDelta { evidence_delta: -0.021, new_tools_delta: 0, confidence_delta: None };
+        let d = ProgressDelta {
+            evidence_delta: -0.021,
+            new_tools_delta: 0,
+            confidence_delta: None,
+        };
         assert_eq!(evaluate_progress(&d), ProgressVerdict::Regressing);
     }
 
     #[test]
     fn verdict_stalled_at_exact_epsilon_boundary() {
         // Exactly at boundary (-0.02): condition is strict `< -EPSILON`, so boundary is Stalled.
-        let d = ProgressDelta { evidence_delta: -0.02, new_tools_delta: 0, confidence_delta: None };
+        let d = ProgressDelta {
+            evidence_delta: -0.02,
+            new_tools_delta: 0,
+            confidence_delta: None,
+        };
         assert_eq!(evaluate_progress(&d), ProgressVerdict::Stalled);
     }
 
     #[test]
     fn verdict_progressing_on_both_gains() {
-        let d = ProgressDelta { evidence_delta: 0.3, new_tools_delta: 2, confidence_delta: Some(0.1) };
+        let d = ProgressDelta {
+            evidence_delta: 0.3,
+            new_tools_delta: 2,
+            confidence_delta: Some(0.1),
+        };
         assert_eq!(evaluate_progress(&d), ProgressVerdict::Progressing);
     }
 

@@ -181,7 +181,10 @@ mod tests {
     #[test]
     fn completions_url_strips_trailing_slash() {
         let url = AzureFoundryProvider::completions_url("https://endpoint.com/");
-        assert!(!url.contains("//chat"), "Should not have double slash: {url}");
+        assert!(
+            !url.contains("//chat"),
+            "Should not have double slash: {url}"
+        );
     }
 
     #[test]

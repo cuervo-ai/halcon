@@ -59,10 +59,7 @@ impl ArtifactStore {
 
         self.artifacts
             .insert(content_hash.clone(), artifact.clone());
-        self.by_task
-            .entry(task_id)
-            .or_default()
-            .push(content_hash);
+        self.by_task.entry(task_id).or_default().push(content_hash);
 
         artifact
     }

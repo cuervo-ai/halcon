@@ -100,8 +100,8 @@ impl ModelProvider for EchoProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use halcon_core::types::{ChatMessage, MessageContent, Role};
     use futures::StreamExt;
+    use halcon_core::types::{ChatMessage, MessageContent, Role};
 
     fn make_request(msg: &str) -> ModelRequest {
         ModelRequest {

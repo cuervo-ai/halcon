@@ -102,32 +102,56 @@ pub fn is_compact(threshold: u16) -> bool {
 
 /// Top-left corner: `╭` or `+`
 pub fn box_top_left() -> &'static str {
-    if unicode_enabled() { "╭" } else { "+" }
+    if unicode_enabled() {
+        "╭"
+    } else {
+        "+"
+    }
 }
 
 /// Bottom-left corner: `╰` or `+`
 pub fn box_bottom_left() -> &'static str {
-    if unicode_enabled() { "╰" } else { "+" }
+    if unicode_enabled() {
+        "╰"
+    } else {
+        "+"
+    }
 }
 
 /// Vertical bar: `│` or `|`
 pub fn box_vert() -> &'static str {
-    if unicode_enabled() { "│" } else { "|" }
+    if unicode_enabled() {
+        "│"
+    } else {
+        "|"
+    }
 }
 
 /// Horizontal bar: `─` or `-`
 pub fn box_horiz() -> &'static str {
-    if unicode_enabled() { "─" } else { "-" }
+    if unicode_enabled() {
+        "─"
+    } else {
+        "-"
+    }
 }
 
 /// Top-right corner: `╮` or `+`
 pub fn box_top_right() -> &'static str {
-    if unicode_enabled() { "╮" } else { "+" }
+    if unicode_enabled() {
+        "╮"
+    } else {
+        "+"
+    }
 }
 
 /// Bottom-right corner: `╯` or `+`
 pub fn box_bottom_right() -> &'static str {
-    if unicode_enabled() { "╯" } else { "+" }
+    if unicode_enabled() {
+        "╯"
+    } else {
+        "+"
+    }
 }
 
 #[cfg(test)]

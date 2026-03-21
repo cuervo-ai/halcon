@@ -50,12 +50,9 @@ impl Tool for GitStatusTool {
             });
         }
 
-        let output = helpers::run_git_command(
-            working_dir,
-            &["status", "--porcelain=v2", "--branch"],
-            None,
-        )
-        .await?;
+        let output =
+            helpers::run_git_command(working_dir, &["status", "--porcelain=v2", "--branch"], None)
+                .await?;
 
         if output.exit_code != 0 {
             return Ok(ToolOutput {
@@ -176,7 +173,10 @@ mod tests {
     async fn not_a_repo() {
         let dir = tempfile::tempdir().unwrap();
         let tool = GitStatusTool::new();
-        let output = tool.execute(make_input(dir.path().to_str().unwrap())).await.unwrap();
+        let output = tool
+            .execute(make_input(dir.path().to_str().unwrap()))
+            .await
+            .unwrap();
         assert!(output.is_error);
         assert!(output.content.contains("not a git repository"));
     }
@@ -276,7 +276,9 @@ mod tests {
 
         let meta = output.metadata.unwrap();
         let untracked = meta["untracked"].as_array().unwrap();
-        assert!(untracked.iter().any(|v| v.as_str().unwrap().contains("new_file.rs")));
+        assert!(untracked
+            .iter()
+            .any(|v| v.as_str().unwrap().contains("new_file.rs")));
     }
 
     #[tokio::test]

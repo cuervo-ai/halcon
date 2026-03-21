@@ -64,7 +64,7 @@ pub struct GoalAlignmentScore {
 impl GoalAlignmentScore {
     pub const W_CONFIDENCE: f32 = 0.6;
     pub const W_EFFICIENCY: f32 = 0.3;
-    pub const W_ACHIEVED:   f32 = 0.1;
+    pub const W_ACHIEVED: f32 = 0.1;
 
     /// Compute GAS from session end-state.
     ///
@@ -86,7 +86,14 @@ impl GoalAlignmentScore {
             + Self::W_ACHIEVED * achieved_bonus)
             .clamp(0.0, 1.0);
 
-        Self { score, confidence, efficiency, achieved, rounds_used, max_rounds }
+        Self {
+            score,
+            confidence,
+            efficiency,
+            achieved,
+            rounds_used,
+            max_rounds,
+        }
     }
 
     /// Final composite GAS score in [0, 1].
@@ -101,7 +108,7 @@ impl GoalAlignmentScore {
             s if s >= 0.75 => "A",
             s if s >= 0.55 => "B",
             s if s >= 0.35 => "C",
-            _              => "D",
+            _ => "D",
         }
     }
 
@@ -142,7 +149,11 @@ impl ReplanEfficiencyRatio {
     pub fn compute(replan_count: u32, max_rounds: u32, max_replans: Option<u32>) -> Self {
         let max_replans = max_replans.unwrap_or_else(|| (max_rounds / 2).max(1));
         let score = (1.0 - replan_count as f32 / max_replans as f32).clamp(0.0, 1.0);
-        Self { score, replan_count, max_replans }
+        Self {
+            score,
+            replan_count,
+            max_replans,
+        }
     }
 
     /// True if no replanning was required.
@@ -330,6 +341,7 @@ pub struct SessionMetricsReport {
 
 impl SessionMetricsReport {
     /// Build a summary report from individual metric structs.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         session_id: impl Into<String>,
         timestamp: impl Into<String>,
@@ -405,7 +417,11 @@ mod tests {
     fn gas_poor_session() {
         // low confidence, all rounds used, not achieved
         let gas = GoalAlignmentScore::compute(0.1, 20, 20, false);
-        assert!(gas.score() < 0.35, "poor session should be D tier, score={}", gas.score());
+        assert!(
+            gas.score() < 0.35,
+            "poor session should be D tier, score={}",
+            gas.score()
+        );
         assert_eq!(gas.tier(), "D");
         assert!(!gas.is_acceptable());
     }
@@ -415,7 +431,12 @@ mod tests {
         // confidence=0.8, efficiency=0.5 (10/20 rounds), achieved=true
         let gas = GoalAlignmentScore::compute(0.8, 10, 20, true);
         let expected = 0.6 * 0.8 + 0.3 * 0.5 + 0.1 * 1.0; // = 0.48 + 0.15 + 0.10 = 0.73
-        assert!((gas.score() - expected).abs() < 1e-4, "gas={} expected={}", gas.score(), expected);
+        assert!(
+            (gas.score() - expected).abs() < 1e-4,
+            "gas={} expected={}",
+            gas.score(),
+            expected
+        );
         // 0.73 is in [0.55, 0.75) → tier B
         assert_eq!(gas.tier(), "B");
     }
@@ -492,7 +513,11 @@ mod tests {
     fn tpr_low_precision_high_recall() {
         // 10 total calls, 8 correct, 8 required → P=0.8, R=1.0
         let tpr = ToolPrecisionRecall::compute(10, 8, 8);
-        assert!((tpr.precision - 0.8).abs() < 1e-4, "precision={}", tpr.precision);
+        assert!(
+            (tpr.precision - 0.8).abs() < 1e-4,
+            "precision={}",
+            tpr.precision
+        );
         assert!((tpr.recall - 1.0).abs() < 1e-4, "recall={}", tpr.recall);
         let f1_expected = 2.0 * 0.8 * 1.0 / (0.8 + 1.0);
         assert!((tpr.f1 - f1_expected).abs() < 1e-4, "f1={}", tpr.f1);
@@ -604,7 +629,13 @@ mod tests {
         let report = SessionMetricsReport::new(
             "gate-test",
             "2026-02-22T00:00:00Z",
-            gas, rer, None, scr, None, 800, 3000,
+            gas,
+            rer,
+            None,
+            scr,
+            None,
+            800,
+            3000,
         );
         assert!(report.passes_quality_gate());
     }
@@ -617,7 +648,13 @@ mod tests {
         let report = SessionMetricsReport::new(
             "gate-fail",
             "2026-02-22T00:00:00Z",
-            gas, rer, None, scr, None, 800, 3000,
+            gas,
+            rer,
+            None,
+            scr,
+            None,
+            800,
+            3000,
         );
         assert!(!report.passes_quality_gate());
     }

@@ -92,10 +92,7 @@ impl ToolSearchIndex {
         }
         let mut guard = self.tools.write().await;
         *guard = indexed;
-        tracing::debug!(
-            count = guard.len(),
-            "tool_search: index rebuilt"
-        );
+        tracing::debug!(count = guard.len(), "tool_search: index rebuilt");
     }
 
     /// Returns `true` if deferred mode should activate for the given tool count and context window.
@@ -131,7 +128,13 @@ impl ToolSearchIndex {
         }
 
         let mut matcher = Matcher::new(Config::DEFAULT);
-        let pattern = Atom::new(query, CaseMatching::Ignore, Normalization::Smart, AtomKind::Fuzzy, false);
+        let pattern = Atom::new(
+            query,
+            CaseMatching::Ignore,
+            Normalization::Smart,
+            AtomKind::Fuzzy,
+            false,
+        );
 
         let mut scored: Vec<(u16, usize)> = guard
             .iter()
@@ -148,12 +151,20 @@ impl ToolSearchIndex {
         scored.sort_by(|a, b| b.0.cmp(&a.0));
         scored.truncate(TOP_K);
 
-        scored.into_iter().map(|(_, idx)| guard[idx].clone()).collect()
+        scored
+            .into_iter()
+            .map(|(_, idx)| guard[idx].clone())
+            .collect()
     }
 
     /// Total number of tools in the index.
     pub async fn len(&self) -> usize {
         self.tools.read().await.len()
+    }
+
+    /// Returns true if the index contains no tools.
+    pub async fn is_empty(&self) -> bool {
+        self.tools.read().await.is_empty()
     }
 
     /// Returns a snapshot of all tools (for list_tools fallback).
@@ -196,13 +207,16 @@ pub fn search_tools_definition() -> serde_json::Value {
 
 /// Format the results of a `search_tools` call as a JSON array of tool definitions.
 pub fn format_search_results(tools: &[IndexedTool]) -> String {
-    let results: Vec<serde_json::Value> = tools.iter().map(|t| {
-        serde_json::json!({
-            "name": t.definition.name,
-            "server": t.server_name,
-            "description": t.definition.description,
+    let results: Vec<serde_json::Value> = tools
+        .iter()
+        .map(|t| {
+            serde_json::json!({
+                "name": t.definition.name,
+                "server": t.server_name,
+                "description": t.definition.description,
+            })
         })
-    }).collect();
+        .collect();
     serde_json::to_string_pretty(&results).unwrap_or_else(|_| "[]".to_string())
 }
 
@@ -222,16 +236,22 @@ mod tests {
     async fn make_index_with_tools() -> ToolSearchIndex {
         let index = ToolSearchIndex::new();
         let mut map = HashMap::new();
-        map.insert("github".to_string(), vec![
-            make_tool("create_issue", "Create a new GitHub issue in a repository"),
-            make_tool("list_issues", "List open issues in a GitHub repository"),
-            make_tool("create_pull_request", "Open a new pull request on GitHub"),
-        ]);
-        map.insert("filesystem".to_string(), vec![
-            make_tool("read_file", "Read the contents of a file"),
-            make_tool("write_file", "Write content to a file"),
-            make_tool("list_directory", "List files in a directory"),
-        ]);
+        map.insert(
+            "github".to_string(),
+            vec![
+                make_tool("create_issue", "Create a new GitHub issue in a repository"),
+                make_tool("list_issues", "List open issues in a GitHub repository"),
+                make_tool("create_pull_request", "Open a new pull request on GitHub"),
+            ],
+        );
+        map.insert(
+            "filesystem".to_string(),
+            vec![
+                make_tool("read_file", "Read the contents of a file"),
+                make_tool("write_file", "Write content to a file"),
+                make_tool("list_directory", "List files in a directory"),
+            ],
+        );
         index.rebuild_index(map).await;
         index
     }
@@ -242,7 +262,10 @@ mod tests {
         let results = index.search("issue").await;
         assert!(!results.is_empty(), "should find tools matching 'issue'");
         let names: Vec<_> = results.iter().map(|t| t.definition.name.as_str()).collect();
-        assert!(names.iter().any(|n| n.contains("issue")), "issue-related tool should appear");
+        assert!(
+            names.iter().any(|n| n.contains("issue")),
+            "issue-related tool should appear"
+        );
     }
 
     #[tokio::test]
@@ -259,10 +282,13 @@ mod tests {
 
         // Rebuild with only 2 tools.
         let mut map = HashMap::new();
-        map.insert("slack".to_string(), vec![
-            make_tool("send_message", "Send a message to a Slack channel"),
-            make_tool("list_channels", "List available Slack channels"),
-        ]);
+        map.insert(
+            "slack".to_string(),
+            vec![
+                make_tool("send_message", "Send a message to a Slack channel"),
+                make_tool("list_channels", "List available Slack channels"),
+            ],
+        );
         index.rebuild_index(map).await;
         assert_eq!(index.len().await, 2, "index should be replaced");
 
@@ -275,14 +301,20 @@ mod tests {
     fn should_activate_above_threshold() {
         let index = ToolSearchIndex::new();
         // 50 tools × 200 tokens = 10_000 tokens; 10% of 32_000 = 3_200 → activates
-        assert!(index.should_activate(50, 32_000), "50 tools on 32k context should activate");
+        assert!(
+            index.should_activate(50, 32_000),
+            "50 tools on 32k context should activate"
+        );
     }
 
     #[test]
     fn should_not_activate_below_threshold() {
         let index = ToolSearchIndex::new();
         // 5 tools × 200 = 1_000; 10% of 128_000 = 12_800 → does not activate
-        assert!(!index.should_activate(5, 128_000), "5 tools on 128k context should not activate");
+        assert!(
+            !index.should_activate(5, 128_000),
+            "5 tools on 128k context should not activate"
+        );
     }
 
     #[test]

@@ -62,10 +62,7 @@ async fn integration_invoke_returns_text() {
     let provider = provider_with_mock();
     let req = simple_request("hello");
 
-    let stream = provider
-        .invoke(&req)
-        .await
-        .expect("invoke must not fail");
+    let stream = provider.invoke(&req).await.expect("invoke must not fail");
 
     let chunks: Vec<_> = stream.collect().await;
     let has_text = chunks
@@ -182,7 +179,10 @@ async fn integration_auto_restart_after_kill() {
     let has_text = chunks2
         .iter()
         .any(|c| matches!(c, Ok(ModelChunk::TextDelta(_))));
-    assert!(has_text, "second request must succeed after mock stays alive");
+    assert!(
+        has_text,
+        "second request must succeed after mock stays alive"
+    );
 }
 
 #[tokio::test]

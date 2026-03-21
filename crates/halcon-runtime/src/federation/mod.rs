@@ -108,22 +108,15 @@ mod tests {
 
     #[test]
     fn federation_broadcast() {
-        let msg = FederationMessage::new(
-            Uuid::from_u128(1),
-            None,
-            FederationMessageKind::Shutdown,
-        );
+        let msg = FederationMessage::new(Uuid::from_u128(1), None, FederationMessageKind::Shutdown);
         assert!(msg.is_broadcast());
     }
 
     #[test]
     fn announce_serde_roundtrip() {
         let desc = test_descriptor();
-        let msg = FederationMessage::new(
-            desc.id,
-            None,
-            FederationMessageKind::Announce(desc.clone()),
-        );
+        let msg =
+            FederationMessage::new(desc.id, None, FederationMessageKind::Announce(desc.clone()));
         let json = serde_json::to_string(&msg).unwrap();
         let parsed: FederationMessage = serde_json::from_str(&json).unwrap();
         if let FederationMessageKind::Announce(d) = &parsed.kind {
@@ -166,7 +159,10 @@ mod tests {
         );
         let json = serde_json::to_string(&msg).unwrap();
         let parsed: FederationMessage = serde_json::from_str(&json).unwrap();
-        if let FederationMessageKind::DelegateResult { success, output, .. } = &parsed.kind {
+        if let FederationMessageKind::DelegateResult {
+            success, output, ..
+        } = &parsed.kind
+        {
             assert!(success);
             assert_eq!(output, "done");
         } else {

@@ -47,8 +47,8 @@ pub mod long_horizon_tests;
 pub mod loop_driver;
 pub mod memory;
 pub mod metrics;
-pub mod oscillation_metric;
 pub mod orchestrator;
+pub mod oscillation_metric;
 pub mod planner;
 pub mod regret_analysis;
 pub mod replay_certification;
@@ -64,7 +64,7 @@ pub use fsm::{AgentFsm, AgentState, FsmError};
 pub use goal::{
     ConfidenceScore, GoalSpec, GoalVerificationEngine, VerifiableCriterion, VerificationResult,
 };
-pub use loop_driver::{GdemConfig, GdemContext, GdemResult, run_gdem_loop};
+pub use loop_driver::{run_gdem_loop, GdemConfig, GdemContext, GdemResult};
 pub use memory::{Episode, MemoryConfig, VectorMemory};
 pub use orchestrator::{DagOrchestrator, OrchestratorConfig};
 pub use planner::{AdaptivePlanner, PlanBranch, PlanTree, PlannerConfig};

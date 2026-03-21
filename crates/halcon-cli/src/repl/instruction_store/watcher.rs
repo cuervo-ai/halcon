@@ -63,10 +63,8 @@ impl InstructionWatcher {
                 //   - Parallel test threads creating files in the same temp dir.
                 //   - inotify queue overflow (IN_Q_OVERFLOW) delivering synthetic events.
                 //   - Editor-side metadata writes (chmod, xattr) on macOS.
-                let is_content_change = matches!(
-                    event.kind,
-                    EventKind::Modify(_) | EventKind::Remove(_)
-                );
+                let is_content_change =
+                    matches!(event.kind, EventKind::Modify(_) | EventKind::Remove(_));
                 if is_content_change {
                     changed_clone.store(true, Ordering::Release);
                 }

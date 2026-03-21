@@ -39,10 +39,18 @@ pub struct RoutingDecision {
 pub struct RoutingTierExt(pub &'static str);
 
 impl RoutingTierExt {
-    pub fn flagship() -> Self { Self("flagship") }
-    pub fn balanced() -> Self { Self("balanced") }
-    pub fn fast() -> Self { Self("fast") }
-    pub fn economy() -> Self { Self("economy") }
+    pub fn flagship() -> Self {
+        Self("flagship")
+    }
+    pub fn balanced() -> Self {
+        Self("balanced")
+    }
+    pub fn fast() -> Self {
+        Self("fast")
+    }
+    pub fn economy() -> Self {
+        Self("economy")
+    }
 
     pub fn as_str(&self) -> &str {
         self.0
@@ -233,8 +241,8 @@ impl ProviderHealth {
 /// Ordered fallback list per provider.  First healthy provider in the list wins.
 const FALLBACKS: &[(&str, &[&str])] = &[
     ("anthropic", &["openai", "ollama"]),
-    ("openai",    &["anthropic", "ollama"]),
-    ("ollama",    &["anthropic"]),
+    ("openai", &["anthropic", "ollama"]),
+    ("ollama", &["anthropic"]),
     ("cenzontle", &["anthropic", "openai", "ollama"]),
 ];
 
@@ -242,9 +250,9 @@ const FALLBACKS: &[(&str, &[&str])] = &[
 fn fallback_model(provider: &str) -> &'static str {
     match provider {
         "anthropic" => "claude-sonnet-4-6",
-        "openai"    => "gpt-4o-mini",
-        "ollama"    => "llama3.2:3b",
-        _           => "gpt-4o-mini",
+        "openai" => "gpt-4o-mini",
+        "ollama" => "llama3.2:3b",
+        _ => "gpt-4o-mini",
     }
 }
 
@@ -285,11 +293,15 @@ impl FallbackChain {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::intent::{IntentClassifier, IntentResult, TaskIntent};
+    use super::*;
 
     fn intent(task: TaskIntent) -> IntentResult {
-        IntentResult { intent: task, confidence: 0.85, method: "test" }
+        IntentResult {
+            intent: task,
+            confidence: 0.85,
+            method: "test",
+        }
     }
 
     fn ctx_for(task: TaskIntent) -> RoutingContext<'static> {
@@ -379,14 +391,18 @@ mod tests {
 
     #[test]
     fn intent_based_code_generation_is_flagship() {
-        let d = IntentBasedStrategy.route(&ctx_for(TaskIntent::CodeGeneration)).unwrap();
+        let d = IntentBasedStrategy
+            .route(&ctx_for(TaskIntent::CodeGeneration))
+            .unwrap();
         assert_eq!(d.tier.as_str(), "flagship");
         assert_eq!(d.provider, "anthropic");
     }
 
     #[test]
     fn intent_based_summarization_is_economy() {
-        let d = IntentBasedStrategy.route(&ctx_for(TaskIntent::Summarization)).unwrap();
+        let d = IntentBasedStrategy
+            .route(&ctx_for(TaskIntent::Summarization))
+            .unwrap();
         assert_eq!(d.tier.as_str(), "economy");
     }
 
@@ -402,7 +418,11 @@ mod tests {
             cost_budget_remaining: None,
         };
         let d = IntentBasedStrategy.route(&ctx).unwrap();
-        assert_ne!(d.tier.as_str(), "flagship", "trial tenants must not use flagship");
+        assert_ne!(
+            d.tier.as_str(),
+            "flagship",
+            "trial tenants must not use flagship"
+        );
         assert_eq!(d.tier.as_str(), "balanced");
     }
 

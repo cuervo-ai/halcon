@@ -13,8 +13,10 @@ use crate::provider::{ConnectionInfo, IntegrationHealth, IntegrationProvider};
 ///
 /// The IntegrationHub maintains a registry of active integrations,
 /// manages their lifecycle, monitors health, and routes events.
+type IntegrationMap = HashMap<String, Arc<RwLock<Box<dyn IntegrationProvider>>>>;
+
 pub struct IntegrationHub {
-    integrations: Arc<RwLock<HashMap<String, Arc<RwLock<Box<dyn IntegrationProvider>>>>>>,
+    integrations: Arc<RwLock<IntegrationMap>>,
     health_monitor_running: Arc<RwLock<bool>>,
 }
 
@@ -51,7 +53,9 @@ impl IntegrationHub {
 
         let provider_arc = integrations
             .get(name)
-            .ok_or_else(|| IntegrationError::NotFound { name: name.to_string() })?
+            .ok_or_else(|| IntegrationError::NotFound {
+                name: name.to_string(),
+            })?
             .clone();
 
         // Disconnect if connected
@@ -75,7 +79,9 @@ impl IntegrationHub {
         let integrations = self.integrations.read().await;
         let provider_arc = integrations
             .get(name)
-            .ok_or_else(|| IntegrationError::NotFound { name: name.to_string() })?
+            .ok_or_else(|| IntegrationError::NotFound {
+                name: name.to_string(),
+            })?
             .clone();
 
         let mut provider = provider_arc.write().await;
@@ -100,7 +106,9 @@ impl IntegrationHub {
         let integrations = self.integrations.read().await;
         let provider_arc = integrations
             .get(name)
-            .ok_or_else(|| IntegrationError::NotFound { name: name.to_string() })?
+            .ok_or_else(|| IntegrationError::NotFound {
+                name: name.to_string(),
+            })?
             .clone();
 
         let mut provider = provider_arc.write().await;
@@ -121,7 +129,9 @@ impl IntegrationHub {
         let integrations = self.integrations.read().await;
         let provider_arc = integrations
             .get(name)
-            .ok_or_else(|| IntegrationError::NotFound { name: name.to_string() })?
+            .ok_or_else(|| IntegrationError::NotFound {
+                name: name.to_string(),
+            })?
             .clone();
 
         let provider = provider_arc.read().await;
@@ -197,7 +207,8 @@ impl IntegrationHub {
         let running_flag = self.health_monitor_running.clone();
 
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(interval_secs));
+            let mut interval =
+                tokio::time::interval(tokio::time::Duration::from_secs(interval_secs));
             loop {
                 interval.tick().await;
 
@@ -416,8 +427,12 @@ mod tests {
     #[tokio::test]
     async fn health_all() {
         let hub = IntegrationHub::new();
-        hub.register(Box::new(MockIntegration::new("a"))).await.unwrap();
-        hub.register(Box::new(MockIntegration::new("b"))).await.unwrap();
+        hub.register(Box::new(MockIntegration::new("a")))
+            .await
+            .unwrap();
+        hub.register(Box::new(MockIntegration::new("b")))
+            .await
+            .unwrap();
 
         hub.connect("a").await.unwrap();
         // "b" stays disconnected
@@ -431,8 +446,12 @@ mod tests {
     #[tokio::test]
     async fn shutdown_disconnects_all() {
         let hub = IntegrationHub::new();
-        hub.register(Box::new(MockIntegration::new("a"))).await.unwrap();
-        hub.register(Box::new(MockIntegration::new("b"))).await.unwrap();
+        hub.register(Box::new(MockIntegration::new("a")))
+            .await
+            .unwrap();
+        hub.register(Box::new(MockIntegration::new("b")))
+            .await
+            .unwrap();
 
         hub.connect("a").await.unwrap();
         hub.connect("b").await.unwrap();

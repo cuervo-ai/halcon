@@ -147,8 +147,16 @@ mod tests {
         );
         let report = checker.check(&plan);
         // "implement", "file", "reading", "error", "handling" should all be present.
-        assert!(report.semantic_overlap > 0.3, "overlap={}", report.semantic_overlap);
-        assert!(!report.drift_detected, "unexpected drift: score={}", report.drift_score);
+        assert!(
+            report.semantic_overlap > 0.3,
+            "overlap={}",
+            report.semantic_overlap
+        );
+        assert!(
+            !report.drift_detected,
+            "unexpected drift: score={}",
+            report.drift_score
+        );
     }
 
     #[test]
@@ -164,7 +172,11 @@ mod tests {
             ],
         );
         let report = checker.check(&plan);
-        assert!(report.drift_detected, "drift should be detected: score={}", report.drift_score);
+        assert!(
+            report.drift_detected,
+            "drift should be detected: score={}",
+            report.drift_score
+        );
         assert!(report.drift_score > 0.5);
     }
 
@@ -202,13 +214,13 @@ mod tests {
     fn missing_keywords_listed_correctly() {
         let checker = PlanCoherenceChecker::new("implement authentication with oauth tokens");
         // Plan mentions authentication but not oauth or tokens.
-        let plan = make_plan(
-            "authentication system",
-            &["implement basic authentication"],
-        );
+        let plan = make_plan("authentication system", &["implement basic authentication"]);
         let report = checker.check(&plan);
-        let missing_lower: Vec<String> =
-            report.missing_keywords.iter().map(|k| k.to_lowercase()).collect();
+        let missing_lower: Vec<String> = report
+            .missing_keywords
+            .iter()
+            .map(|k| k.to_lowercase())
+            .collect();
         // "oauth" and "tokens" should be missing from the plan.
         assert!(
             missing_lower.contains(&"oauth".to_string())
@@ -239,6 +251,9 @@ mod tests {
         let plan = make_plan("search implementation", &["implement search"]);
         let report = checker.check(&plan);
         let diff = (report.drift_score - (1.0 - report.semantic_overlap)).abs();
-        assert!(diff < 0.001, "drift_score must equal 1.0 - semantic_overlap");
+        assert!(
+            diff < 0.001,
+            "drift_score must equal 1.0 - semantic_overlap"
+        );
     }
 }

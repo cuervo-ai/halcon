@@ -222,11 +222,7 @@ mod tests {
         let dir = TempDir::new().unwrap();
         std::fs::write(dir.path().join("lib.rs"), "pub fn rust_fn() {}").unwrap();
         std::fs::write(dir.path().join("app.py"), "def python_fn():\n    pass").unwrap();
-        std::fs::write(
-            dir.path().join("index.js"),
-            "function js_fn() {}",
-        )
-        .unwrap();
+        std::fs::write(dir.path().join("index.js"), "function js_fn() {}").unwrap();
 
         let source = RepoMapSource::new(100, 5000);
         let chunks = source

@@ -88,11 +88,16 @@ impl CredentialStore {
     /// Returns `Ok(())` on success; the caller should hold onto the `CredentialRef`
     /// to retrieve the secret later.
     pub fn store(credential_ref: &CredentialRef, secret: &str) -> Result<()> {
-        let entry = Entry::new(&credential_ref.service, &credential_ref.account)
-            .map_err(|e| IntegrationError::SecretsError { message: format!("keyring entry: {e}") })?;
+        let entry = Entry::new(&credential_ref.service, &credential_ref.account).map_err(|e| {
+            IntegrationError::SecretsError {
+                message: format!("keyring entry: {e}"),
+            }
+        })?;
         entry
             .set_password(secret)
-            .map_err(|e| IntegrationError::SecretsError { message: format!("keyring store: {e}") })?;
+            .map_err(|e| IntegrationError::SecretsError {
+                message: format!("keyring store: {e}"),
+            })?;
         Ok(())
     }
 
@@ -103,8 +108,11 @@ impl CredentialStore {
     /// Falls back to environment variable `HALCON_<SERVICE>_<ACCOUNT>` (uppercased,
     /// hyphens replaced by underscores) when the OS keyring is unavailable (CI, Docker).
     pub fn retrieve(credential_ref: &CredentialRef) -> Result<String> {
-        let entry = Entry::new(&credential_ref.service, &credential_ref.account)
-            .map_err(|e| IntegrationError::SecretsError { message: format!("keyring entry: {e}") })?;
+        let entry = Entry::new(&credential_ref.service, &credential_ref.account).map_err(|e| {
+            IntegrationError::SecretsError {
+                message: format!("keyring entry: {e}"),
+            }
+        })?;
 
         match entry.get_password() {
             Ok(secret) => return Ok(secret),
@@ -124,19 +132,22 @@ impl CredentialStore {
             credential_ref.account.to_uppercase().replace('-', "_"),
         );
         std::env::var(&env_key).map_err(|_| IntegrationError::SecretsError {
-            message: format!(
-                "keyring unavailable and env var {env_key} not set"
-            ),
+            message: format!("keyring unavailable and env var {env_key} not set"),
         })
     }
 
     /// Delete a credential from the OS keyring.
     pub fn delete(credential_ref: &CredentialRef) -> Result<()> {
-        let entry = Entry::new(&credential_ref.service, &credential_ref.account)
-            .map_err(|e| IntegrationError::SecretsError { message: format!("keyring entry: {e}") })?;
+        let entry = Entry::new(&credential_ref.service, &credential_ref.account).map_err(|e| {
+            IntegrationError::SecretsError {
+                message: format!("keyring entry: {e}"),
+            }
+        })?;
         entry
             .delete_credential()
-            .map_err(|e| IntegrationError::SecretsError { message: format!("keyring delete: {e}") })?;
+            .map_err(|e| IntegrationError::SecretsError {
+                message: format!("keyring delete: {e}"),
+            })?;
         Ok(())
     }
 
@@ -215,10 +226,7 @@ mod tests {
     /// test is skipped via the Result check rather than hard-panicking.
     #[test]
     fn credential_store_roundtrip_if_keyring_available() {
-        let cref = CredentialRef::new(
-            "halcon-test-credential-store",
-            "roundtrip-test",
-        );
+        let cref = CredentialRef::new("halcon-test-credential-store", "roundtrip-test");
 
         let stored = CredentialStore::store(&cref, "test-secret-value-12345");
         if stored.is_err() {

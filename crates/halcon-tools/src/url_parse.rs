@@ -48,8 +48,18 @@ fn parse_query_params(query: &str) -> Vec<(String, String)> {
 }
 
 const SENSITIVE_PARAMS: &[&str] = &[
-    "password", "passwd", "token", "api_key", "apikey", "secret",
-    "access_token", "auth", "key", "credentials", "session", "ssn",
+    "password",
+    "passwd",
+    "token",
+    "api_key",
+    "apikey",
+    "secret",
+    "access_token",
+    "auth",
+    "key",
+    "credentials",
+    "session",
+    "ssn",
 ];
 
 fn check_security_issues(url: &Url) -> Vec<String> {
@@ -95,10 +105,10 @@ fn check_security_issues(url: &Url) -> Vec<String> {
         let params = parse_query_params(query);
         for (k, v) in &params {
             let kl = k.to_lowercase();
-            if matches!(kl.as_str(), "redirect" | "url" | "next" | "return" | "goto") {
-                if v.starts_with("http") {
-                    issues.push(format!("Potential open redirect via '{k}' parameter: {v}"));
-                }
+            if matches!(kl.as_str(), "redirect" | "url" | "next" | "return" | "goto")
+                && v.starts_with("http")
+            {
+                issues.push(format!("Potential open redirect via '{k}' parameter: {v}"));
             }
         }
     }
@@ -143,23 +153,31 @@ fn normalize_url(url: &Url) -> String {
 pub struct UrlParseTool;
 
 impl UrlParseTool {
-    pub fn new() -> Self { Self }
+    pub fn new() -> Self {
+        Self
+    }
 }
 
 impl Default for UrlParseTool {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[async_trait]
 impl Tool for UrlParseTool {
-    fn name(&self) -> &str { "url_parse" }
+    fn name(&self) -> &str {
+        "url_parse"
+    }
 
     fn description(&self) -> &str {
         "Parse, validate and inspect URLs. Extracts components (scheme, host, port, path, \
          query params, fragment), checks security issues, and normalizes URLs."
     }
 
-    fn permission_level(&self) -> PermissionLevel { PermissionLevel::ReadOnly }
+    fn permission_level(&self) -> PermissionLevel {
+        PermissionLevel::ReadOnly
+    }
 
     fn input_schema(&self) -> serde_json::Value {
         json!({
@@ -194,23 +212,24 @@ impl Tool for UrlParseTool {
         }
 
         let content = match operation {
-            "validate" => {
-                match Url::parse(raw_url) {
-                    Ok(_) => format!("✓ Valid URL: {raw_url}"),
-                    Err(e) => format!("✗ Invalid URL: {e}"),
-                }
-            }
+            "validate" => match Url::parse(raw_url) {
+                Ok(_) => format!("✓ Valid URL: {raw_url}"),
+                Err(e) => format!("✗ Invalid URL: {e}"),
+            },
 
             "parse" => {
-                let url = Url::parse(raw_url).map_err(|e| {
-                    HalconError::InvalidInput(format!("Invalid URL: {e}"))
-                })?;
+                let url = Url::parse(raw_url)
+                    .map_err(|e| HalconError::InvalidInput(format!("Invalid URL: {e}")))?;
 
                 let params = url.query().map(parse_query_params).unwrap_or_default();
                 let params_str = if params.is_empty() {
                     "(none)".to_string()
                 } else {
-                    params.iter().map(|(k, v)| format!("    {k} = {v}")).collect::<Vec<_>>().join("\n")
+                    params
+                        .iter()
+                        .map(|(k, v)| format!("    {k} = {v}"))
+                        .collect::<Vec<_>>()
+                        .join("\n")
                 };
 
                 format!(
@@ -225,7 +244,9 @@ impl Tool for UrlParseTool {
                      Params:\n{}",
                     url.scheme(),
                     url.host_str().unwrap_or("(none)"),
-                    url.port().map(|p| p.to_string()).unwrap_or_else(|| "(default)".to_string()),
+                    url.port()
+                        .map(|p| p.to_string())
+                        .unwrap_or_else(|| "(default)".to_string()),
                     url.path(),
                     url.query().unwrap_or("(none)"),
                     url.fragment().unwrap_or("(none)"),
@@ -235,9 +256,8 @@ impl Tool for UrlParseTool {
             }
 
             "params" => {
-                let url = Url::parse(raw_url).map_err(|e| {
-                    HalconError::InvalidInput(format!("Invalid URL: {e}"))
-                })?;
+                let url = Url::parse(raw_url)
+                    .map_err(|e| HalconError::InvalidInput(format!("Invalid URL: {e}")))?;
 
                 let params = url.query().map(parse_query_params).unwrap_or_default();
                 if params.is_empty() {
@@ -252,9 +272,8 @@ impl Tool for UrlParseTool {
             }
 
             "security" => {
-                let url = Url::parse(raw_url).map_err(|e| {
-                    HalconError::InvalidInput(format!("Invalid URL: {e}"))
-                })?;
+                let url = Url::parse(raw_url)
+                    .map_err(|e| HalconError::InvalidInput(format!("Invalid URL: {e}")))?;
 
                 let issues = check_security_issues(&url);
                 if issues.is_empty() {
@@ -269,17 +288,16 @@ impl Tool for UrlParseTool {
             }
 
             "normalize" => {
-                let url = Url::parse(raw_url).map_err(|e| {
-                    HalconError::InvalidInput(format!("Invalid URL: {e}"))
-                })?;
+                let url = Url::parse(raw_url)
+                    .map_err(|e| HalconError::InvalidInput(format!("Invalid URL: {e}")))?;
                 let normalized = normalize_url(&url);
                 format!("Original  : {raw_url}\nNormalized: {normalized}")
             }
 
             _ => {
-                return Err(HalconError::InvalidInput(
-                    format!("Unknown operation: {operation}")
-                ))
+                return Err(HalconError::InvalidInput(format!(
+                    "Unknown operation: {operation}"
+                )))
             }
         };
 

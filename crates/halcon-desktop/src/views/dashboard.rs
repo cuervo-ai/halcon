@@ -10,12 +10,7 @@ pub fn render(ui: &mut Ui, state: &AppState) {
     // Summary cards row.
     ui.horizontal(|ui| {
         summary_card(ui, "Agents", state.agents.len(), HalconTheme::ACCENT);
-        summary_card(
-            ui,
-            "Tasks",
-            state.tasks.len(),
-            HalconTheme::INFO,
-        );
+        summary_card(ui, "Tasks", state.tasks.len(), HalconTheme::INFO);
         summary_card(ui, "Tools", state.tools.len(), HalconTheme::SUCCESS);
         if let Some(ref m) = state.metrics {
             summary_card(
@@ -40,7 +35,10 @@ pub fn render(ui: &mut Ui, state: &AppState) {
                 ui.separator();
                 ui.label(format!("Uptime: {}s", status.uptime_seconds));
                 ui.separator();
-                ui.label(format!("Platform: {} {}", status.platform.os, status.platform.arch));
+                ui.label(format!(
+                    "Platform: {} {}",
+                    status.platform.os, status.platform.arch
+                ));
             });
         });
     }
@@ -118,8 +116,11 @@ fn summary_card(ui: &mut Ui, label: &str, value: usize, color: egui::Color32) {
     ui.group(|ui| {
         ui.vertical(|ui| {
             ui.label(RichText::new(value.to_string()).size(24.0).color(color));
-            ui.label(RichText::new(label).size(11.0).color(HalconTheme::TEXT_MUTED));
+            ui.label(
+                RichText::new(label)
+                    .size(11.0)
+                    .color(HalconTheme::TEXT_MUTED),
+            );
         });
     });
 }
-

@@ -41,6 +41,7 @@ pub struct RuntimeEvent {
 
 impl RuntimeEvent {
     /// Construct a new event with a fresh UUID and current timestamp.
+    #[must_use]
     pub fn new(session_id: Uuid, kind: RuntimeEventKind) -> Self {
         Self {
             event_id: Uuid::new_v4(),
@@ -54,6 +55,7 @@ impl RuntimeEvent {
     ///
     /// Used by the JSON-RPC sink to set the top-level `"type"` field that
     /// the TypeScript extension switches on.
+    #[must_use]
     pub fn type_name(&self) -> &'static str {
         self.kind.type_name()
     }
@@ -343,9 +345,7 @@ pub enum RuntimeEventKind {
         reason: String,
     },
     /// A previously tripped circuit breaker has recovered.
-    CircuitBreakerRecovered {
-        resource: String,
-    },
+    CircuitBreakerRecovered { resource: String },
 
     // ── Permission gates (Console panel inline prompt) ─────────────────────────
     /// A destructive tool requires explicit user confirmation.
@@ -405,10 +405,7 @@ pub enum RuntimeEventKind {
         awaiting_user: bool,
     },
     /// The user or policy rejected a plan step before execution.
-    PlanRejected {
-        plan_id: Uuid,
-        reason: String,
-    },
+    PlanRejected { plan_id: Uuid, reason: String },
     /// A deterministic plan replay session has started.
     PlanReplayStarted {
         original_plan_id: Uuid,
@@ -446,53 +443,54 @@ pub enum RuntimeEventKind {
 
 impl RuntimeEventKind {
     /// Returns the `snake_case` discriminant string matching the serde `tag`.
+    #[must_use]
     pub fn type_name(&self) -> &'static str {
         match self {
-            Self::SessionStarted { .. }          => "session_started",
-            Self::SessionEnded { .. }            => "session_ended",
-            Self::PlanCreated { .. }             => "plan_created",
-            Self::PlanStepStarted { .. }         => "plan_step_started",
-            Self::PlanStepCompleted { .. }       => "plan_step_completed",
-            Self::PlanReplanned { .. }           => "plan_replanned",
-            Self::PlanApproved { .. }            => "plan_approved",
-            Self::PlanModified { .. }            => "plan_modified",
-            Self::RoundStarted { .. }            => "round_started",
-            Self::RoundCompleted { .. }          => "round_completed",
-            Self::RoundScored { .. }             => "round_scored",
-            Self::ReasoningTrace { .. }          => "reasoning_trace",
-            Self::ReflectionReport { .. }        => "reflection_report",
-            Self::ModelToken { .. }              => "model_token",
-            Self::ModelResponseCompleted { .. }  => "model_response_completed",
-            Self::IntentClassified { .. }        => "intent_classified",
-            Self::ContextAssembled { .. }        => "context_assembled",
-            Self::ToolBatchStarted { .. }        => "tool_batch_started",
-            Self::ToolCallStarted { .. }         => "tool_call_started",
-            Self::ToolCallCompleted { .. }       => "tool_call_completed",
-            Self::ToolBlocked { .. }             => "tool_blocked",
-            Self::ToolBatchCompleted { .. }      => "tool_batch_completed",
-            Self::EditProposed { .. }            => "edit_proposed",
-            Self::EditValidated { .. }           => "edit_validated",
-            Self::EditApplied { .. }             => "edit_applied",
-            Self::EditRejected { .. }            => "edit_rejected",
-            Self::MemoryRetrieved { .. }         => "memory_retrieved",
-            Self::MemoryWritten { .. }           => "memory_written",
-            Self::WorkflowRetrieved { .. }       => "workflow_retrieved",
+            Self::SessionStarted { .. } => "session_started",
+            Self::SessionEnded { .. } => "session_ended",
+            Self::PlanCreated { .. } => "plan_created",
+            Self::PlanStepStarted { .. } => "plan_step_started",
+            Self::PlanStepCompleted { .. } => "plan_step_completed",
+            Self::PlanReplanned { .. } => "plan_replanned",
+            Self::PlanApproved { .. } => "plan_approved",
+            Self::PlanModified { .. } => "plan_modified",
+            Self::RoundStarted { .. } => "round_started",
+            Self::RoundCompleted { .. } => "round_completed",
+            Self::RoundScored { .. } => "round_scored",
+            Self::ReasoningTrace { .. } => "reasoning_trace",
+            Self::ReflectionReport { .. } => "reflection_report",
+            Self::ModelToken { .. } => "model_token",
+            Self::ModelResponseCompleted { .. } => "model_response_completed",
+            Self::IntentClassified { .. } => "intent_classified",
+            Self::ContextAssembled { .. } => "context_assembled",
+            Self::ToolBatchStarted { .. } => "tool_batch_started",
+            Self::ToolCallStarted { .. } => "tool_call_started",
+            Self::ToolCallCompleted { .. } => "tool_call_completed",
+            Self::ToolBlocked { .. } => "tool_blocked",
+            Self::ToolBatchCompleted { .. } => "tool_batch_completed",
+            Self::EditProposed { .. } => "edit_proposed",
+            Self::EditValidated { .. } => "edit_validated",
+            Self::EditApplied { .. } => "edit_applied",
+            Self::EditRejected { .. } => "edit_rejected",
+            Self::MemoryRetrieved { .. } => "memory_retrieved",
+            Self::MemoryWritten { .. } => "memory_written",
+            Self::WorkflowRetrieved { .. } => "workflow_retrieved",
             Self::WorkflowTemplateExtracted { .. } => "workflow_template_extracted",
-            Self::BudgetWarning { .. }           => "budget_warning",
-            Self::BudgetExhausted { .. }         => "budget_exhausted",
-            Self::CircuitBreakerOpened { .. }    => "circuit_breaker_opened",
+            Self::BudgetWarning { .. } => "budget_warning",
+            Self::BudgetExhausted { .. } => "budget_exhausted",
+            Self::CircuitBreakerOpened { .. } => "circuit_breaker_opened",
             Self::CircuitBreakerRecovered { .. } => "circuit_breaker_recovered",
-            Self::PermissionRequested { .. }     => "permission_requested",
-            Self::PermissionGranted { .. }       => "permission_granted",
-            Self::PermissionDenied { .. }        => "permission_denied",
-            Self::GuardrailTriggered { .. }      => "guardrail_triggered",
-            Self::PlanNodeStateChanged { .. }    => "plan_node_state_changed",
+            Self::PermissionRequested { .. } => "permission_requested",
+            Self::PermissionGranted { .. } => "permission_granted",
+            Self::PermissionDenied { .. } => "permission_denied",
+            Self::GuardrailTriggered { .. } => "guardrail_triggered",
+            Self::PlanNodeStateChanged { .. } => "plan_node_state_changed",
             Self::PlanStepApprovalRequested { .. } => "plan_step_approval_requested",
-            Self::PlanRejected { .. }            => "plan_rejected",
-            Self::PlanReplayStarted { .. }       => "plan_replay_started",
+            Self::PlanRejected { .. } => "plan_rejected",
+            Self::PlanReplayStarted { .. } => "plan_replay_started",
             Self::PlanReplayStepCompleted { .. } => "plan_replay_step_completed",
-            Self::SubAgentSpawned { .. }         => "sub_agent_spawned",
-            Self::SubAgentCompleted { .. }       => "sub_agent_completed",
+            Self::SubAgentSpawned { .. } => "sub_agent_spawned",
+            Self::SubAgentCompleted { .. } => "sub_agent_completed",
         }
     }
 }
@@ -532,18 +530,20 @@ pub enum PlanNodeState {
 
 impl PlanNodeState {
     /// Returns the `snake_case` name matching the serde tag (for logging).
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Pending   => "pending",
-            Self::Running   => "running",
+            Self::Pending => "pending",
+            Self::Running => "running",
             Self::Completed => "completed",
-            Self::Failed    => "failed",
+            Self::Failed => "failed",
             Self::Delegated => "delegated",
-            Self::Skipped   => "skipped",
+            Self::Skipped => "skipped",
         }
     }
 
     /// Whether this is a terminal state (no further transitions expected).
+    #[must_use]
     pub fn is_terminal(self) -> bool {
         matches!(self, Self::Completed | Self::Failed | Self::Skipped)
     }
@@ -779,7 +779,9 @@ pub enum GuardrailAction {
 mod tests {
     use super::*;
 
-    fn make_session() -> Uuid { Uuid::new_v4() }
+    fn make_session() -> Uuid {
+        Uuid::new_v4()
+    }
 
     #[test]
     fn session_started_roundtrip() {
@@ -813,7 +815,10 @@ mod tests {
             },
         );
         let json = serde_json::to_string(&ev).unwrap();
-        assert!(json.contains("\"type\":\"tool_call_completed\""), "json={json}");
+        assert!(
+            json.contains("\"type\":\"tool_call_completed\""),
+            "json={json}"
+        );
         let rt: RuntimeEvent = serde_json::from_str(&json).unwrap();
         assert_eq!(rt.type_name(), "tool_call_completed");
     }
@@ -841,13 +846,18 @@ mod tests {
                         tokens: 2_100,
                         included: false,
                         content_preview: "Session 2026-03-10: auth refactor".into(),
-                        reason: ContextExclusionReason::BudgetExhausted { remaining_tokens: 240 },
+                        reason: ContextExclusionReason::BudgetExhausted {
+                            remaining_tokens: 240,
+                        },
                     },
                 ],
             },
         );
         let json = serde_json::to_string(&ev).unwrap();
-        assert!(json.contains("\"type\":\"context_assembled\""), "json={json}");
+        assert!(
+            json.contains("\"type\":\"context_assembled\""),
+            "json={json}"
+        );
         let rt: RuntimeEvent = serde_json::from_str(&json).unwrap();
         assert_eq!(rt.type_name(), "context_assembled");
     }
@@ -860,7 +870,8 @@ mod tests {
             RuntimeEventKind::EditProposed {
                 round: 3,
                 file_uri: "file:///project/src/auth.rs".into(),
-                diff: "--- a/src/auth.rs\n+++ b/src/auth.rs\n@@ -1 +1 @@\n-fn check\n+fn validate".into(),
+                diff: "--- a/src/auth.rs\n+++ b/src/auth.rs\n@@ -1 +1 @@\n-fn check\n+fn validate"
+                    .into(),
                 original_hash: "sha256:abcdef".into(),
                 edit_id,
             },
@@ -873,28 +884,56 @@ mod tests {
     fn type_names_match_serde_tags() {
         let session = make_session();
         let cases: Vec<(&str, RuntimeEventKind)> = vec![
-            ("session_started", RuntimeEventKind::SessionStarted {
-                query_preview: "x".into(), model: "m".into(),
-                provider: "p".into(), max_rounds: 1,
-            }),
-            ("plan_created", RuntimeEventKind::PlanCreated {
-                plan_id: Uuid::new_v4(), goal: "g".into(),
-                steps: vec![], replan_count: 0,
-                requires_confirmation: false, mode: PlanMode::DirectExecution,
-            }),
-            ("round_started", RuntimeEventKind::RoundStarted {
-                round: 1, model: "m".into(),
-                tools_allowed: true, token_budget_remaining: 8000,
-            }),
-            ("memory_retrieved", RuntimeEventKind::MemoryRetrieved {
-                round: 1, tier: MemoryTier::Semantic,
-                query: "q".into(), result_count: 3,
-                top_score: 0.87, was_agent_triggered: false,
-            }),
-            ("budget_warning", RuntimeEventKind::BudgetWarning {
-                tokens_used: 6500, tokens_total: 8000, pct_used: 0.81,
-                time_elapsed_ms: 12_000, time_limit_ms: 120_000,
-            }),
+            (
+                "session_started",
+                RuntimeEventKind::SessionStarted {
+                    query_preview: "x".into(),
+                    model: "m".into(),
+                    provider: "p".into(),
+                    max_rounds: 1,
+                },
+            ),
+            (
+                "plan_created",
+                RuntimeEventKind::PlanCreated {
+                    plan_id: Uuid::new_v4(),
+                    goal: "g".into(),
+                    steps: vec![],
+                    replan_count: 0,
+                    requires_confirmation: false,
+                    mode: PlanMode::DirectExecution,
+                },
+            ),
+            (
+                "round_started",
+                RuntimeEventKind::RoundStarted {
+                    round: 1,
+                    model: "m".into(),
+                    tools_allowed: true,
+                    token_budget_remaining: 8000,
+                },
+            ),
+            (
+                "memory_retrieved",
+                RuntimeEventKind::MemoryRetrieved {
+                    round: 1,
+                    tier: MemoryTier::Semantic,
+                    query: "q".into(),
+                    result_count: 3,
+                    top_score: 0.87,
+                    was_agent_triggered: false,
+                },
+            ),
+            (
+                "budget_warning",
+                RuntimeEventKind::BudgetWarning {
+                    tokens_used: 6500,
+                    tokens_total: 8000,
+                    pct_used: 0.81,
+                    time_elapsed_ms: 12_000,
+                    time_limit_ms: 120_000,
+                },
+            ),
         ];
         for (expected_type, kind) in cases {
             let ev = RuntimeEvent::new(session, kind);
@@ -912,228 +951,489 @@ mod tests {
     #[test]
     fn all_variants_serde_roundtrip() {
         let session = make_session();
-        let plan_id  = Uuid::new_v4();
-        let step_id  = Uuid::new_v4();
-        let edit_id  = Uuid::new_v4();
-        let task_id  = Uuid::new_v4();
+        let plan_id = Uuid::new_v4();
+        let step_id = Uuid::new_v4();
+        let edit_id = Uuid::new_v4();
+        let task_id = Uuid::new_v4();
 
         let cases: Vec<(&str, RuntimeEventKind)> = vec![
             // ── Session lifecycle ──────────────────────────────────────────────
-            ("session_started", RuntimeEventKind::SessionStarted {
-                query_preview: "refactor auth".into(), model: "claude-sonnet-4-6".into(),
-                provider: "anthropic".into(), max_rounds: 25,
-            }),
-            ("session_ended", RuntimeEventKind::SessionEnded {
-                rounds_completed: 12, stop_condition: "synthesis".into(),
-                total_tokens: 48_000, estimated_cost_usd: 0.024,
-                duration_ms: 34_200, fingerprint: Some("sha256:abc".into()),
-            }),
+            (
+                "session_started",
+                RuntimeEventKind::SessionStarted {
+                    query_preview: "refactor auth".into(),
+                    model: "claude-sonnet-4-6".into(),
+                    provider: "anthropic".into(),
+                    max_rounds: 25,
+                },
+            ),
+            (
+                "session_ended",
+                RuntimeEventKind::SessionEnded {
+                    rounds_completed: 12,
+                    stop_condition: "synthesis".into(),
+                    total_tokens: 48_000,
+                    estimated_cost_usd: 0.024,
+                    duration_ms: 34_200,
+                    fingerprint: Some("sha256:abc".into()),
+                },
+            ),
             // ── Planning ──────────────────────────────────────────────────────
-            ("plan_created", RuntimeEventKind::PlanCreated {
-                plan_id, goal: "Fix auth module".into(), steps: vec![
-                    PlanStepMeta {
-                        step_id, step_index: 0,
+            (
+                "plan_created",
+                RuntimeEventKind::PlanCreated {
+                    plan_id,
+                    goal: "Fix auth module".into(),
+                    steps: vec![PlanStepMeta {
+                        step_id,
+                        step_index: 0,
                         description: "Read auth.rs".into(),
-                        depends_on: vec![], expected_tools: vec!["read".into()],
-                    }
-                ],
-                replan_count: 0, requires_confirmation: false, mode: PlanMode::PlanExecuteReflect,
-            }),
-            ("plan_step_started", RuntimeEventKind::PlanStepStarted {
-                plan_id, step_id, step_index: 0, description: "Read auth.rs".into(),
-            }),
-            ("plan_step_completed", RuntimeEventKind::PlanStepCompleted {
-                plan_id, step_id, step_index: 0, outcome: StepOutcome::Success, duration_ms: 120,
-            }),
-            ("plan_replanned", RuntimeEventKind::PlanReplanned {
-                old_plan_id: plan_id, new_plan_id: Uuid::new_v4(),
-                reason: "LoopGuardStagnationDetected".into(), replan_count: 1,
-            }),
-            ("plan_approved", RuntimeEventKind::PlanApproved {
-                plan_id, approved_by: ApprovalSource::DeveloperExplicit,
-            }),
-            ("plan_modified", RuntimeEventKind::PlanModified {
-                plan_id, modified_steps: vec![0, 2],
-            }),
+                        depends_on: vec![],
+                        expected_tools: vec!["read".into()],
+                    }],
+                    replan_count: 0,
+                    requires_confirmation: false,
+                    mode: PlanMode::PlanExecuteReflect,
+                },
+            ),
+            (
+                "plan_step_started",
+                RuntimeEventKind::PlanStepStarted {
+                    plan_id,
+                    step_id,
+                    step_index: 0,
+                    description: "Read auth.rs".into(),
+                },
+            ),
+            (
+                "plan_step_completed",
+                RuntimeEventKind::PlanStepCompleted {
+                    plan_id,
+                    step_id,
+                    step_index: 0,
+                    outcome: StepOutcome::Success,
+                    duration_ms: 120,
+                },
+            ),
+            (
+                "plan_replanned",
+                RuntimeEventKind::PlanReplanned {
+                    old_plan_id: plan_id,
+                    new_plan_id: Uuid::new_v4(),
+                    reason: "LoopGuardStagnationDetected".into(),
+                    replan_count: 1,
+                },
+            ),
+            (
+                "plan_approved",
+                RuntimeEventKind::PlanApproved {
+                    plan_id,
+                    approved_by: ApprovalSource::DeveloperExplicit,
+                },
+            ),
+            (
+                "plan_modified",
+                RuntimeEventKind::PlanModified {
+                    plan_id,
+                    modified_steps: vec![0, 2],
+                },
+            ),
             // ── Agent loop rounds ──────────────────────────────────────────────
-            ("round_started", RuntimeEventKind::RoundStarted {
-                round: 3, model: "claude-sonnet-4-6".into(),
-                tools_allowed: true, token_budget_remaining: 32_000,
-            }),
-            ("round_completed", RuntimeEventKind::RoundCompleted {
-                round: 3, action: ConvergenceAction::Continue,
-                fsm_phase: "tool_dispatch".into(), duration_ms: 840,
-            }),
-            ("round_scored", RuntimeEventKind::RoundScored {
-                round: 3, progress: 0.62, tool_efficiency: 0.88,
-                token_efficiency: 0.71, coherence: 0.95,
-                anomaly_flags: vec!["read_saturation".into()],
-                composite_score: 0.79,
-            }),
-            ("reasoning_trace", RuntimeEventKind::ReasoningTrace {
-                round: 3, text: "I should check the imports next.".into(), code_ref: None,
-            }),
-            ("reflection_report", RuntimeEventKind::ReflectionReport {
-                round: 3, goal_coverage_estimate: 0.55, plan_deviation_count: 1,
-                context_gaps_detected: vec!["missing_db_schema".into()],
-                workflow_template_candidate: false,
-            }),
+            (
+                "round_started",
+                RuntimeEventKind::RoundStarted {
+                    round: 3,
+                    model: "claude-sonnet-4-6".into(),
+                    tools_allowed: true,
+                    token_budget_remaining: 32_000,
+                },
+            ),
+            (
+                "round_completed",
+                RuntimeEventKind::RoundCompleted {
+                    round: 3,
+                    action: ConvergenceAction::Continue,
+                    fsm_phase: "tool_dispatch".into(),
+                    duration_ms: 840,
+                },
+            ),
+            (
+                "round_scored",
+                RuntimeEventKind::RoundScored {
+                    round: 3,
+                    progress: 0.62,
+                    tool_efficiency: 0.88,
+                    token_efficiency: 0.71,
+                    coherence: 0.95,
+                    anomaly_flags: vec!["read_saturation".into()],
+                    composite_score: 0.79,
+                },
+            ),
+            (
+                "reasoning_trace",
+                RuntimeEventKind::ReasoningTrace {
+                    round: 3,
+                    text: "I should check the imports next.".into(),
+                    code_ref: None,
+                },
+            ),
+            (
+                "reflection_report",
+                RuntimeEventKind::ReflectionReport {
+                    round: 3,
+                    goal_coverage_estimate: 0.55,
+                    plan_deviation_count: 1,
+                    context_gaps_detected: vec!["missing_db_schema".into()],
+                    workflow_template_candidate: false,
+                },
+            ),
             // ── Model I/O ─────────────────────────────────────────────────────
-            ("model_token", RuntimeEventKind::ModelToken {
-                round: 3, text: "The".into(), is_thinking: false,
-            }),
-            ("model_response_completed", RuntimeEventKind::ModelResponseCompleted {
-                round: 3, input_tokens: 8_400, output_tokens: 320,
-                latency_ms: 1_240, model: "claude-sonnet-4-6".into(), provider: "anthropic".into(),
-            }),
+            (
+                "model_token",
+                RuntimeEventKind::ModelToken {
+                    round: 3,
+                    text: "The".into(),
+                    is_thinking: false,
+                },
+            ),
+            (
+                "model_response_completed",
+                RuntimeEventKind::ModelResponseCompleted {
+                    round: 3,
+                    input_tokens: 8_400,
+                    output_tokens: 320,
+                    latency_ms: 1_240,
+                    model: "claude-sonnet-4-6".into(),
+                    provider: "anthropic".into(),
+                },
+            ),
             // ── Intent classification ──────────────────────────────────────────
-            ("intent_classified", RuntimeEventKind::IntentClassified {
-                query_preview: "fix the auth bug".into(), task_type: "BugFix".into(),
-                confidence: 0.91, strategy: ClassificationStrategy::HeuristicEmbeddingAgree,
-                heuristic_result: Some(LayerResult { task_type: "BugFix".into(), confidence: 0.88, latency_us: 120 }),
-                embedding_result: Some(LayerResult { task_type: "BugFix".into(), confidence: 0.93, latency_us: 4_500 }),
-                llm_result: None, ambiguity: None, latency_us: 4_620, has_episodic_relevance: false,
-            }),
+            (
+                "intent_classified",
+                RuntimeEventKind::IntentClassified {
+                    query_preview: "fix the auth bug".into(),
+                    task_type: "BugFix".into(),
+                    confidence: 0.91,
+                    strategy: ClassificationStrategy::HeuristicEmbeddingAgree,
+                    heuristic_result: Some(LayerResult {
+                        task_type: "BugFix".into(),
+                        confidence: 0.88,
+                        latency_us: 120,
+                    }),
+                    embedding_result: Some(LayerResult {
+                        task_type: "BugFix".into(),
+                        confidence: 0.93,
+                        latency_us: 4_500,
+                    }),
+                    llm_result: None,
+                    ambiguity: None,
+                    latency_us: 4_620,
+                    has_episodic_relevance: false,
+                },
+            ),
             // ── Context assembly ───────────────────────────────────────────────
-            ("context_assembled", RuntimeEventKind::ContextAssembled {
-                round: 3, total_tokens: 7_200, budget_tokens: 8_192, decisions: vec![],
-            }),
+            (
+                "context_assembled",
+                RuntimeEventKind::ContextAssembled {
+                    round: 3,
+                    total_tokens: 7_200,
+                    budget_tokens: 8_192,
+                    decisions: vec![],
+                },
+            ),
             // ── Tool execution ─────────────────────────────────────────────────
-            ("tool_batch_started", RuntimeEventKind::ToolBatchStarted {
-                round: 3, batch_kind: ToolBatchKind::Parallel,
-                tool_names: vec!["read".into(), "glob".into()],
-            }),
-            ("tool_call_started", RuntimeEventKind::ToolCallStarted {
-                round: 3, tool_use_id: "tu_001".into(), tool_name: "read".into(),
-                input_preview: "/src/auth.rs".into(), permission_level: PermissionLevel::ReadOnly,
-                is_parallel: true,
-            }),
-            ("tool_call_completed", RuntimeEventKind::ToolCallCompleted {
-                round: 3, tool_use_id: "tu_001".into(), tool_name: "read".into(),
-                success: true, duration_ms: 14, output_preview: "pub fn check".into(), output_tokens: 42,
-            }),
-            ("tool_blocked", RuntimeEventKind::ToolBlocked {
-                round: 3, tool_use_id: "tu_002".into(), tool_name: "bash".into(),
-                reason: ToolBlockReason::CatastrophicPattern, message: "rm -rf blocked".into(),
-            }),
-            ("tool_batch_completed", RuntimeEventKind::ToolBatchCompleted {
-                round: 3, batch_kind: ToolBatchKind::Parallel,
-                success_count: 2, failure_count: 0, total_duration_ms: 18,
-            }),
+            (
+                "tool_batch_started",
+                RuntimeEventKind::ToolBatchStarted {
+                    round: 3,
+                    batch_kind: ToolBatchKind::Parallel,
+                    tool_names: vec!["read".into(), "glob".into()],
+                },
+            ),
+            (
+                "tool_call_started",
+                RuntimeEventKind::ToolCallStarted {
+                    round: 3,
+                    tool_use_id: "tu_001".into(),
+                    tool_name: "read".into(),
+                    input_preview: "/src/auth.rs".into(),
+                    permission_level: PermissionLevel::ReadOnly,
+                    is_parallel: true,
+                },
+            ),
+            (
+                "tool_call_completed",
+                RuntimeEventKind::ToolCallCompleted {
+                    round: 3,
+                    tool_use_id: "tu_001".into(),
+                    tool_name: "read".into(),
+                    success: true,
+                    duration_ms: 14,
+                    output_preview: "pub fn check".into(),
+                    output_tokens: 42,
+                },
+            ),
+            (
+                "tool_blocked",
+                RuntimeEventKind::ToolBlocked {
+                    round: 3,
+                    tool_use_id: "tu_002".into(),
+                    tool_name: "bash".into(),
+                    reason: ToolBlockReason::CatastrophicPattern,
+                    message: "rm -rf blocked".into(),
+                },
+            ),
+            (
+                "tool_batch_completed",
+                RuntimeEventKind::ToolBatchCompleted {
+                    round: 3,
+                    batch_kind: ToolBatchKind::Parallel,
+                    success_count: 2,
+                    failure_count: 0,
+                    total_duration_ms: 18,
+                },
+            ),
             // ── Speculative edits ──────────────────────────────────────────────
-            ("edit_proposed", RuntimeEventKind::EditProposed {
-                round: 3, file_uri: "file:///project/auth.rs".into(),
-                diff: "--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new".into(),
-                original_hash: "sha256:aabb".into(), edit_id,
-            }),
-            ("edit_validated", RuntimeEventKind::EditValidated {
-                edit_id, file_uri: "file:///project/auth.rs".into(),
-                diagnostics: vec![], has_errors: false,
-            }),
-            ("edit_applied", RuntimeEventKind::EditApplied {
-                edit_id, file_uri: "file:///project/auth.rs".into(),
-                approved_by: ApprovalSource::CliFlag,
-            }),
-            ("edit_rejected", RuntimeEventKind::EditRejected {
-                edit_id, file_uri: "file:///project/auth.rs".into(), reason: None,
-            }),
+            (
+                "edit_proposed",
+                RuntimeEventKind::EditProposed {
+                    round: 3,
+                    file_uri: "file:///project/auth.rs".into(),
+                    diff: "--- a\n+++ b\n@@ -1 +1 @@\n-old\n+new".into(),
+                    original_hash: "sha256:aabb".into(),
+                    edit_id,
+                },
+            ),
+            (
+                "edit_validated",
+                RuntimeEventKind::EditValidated {
+                    edit_id,
+                    file_uri: "file:///project/auth.rs".into(),
+                    diagnostics: vec![],
+                    has_errors: false,
+                },
+            ),
+            (
+                "edit_applied",
+                RuntimeEventKind::EditApplied {
+                    edit_id,
+                    file_uri: "file:///project/auth.rs".into(),
+                    approved_by: ApprovalSource::CliFlag,
+                },
+            ),
+            (
+                "edit_rejected",
+                RuntimeEventKind::EditRejected {
+                    edit_id,
+                    file_uri: "file:///project/auth.rs".into(),
+                    reason: None,
+                },
+            ),
             // ── Memory system ──────────────────────────────────────────────────
-            ("memory_retrieved", RuntimeEventKind::MemoryRetrieved {
-                round: 3, tier: MemoryTier::Episodic, query: "auth failures".into(),
-                result_count: 5, top_score: 0.91, was_agent_triggered: true,
-            }),
-            ("memory_written", RuntimeEventKind::MemoryWritten {
-                tier: MemoryTier::Procedural, entry_type: "workflow_template".into(),
-                content_preview: "Fix auth: read → patch → test".into(),
-            }),
-            ("workflow_retrieved", RuntimeEventKind::WorkflowRetrieved {
-                template_name: "fix_auth_flow".into(), similarity: 0.88,
-                step_count: 4, usage_count: 3,
-            }),
-            ("workflow_template_extracted", RuntimeEventKind::WorkflowTemplateExtracted {
-                template_name: "read_patch_test".into(), step_count: 3,
-                trigger_description: "BugFix on auth module".into(),
-            }),
+            (
+                "memory_retrieved",
+                RuntimeEventKind::MemoryRetrieved {
+                    round: 3,
+                    tier: MemoryTier::Episodic,
+                    query: "auth failures".into(),
+                    result_count: 5,
+                    top_score: 0.91,
+                    was_agent_triggered: true,
+                },
+            ),
+            (
+                "memory_written",
+                RuntimeEventKind::MemoryWritten {
+                    tier: MemoryTier::Procedural,
+                    entry_type: "workflow_template".into(),
+                    content_preview: "Fix auth: read → patch → test".into(),
+                },
+            ),
+            (
+                "workflow_retrieved",
+                RuntimeEventKind::WorkflowRetrieved {
+                    template_name: "fix_auth_flow".into(),
+                    similarity: 0.88,
+                    step_count: 4,
+                    usage_count: 3,
+                },
+            ),
+            (
+                "workflow_template_extracted",
+                RuntimeEventKind::WorkflowTemplateExtracted {
+                    template_name: "read_patch_test".into(),
+                    step_count: 3,
+                    trigger_description: "BugFix on auth module".into(),
+                },
+            ),
             // ── Budget & resource ──────────────────────────────────────────────
-            ("budget_warning", RuntimeEventKind::BudgetWarning {
-                tokens_used: 6_500, tokens_total: 8_000, pct_used: 0.81,
-                time_elapsed_ms: 12_000, time_limit_ms: 120_000,
-            }),
-            ("budget_exhausted", RuntimeEventKind::BudgetExhausted {
-                reason: BudgetExhaustionReason::TokenLimit,
-                tokens_used: 8_000, tokens_total: 8_000, time_elapsed_ms: 65_000,
-            }),
+            (
+                "budget_warning",
+                RuntimeEventKind::BudgetWarning {
+                    tokens_used: 6_500,
+                    tokens_total: 8_000,
+                    pct_used: 0.81,
+                    time_elapsed_ms: 12_000,
+                    time_limit_ms: 120_000,
+                },
+            ),
+            (
+                "budget_exhausted",
+                RuntimeEventKind::BudgetExhausted {
+                    reason: BudgetExhaustionReason::TokenLimit,
+                    tokens_used: 8_000,
+                    tokens_total: 8_000,
+                    time_elapsed_ms: 65_000,
+                },
+            ),
             // ── Circuit breaker ────────────────────────────────────────────────
-            ("circuit_breaker_opened", RuntimeEventKind::CircuitBreakerOpened {
-                resource: "anthropic".into(), failure_count: 3, reason: "timeout".into(),
-            }),
-            ("circuit_breaker_recovered", RuntimeEventKind::CircuitBreakerRecovered {
-                resource: "anthropic".into(),
-            }),
+            (
+                "circuit_breaker_opened",
+                RuntimeEventKind::CircuitBreakerOpened {
+                    resource: "anthropic".into(),
+                    failure_count: 3,
+                    reason: "timeout".into(),
+                },
+            ),
+            (
+                "circuit_breaker_recovered",
+                RuntimeEventKind::CircuitBreakerRecovered {
+                    resource: "anthropic".into(),
+                },
+            ),
             // ── Permission gates ───────────────────────────────────────────────
-            ("permission_requested", RuntimeEventKind::PermissionRequested {
-                round: 3, tool_use_id: "tu_003".into(), tool_name: "bash".into(),
-                input_preview: "git commit".into(), permission_level: PermissionLevel::ReadWrite,
-            }),
-            ("permission_granted", RuntimeEventKind::PermissionGranted {
-                tool_use_id: "tu_003".into(), tool_name: "bash".into(), remember_session: true,
-            }),
-            ("permission_denied", RuntimeEventKind::PermissionDenied {
-                tool_use_id: "tu_003".into(), tool_name: "bash".into(),
-                reason: Some("user rejected".into()),
-            }),
+            (
+                "permission_requested",
+                RuntimeEventKind::PermissionRequested {
+                    round: 3,
+                    tool_use_id: "tu_003".into(),
+                    tool_name: "bash".into(),
+                    input_preview: "git commit".into(),
+                    permission_level: PermissionLevel::ReadWrite,
+                },
+            ),
+            (
+                "permission_granted",
+                RuntimeEventKind::PermissionGranted {
+                    tool_use_id: "tu_003".into(),
+                    tool_name: "bash".into(),
+                    remember_session: true,
+                },
+            ),
+            (
+                "permission_denied",
+                RuntimeEventKind::PermissionDenied {
+                    tool_use_id: "tu_003".into(),
+                    tool_name: "bash".into(),
+                    reason: Some("user rejected".into()),
+                },
+            ),
             // ── Guardrails ─────────────────────────────────────────────────────
-            ("guardrail_triggered", RuntimeEventKind::GuardrailTriggered {
-                guardrail_name: "catastrophic_patterns".into(),
-                checkpoint: GuardrailCheckpoint::PreInvocation,
-                action: GuardrailAction::Block, matched_text_preview: Some("rm -rf /".into()),
-            }),
+            (
+                "guardrail_triggered",
+                RuntimeEventKind::GuardrailTriggered {
+                    guardrail_name: "catastrophic_patterns".into(),
+                    checkpoint: GuardrailCheckpoint::PreInvocation,
+                    action: GuardrailAction::Block,
+                    matched_text_preview: Some("rm -rf /".into()),
+                },
+            ),
             // ── Plan graph node lifecycle ──────────────────────────────────────
-            ("plan_node_state_changed", RuntimeEventKind::PlanNodeStateChanged {
-                plan_id, step_id, step_index: 0,
-                old_state: PlanNodeState::Pending, new_state: PlanNodeState::Running,
-                reason: None,
-            }),
-            ("plan_step_approval_requested", RuntimeEventKind::PlanStepApprovalRequested {
-                plan_id, step_id, step_index: 0,
-                description: "Deploy to production".into(), awaiting_user: true,
-            }),
-            ("plan_rejected", RuntimeEventKind::PlanRejected {
-                plan_id, reason: "security review failed".into(),
-            }),
-            ("plan_replay_started", RuntimeEventKind::PlanReplayStarted {
-                original_plan_id: plan_id, replay_plan_id: Uuid::new_v4(),
-            }),
-            ("plan_replay_step_completed", RuntimeEventKind::PlanReplayStepCompleted {
-                plan_id, step_id, step_index: 0,
-            }),
+            (
+                "plan_node_state_changed",
+                RuntimeEventKind::PlanNodeStateChanged {
+                    plan_id,
+                    step_id,
+                    step_index: 0,
+                    old_state: PlanNodeState::Pending,
+                    new_state: PlanNodeState::Running,
+                    reason: None,
+                },
+            ),
+            (
+                "plan_step_approval_requested",
+                RuntimeEventKind::PlanStepApprovalRequested {
+                    plan_id,
+                    step_id,
+                    step_index: 0,
+                    description: "Deploy to production".into(),
+                    awaiting_user: true,
+                },
+            ),
+            (
+                "plan_rejected",
+                RuntimeEventKind::PlanRejected {
+                    plan_id,
+                    reason: "security review failed".into(),
+                },
+            ),
+            (
+                "plan_replay_started",
+                RuntimeEventKind::PlanReplayStarted {
+                    original_plan_id: plan_id,
+                    replay_plan_id: Uuid::new_v4(),
+                },
+            ),
+            (
+                "plan_replay_step_completed",
+                RuntimeEventKind::PlanReplayStepCompleted {
+                    plan_id,
+                    step_id,
+                    step_index: 0,
+                },
+            ),
             // ── Sub-agent orchestration ────────────────────────────────────────
-            ("sub_agent_spawned", RuntimeEventKind::SubAgentSpawned {
-                orchestrator_id: session, task_id,
-                instruction_preview: "Read and summarize auth.rs".into(),
-                is_dynamic: false, parent_task_id: None, budget_fraction: 0.25,
-            }),
-            ("sub_agent_completed", RuntimeEventKind::SubAgentCompleted {
-                orchestrator_id: session, task_id, success: true,
-                duration_ms: 12_400, rounds_used: 4, tokens_used: 8_200, cost_usd: 0.004,
-            }),
+            (
+                "sub_agent_spawned",
+                RuntimeEventKind::SubAgentSpawned {
+                    orchestrator_id: session,
+                    task_id,
+                    instruction_preview: "Read and summarize auth.rs".into(),
+                    is_dynamic: false,
+                    parent_task_id: None,
+                    budget_fraction: 0.25,
+                },
+            ),
+            (
+                "sub_agent_completed",
+                RuntimeEventKind::SubAgentCompleted {
+                    orchestrator_id: session,
+                    task_id,
+                    success: true,
+                    duration_ms: 12_400,
+                    rounds_used: 4,
+                    tokens_used: 8_200,
+                    cost_usd: 0.004,
+                },
+            ),
         ];
 
         // Every variant must be present — assert count matches enum variant count.
-        assert_eq!(cases.len(), 45, "RuntimeEventKind has 45 variants; update this test when adding new ones");
+        assert_eq!(
+            cases.len(),
+            45,
+            "RuntimeEventKind has 45 variants; update this test when adding new ones"
+        );
 
         for (expected_type, kind) in cases {
             let ev = RuntimeEvent::new(session, kind);
             // 1. Serialization produces correct `type` tag.
             let json = serde_json::to_string(&ev).unwrap();
             let tag = format!("\"type\":\"{expected_type}\"");
-            assert!(json.contains(&tag), "variant `{expected_type}` missing type tag in: {json}");
+            assert!(
+                json.contains(&tag),
+                "variant `{expected_type}` missing type tag in: {json}"
+            );
             // 2. Deserialization roundtrip succeeds without error.
-            let rt: RuntimeEvent = serde_json::from_str(&json)
-                .unwrap_or_else(|e| panic!("deserialize failed for `{expected_type}`: {e}\njson={json}"));
+            let rt: RuntimeEvent = serde_json::from_str(&json).unwrap_or_else(|e| {
+                panic!("deserialize failed for `{expected_type}`: {e}\njson={json}")
+            });
             // 3. type_name() matches the serde tag.
-            assert_eq!(rt.type_name(), expected_type,
-                "type_name() mismatch for `{expected_type}`");
+            assert_eq!(
+                rt.type_name(),
+                expected_type,
+                "type_name() mismatch for `{expected_type}`"
+            );
         }
     }
 }

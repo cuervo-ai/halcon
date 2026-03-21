@@ -41,7 +41,8 @@ pub use agent::agent_utils;
 pub mod executor;
 // plan_state_diagnostics moved to planning/diagnostics (C-3)
 pub(crate) mod security;
-// Backward-compat: subagent_contract_validator was moved to security/subagent_contract.rs
+// Backward-compat re-exports for test targets
+pub use security::blacklist as command_blacklist;
 pub(crate) use security::subagent_contract as subagent_contract_validator;
 /// Multi-agent wave orchestration — parallel task scheduling with dependency resolution.
 pub mod orchestrator;
@@ -88,7 +89,6 @@ pub use security::conversational as conversational_permission;
 pub use security::rule_matcher;
 pub use security::schema_validator;
 // command_blacklist, permission_lifecycle, output_risk_scorer moved to security/
-pub use security::blacklist as command_blacklist;
 pub use security::output_risk as output_risk_scorer;
 
 // Session and resilience.
@@ -2654,8 +2654,8 @@ impl Repl {
         #[cfg(feature = "cenzontle-agents")]
         {
             static CENZONTLE_MCP_INIT: std::sync::Once = std::sync::Once::new();
-            let should_init = self.provider == "cenzontle"
-                || self.registry.get("cenzontle").is_some();
+            let should_init =
+                self.provider == "cenzontle" || self.registry.get("cenzontle").is_some();
             if should_init {
                 CENZONTLE_MCP_INIT.call_once(|| {
                     // We can't await inside call_once, so spawn a blocking init.
@@ -2666,9 +2666,9 @@ impl Repl {
 
                 // Attempt lazy init via the agent client if a token is available.
                 if let Some(token) = super::commands::cenzontle::resolve_access_token_silent() {
-                    let client = std::sync::Arc::new(
-                        halcon_providers::CenzontleAgentClient::new(token, None),
-                    );
+                    let client = std::sync::Arc::new(halcon_providers::CenzontleAgentClient::new(
+                        token, None,
+                    ));
                     let mut bridge = bridges::CenzontleMcpManager::new(client);
                     bridge.ensure_initialized(&mut self.tool_registry).await;
                     if bridge.tool_count() > 0 {

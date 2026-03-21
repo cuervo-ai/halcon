@@ -11,17 +11,17 @@ pub use tokenizer::Tokenizer;
 use crate::config::IndexConfig;
 use crate::embeddings::EmbeddingEngine;
 use crate::error::Result;
-use crate::types::{Document, DocumentId, DocumentMetadata, ParsedDocument};
+use crate::types::{Document, DocumentId, ParsedDocument};
 
-use std::sync::Arc;
 use halcon_storage::Database;
+use std::sync::Arc;
 
 /// Index engine orchestrator.
 pub struct IndexEngine {
     doc_store: Arc<DocumentStore>,
     inverted_index: Arc<InvertedIndex>,
     tokenizer: Tokenizer,
-    config: IndexConfig,
+    _config: IndexConfig,
     // Optional embedding engine for semantic search
     embedding_engine: Option<Arc<EmbeddingEngine>>,
 }
@@ -37,7 +37,7 @@ impl IndexEngine {
             doc_store,
             inverted_index,
             tokenizer,
-            config,
+            _config: config,
             embedding_engine: None, // Set later via set_embedding_engine()
         })
     }
@@ -53,7 +53,9 @@ impl IndexEngine {
     #[tracing::instrument(skip(self, doc), fields(url = %doc.url))]
     pub async fn index_document(&self, doc: ParsedDocument) -> Result<DocumentId> {
         // 1. Tokenize text
-        let tokens = self.tokenizer.tokenize(&doc.text, doc.language.as_deref())?;
+        let tokens = self
+            .tokenizer
+            .tokenize(&doc.text, doc.language.as_deref())?;
 
         // 2. Build term frequencies
         let term_freqs = self.build_term_frequencies(&tokens);
@@ -61,18 +63,15 @@ impl IndexEngine {
         // 3. Generate embedding if semantic search enabled
         let embedding = if let Some(ref engine) = self.embedding_engine {
             let combined_text = format!("{} {}", doc.title, doc.text);
-            let vec = engine
-                .embed_text(&combined_text)
-                .await
-                .map_err(|e| crate::error::SearchError::ConfigError(
-                    format!("Failed to generate embedding: {}", e)
-                ))?;
+            let vec = engine.embed_text(&combined_text).await.map_err(|e| {
+                crate::error::SearchError::ConfigError(format!(
+                    "Failed to generate embedding: {}",
+                    e
+                ))
+            })?;
 
             // Serialize Vec<f32> to Vec<u8> (little-endian bytes)
-            let bytes: Vec<u8> = vec
-                .iter()
-                .flat_map(|f| f.to_le_bytes())
-                .collect();
+            let bytes: Vec<u8> = vec.iter().flat_map(|f| f.to_le_bytes()).collect();
 
             Some(bytes)
         } else {

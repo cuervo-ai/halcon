@@ -9,7 +9,7 @@
 use std::io::{self, Write};
 use std::path::PathBuf;
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::{bail, Context as _, Result};
 use halcon_core::types::AppConfig;
 
 /// Default plugin directory.
@@ -46,7 +46,10 @@ pub fn list(_config: &AppConfig) -> Result<()> {
         .collect();
 
     if entries.is_empty() {
-        let _ = writeln!(out, "No plugins installed. Use 'halcon plugin install <path>' to add one.");
+        let _ = writeln!(
+            out,
+            "No plugins installed. Use 'halcon plugin install <path>' to add one."
+        );
         return Ok(());
     }
 
@@ -55,11 +58,13 @@ pub fn list(_config: &AppConfig) -> Result<()> {
         let path = entry.path();
         let raw = std::fs::read_to_string(&path).unwrap_or_default();
         // Extract id from toml quickly (no full parse needed for display).
-        let id = extract_toml_field(&raw, "id").unwrap_or_else(|| path.file_stem()
-            .and_then(|s| s.to_str())
-            .unwrap_or("unknown")
-            .trim_end_matches(".plugin")
-            .to_string());
+        let id = extract_toml_field(&raw, "id").unwrap_or_else(|| {
+            path.file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("unknown")
+                .trim_end_matches(".plugin")
+                .to_string()
+        });
         let version = extract_toml_field(&raw, "version").unwrap_or_else(|| "?".to_string());
         let name = extract_toml_field(&raw, "name").unwrap_or_else(|| id.clone());
         let _ = writeln!(out, "  {id} ({name}) v{version}");
@@ -138,8 +143,7 @@ pub fn remove(_config: &AppConfig, id: &str, force: bool) -> Result<()> {
         }
     }
 
-    std::fs::remove_file(&path)
-        .with_context(|| format!("delete {}", path.display()))?;
+    std::fs::remove_file(&path).with_context(|| format!("delete {}", path.display()))?;
 
     println!("Plugin '{id}' removed.");
     Ok(())
@@ -177,7 +181,10 @@ pub fn status(_config: &AppConfig) -> Result<()> {
 
     let _ = writeln!(out, "  Manifests on disk: {count}");
     if count == 0 {
-        let _ = writeln!(out, "  Hint: use 'halcon plugin install <path>' to add a plugin.");
+        let _ = writeln!(
+            out,
+            "  Hint: use 'halcon plugin install <path>' to add a plugin."
+        );
     } else {
         let _ = writeln!(out, "  Run 'halcon plugin list' to see details.");
     }
@@ -194,7 +201,7 @@ fn extract_toml_field(toml: &str, key: &str) -> Option<String> {
     for line in toml.lines() {
         let trimmed = line.trim();
         if trimmed.starts_with(key) && trimmed.contains('=') {
-            let after_eq = trimmed.splitn(2, '=').nth(1)?.trim();
+            let after_eq = trimmed.split_once('=')?.1.trim();
             let value = after_eq.trim_matches(|c| c == '"' || c == '\'');
             if !value.is_empty() {
                 return Some(value.to_string());
@@ -286,8 +293,14 @@ id = "my-plugin"
 name = "My Plugin"
 version = "2.3.1"
 "#;
-        assert_eq!(extract_toml_field(toml, "id"), Some("my-plugin".to_string()));
-        assert_eq!(extract_toml_field(toml, "version"), Some("2.3.1".to_string()));
+        assert_eq!(
+            extract_toml_field(toml, "id"),
+            Some("my-plugin".to_string())
+        );
+        assert_eq!(
+            extract_toml_field(toml, "version"),
+            Some("2.3.1".to_string())
+        );
         assert_eq!(extract_toml_field(toml, "missing"), None);
     }
 }

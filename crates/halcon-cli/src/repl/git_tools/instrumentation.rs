@@ -137,12 +137,9 @@ pub fn instrument_code(request: &InstrumentationRequest) -> Result<InstrumentedC
 
     // Write to temp file (same directory for relative imports to work)
     let temp_dir = tempfile::tempdir_in(request.file.parent().unwrap_or(Path::new(".")))?;
-    let temp_file = temp_dir.path().join(
-        request
-            .file
-            .file_name()
-            .context("Invalid file name")?,
-    );
+    let temp_file = temp_dir
+        .path()
+        .join(request.file.file_name().context("Invalid file name")?);
     std::fs::write(&temp_file, &instrumented_content)?;
 
     Ok(InstrumentedCode {
@@ -166,18 +163,12 @@ pub fn extract_inspect_values(output: &str) -> Vec<(String, String)> {
             for pair in trimmed.split(',') {
                 let parts: Vec<&str> = pair.split('=').collect();
                 if parts.len() == 2 {
-                    values.push((
-                        parts[0].trim().to_string(),
-                        parts[1].trim().to_string(),
-                    ));
+                    values.push((parts[0].trim().to_string(), parts[1].trim().to_string()));
                 } else if pair.contains(':') {
                     // JS object syntax: "x: 3"
                     let parts: Vec<&str> = pair.split(':').collect();
                     if parts.len() == 2 {
-                        values.push((
-                            parts[0].trim().to_string(),
-                            parts[1].trim().to_string(),
-                        ));
+                        values.push((parts[0].trim().to_string(), parts[1].trim().to_string()));
                     }
                 }
             }

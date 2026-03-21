@@ -6,8 +6,8 @@ impl TuiApp {
     ///
     /// `eff_mode` is the terminal-width-degraded mode (not the user's raw `ui_mode`).
     pub(super) fn render_footer(&self, frame: &mut ratatui::Frame, area: Rect, eff_mode: UiMode) {
-        use super::super::theme_bridge;
         use super::super::state::AgentControl;
+        use super::super::theme_bridge;
 
         let hint_style = theme_bridge::footer_hint_style();
         let key_style = theme_bridge::footer_key_style();
@@ -19,7 +19,10 @@ impl TuiApp {
             // Overlay mode: show overlay-specific hints.
             spans.push(Span::styled(" Esc", key_style));
             spans.push(Span::styled(" close  ", hint_style));
-            if matches!(self.state.overlay.active, Some(OverlayKind::PermissionPrompt { .. })) {
+            if matches!(
+                self.state.overlay.active,
+                Some(OverlayKind::PermissionPrompt { .. })
+            ) {
                 spans.push(Span::styled("Y", key_style));
                 spans.push(Span::styled(" approve  ", hint_style));
                 spans.push(Span::styled("N", key_style));
@@ -75,7 +78,11 @@ impl TuiApp {
         // Ctrl+M model selector is always visible (idle + running modes).
         // Show degradation indicator if effective mode differs from user-selected mode.
         let mode_label = if eff_mode != self.state.ui_mode {
-            format!(" F3:{} (→{})  ", self.state.ui_mode.label(), eff_mode.label())
+            format!(
+                " F3:{} (→{})  ",
+                self.state.ui_mode.label(),
+                eff_mode.label()
+            )
         } else {
             format!(" F3:{}  ", eff_mode.label())
         };
@@ -93,7 +100,7 @@ impl TuiApp {
             } else {
                 " chat only  "
             },
-            hint_style
+            hint_style,
         ));
 
         // Quit hint at end.

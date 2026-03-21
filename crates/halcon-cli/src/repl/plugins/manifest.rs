@@ -14,17 +14,13 @@ use serde::{Deserialize, Serialize};
 /// configured `global_max_risk` ceiling.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum RiskTier {
     Low,
+    #[default]
     Medium,
     High,
     Critical,
-}
-
-impl Default for RiskTier {
-    fn default() -> Self {
-        RiskTier::Medium
-    }
 }
 
 impl std::fmt::Display for RiskTier {
@@ -43,6 +39,7 @@ impl std::fmt::Display for RiskTier {
 /// Wire protocol used to invoke the plugin.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "type")]
+#[derive(Default)]
 pub enum PluginTransport {
     /// Subprocess launched with `command` + `args`; communicates via stdio JSON-RPC.
     Stdio { command: String, args: Vec<String> },
@@ -51,13 +48,8 @@ pub enum PluginTransport {
     /// In-process Rust plugin (loaded via FFI — Phase 8 feature, not yet enforced).
     InProcess,
     /// Local tool bridge (wraps an existing ToolRegistry entry — test/demo only).
+    #[default]
     Local,
-}
-
-impl Default for PluginTransport {
-    fn default() -> Self {
-        PluginTransport::Local
-    }
 }
 
 // ─── Category ─────────────────────────────────────────────────────────────────
@@ -237,7 +229,12 @@ pub struct PluginManifest {
 
 impl PluginManifest {
     /// Convenience constructor for tests / local registration.
-    pub fn new_local(id: &str, name: &str, version: &str, capabilities: Vec<ToolCapabilityDescriptor>) -> Self {
+    pub fn new_local(
+        id: &str,
+        name: &str,
+        version: &str,
+        capabilities: Vec<ToolCapabilityDescriptor>,
+    ) -> Self {
         Self {
             meta: PluginMeta {
                 id: id.to_string(),

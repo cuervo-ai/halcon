@@ -116,9 +116,18 @@ mod tests {
 
     #[test]
     fn tool_format_schema_field_names() {
-        assert_eq!(ToolFormat::AnthropicInputSchema.schema_field_name(), "input_schema");
-        assert_eq!(ToolFormat::OpenAIFunctionObject.schema_field_name(), "parameters");
-        assert_eq!(ToolFormat::GeminiFunctionDeclarations.schema_field_name(), "parameters");
+        assert_eq!(
+            ToolFormat::AnthropicInputSchema.schema_field_name(),
+            "input_schema"
+        );
+        assert_eq!(
+            ToolFormat::OpenAIFunctionObject.schema_field_name(),
+            "parameters"
+        );
+        assert_eq!(
+            ToolFormat::GeminiFunctionDeclarations.schema_field_name(),
+            "parameters"
+        );
     }
 
     #[test]
@@ -166,15 +175,27 @@ mod tests {
             TokenizerHint::Unknown,
         ];
         for h in hints {
-            assert!(h.chars_per_token() > 0.0, "chars_per_token for {h:?} must be positive");
+            assert!(
+                h.chars_per_token() > 0.0,
+                "chars_per_token for {h:?} must be positive"
+            );
         }
     }
 
     #[test]
     fn tokenizer_hint_ordering() {
         // Claude is densest (fewest chars/token), Gemini is sparsest
-        assert!(TokenizerHint::ClaudeBpe.chars_per_token() < TokenizerHint::TiktokenCl100k.chars_per_token());
-        assert!(TokenizerHint::TiktokenCl100k.chars_per_token() < TokenizerHint::DeepSeekBpe.chars_per_token());
-        assert!(TokenizerHint::DeepSeekBpe.chars_per_token() < TokenizerHint::GeminiSentencePiece.chars_per_token());
+        assert!(
+            TokenizerHint::ClaudeBpe.chars_per_token()
+                < TokenizerHint::TiktokenCl100k.chars_per_token()
+        );
+        assert!(
+            TokenizerHint::TiktokenCl100k.chars_per_token()
+                < TokenizerHint::DeepSeekBpe.chars_per_token()
+        );
+        assert!(
+            TokenizerHint::DeepSeekBpe.chars_per_token()
+                < TokenizerHint::GeminiSentencePiece.chars_per_token()
+        );
     }
 }

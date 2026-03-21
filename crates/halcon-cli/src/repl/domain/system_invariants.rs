@@ -226,11 +226,7 @@ impl SystemInvariantChecker {
                         );
                     }
                     ViolationSeverity::Warning => {
-                        tracing::warn!(
-                            invariant = v.id.label(),
-                            round = v.round,
-                            "{}", v.message,
-                        );
+                        tracing::warn!(invariant = v.id.label(), round = v.round, "{}", v.message,);
                     }
                 }
             }
@@ -245,12 +241,17 @@ impl SystemInvariantChecker {
 
     /// Whether any critical violation was detected.
     pub fn has_critical(&self) -> bool {
-        self.violations.iter().any(|v| v.severity == ViolationSeverity::Critical)
+        self.violations
+            .iter()
+            .any(|v| v.severity == ViolationSeverity::Critical)
     }
 
     /// Count of violations at or above a given severity.
     pub fn count_at_severity(&self, min_severity: ViolationSeverity) -> usize {
-        self.violations.iter().filter(|v| v.severity >= min_severity).count()
+        self.violations
+            .iter()
+            .filter(|v| v.severity >= min_severity)
+            .count()
     }
 
     /// Reset the checker (useful for testing).
@@ -518,7 +519,10 @@ mod tests {
         let count = checker.check_round(&snap);
         assert_eq!(count, 1);
         assert_eq!(checker.violations()[0].id, InvariantId::EbsConsistency);
-        assert_eq!(checker.violations()[0].severity, ViolationSeverity::Critical);
+        assert_eq!(
+            checker.violations()[0].severity,
+            ViolationSeverity::Critical
+        );
     }
 
     #[test]
@@ -528,7 +532,10 @@ mod tests {
         snap.synthesis_blocked = true;
         snap.synthesis_origin_is_supervisor = true;
         let count = checker.check_round(&snap);
-        assert_eq!(count, 0, "synthesis_blocked + supervisor origin should be valid");
+        assert_eq!(
+            count, 0,
+            "synthesis_blocked + supervisor origin should be valid"
+        );
     }
 
     // ── I2: Evidence Before Synthesis ────────────────────────────────────
@@ -543,7 +550,10 @@ mod tests {
         snap.synthesis_origin_is_supervisor = false;
         let count = checker.check_round(&snap);
         assert_eq!(count, 1);
-        assert_eq!(checker.violations()[0].id, InvariantId::EvidenceBeforeSynthesis);
+        assert_eq!(
+            checker.violations()[0].id,
+            InvariantId::EvidenceBeforeSynthesis
+        );
         assert_eq!(checker.violations()[0].severity, ViolationSeverity::Error);
     }
 
@@ -568,7 +578,10 @@ mod tests {
         snap.evidence_bytes = 0; // no evidence
         snap.synthesis_origin_is_supervisor = true; // supervisor failure → bypass
         let count = checker.check_round(&snap);
-        assert_eq!(count, 0, "supervisor failure origin should bypass evidence check");
+        assert_eq!(
+            count, 0,
+            "supervisor failure origin should bypass evidence check"
+        );
     }
 
     // ── I3: SLA Upgrade Monotonicity ─────────────────────────────────────
@@ -585,7 +598,10 @@ mod tests {
         snap.sla_mode_ordinal = 0;
         let count = checker.check_round(&snap);
         assert_eq!(count, 1);
-        assert_eq!(checker.violations()[0].id, InvariantId::SlaUpgradeMonotonicity);
+        assert_eq!(
+            checker.violations()[0].id,
+            InvariantId::SlaUpgradeMonotonicity
+        );
     }
 
     #[test]
@@ -621,7 +637,10 @@ mod tests {
         snap.complexity_upgrade_count = 2;
         let count = checker.check_round(&snap);
         assert_eq!(count, 1);
-        assert_eq!(checker.violations()[0].id, InvariantId::SingleComplexityUpgrade);
+        assert_eq!(
+            checker.violations()[0].id,
+            InvariantId::SingleComplexityUpgrade
+        );
     }
 
     #[test]
@@ -667,7 +686,10 @@ mod tests {
         let count = checker.check_round(&snap);
         assert_eq!(count, 1);
         assert_eq!(checker.violations()[0].id, InvariantId::RoundMonotonicity);
-        assert_eq!(checker.violations()[0].severity, ViolationSeverity::Critical);
+        assert_eq!(
+            checker.violations()[0].severity,
+            ViolationSeverity::Critical
+        );
     }
 
     #[test]
@@ -689,7 +711,10 @@ mod tests {
         let count = checker.check_round(&snap);
         assert_eq!(count, 1);
         assert_eq!(checker.violations()[0].id, InvariantId::UtilityScoreBounded);
-        assert_eq!(checker.violations()[0].severity, ViolationSeverity::Critical);
+        assert_eq!(
+            checker.violations()[0].severity,
+            ViolationSeverity::Critical
+        );
     }
 
     #[test]
@@ -755,7 +780,10 @@ mod tests {
         snap.tool_suppression_active = true;
         let count = checker.check_round(&snap);
         assert_eq!(count, 1);
-        assert_eq!(checker.violations()[0].id, InvariantId::FsmTerminalConsistency);
+        assert_eq!(
+            checker.violations()[0].id,
+            InvariantId::FsmTerminalConsistency
+        );
     }
 
     #[test]
@@ -878,7 +906,11 @@ mod tests {
         ];
         let labels: Vec<&str> = ids.iter().map(|id| id.label()).collect();
         let unique: std::collections::HashSet<&str> = labels.iter().copied().collect();
-        assert_eq!(labels.len(), unique.len(), "all invariant labels must be unique");
+        assert_eq!(
+            labels.len(),
+            unique.len(),
+            "all invariant labels must be unique"
+        );
         assert_eq!(labels.len(), 10, "must have exactly 10 invariants");
     }
 

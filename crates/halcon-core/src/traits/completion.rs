@@ -37,19 +37,11 @@ pub struct CompletionEvidence<'a> {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum CompletionVerdict {
     /// Semantic goal is considered achieved.
-    Achieved {
-        confidence: f32,
-        rationale: String,
-    },
+    Achieved { confidence: f32, rationale: String },
     /// Goal is partially achieved — some expected outcomes are missing.
-    Partial {
-        coverage: f32,
-        missing: Vec<String>,
-    },
+    Partial { coverage: f32, missing: Vec<String> },
     /// Goal is not achieved. Advisory only in Phase 2 (does not alter stop condition).
-    NotAchieved {
-        reason: String,
-    },
+    NotAchieved { reason: String },
 }
 
 impl CompletionVerdict {
@@ -104,15 +96,24 @@ impl KeywordCompletionValidator {
     /// Create a validator from a goal text by splitting on whitespace and
     /// filtering stop words. Suitable for quick construction without a planner.
     pub fn from_goal_text(goal_text: &str, min_coverage: f32) -> Self {
-        let stop_words = ["the", "a", "an", "is", "are", "was", "were", "in", "on",
-                          "at", "to", "for", "of", "and", "or", "with", "by", "from",
-                          "el", "la", "los", "las", "un", "una", "de", "en", "con"];
+        let stop_words = [
+            "the", "a", "an", "is", "are", "was", "were", "in", "on", "at", "to", "for", "of",
+            "and", "or", "with", "by", "from", "el", "la", "los", "las", "un", "una", "de", "en",
+            "con",
+        ];
         let required_keywords: Vec<String> = goal_text
             .split_whitespace()
-            .map(|w| w.to_lowercase().trim_matches(|c: char| !c.is_alphanumeric()).to_owned())
+            .map(|w| {
+                w.to_lowercase()
+                    .trim_matches(|c: char| !c.is_alphanumeric())
+                    .to_owned()
+            })
             .filter(|w| w.len() > 2 && !stop_words.contains(&w.as_str()))
             .collect();
-        Self { required_keywords, min_coverage }
+        Self {
+            required_keywords,
+            min_coverage,
+        }
     }
 }
 
@@ -133,7 +134,8 @@ impl CompletionValidator for KeywordCompletionValidator {
             haystack.push_str(tool);
         }
 
-        let matched: Vec<&str> = self.required_keywords
+        let matched: Vec<&str> = self
+            .required_keywords
             .iter()
             .filter(|kw| haystack.contains(kw.as_str()))
             .map(|s| s.as_str())
@@ -158,7 +160,8 @@ impl CompletionValidator for KeywordCompletionValidator {
                 ),
             }
         } else {
-            let missing: Vec<String> = self.required_keywords
+            let missing: Vec<String> = self
+                .required_keywords
                 .iter()
                 .filter(|kw| !haystack.contains(kw.as_str()))
                 .cloned()
@@ -212,15 +215,16 @@ mod tests {
     #[tokio::test]
     async fn keyword_validator_partial_when_coverage_below_threshold() {
         let validator = KeywordCompletionValidator {
-            required_keywords: vec!["file".into(), "html".into(), "javascript".into(), "css".into()],
+            required_keywords: vec![
+                "file".into(),
+                "html".into(),
+                "javascript".into(),
+                "css".into(),
+            ],
             min_coverage: 0.8,
         };
         let tools: Vec<String> = vec!["file_write".into()];
-        let ev = make_evidence(
-            "create html javascript css",
-            "created a file",
-            &tools,
-        );
+        let ev = make_evidence("create html javascript css", "created a file", &tools);
         let verdict = validator.validate(&ev).await;
         // "file" is in "created a file", "html"/"javascript"/"css" might not be
         assert!(!verdict.is_success() || verdict.coverage() < 0.8);
@@ -239,10 +243,8 @@ mod tests {
 
     #[test]
     fn from_goal_text_filters_stop_words() {
-        let v = KeywordCompletionValidator::from_goal_text(
-            "create a file with the configuration",
-            0.6,
-        );
+        let v =
+            KeywordCompletionValidator::from_goal_text("create a file with the configuration", 0.6);
         // "a", "the", "with" should be filtered
         assert!(!v.required_keywords.contains(&"a".to_string()));
         assert!(!v.required_keywords.contains(&"the".to_string()));
@@ -252,8 +254,28 @@ mod tests {
 
     #[test]
     fn completion_verdict_coverage() {
-        assert_eq!(CompletionVerdict::Achieved { confidence: 0.9, rationale: "ok".into() }.coverage(), 0.9);
-        assert_eq!(CompletionVerdict::Partial { coverage: 0.5, missing: vec![] }.coverage(), 0.5);
-        assert_eq!(CompletionVerdict::NotAchieved { reason: "no".into() }.coverage(), 0.0);
+        assert_eq!(
+            CompletionVerdict::Achieved {
+                confidence: 0.9,
+                rationale: "ok".into()
+            }
+            .coverage(),
+            0.9
+        );
+        assert_eq!(
+            CompletionVerdict::Partial {
+                coverage: 0.5,
+                missing: vec![]
+            }
+            .coverage(),
+            0.5
+        );
+        assert_eq!(
+            CompletionVerdict::NotAchieved {
+                reason: "no".into()
+            }
+            .coverage(),
+            0.0
+        );
     }
 }

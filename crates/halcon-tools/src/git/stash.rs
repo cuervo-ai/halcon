@@ -217,9 +217,7 @@ impl GitStashTool {
     }
 
     async fn pop(&self, working_dir: &str, input: &ToolInput) -> Result<ToolOutput> {
-        let stash_ref = parse_stash_ref(
-            input.arguments.get("index").and_then(|v| v.as_str()),
-        )?;
+        let stash_ref = parse_stash_ref(input.arguments.get("index").and_then(|v| v.as_str()))?;
 
         let out = run_git_command(working_dir, &["stash", "pop", &stash_ref], None).await?;
 
@@ -241,9 +239,7 @@ impl GitStashTool {
     }
 
     async fn apply(&self, working_dir: &str, input: &ToolInput) -> Result<ToolOutput> {
-        let stash_ref = parse_stash_ref(
-            input.arguments.get("index").and_then(|v| v.as_str()),
-        )?;
+        let stash_ref = parse_stash_ref(input.arguments.get("index").and_then(|v| v.as_str()))?;
 
         let out = run_git_command(working_dir, &["stash", "apply", &stash_ref], None).await?;
 
@@ -258,16 +254,17 @@ impl GitStashTool {
 
         Ok(ToolOutput {
             tool_use_id: input.tool_use_id.clone(),
-            content: format!("Applied '{stash_ref}' (stash preserved).\n{}", out.stdout.trim()),
+            content: format!(
+                "Applied '{stash_ref}' (stash preserved).\n{}",
+                out.stdout.trim()
+            ),
             is_error: false,
             metadata: Some(json!({ "stash_ref": stash_ref, "operation": "apply" })),
         })
     }
 
     async fn drop(&self, working_dir: &str, input: &ToolInput) -> Result<ToolOutput> {
-        let stash_ref = parse_stash_ref(
-            input.arguments.get("index").and_then(|v| v.as_str()),
-        )?;
+        let stash_ref = parse_stash_ref(input.arguments.get("index").and_then(|v| v.as_str()))?;
 
         let out = run_git_command(working_dir, &["stash", "drop", &stash_ref], None).await?;
 
@@ -289,9 +286,7 @@ impl GitStashTool {
     }
 
     async fn show(&self, working_dir: &str, input: &ToolInput) -> Result<ToolOutput> {
-        let stash_ref = parse_stash_ref(
-            input.arguments.get("index").and_then(|v| v.as_str()),
-        )?;
+        let stash_ref = parse_stash_ref(input.arguments.get("index").and_then(|v| v.as_str()))?;
 
         let out = run_git_command(working_dir, &["stash", "show", "-p", &stash_ref], None).await?;
 
@@ -333,10 +328,7 @@ mod tests {
 
     #[test]
     fn parse_stash_ref_passthrough() {
-        assert_eq!(
-            parse_stash_ref(Some("stash@{5}")).unwrap(),
-            "stash@{5}"
-        );
+        assert_eq!(parse_stash_ref(Some("stash@{5}")).unwrap(), "stash@{5}");
     }
 
     #[test]
@@ -388,12 +380,39 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().to_str().unwrap();
 
-        tokio::process::Command::new("git").args(["init"]).current_dir(path).output().await.unwrap();
-        tokio::process::Command::new("git").args(["config", "user.email", "t@t.com"]).current_dir(path).output().await.unwrap();
-        tokio::process::Command::new("git").args(["config", "user.name", "T"]).current_dir(path).output().await.unwrap();
-        tokio::fs::write(format!("{path}/f.txt"), b"hi").await.unwrap();
-        tokio::process::Command::new("git").args(["add", "."]).current_dir(path).output().await.unwrap();
-        tokio::process::Command::new("git").args(["commit", "-m", "init"]).current_dir(path).output().await.unwrap();
+        tokio::process::Command::new("git")
+            .args(["init"])
+            .current_dir(path)
+            .output()
+            .await
+            .unwrap();
+        tokio::process::Command::new("git")
+            .args(["config", "user.email", "t@t.com"])
+            .current_dir(path)
+            .output()
+            .await
+            .unwrap();
+        tokio::process::Command::new("git")
+            .args(["config", "user.name", "T"])
+            .current_dir(path)
+            .output()
+            .await
+            .unwrap();
+        tokio::fs::write(format!("{path}/f.txt"), b"hi")
+            .await
+            .unwrap();
+        tokio::process::Command::new("git")
+            .args(["add", "."])
+            .current_dir(path)
+            .output()
+            .await
+            .unwrap();
+        tokio::process::Command::new("git")
+            .args(["commit", "-m", "init"])
+            .current_dir(path)
+            .output()
+            .await
+            .unwrap();
 
         let t = GitStashTool::new();
         let input = ToolInput {
@@ -412,15 +431,44 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().to_str().unwrap();
 
-        tokio::process::Command::new("git").args(["init"]).current_dir(path).output().await.unwrap();
-        tokio::process::Command::new("git").args(["config", "user.email", "t@t.com"]).current_dir(path).output().await.unwrap();
-        tokio::process::Command::new("git").args(["config", "user.name", "T"]).current_dir(path).output().await.unwrap();
-        tokio::fs::write(format!("{path}/f.txt"), b"v1").await.unwrap();
-        tokio::process::Command::new("git").args(["add", "."]).current_dir(path).output().await.unwrap();
-        tokio::process::Command::new("git").args(["commit", "-m", "init"]).current_dir(path).output().await.unwrap();
+        tokio::process::Command::new("git")
+            .args(["init"])
+            .current_dir(path)
+            .output()
+            .await
+            .unwrap();
+        tokio::process::Command::new("git")
+            .args(["config", "user.email", "t@t.com"])
+            .current_dir(path)
+            .output()
+            .await
+            .unwrap();
+        tokio::process::Command::new("git")
+            .args(["config", "user.name", "T"])
+            .current_dir(path)
+            .output()
+            .await
+            .unwrap();
+        tokio::fs::write(format!("{path}/f.txt"), b"v1")
+            .await
+            .unwrap();
+        tokio::process::Command::new("git")
+            .args(["add", "."])
+            .current_dir(path)
+            .output()
+            .await
+            .unwrap();
+        tokio::process::Command::new("git")
+            .args(["commit", "-m", "init"])
+            .current_dir(path)
+            .output()
+            .await
+            .unwrap();
 
         // Dirty the working tree.
-        tokio::fs::write(format!("{path}/f.txt"), b"v2").await.unwrap();
+        tokio::fs::write(format!("{path}/f.txt"), b"v2")
+            .await
+            .unwrap();
 
         let t = GitStashTool::new();
 

@@ -246,9 +246,7 @@ impl Database {
                  WHERE scope = ?1 AND scope_value = ?2 AND active = 1
                  ORDER BY created_at DESC",
             )
-            .map_err(|e| {
-                HalconError::DatabaseError(format!("prepare find by scope value: {e}"))
-            })?;
+            .map_err(|e| HalconError::DatabaseError(format!("prepare find by scope value: {e}")))?;
 
         let rules = stmt
             .query_map(rusqlite::params![scope_str, scope_value], |row| {
@@ -302,9 +300,7 @@ impl Database {
                  WHERE expires_at IS NOT NULL AND expires_at < ?1 AND active = 1",
                 rusqlite::params![now],
             )
-            .map_err(|e| {
-                HalconError::DatabaseError(format!("cleanup expired rules: {e}"))
-            })?;
+            .map_err(|e| HalconError::DatabaseError(format!("cleanup expired rules: {e}")))?;
 
         Ok(count)
     }
@@ -613,14 +609,18 @@ mod tests {
             "bash".to_string(),
             PermissionDecision::Allowed,
         );
-        rule.metadata.insert("user".to_string(), "alice".to_string());
+        rule.metadata
+            .insert("user".to_string(), "alice".to_string());
         rule.metadata
             .insert("reason".to_string(), "trusted command".to_string());
 
         db.save_permission_rule(&rule).unwrap();
 
         let loaded = db.load_permission_rule(&rule.rule_id).unwrap().unwrap();
-        assert_eq!(loaded.metadata.get("user").map(|s| s.as_str()), Some("alice"));
+        assert_eq!(
+            loaded.metadata.get("user").map(|s| s.as_str()),
+            Some("alice")
+        );
         assert_eq!(
             loaded.metadata.get("reason").map(|s| s.as_str()),
             Some("trusted command")

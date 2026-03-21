@@ -5,7 +5,7 @@
 //! - `plugin_metrics` — per-plugin call counts, token usage, and UCB1 reward stats
 
 use chrono::Utc;
-use rusqlite::{Connection, Result, params};
+use rusqlite::{params, Connection, Result};
 
 use crate::db::Database;
 
@@ -54,19 +54,28 @@ pub struct PluginMetricsRecord {
 impl Database {
     /// Insert or update an installed plugin record.
     pub fn save_installed_plugin(&self, plugin: &InstalledPlugin) -> Result<()> {
-        let conn = self.conn.lock().unwrap_or_else(|p| { tracing::error!("db mutex poisoned — recovering"); p.into_inner() });
+        let conn = self.conn.lock().unwrap_or_else(|p| {
+            tracing::error!("db mutex poisoned — recovering");
+            p.into_inner()
+        });
         save_installed_plugin_conn(&conn, plugin)
     }
 
     /// Load all installed plugin records.
     pub fn load_installed_plugins(&self) -> Result<Vec<InstalledPlugin>> {
-        let conn = self.conn.lock().unwrap_or_else(|p| { tracing::error!("db mutex poisoned — recovering"); p.into_inner() });
+        let conn = self.conn.lock().unwrap_or_else(|p| {
+            tracing::error!("db mutex poisoned — recovering");
+            p.into_inner()
+        });
         load_installed_plugins_conn(&conn)
     }
 
     /// Delete an installed plugin record by plugin_id.
     pub fn delete_installed_plugin(&self, plugin_id: &str) -> Result<()> {
-        let conn = self.conn.lock().unwrap_or_else(|p| { tracing::error!("db mutex poisoned — recovering"); p.into_inner() });
+        let conn = self.conn.lock().unwrap_or_else(|p| {
+            tracing::error!("db mutex poisoned — recovering");
+            p.into_inner()
+        });
         conn.execute(
             "DELETE FROM installed_plugins WHERE plugin_id = ?1",
             params![plugin_id],
@@ -76,13 +85,19 @@ impl Database {
 
     /// Upsert plugin metrics (UCB1 + call counts).
     pub fn save_plugin_metrics(&self, metrics: &[PluginMetricsRecord]) -> Result<()> {
-        let conn = self.conn.lock().unwrap_or_else(|p| { tracing::error!("db mutex poisoned — recovering"); p.into_inner() });
+        let conn = self.conn.lock().unwrap_or_else(|p| {
+            tracing::error!("db mutex poisoned — recovering");
+            p.into_inner()
+        });
         save_plugin_metrics_conn(&conn, metrics)
     }
 
     /// Load all plugin metrics records.
     pub fn load_plugin_metrics(&self) -> Result<Vec<PluginMetricsRecord>> {
-        let conn = self.conn.lock().unwrap_or_else(|p| { tracing::error!("db mutex poisoned — recovering"); p.into_inner() });
+        let conn = self.conn.lock().unwrap_or_else(|p| {
+            tracing::error!("db mutex poisoned — recovering");
+            p.into_inner()
+        });
         load_plugin_metrics_conn(&conn)
     }
 
@@ -94,7 +109,10 @@ impl Database {
         &self,
         rows: &[CircuitBreakerStateRow],
     ) -> halcon_core::error::Result<()> {
-        let conn = self.conn.lock().unwrap_or_else(|p| { tracing::error!("db mutex poisoned — recovering"); p.into_inner() });
+        let conn = self.conn.lock().unwrap_or_else(|p| {
+            tracing::error!("db mutex poisoned — recovering");
+            p.into_inner()
+        });
         let now = Utc::now().to_rfc3339();
         for row in rows {
             conn.execute(
@@ -114,7 +132,11 @@ impl Database {
                     now,
                 ],
             )
-            .map_err(|e| halcon_core::error::HalconError::DatabaseError(format!("save_circuit_breaker_states: {e}")))?;
+            .map_err(|e| {
+                halcon_core::error::HalconError::DatabaseError(format!(
+                    "save_circuit_breaker_states: {e}"
+                ))
+            })?;
         }
         Ok(())
     }
@@ -126,14 +148,21 @@ impl Database {
     pub fn load_circuit_breaker_states(
         &self,
     ) -> halcon_core::error::Result<Vec<CircuitBreakerStateRow>> {
-        let conn = self.conn.lock().unwrap_or_else(|p| { tracing::error!("db mutex poisoned — recovering"); p.into_inner() });
+        let conn = self.conn.lock().unwrap_or_else(|p| {
+            tracing::error!("db mutex poisoned — recovering");
+            p.into_inner()
+        });
         let mut stmt = conn
             .prepare(
                 "SELECT plugin_id, state, failure_count, last_failure_at
                  FROM plugin_circuit_state
                  ORDER BY plugin_id ASC",
             )
-            .map_err(|e| halcon_core::error::HalconError::DatabaseError(format!("prepare load_circuit_breaker_states: {e}")))?;
+            .map_err(|e| {
+                halcon_core::error::HalconError::DatabaseError(format!(
+                    "prepare load_circuit_breaker_states: {e}"
+                ))
+            })?;
         let rows = stmt
             .query_map([], |row| {
                 Ok(CircuitBreakerStateRow {
@@ -201,13 +230,13 @@ pub(crate) fn load_installed_plugins_conn(conn: &Connection) -> Result<Vec<Insta
     )?;
     let rows = stmt.query_map([], |row| {
         Ok(InstalledPlugin {
-            plugin_id:     row.get(0)?,
-            name:          row.get(1)?,
-            version:       row.get(2)?,
-            category:      row.get(3)?,
+            plugin_id: row.get(0)?,
+            name: row.get(1)?,
+            version: row.get(2)?,
+            category: row.get(3)?,
             manifest_toml: row.get(4)?,
-            installed_at:  row.get(5)?,
-            trust_level:   row.get(6)?,
+            installed_at: row.get(5)?,
+            trust_level: row.get(6)?,
         })
     })?;
     rows.collect()
@@ -253,13 +282,13 @@ pub(crate) fn load_plugin_metrics_conn(conn: &Connection) -> Result<Vec<PluginMe
     )?;
     let rows = stmt.query_map([], |row| {
         Ok(PluginMetricsRecord {
-            plugin_id:        row.get(0)?,
-            calls_made:       row.get(1)?,
-            calls_failed:     row.get(2)?,
-            tokens_used:      row.get(3)?,
-            ucb1_n_uses:      row.get(4)?,
+            plugin_id: row.get(0)?,
+            calls_made: row.get(1)?,
+            calls_failed: row.get(2)?,
+            tokens_used: row.get(3)?,
+            ucb1_n_uses: row.get(4)?,
             ucb1_sum_rewards: row.get(5)?,
-            updated_at:       row.get(6)?,
+            updated_at: row.get(6)?,
         })
     })?;
     rows.collect()
@@ -278,13 +307,13 @@ mod tests {
 
     fn make_plugin(id: &str) -> InstalledPlugin {
         InstalledPlugin {
-            plugin_id:     id.to_string(),
-            name:          format!("Plugin {id}"),
-            version:       "1.0.0".to_string(),
-            category:      "development".to_string(),
+            plugin_id: id.to_string(),
+            name: format!("Plugin {id}"),
+            version: "1.0.0".to_string(),
+            category: "development".to_string(),
             manifest_toml: format!("[meta]\nid = \"{id}\""),
-            installed_at:  Utc::now().to_rfc3339(),
-            trust_level:   "local".to_string(),
+            installed_at: Utc::now().to_rfc3339(),
+            trust_level: "local".to_string(),
         }
     }
 
@@ -334,13 +363,13 @@ mod tests {
     fn save_and_load_plugin_metrics() {
         let db = make_db();
         let metrics = vec![PluginMetricsRecord {
-            plugin_id:        "metric-plugin".to_string(),
-            calls_made:       10,
-            calls_failed:     2,
-            tokens_used:      5000,
-            ucb1_n_uses:      10,
+            plugin_id: "metric-plugin".to_string(),
+            calls_made: 10,
+            calls_failed: 2,
+            tokens_used: 5000,
+            ucb1_n_uses: 10,
             ucb1_sum_rewards: 7.5,
-            updated_at:       Utc::now().to_rfc3339(),
+            updated_at: Utc::now().to_rfc3339(),
         }];
         db.save_plugin_metrics(&metrics).unwrap();
 
@@ -358,24 +387,24 @@ mod tests {
     fn plugin_metrics_upsert_updates_counts() {
         let db = make_db();
         let initial = vec![PluginMetricsRecord {
-            plugin_id:        "evolving-plugin".to_string(),
-            calls_made:       5,
-            calls_failed:     0,
-            tokens_used:      1000,
-            ucb1_n_uses:      5,
+            plugin_id: "evolving-plugin".to_string(),
+            calls_made: 5,
+            calls_failed: 0,
+            tokens_used: 1000,
+            ucb1_n_uses: 5,
             ucb1_sum_rewards: 4.0,
-            updated_at:       Utc::now().to_rfc3339(),
+            updated_at: Utc::now().to_rfc3339(),
         }];
         db.save_plugin_metrics(&initial).unwrap();
 
         let updated = vec![PluginMetricsRecord {
-            plugin_id:        "evolving-plugin".to_string(),
-            calls_made:       10,
-            calls_failed:     1,
-            tokens_used:      2500,
-            ucb1_n_uses:      10,
+            plugin_id: "evolving-plugin".to_string(),
+            calls_made: 10,
+            calls_failed: 1,
+            tokens_used: 2500,
+            ucb1_n_uses: 10,
             ucb1_sum_rewards: 8.5,
-            updated_at:       Utc::now().to_rfc3339(),
+            updated_at: Utc::now().to_rfc3339(),
         }];
         db.save_plugin_metrics(&updated).unwrap();
 
@@ -419,7 +448,10 @@ mod tests {
         let alpha = loaded.iter().find(|r| r.plugin_id == "alpha").unwrap();
         assert_eq!(alpha.state, "degraded");
         assert_eq!(alpha.failure_count, 2);
-        assert_eq!(alpha.last_failure_at.as_deref(), Some("2026-02-21T00:00:00Z"));
+        assert_eq!(
+            alpha.last_failure_at.as_deref(),
+            Some("2026-02-21T00:00:00Z")
+        );
 
         let beta = loaded.iter().find(|r| r.plugin_id == "beta").unwrap();
         assert_eq!(beta.state, "clean");

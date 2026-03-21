@@ -137,10 +137,7 @@ impl HighlightManager {
 
     /// Get current pulsed color (or base if not pulsing).
     pub fn current(&self, key: &str, default: ThemeColor) -> ThemeColor {
-        self.pulses
-            .get(key)
-            .map(|p| p.current())
-            .unwrap_or(default)
+        self.pulses.get(key).map(|p| p.current()).unwrap_or(default)
     }
 
     /// Stop pulse for a key.

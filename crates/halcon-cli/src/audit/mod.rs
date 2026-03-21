@@ -28,7 +28,7 @@ pub mod query;
 pub mod summary;
 
 use std::fs;
-use std::io::{BufWriter, Write};
+use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -166,9 +166,7 @@ impl AuditExporter {
                     .with_context(|| format!("Cannot create {}", path.display()))?;
 
                 let summaries: Vec<SessionSummary> = if let Some(sid) = &opts.session_id {
-                    query::session_summary(&conn, sid)?
-                        .into_iter()
-                        .collect()
+                    query::session_summary(&conn, sid)?.into_iter().collect()
                 } else {
                     query::list_sessions(&conn)?
                 };

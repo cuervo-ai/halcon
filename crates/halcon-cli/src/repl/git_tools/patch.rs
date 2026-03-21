@@ -78,11 +78,9 @@ impl PatchPreviewEngine {
         let path_owned = path.to_string();
         let new_owned = new_content.to_string();
 
-        tokio::task::spawn_blocking(move || {
-            Self::preview_file_write_sync(&path_owned, &new_owned)
-        })
-        .await
-        .context("spawn_blocking panicked in preview_file_write")?
+        tokio::task::spawn_blocking(move || Self::preview_file_write_sync(&path_owned, &new_owned))
+            .await
+            .context("spawn_blocking panicked in preview_file_write")?
     }
 
     fn preview_file_write_sync(path: &str, new_content: &str) -> Result<PatchPreview> {
@@ -254,7 +252,9 @@ fn check_balanced_delimiters(content: &str) -> bool {
                         if chars.peek() == Some(&'/') {
                             // Single-line comment — skip rest of line.
                             while let Some(&c) = chars.peek() {
-                                if c == '\n' { break; }
+                                if c == '\n' {
+                                    break;
+                                }
                                 chars.next();
                             }
                         }
@@ -304,8 +304,8 @@ use std::io::Write;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::NamedTempFile;
     use std::io::Write as _;
+    use tempfile::NamedTempFile;
 
     #[tokio::test]
     async fn preview_write_new_file() {
@@ -356,9 +356,10 @@ mod tests {
         writeln!(tmp, "let x = 1;").unwrap();
         let path = tmp.path().to_str().unwrap().to_string();
 
-        let preview = PatchPreviewEngine::preview_file_edit(&path, "NOT_PRESENT", "anything", false)
-            .await
-            .unwrap();
+        let preview =
+            PatchPreviewEngine::preview_file_edit(&path, "NOT_PRESENT", "anything", false)
+                .await
+                .unwrap();
 
         assert!(!preview.has_changes());
     }
@@ -389,7 +390,8 @@ mod tests {
         let preview = PatchPreviewEngine::preview_file_write_sync(
             "/nonexistent/auth/session.rs",
             "fn verify_token() {}",
-        ).unwrap();
+        )
+        .unwrap();
         assert_eq!(preview.risk_tier, RiskTier::Critical);
     }
 

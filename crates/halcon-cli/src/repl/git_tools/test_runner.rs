@@ -297,12 +297,8 @@ impl TestRunnerBridge {
     /// Parse captured stdout into a [`TestSuiteResult`] based on runner kind.
     fn parse_output(&self, raw: &str) -> TestSuiteResult {
         match &self.config.kind {
-            RunnerKind::CargoTest => {
-                parse_cargo_test(raw, &self.config.suite_name)
-            }
-            RunnerKind::Jest => {
-                super::test_results::parse_jest_json(raw, &self.config.suite_name)
-            }
+            RunnerKind::CargoTest => parse_cargo_test(raw, &self.config.suite_name),
+            RunnerKind::Jest => super::test_results::parse_jest_json(raw, &self.config.suite_name),
             RunnerKind::Pytest | RunnerKind::Custom { .. } => {
                 // Fallback: treat as cargo-test-style line output (best effort).
                 parse_cargo_test(raw, &self.config.suite_name)
@@ -326,7 +322,8 @@ mod tests {
 
     #[test]
     fn cargo_test_command_line() {
-        let (exe, args) = RunnerKind::CargoTest.build_command(&["--".to_string(), "--nocapture".to_string()]);
+        let (exe, args) =
+            RunnerKind::CargoTest.build_command(&["--".to_string(), "--nocapture".to_string()]);
         assert_eq!(exe, "cargo");
         assert_eq!(args[0], "test");
         assert!(args.contains(&"--nocapture".to_string()));
@@ -342,7 +339,8 @@ mod tests {
 
     #[test]
     fn pytest_command_line() {
-        let (exe, args) = RunnerKind::Pytest.build_command(&["-k".to_string(), "my_test".to_string()]);
+        let (exe, args) =
+            RunnerKind::Pytest.build_command(&["-k".to_string(), "my_test".to_string()]);
         assert_eq!(exe, "pytest");
         assert!(args.contains(&"-v".to_string()));
         assert!(args.contains(&"my_test".to_string()));
@@ -395,7 +393,10 @@ mod tests {
         let result = bridge.parse_output(raw);
         assert!(result.all_passed);
         assert_eq!(result.suite_name, "dispatch_suite");
-        assert_eq!(result.format, super::super::test_results::TestResultFormat::CargoTest);
+        assert_eq!(
+            result.format,
+            super::super::test_results::TestResultFormat::CargoTest
+        );
     }
 
     /// Spawn a real process (echo) to verify the streaming machinery works.

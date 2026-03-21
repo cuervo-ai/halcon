@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 
 use halcon_core::types::PermissionDecision;
 
-use super::conversation_protocol::{BatchScope, DetailAspect, PermissionMessage};
+use super::conversation_protocol::{DetailAspect, PermissionMessage};
 
 /// FSM for multi-turn permission dialogue.
 ///
@@ -76,9 +76,10 @@ impl ConversationState {
     pub fn is_timed_out(&self, timeout: Duration) -> bool {
         match self {
             ConversationState::Prompting { started_at, .. }
-            | ConversationState::Deferred { deferred_at: started_at, .. } => {
-                started_at.elapsed() > timeout
-            }
+            | ConversationState::Deferred {
+                deferred_at: started_at,
+                ..
+            } => started_at.elapsed() > timeout,
             _ => false,
         }
     }
@@ -129,7 +130,9 @@ impl ConversationState {
                     original_args: args.clone(),
                     requested_change: clarification.clone(),
                 };
-                StateTransition::ValidatingChange { change: clarification }
+                StateTransition::ValidatingChange {
+                    change: clarification,
+                }
             }
 
             (
@@ -157,7 +160,10 @@ impl ConversationState {
                 StateTransition::Deferred
             }
 
-            (ConversationState::Prompting { .. }, PermissionMessage::SuggestAlternative { suggestion }) => {
+            (
+                ConversationState::Prompting { .. },
+                PermissionMessage::SuggestAlternative { suggestion },
+            ) => {
                 *self = ConversationState::Resolved {
                     decision: PermissionDecision::Denied,
                     feedback: Some(format!("User suggested safer alternative: {}", suggestion)),
@@ -228,7 +234,11 @@ impl ConversationState {
 
             // From ValidatingModification → send feedback to agent
             (
-                ConversationState::ValidatingModification { tool, original_args, requested_change },
+                ConversationState::ValidatingModification {
+                    tool,
+                    original_args,
+                    requested_change,
+                },
                 PermissionMessage::Approve,
             ) => {
                 *self = ConversationState::Resolved {
@@ -241,10 +251,7 @@ impl ConversationState {
                 StateTransition::Denied
             }
 
-            (
-                ConversationState::ValidatingModification { .. },
-                PermissionMessage::Reject,
-            ) => {
+            (ConversationState::ValidatingModification { .. }, PermissionMessage::Reject) => {
                 *self = ConversationState::Resolved {
                     decision: PermissionDecision::Denied,
                     feedback: Some("User rejected modification and original proposal".into()),
@@ -253,10 +260,7 @@ impl ConversationState {
             }
 
             // From Deferred → resume or timeout
-            (
-                ConversationState::Deferred { tool, args, .. },
-                PermissionMessage::Approve,
-            ) => {
+            (ConversationState::Deferred { tool, args, .. }, PermissionMessage::Approve) => {
                 *self = ConversationState::Resolved {
                     decision: PermissionDecision::Allowed,
                     feedback: None,
@@ -264,10 +268,7 @@ impl ConversationState {
                 StateTransition::Approved
             }
 
-            (
-                ConversationState::Deferred { tool, args, .. },
-                PermissionMessage::Reject,
-            ) => {
+            (ConversationState::Deferred { tool, args, .. }, PermissionMessage::Reject) => {
                 *self = ConversationState::Resolved {
                     decision: PermissionDecision::Denied,
                     feedback: Some("User rejected after deferring".into()),

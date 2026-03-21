@@ -3,10 +3,10 @@
 //! Provides WCAG/APCA contrast evaluation, accessible palette generation,
 //! perceptual color distance calculations, CVD simulation, and semantic APCA.
 
+use momoto_core::color::cvd::{cvd_delta_e, simulate_cvd, suggest_cvd_safe_alternative, CVDType};
 use momoto_core::ContrastMetric;
-use momoto_core::color::cvd::{CVDType, cvd_delta_e, simulate_cvd, suggest_cvd_safe_alternative};
-use momoto_metrics::{APCAMetric, WCAGMetric};
 use momoto_intelligence::UsageContext;
+use momoto_metrics::{APCAMetric, WCAGMetric};
 
 use super::theme::{Palette, ThemeColor};
 
@@ -56,13 +56,22 @@ pub fn validate_all_cvd(palette: &Palette) -> CvdReport {
         ("success", &palette.success, "error", &palette.error),
         ("running", &palette.running, "planning", &palette.planning),
         ("running", &palette.running, "reasoning", &palette.reasoning),
-        ("planning", &palette.planning, "delegated", &palette.delegated),
+        (
+            "planning",
+            &palette.planning,
+            "delegated",
+            &palette.delegated,
+        ),
         ("warning", &palette.warning, "error", &palette.error),
     ];
 
     let mut report = CvdReport::default();
 
-    for cvd in [CVDType::Protanopia, CVDType::Deuteranopia, CVDType::Tritanopia] {
+    for cvd in [
+        CVDType::Protanopia,
+        CVDType::Deuteranopia,
+        CVDType::Tritanopia,
+    ] {
         for &(name_a, color_a, name_b, color_b) in critical_pairs {
             if !validate_cvd_pair(color_a, color_b, cvd, MIN_DELTA) {
                 // Compute actual delta for reporting
@@ -72,13 +81,15 @@ pub fn validate_all_cvd(palette: &Palette) -> CvdReport {
                 let lch_a = OKLCH::from_color(&sim_a);
                 let lch_b = OKLCH::from_color(&sim_b);
                 let dl = lch_a.l - lch_b.l;
-                let da = lch_a.c * lch_a.h.to_radians().cos() - lch_b.c * lch_b.h.to_radians().cos();
-                let db = lch_a.c * lch_a.h.to_radians().sin() - lch_b.c * lch_b.h.to_radians().sin();
+                let da =
+                    lch_a.c * lch_a.h.to_radians().cos() - lch_b.c * lch_b.h.to_radians().cos();
+                let db =
+                    lch_a.c * lch_a.h.to_radians().sin() - lch_b.c * lch_b.h.to_radians().sin();
                 let de = 100.0 * (dl * dl + da * da + db * db).sqrt();
                 match cvd {
-                    CVDType::Protanopia   => report.protan_failures.push((name_a, name_b, de)),
+                    CVDType::Protanopia => report.protan_failures.push((name_a, name_b, de)),
                     CVDType::Deuteranopia => report.deutan_failures.push((name_a, name_b, de)),
-                    CVDType::Tritanopia   => report.tritan_failures.push((name_a, name_b, de)),
+                    CVDType::Tritanopia => report.tritan_failures.push((name_a, name_b, de)),
                 }
             }
         }
@@ -108,12 +119,12 @@ pub fn validate_all_cvd(palette: &Palette) -> CvdReport {
 pub fn apca_for_usage(fg: &ThemeColor, bg: &ThemeColor, usage: UsageContext) -> (f64, bool) {
     let lc = apca_contrast(fg, bg);
     let threshold = match usage {
-        UsageContext::BodyText      => 75.0,
-        UsageContext::LargeText     => 60.0,
-        UsageContext::Interactive   => 60.0,
-        UsageContext::Decorative    => 30.0,
+        UsageContext::BodyText => 75.0,
+        UsageContext::LargeText => 60.0,
+        UsageContext::Interactive => 60.0,
+        UsageContext::Decorative => 30.0,
         UsageContext::IconsGraphics => 30.0,
-        UsageContext::Disabled      => 30.0,
+        UsageContext::Disabled => 30.0,
     };
     (lc, lc.abs() >= threshold)
 }
@@ -130,16 +141,20 @@ pub fn apca_for_usage(fg: &ThemeColor, bg: &ThemeColor, usage: UsageContext) -> 
 pub fn validate_with_apca_usage(palette: &Palette) -> Vec<(&'static str, f64, f64, bool)> {
     let bg = &palette.bg_panel;
     let checks: &[(&str, &ThemeColor, UsageContext)] = &[
-        ("text",         &palette.text,          UsageContext::BodyText),
-        ("text_dim",     &palette.text_dim,      UsageContext::BodyText),
-        ("running",      &palette.running,       UsageContext::Interactive),
-        ("planning",     &palette.planning,      UsageContext::Interactive),
-        ("reasoning",    &palette.reasoning,     UsageContext::Interactive),
-        ("delegated",    &palette.delegated,     UsageContext::Interactive),
-        ("retrying",     &palette.retrying,      UsageContext::Interactive),
-        ("text_label",   &palette.text_label,    UsageContext::LargeText),
-        ("border",       &palette.border,        UsageContext::Decorative),
-        ("spinner_color",&palette.spinner_color, UsageContext::Decorative),
+        ("text", &palette.text, UsageContext::BodyText),
+        ("text_dim", &palette.text_dim, UsageContext::BodyText),
+        ("running", &palette.running, UsageContext::Interactive),
+        ("planning", &palette.planning, UsageContext::Interactive),
+        ("reasoning", &palette.reasoning, UsageContext::Interactive),
+        ("delegated", &palette.delegated, UsageContext::Interactive),
+        ("retrying", &palette.retrying, UsageContext::Interactive),
+        ("text_label", &palette.text_label, UsageContext::LargeText),
+        ("border", &palette.border, UsageContext::Decorative),
+        (
+            "spinner_color",
+            &palette.spinner_color,
+            UsageContext::Decorative,
+        ),
     ];
 
     checks
@@ -147,12 +162,12 @@ pub fn validate_with_apca_usage(palette: &Palette) -> Vec<(&'static str, f64, f6
         .map(|&(name, color, usage)| {
             let (lc, passes) = apca_for_usage(color, bg, usage);
             let threshold = match usage {
-                UsageContext::BodyText      => 75.0,
-                UsageContext::LargeText     => 60.0,
-                UsageContext::Interactive   => 60.0,
-                UsageContext::Decorative    => 30.0,
+                UsageContext::BodyText => 75.0,
+                UsageContext::LargeText => 60.0,
+                UsageContext::Interactive => 60.0,
+                UsageContext::Decorative => 30.0,
                 UsageContext::IconsGraphics => 30.0,
-                UsageContext::Disabled      => 30.0,
+                UsageContext::Disabled => 30.0,
             };
             (name, lc, threshold, passes)
         })
@@ -181,9 +196,15 @@ pub fn harmony_score_for_palette(palette: &Palette) -> f64 {
     use momoto_intelligence::harmony_score;
 
     let colors: Vec<OKLCH> = [
-        &palette.primary, &palette.accent, &palette.success,
-        &palette.warning, &palette.error, &palette.running,
-        &palette.planning, &palette.reasoning, &palette.delegated,
+        &palette.primary,
+        &palette.accent,
+        &palette.success,
+        &palette.warning,
+        &palette.error,
+        &palette.running,
+        &palette.planning,
+        &palette.reasoning,
+        &palette.delegated,
     ]
     .iter()
     .map(|tc| tc.to_oklch())
@@ -349,14 +370,31 @@ pub fn validate_cockpit_palette(palette: &Palette) -> Vec<(&'static str, f64, f6
 /// are perceptually distinct with delta-E >= 15 (JND = Just Noticeable Difference).
 ///
 /// Returns a Vec of (name_a, name_b, delta_e) for pairs that are too similar.
-pub fn validate_tui_perceptual_distance(palette: &Palette) -> Vec<(&'static str, &'static str, f64)> {
+pub fn validate_tui_perceptual_distance(
+    palette: &Palette,
+) -> Vec<(&'static str, &'static str, f64)> {
     // Panel section colors must be distinguishable
     let panel_checks: &[(&str, &ThemeColor, &str, &ThemeColor)] = &[
         ("planning", &palette.planning, "running", &palette.running),
         ("running", &palette.running, "reasoning", &palette.reasoning),
-        ("reasoning", &palette.reasoning, "delegated", &palette.delegated),
-        ("planning", &palette.planning, "reasoning", &palette.reasoning),
-        ("planning", &palette.planning, "delegated", &palette.delegated),
+        (
+            "reasoning",
+            &palette.reasoning,
+            "delegated",
+            &palette.delegated,
+        ),
+        (
+            "planning",
+            &palette.planning,
+            "reasoning",
+            &palette.reasoning,
+        ),
+        (
+            "planning",
+            &palette.planning,
+            "delegated",
+            &palette.delegated,
+        ),
         ("running", &palette.running, "delegated", &palette.delegated),
     ];
 
@@ -391,7 +429,7 @@ pub fn validate_tui_perceptual_distance(palette: &Palette) -> Vec<(&'static str,
     //
     // Remaining failures are due to sRGB gamut crushing chroma on bright colors (L>0.80).
     // Achieving 12/12 would require wider gamut (Display-P3, Rec.2020) unavailable in terminals.
-    let min_delta_e = 0.3;  // Phase 45B threshold
+    let min_delta_e = 0.3; // Phase 45B threshold
     let mut failures = Vec::new();
 
     // Check panel sections
@@ -415,8 +453,8 @@ pub fn validate_tui_perceptual_distance(palette: &Palette) -> Vec<(&'static str,
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use super::super::theme;  // Import theme module from parent (render)
+    use super::super::theme;
+    use super::*; // Import theme module from parent (render)
 
     #[test]
     fn black_white_contrast_near_21() {
@@ -450,7 +488,7 @@ mod tests {
     #[test]
     fn palette_from_hue_produces_valid_colors() {
         let p = palette_from_hue(210.0); // blue hue
-        // All colors should have valid sRGB values (no panics).
+                                         // All colors should have valid sRGB values (no panics).
         let _ = p.primary.r();
         let _ = p.accent.g();
         let _ = p.warning.b();
@@ -499,7 +537,10 @@ mod tests {
         let red = ThemeColor::oklch(0.5, 0.2, 25.0);
         let blue = ThemeColor::oklch(0.5, 0.2, 260.0);
         let d = perceptual_distance(&red, &blue);
-        assert!(d > 0.1, "different colors should have distance > 0.1, got {d}");
+        assert!(
+            d > 0.1,
+            "different colors should have distance > 0.1, got {d}"
+        );
     }
 
     #[test]
@@ -577,8 +618,8 @@ mod tests {
 
         // These are the most important pairs for panel usability
         let critical_pairs = [
-            ("running", &p.running, "reasoning", &p.reasoning),  // passes: 0.333
-            ("planning", &p.planning, "reasoning", &p.reasoning),  // passes: 0.308
+            ("running", &p.running, "reasoning", &p.reasoning), // passes: 0.333
+            ("planning", &p.planning, "reasoning", &p.reasoning), // passes: 0.308
         ];
 
         for (name_a, color_a, name_b, color_b) in critical_pairs {
@@ -598,8 +639,8 @@ mod tests {
 
         // success vs error and success vs warning are most critical
         let critical_pairs = [
-            ("success", &p.success, "error", &p.error),    // passes: 0.322
-            ("success", &p.success, "warning", &p.warning),  // passes: 0.323
+            ("success", &p.success, "error", &p.error), // passes: 0.322
+            ("success", &p.success, "warning", &p.warning), // passes: 0.323
         ];
 
         for (name_a, color_a, name_b, color_b) in critical_pairs {
@@ -729,7 +770,10 @@ mod tests {
 
         // Document known sRGB gamut limitations (informational, not strict failure)
         if !strict_failures.is_empty() {
-            eprintln!("ℹ️  Known sRGB gamut limitations ({}/12 pairs < 0.3):", strict_failures.len());
+            eprintln!(
+                "ℹ️  Known sRGB gamut limitations ({}/12 pairs < 0.3):",
+                strict_failures.len()
+            );
             for (name_a, name_b, delta) in &strict_failures {
                 eprintln!("   - {} vs {}: {:.3}", name_a, name_b, delta);
             }

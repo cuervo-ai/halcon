@@ -37,10 +37,7 @@ pub enum InboundEvent {
         headers: HashMap<String, String>,
     },
     /// A cron job fired
-    CronJobFired {
-        job_id: String,
-        scheduled_time: i64,
-    },
+    CronJobFired { job_id: String, scheduled_time: i64 },
     /// Integration health changed
     HealthChanged {
         old_health: String,
@@ -93,11 +90,17 @@ impl InboundEvent {
             Self::MessageReceived {
                 sender, content, ..
             } => {
-                format!("Message from {}: {}", sender, content.chars().take(50).collect::<String>())
+                format!(
+                    "Message from {}: {}",
+                    sender,
+                    content.chars().take(50).collect::<String>()
+                )
             }
             Self::ToolInvoked { tool_name, .. } => format!("Tool invoked: {}", tool_name),
             Self::TaskDelegated { task_id, .. } => format!("Task delegated: {}", task_id),
-            Self::WebhookTriggered { webhook_id, .. } => format!("Webhook triggered: {}", webhook_id),
+            Self::WebhookTriggered { webhook_id, .. } => {
+                format!("Webhook triggered: {}", webhook_id)
+            }
             Self::CronJobFired { job_id, .. } => format!("Cron job fired: {}", job_id),
             Self::HealthChanged {
                 old_health,
@@ -118,7 +121,11 @@ impl OutboundEvent {
                 content,
                 ..
             } => {
-                format!("Send to {}: {}", destination, content.chars().take(50).collect::<String>())
+                format!(
+                    "Send to {}: {}",
+                    destination,
+                    content.chars().take(50).collect::<String>()
+                )
             }
             Self::ToolResponse {
                 request_id,
@@ -177,7 +184,10 @@ mod tests {
             content: "Processing your request".to_string(),
             metadata: HashMap::new(),
         };
-        assert_eq!(event.description(), "Send to discord: Processing your request");
+        assert_eq!(
+            event.description(),
+            "Send to discord: Processing your request"
+        );
     }
 
     #[test]

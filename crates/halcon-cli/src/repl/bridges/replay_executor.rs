@@ -45,15 +45,28 @@ impl ReplayToolExecutor {
                 None => continue,
             };
 
-            let content = data.get("content").and_then(|v| v.as_str()).unwrap_or("").to_string();
-            let is_error = data.get("is_error").and_then(|v| v.as_bool()).unwrap_or(false);
-            let duration_ms = data.get("duration_ms").and_then(|v| v.as_u64()).unwrap_or(0);
+            let content = data
+                .get("content")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
+            let is_error = data
+                .get("is_error")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            let duration_ms = data
+                .get("duration_ms")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
 
-            results.insert(tool_use_id, RecordedToolResult {
-                content,
-                is_error,
-                duration_ms,
-            });
+            results.insert(
+                tool_use_id,
+                RecordedToolResult {
+                    content,
+                    is_error,
+                    duration_ms,
+                },
+            );
         }
 
         Self { results }
@@ -180,14 +193,22 @@ mod tests {
     fn from_trace_ignores_non_tool_result() {
         let steps = vec![
             make_trace_step(TraceStepType::ModelRequest, r#"{"round":0}"#, 0),
-            make_trace_step(TraceStepType::ModelResponse, r#"{"round":0,"text":"hi","stop_reason":"end_turn"}"#, 1),
+            make_trace_step(
+                TraceStepType::ModelResponse,
+                r#"{"round":0,"text":"hi","stop_reason":"end_turn"}"#,
+                1,
+            ),
             make_trace_step(TraceStepType::ToolCall, r#"{"tool_name":"bash"}"#, 2),
             make_trace_step(
                 TraceStepType::ToolResult,
                 r#"{"tool_use_id":"tu_only","tool_name":"bash","content":"ok","is_error":false,"duration_ms":1,"parallel":false}"#,
                 3,
             ),
-            make_trace_step(TraceStepType::Error, r#"{"context":"test","message":"err"}"#, 4),
+            make_trace_step(
+                TraceStepType::Error,
+                r#"{"context":"test","message":"err"}"#,
+                4,
+            ),
         ];
         let executor = ReplayToolExecutor::from_trace(&steps);
         assert_eq!(executor.len(), 1);

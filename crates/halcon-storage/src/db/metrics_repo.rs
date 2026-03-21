@@ -42,7 +42,13 @@ impl Database {
             .map_err(|e| HalconError::DatabaseError(e.to_string()))?;
 
         // Single compound query replaces 5 individual queries.
-        let (total_invocations, successful_invocations, avg_latency_ms, total_tokens, total_cost_usd): (u64, u64, f64, u64, f64) = conn
+        let (
+            total_invocations,
+            successful_invocations,
+            avg_latency_ms,
+            total_tokens,
+            total_cost_usd,
+        ): (u64, u64, f64, u64, f64) = conn
             .query_row(
                 "SELECT COUNT(*),
                         COALESCE(SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END), 0),
@@ -51,7 +57,15 @@ impl Database {
                         COALESCE(SUM(estimated_cost_usd), 0.0)
                  FROM invocation_metrics WHERE provider = ?1 AND model = ?2",
                 rusqlite::params![provider, model],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
             )
             .map_err(|e| HalconError::DatabaseError(e.to_string()))?;
 
@@ -241,7 +255,12 @@ impl Database {
         let cutoff_str = cutoff.to_rfc3339();
 
         // Single compound query replaces 4 individual queries.
-        let (total_invocations, successful_invocations, timeout_count, avg_latency_ms): (u64, u64, u64, f64) = conn
+        let (total_invocations, successful_invocations, timeout_count, avg_latency_ms): (
+            u64,
+            u64,
+            u64,
+            f64,
+        ) = conn
             .query_row(
                 "SELECT COUNT(*),
                         COALESCE(SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END), 0),
@@ -402,7 +421,8 @@ impl Database {
             .lock()
             .map_err(|e| HalconError::DatabaseError(e.to_string()))?;
 
-        let tx = conn.unchecked_transaction()
+        let tx = conn
+            .unchecked_transaction()
             .map_err(|e| HalconError::DatabaseError(format!("begin batch metrics tx: {e}")))?;
 
         {
@@ -424,7 +444,8 @@ impl Database {
                     metric.stop_reason,
                     metric.session_id,
                     metric.created_at.to_rfc3339(),
-                ]).map_err(|e| HalconError::DatabaseError(format!("batch metric insert: {e}")))?;
+                ])
+                .map_err(|e| HalconError::DatabaseError(format!("batch metric insert: {e}")))?;
             }
         }
 
@@ -434,7 +455,10 @@ impl Database {
     }
 
     /// Batch-insert multiple tool execution metrics in a single transaction.
-    pub fn batch_insert_tool_metrics(&self, metrics: &[crate::metrics::ToolExecutionMetric]) -> Result<()> {
+    pub fn batch_insert_tool_metrics(
+        &self,
+        metrics: &[crate::metrics::ToolExecutionMetric],
+    ) -> Result<()> {
         if metrics.is_empty() {
             return Ok(());
         }
@@ -443,7 +467,8 @@ impl Database {
             .lock()
             .map_err(|e| HalconError::DatabaseError(e.to_string()))?;
 
-        let tx = conn.unchecked_transaction()
+        let tx = conn
+            .unchecked_transaction()
             .map_err(|e| HalconError::DatabaseError(format!("begin batch tool tx: {e}")))?;
 
         {
@@ -461,7 +486,10 @@ impl Database {
                     metric.is_parallel as i32,
                     metric.input_summary,
                     metric.created_at.to_rfc3339(),
-                ]).map_err(|e| HalconError::DatabaseError(format!("batch tool metric insert: {e}")))?;
+                ])
+                .map_err(|e| {
+                    HalconError::DatabaseError(format!("batch tool metric insert: {e}"))
+                })?;
             }
         }
 
@@ -509,7 +537,9 @@ impl Database {
                  ORDER BY created_at DESC
                  LIMIT ?2",
             )
-            .map_err(|e| HalconError::DatabaseError(format!("prepare recent_tool_executions: {e}")))?;
+            .map_err(|e| {
+                HalconError::DatabaseError(format!("prepare recent_tool_executions: {e}"))
+            })?;
 
         let rows = stmt
             .query_map(rusqlite::params![tool_name, limit as i64], |row| {
@@ -558,12 +588,12 @@ impl Database {
 /// A tool execution row returned from the `tool_execution_metrics` table.
 #[derive(Debug, Clone)]
 pub struct ToolExecutionRow {
-    pub tool_name:    String,
-    pub duration_ms:  u64,
-    pub success:      bool,
-    pub is_parallel:  bool,
+    pub tool_name: String,
+    pub duration_ms: u64,
+    pub success: bool,
+    pub is_parallel: bool,
     pub input_summary: Option<String>,
-    pub created_at:   String,  // RFC3339
+    pub created_at: String, // RFC3339
 }
 
 #[cfg(test)]
@@ -591,15 +621,15 @@ mod new_query_tests {
     fn insert_invocation_metric(db: &Database) {
         let metric = crate::metrics::InvocationMetric {
             provider: "test".into(),
-            model:    "m".into(),
-            latency_ms:           100,
-            input_tokens:         50,
-            output_tokens:        25,
-            estimated_cost_usd:   0.001,
-            success:              true,
-            stop_reason:          "end_turn".into(),
-            session_id:           None,
-            created_at:           Utc::now(),
+            model: "m".into(),
+            latency_ms: 100,
+            input_tokens: 50,
+            output_tokens: 25,
+            estimated_cost_usd: 0.001,
+            success: true,
+            stop_reason: "end_turn".into(),
+            session_id: None,
+            created_at: Utc::now(),
         };
         db.insert_metric(&metric).unwrap();
     }

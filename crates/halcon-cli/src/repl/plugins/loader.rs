@@ -123,23 +123,18 @@ impl PluginLoader {
     pub fn discover(&self) -> Vec<PluginManifest> {
         self.discover_raw()
             .into_iter()
-            .filter_map(|(path, raw)| {
-                match toml::from_str::<PluginManifest>(&raw) {
-                    Ok(manifest) => {
-                        tracing::debug!(
-                            "Discovered plugin '{}' from {}",
-                            manifest.meta.id,
-                            path.display()
-                        );
-                        Some(manifest)
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            "Failed to parse plugin manifest at {}: {e}",
-                            path.display()
-                        );
-                        None
-                    }
+            .filter_map(|(path, raw)| match toml::from_str::<PluginManifest>(&raw) {
+                Ok(manifest) => {
+                    tracing::debug!(
+                        "Discovered plugin '{}' from {}",
+                        manifest.meta.id,
+                        path.display()
+                    );
+                    Some(manifest)
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to parse plugin manifest at {}: {e}", path.display());
+                    None
                 }
             })
             .collect()
@@ -166,10 +161,7 @@ impl PluginLoader {
             let mut manifest: PluginManifest = match toml::from_str(&raw) {
                 Ok(m) => m,
                 Err(e) => {
-                    tracing::warn!(
-                        "Plugin manifest parse error at {}: {e}",
-                        path.display()
-                    );
+                    tracing::warn!("Plugin manifest parse error at {}: {e}", path.display());
                     result.skipped_invalid += 1;
                     continue;
                 }
@@ -267,8 +259,8 @@ fn sha256_of(content: &str) -> String {
 /// These characters cause the shell (or `tokio::process::Command`) to interpret
 /// the string as a compound command rather than a plain executable path.
 const SHELL_METACHARACTERS: &[char] = &[
-    '|', '&', ';', '$', '`', '(', ')', '<', '>', '{', '}', '\'', '"', '\\', '\n', '\r', '\t',
-    '!', '#', '*', '?', '[', ']', '~', '\0',
+    '|', '&', ';', '$', '`', '(', ')', '<', '>', '{', '}', '\'', '"', '\\', '\n', '\r', '\t', '!',
+    '#', '*', '?', '[', ']', '~', '\0',
 ];
 
 /// Returns true if `s` contains any shell metacharacter.
@@ -301,8 +293,8 @@ fn validate_stdio_command(command: &str) -> Result<(), &'static str> {
 mod tests {
     use super::*;
     use crate::repl::plugins::manifest::{
-        PluginCategory, PluginMeta, PluginPermissions, RiskTier, SandboxContract,
-        SupervisorPolicy, ToolCapabilityDescriptor,
+        PluginCategory, PluginMeta, PluginPermissions, RiskTier, SandboxContract, SupervisorPolicy,
+        ToolCapabilityDescriptor,
     };
     use std::io::Write;
     use tempfile::TempDir;
@@ -394,7 +386,11 @@ budget_tokens_per_call = 100
 
         // The capability "run" should become "plugin_my_plugin_run"
         let tool_id = registry.plugin_id_for_tool("plugin_my_plugin_run");
-        assert_eq!(tool_id, Some("my-plugin"), "auto-prefixed tool name must resolve");
+        assert_eq!(
+            tool_id,
+            Some("my-plugin"),
+            "auto-prefixed tool name must resolve"
+        );
     }
 
     #[test]
@@ -491,8 +487,16 @@ description = "Run"
         let found = loader.discover_raw();
 
         // Should find only the real file, not the symlink.
-        assert_eq!(found.len(), 1, "symlinks must be rejected; got {:?}", found.iter().map(|(p, _)| p).collect::<Vec<_>>());
-        assert!(!found[0].0.to_str().unwrap().contains("evil"), "symlink target must not be returned");
+        assert_eq!(
+            found.len(),
+            1,
+            "symlinks must be rejected; got {:?}",
+            found.iter().map(|(p, _)| p).collect::<Vec<_>>()
+        );
+        assert!(
+            !found[0].0.to_str().unwrap().contains("evil"),
+            "symlink target must not be returned"
+        );
     }
 
     // ─── C8: command validation ───────────────────────────────────────────────
@@ -578,7 +582,10 @@ description = "Run"
         let mut runtime = PluginTransportRuntime::new();
 
         let result = loader.load_into(&mut registry, &mut runtime);
-        assert_eq!(result.loaded, 0, "plugin with injected arg must not be loaded");
+        assert_eq!(
+            result.loaded, 0,
+            "plugin with injected arg must not be loaded"
+        );
         assert_eq!(result.skipped_invalid, 1);
     }
 

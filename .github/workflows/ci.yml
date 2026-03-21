@@ -82,6 +82,8 @@ jobs:
         run: cargo check --workspace ${{ env.CARGO_FEATURES }}
 
   # ── Tests — Linux (always runs on PR and push) ───────────────────────────
+  # Tests use --no-default-features --features headless to avoid momoto (private
+  # submodule) while keeping enough code compiled for test targets to resolve.
   test-linux:
     name: Test (ubuntu)
     runs-on: ubuntu-latest
@@ -93,7 +95,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Run tests
-        run: cargo test --workspace ${{ env.CARGO_FEATURES }}
+        run: cargo test --workspace --no-default-features --features tui
 
   # ── Tests — macOS (only on push to main, macOS runner = 10× cost) ────────
   test-macos:
@@ -111,7 +113,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Run tests
-        run: cargo test --workspace ${{ env.CARGO_FEATURES }}
+        run: cargo test --workspace --no-default-features --features tui
 
   # ── Color-science tests (informational, non-gating) ───────────────────────
   # Runs only when the momoto-ui submodule is available.

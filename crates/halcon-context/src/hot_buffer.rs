@@ -84,7 +84,9 @@ impl HotBuffer {
     /// Pop the oldest message (for forced eviction).
     pub fn pop_oldest(&mut self) -> Option<ChatMessage> {
         let msg = self.messages.pop_front()?;
-        self.token_count = self.token_count.saturating_sub(estimate_message_tokens(&msg));
+        self.token_count = self
+            .token_count
+            .saturating_sub(estimate_message_tokens(&msg));
         Some(msg)
     }
 
@@ -163,7 +165,10 @@ mod tests {
         // "the quick brown fox jumps over the lazy dog" ≈ 9 tokens
         // "x" = 1 token
         // Evicting the long message and adding "x" must decrease total token count.
-        buf.push(text_msg(Role::User, "the quick brown fox jumps over the lazy dog"));
+        buf.push(text_msg(
+            Role::User,
+            "the quick brown fox jumps over the lazy dog",
+        ));
         buf.push(text_msg(Role::User, "also a short message"));
         let before = buf.token_count();
 

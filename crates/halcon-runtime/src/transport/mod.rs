@@ -78,7 +78,10 @@ mod tests {
 
     #[test]
     fn transport_message_construction() {
-        let msg = TransportMessage::new(TransportMessageKind::Request, serde_json::json!({"key": "value"}));
+        let msg = TransportMessage::new(
+            TransportMessageKind::Request,
+            serde_json::json!({"key": "value"}),
+        );
         assert_eq!(msg.kind, TransportMessageKind::Request);
         assert!(!msg.id.is_nil());
     }

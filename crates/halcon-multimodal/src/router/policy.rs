@@ -24,7 +24,7 @@ impl Default for RoutingPolicy {
     fn default() -> Self {
         Self {
             local_threshold_bytes: 2 * 1024 * 1024,
-            native_available:      false,
+            native_available: false,
         }
     }
 }
@@ -44,21 +44,31 @@ impl RoutingPolicy {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::security::{ValidatedMedia, mime::DetectedMime};
+    use crate::security::{mime::DetectedMime, ValidatedMedia};
 
     fn media(size: u64) -> ValidatedMedia {
-        ValidatedMedia { data: vec![0xFF, 0xD8, 0xFF, 0xD9], mime: DetectedMime::ImageJpeg, original_size: size }
+        ValidatedMedia {
+            data: vec![0xFF, 0xD8, 0xFF, 0xD9],
+            mime: DetectedMime::ImageJpeg,
+            original_size: size,
+        }
     }
 
     #[test]
     fn no_native_always_api() {
-        let p = RoutingPolicy { native_available: false, ..Default::default() };
+        let p = RoutingPolicy {
+            native_available: false,
+            ..Default::default()
+        };
         assert_eq!(p.decide(&media(100)), RoutingDecision::Api);
     }
 
     #[test]
     fn small_with_native_goes_local() {
-        let p = RoutingPolicy { native_available: true, ..Default::default() };
+        let p = RoutingPolicy {
+            native_available: true,
+            ..Default::default()
+        };
         assert_eq!(p.decide(&media(1_000)), RoutingDecision::Local);
     }
 

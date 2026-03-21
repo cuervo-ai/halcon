@@ -101,7 +101,11 @@ impl MakeTool {
                     .iter()
                     .find_map(|f| {
                         let p = dir.join(f);
-                        if p.exists() { Some(p) } else { None }
+                        if p.exists() {
+                            Some(p)
+                        } else {
+                            None
+                        }
                     });
 
                 if let Some(path) = makefile_path {
@@ -131,17 +135,26 @@ impl MakeTool {
                 if let Ok(content) = std::fs::read_to_string(dir.join("package.json")) {
                     if let Ok(v) = serde_json::from_str::<Value>(&content) {
                         if let Some(scripts) = v["scripts"].as_object() {
-                            let names: Vec<&str> = scripts.keys().map(|k| k.as_str()).take(15).collect();
+                            let names: Vec<&str> =
+                                scripts.keys().map(|k| k.as_str()).take(15).collect();
                             return format!("Scripts: {}", names.join(", "));
                         }
                     }
                 }
                 "Common: build, test, dev, start, lint".to_string()
             }
-            BuildSystem::Cargo => "Targets: build, test, clippy, check, run, doc, bench".to_string(),
-            BuildSystem::Maven => "Phases: compile, test, package, install, clean, verify, deploy".to_string(),
-            BuildSystem::Gradle => "Tasks: build, test, clean, assemble, check, jar, run".to_string(),
-            BuildSystem::Cmake => "Targets: all, clean, install, test (after cmake configure)".to_string(),
+            BuildSystem::Cargo => {
+                "Targets: build, test, clippy, check, run, doc, bench".to_string()
+            }
+            BuildSystem::Maven => {
+                "Phases: compile, test, package, install, clean, verify, deploy".to_string()
+            }
+            BuildSystem::Gradle => {
+                "Tasks: build, test, clean, assemble, check, jar, run".to_string()
+            }
+            BuildSystem::Cmake => {
+                "Targets: all, clean, install, test (after cmake configure)".to_string()
+            }
             BuildSystem::Just => {
                 // Run `just --list` is async — return hint only
                 "Run: just --list  to see all recipes".to_string()
@@ -268,10 +281,16 @@ impl Tool for MakeTool {
     fn requires_confirmation(&self, input: &ToolInput) -> bool {
         // Require confirmation for destructive targets
         let target = input.arguments["target"].as_str().unwrap_or("");
-        matches!(target, "deploy" | "publish" | "release" | "install" | "uninstall" | "push")
+        matches!(
+            target,
+            "deploy" | "publish" | "release" | "install" | "uninstall" | "push"
+        )
     }
 
-    async fn execute(&self, input: ToolInput) -> Result<ToolOutput, halcon_core::error::HalconError> {
+    async fn execute(
+        &self,
+        input: ToolInput,
+    ) -> Result<ToolOutput, halcon_core::error::HalconError> {
         let args = &input.arguments;
         let working_dir = args["working_directory"]
             .as_str()
@@ -345,9 +364,16 @@ impl Tool for MakeTool {
             "running build"
         );
 
-        match self.run_build(system, target, &extra_args, &working_dir).await {
+        match self
+            .run_build(system, target, &extra_args, &working_dir)
+            .await
+        {
             Ok((success, output)) => {
-                let status = if success { "✅ Build succeeded" } else { "❌ Build failed" };
+                let status = if success {
+                    "✅ Build succeeded"
+                } else {
+                    "❌ Build failed"
+                };
                 let content = format!(
                     "{} — {} target '{}'\n\n{}",
                     status,
@@ -385,21 +411,34 @@ mod tests {
     fn detect_makefile() {
         let dir = TempDir::new().unwrap();
         std::fs::write(dir.path().join("Makefile"), "all:\n\techo hi\n").unwrap();
-        assert_eq!(MakeTool::detect_build_system(dir.path()), Some(BuildSystem::Make));
+        assert_eq!(
+            MakeTool::detect_build_system(dir.path()),
+            Some(BuildSystem::Make)
+        );
     }
 
     #[test]
     fn detect_cargo() {
         let dir = TempDir::new().unwrap();
         std::fs::write(dir.path().join("Cargo.toml"), "[package]\nname=\"x\"\n").unwrap();
-        assert_eq!(MakeTool::detect_build_system(dir.path()), Some(BuildSystem::Cargo));
+        assert_eq!(
+            MakeTool::detect_build_system(dir.path()),
+            Some(BuildSystem::Cargo)
+        );
     }
 
     #[test]
     fn detect_npm() {
         let dir = TempDir::new().unwrap();
-        std::fs::write(dir.path().join("package.json"), r#"{"scripts":{"build":"tsc"}}"#).unwrap();
-        assert_eq!(MakeTool::detect_build_system(dir.path()), Some(BuildSystem::Npm));
+        std::fs::write(
+            dir.path().join("package.json"),
+            r#"{"scripts":{"build":"tsc"}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            MakeTool::detect_build_system(dir.path()),
+            Some(BuildSystem::Npm)
+        );
     }
 
     #[test]
@@ -449,7 +488,11 @@ mod tests {
         )
         .unwrap();
         let hint = MakeTool::list_targets_hint(BuildSystem::Make, dir.path());
-        assert!(hint.contains("all") || hint.contains("build"), "hint={}", hint);
+        assert!(
+            hint.contains("all") || hint.contains("build"),
+            "hint={}",
+            hint
+        );
     }
 
     #[tokio::test]
@@ -471,7 +514,11 @@ mod tests {
     #[tokio::test]
     async fn execute_list_target_returns_info() {
         let dir = TempDir::new().unwrap();
-        std::fs::write(dir.path().join("Cargo.toml"), "[package]\nname=\"x\"\nversion=\"0.1.0\"\nedition=\"2021\"").unwrap();
+        std::fs::write(
+            dir.path().join("Cargo.toml"),
+            "[package]\nname=\"x\"\nversion=\"0.1.0\"\nedition=\"2021\"",
+        )
+        .unwrap();
         let tool = MakeTool::new(30);
         let out = tool
             .execute(ToolInput {
@@ -493,6 +540,9 @@ mod tests {
         assert_eq!(t.permission_level(), PermissionLevel::ReadWrite);
         let schema = t.input_schema();
         assert_eq!(schema["type"], "object");
-        assert!(schema["required"].as_array().unwrap().contains(&json!("target")));
+        assert!(schema["required"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("target")));
     }
 }

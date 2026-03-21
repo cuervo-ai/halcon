@@ -30,11 +30,11 @@ pub(crate) fn format_plan_for_prompt(plan: &ExecutionPlan, current_step: usize) 
             .map(|t| format!(" (tool: {t})"))
             .unwrap_or_default();
         let (icon, marker) = match &step.outcome {
-            Some(StepOutcome::Success { .. }) => ("\u{2713}", ""),       // ✓
-            Some(StepOutcome::Failed { .. }) => ("\u{2717}", ""),        // ✗
+            Some(StepOutcome::Success { .. }) => ("\u{2713}", ""), // ✓
+            Some(StepOutcome::Failed { .. }) => ("\u{2717}", ""),  // ✗
             Some(StepOutcome::Skipped { .. }) => ("-", ""),
             None if i == current_step => ("\u{25b8}", " \u{2190} CURRENT"), // ▸ ← CURRENT
-            None => ("\u{25cb}", ""),                                     // ○
+            None => ("\u{25cb}", ""),                                       // ○
         };
         let _ = writeln!(
             out,

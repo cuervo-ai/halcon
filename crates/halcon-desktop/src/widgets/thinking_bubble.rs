@@ -32,7 +32,10 @@ pub fn show(ui: &mut egui::Ui, elapsed_secs: f32, token_count: usize) {
         let label = if token_count == 0 {
             format!("Thinking... ({:.1}s)", elapsed_secs)
         } else {
-            format!("Generating... {} tokens ({:.1}s)", token_count, elapsed_secs)
+            format!(
+                "Generating... {} tokens ({:.1}s)",
+                token_count, elapsed_secs
+            )
         };
         ui.colored_label(HalconTheme::TEXT_MUTED, RichText::new(label).size(12.0));
     });

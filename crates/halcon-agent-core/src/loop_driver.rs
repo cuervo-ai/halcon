@@ -40,7 +40,7 @@ use crate::{
     fsm::{AgentFsm, AgentState},
     goal::{Evidence, GoalSpec, GoalSpecParser},
     memory::{Episode, MemoryConfig, VectorMemory},
-    planner::{AdaptivePlanner, PlannerConfig, PlanTree},
+    planner::{AdaptivePlanner, PlanTree, PlannerConfig},
     router::{EmbeddingProvider, RouterConfig, SemanticToolRouter},
     strategy::{StrategyLearner, StrategyLearnerConfig},
     telemetry::ToolTelemetry,
@@ -209,7 +209,10 @@ pub async fn run_gdem_loop(user_message: &str, mut ctx: GdemContext) -> Result<G
     fsm.transition(AgentState::Planning)?;
     let planner = AdaptivePlanner::new(PlannerConfig::default());
     let mut plan_tree: PlanTree = planner.plan(&goal);
-    debug!(branches = plan_tree.branches.len(), "Initial plan generated");
+    debug!(
+        branches = plan_tree.branches.len(),
+        "Initial plan generated"
+    );
 
     // ── L2: Router ─────────────────────────────────────────────────────────
     let router = SemanticToolRouter::new(
@@ -254,7 +257,11 @@ pub async fn run_gdem_loop(user_message: &str, mut ctx: GdemContext) -> Result<G
     // ── Main loop ──────────────────────────────────────────────────────────
     'agent: loop {
         if round >= max_rounds {
-            warn!(round = round, max = max_rounds, "Max rounds reached — forcing synthesis");
+            warn!(
+                round = round,
+                max = max_rounds,
+                "Max rounds reached — forcing synthesis"
+            );
             fsm.try_transition_or_terminate(AgentState::Terminating);
             break 'agent;
         }
@@ -275,7 +282,10 @@ pub async fn run_gdem_loop(user_message: &str, mut ctx: GdemContext) -> Result<G
         // ── Get current plan step ─────────────────────────────────────────
         let active_steps = plan_tree.active_steps();
         let step_idx = ((round - 1) as usize).min(active_steps.len().saturating_sub(1));
-        let current_step = active_steps.get(step_idx).map(|s| s.description.as_str()).unwrap_or(user_message);
+        let current_step = active_steps
+            .get(step_idx)
+            .map(|s| s.description.as_str())
+            .unwrap_or(user_message);
 
         debug!(round = round, step = current_step, "Executing plan step");
 
@@ -300,10 +310,14 @@ pub async fn run_gdem_loop(user_message: &str, mut ctx: GdemContext) -> Result<G
         let mut had_errors = false;
 
         for candidate in &tool_candidates {
-            let telem_id = telemetry.record_start(&candidate.name, &intent_for_routing, pre_confidence, round);
+            let telem_id =
+                telemetry.record_start(&candidate.name, &intent_for_routing, pre_confidence, round);
             let call_start = Instant::now();
 
-            let result = ctx.tool_executor.execute_tool(&candidate.name, current_step).await;
+            let result = ctx
+                .tool_executor
+                .execute_tool(&candidate.name, current_step)
+                .await;
 
             let latency_ms = call_start.elapsed().as_millis() as u64;
 
@@ -311,7 +325,13 @@ pub async fn run_gdem_loop(user_message: &str, mut ctx: GdemContext) -> Result<G
                 Ok(tool_result) => {
                     let is_error = tool_result.is_error;
                     total_tokens += tool_result.tokens_consumed as u64;
-                    telemetry.record_end(telem_id, pre_confidence, latency_ms, is_error, tool_result.tokens_consumed);
+                    telemetry.record_end(
+                        telem_id,
+                        pre_confidence,
+                        latency_ms,
+                        is_error,
+                        tool_result.tokens_consumed,
+                    );
 
                     if is_error {
                         had_errors = true;
@@ -362,7 +382,11 @@ pub async fn run_gdem_loop(user_message: &str, mut ctx: GdemContext) -> Result<G
         );
 
         if verifier_decision.is_achieved() {
-            info!(round = round, confidence = post_confidence, "Goal ACHIEVED — exiting loop");
+            info!(
+                round = round,
+                confidence = post_confidence,
+                "Goal ACHIEVED — exiting loop"
+            );
             let _ = fsm.transition(AgentState::Converged);
             break 'agent;
         }
@@ -414,10 +438,14 @@ pub async fn run_gdem_loop(user_message: &str, mut ctx: GdemContext) -> Result<G
             verifier.current_confidence() * 100.0,
             goal.intent
         );
-        if let Ok((synth_text, tokens)) = ctx.llm_client.complete(
-            "You are a helpful assistant. Synthesise the findings.",
-            &synth_prompt,
-        ).await {
+        if let Ok((synth_text, tokens)) = ctx
+            .llm_client
+            .complete(
+                "You are a helpful assistant. Synthesise the findings.",
+                &synth_prompt,
+            )
+            .await
+        {
             total_tokens += tokens as u64;
             if !synth_text.is_empty() {
                 response = synth_text;
@@ -434,12 +462,19 @@ pub async fn run_gdem_loop(user_message: &str, mut ctx: GdemContext) -> Result<G
     }
 
     // ── L7: Store episode in memory ────────────────────────────────────────
-    let tools_used: Vec<String> = telemetry.all_records().into_iter().map(|r| r.tool_name).collect();
+    let tools_used: Vec<String> = telemetry
+        .all_records()
+        .into_iter()
+        .map(|r| r.tool_name)
+        .collect();
     let _episode = Episode::new(
         session_id,
         &goal.intent,
         tools_used.clone(),
-        format!("Round {}/{}, confidence {:.2}", round, max_rounds, final_confidence),
+        format!(
+            "Round {}/{}, confidence {:.2}",
+            round, max_rounds, final_confidence
+        ),
         final_confidence,
         goal_achieved,
     );
@@ -520,8 +555,20 @@ fn build_user_context(evidence: &Evidence, current_step: &str, round: u32) -> St
         .rev()
         .map(|(tool, output)| {
             let display = if output.len() > 2000 {
-                let head = { let mut _fcb = (800).min(output.len()); while _fcb > 0 && !output.is_char_boundary(_fcb) { _fcb -= 1; } _fcb };
-                let tail = { let mut _ccb = (output.len().saturating_sub(400)).min(output.len()); while _ccb < output.len() && !output.is_char_boundary(_ccb) { _ccb += 1; } _ccb };
+                let head = {
+                    let mut _fcb = (800).min(output.len());
+                    while _fcb > 0 && !output.is_char_boundary(_fcb) {
+                        _fcb -= 1;
+                    }
+                    _fcb
+                };
+                let tail = {
+                    let mut _ccb = (output.len().saturating_sub(400)).min(output.len());
+                    while _ccb < output.len() && !output.is_char_boundary(_ccb) {
+                        _ccb += 1;
+                    }
+                    _ccb
+                };
                 format!("{}...[truncated]...{}", &output[..head], &output[tail..])
             } else {
                 output.clone()
@@ -583,7 +630,9 @@ mod tests {
             }
             Ok(v)
         }
-        fn dimension(&self) -> usize { 4 }
+        fn dimension(&self) -> usize {
+            4
+        }
     }
 
     fn make_ctx() -> GdemContext {
@@ -631,7 +680,9 @@ mod tests {
     #[tokio::test]
     async fn max_rounds_respected() {
         let ctx = make_ctx(); // max_rounds = 3
-        let result = run_gdem_loop("an impossible goal with no tools", ctx).await.unwrap();
+        let result = run_gdem_loop("an impossible goal with no tools", ctx)
+            .await
+            .unwrap();
         assert!(result.rounds <= 3);
     }
 

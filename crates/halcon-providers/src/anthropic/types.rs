@@ -21,7 +21,9 @@ impl CacheControl {
     /// Construct the single supported variant: `{"type": "ephemeral"}`.
     #[inline]
     pub fn ephemeral() -> Self {
-        Self { cache_type: "ephemeral" }
+        Self {
+            cache_type: "ephemeral",
+        }
     }
 }
 
@@ -346,7 +348,9 @@ mod tests {
             }],
             max_tokens: 1024,
             temperature: None,
-            system: Some(ApiSystem::Blocks(vec![ApiSystemBlock::cached("You are helpful.")])),
+            system: Some(ApiSystem::Blocks(vec![ApiSystemBlock::cached(
+                "You are helpful.",
+            )])),
             stream: true,
             tools: vec![],
         };

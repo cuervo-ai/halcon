@@ -31,6 +31,7 @@ pub struct MultiSink {
 
 impl MultiSink {
     /// Construct from a vec of boxed sinks.
+    #[must_use]
     pub fn new(sinks: Vec<Arc<dyn EventSink>>) -> Self {
         Self { sinks }
     }
@@ -95,10 +96,7 @@ mod tests {
 
     #[test]
     fn is_silent_when_all_silent() {
-        let multi = MultiSink::new(vec![
-            Arc::new(SilentSink),
-            Arc::new(SilentSink),
-        ]);
+        let multi = MultiSink::new(vec![Arc::new(SilentSink), Arc::new(SilentSink)]);
         assert!(multi.is_silent());
     }
 
@@ -107,13 +105,12 @@ mod tests {
         struct ActiveSink;
         impl EventSink for ActiveSink {
             fn emit(&self, _: &RuntimeEvent) {}
-            fn is_silent(&self) -> bool { false }
+            fn is_silent(&self) -> bool {
+                false
+            }
         }
 
-        let multi = MultiSink::new(vec![
-            Arc::new(SilentSink),
-            Arc::new(ActiveSink),
-        ]);
+        let multi = MultiSink::new(vec![Arc::new(SilentSink), Arc::new(ActiveSink)]);
         assert!(!multi.is_silent());
     }
 }

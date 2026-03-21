@@ -249,7 +249,7 @@ fn xyz_to_color(xyz: [f64; 3]) -> Color {
 /// Create an achromatic (gray) color for a given CIELAB tone.
 fn tone_to_achromatic_color(tone: f64) -> Color {
     let y = y_from_lstar(tone); // [0, 1]
-    Color::from_linear(y as f64, y as f64, y as f64)
+    Color::from_linear(y, y, y)
 }
 
 // =============================================================================

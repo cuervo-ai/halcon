@@ -125,7 +125,10 @@ pub(crate) fn cache_size() -> usize {
 /// Checks by name rather than total size, making it parallel-test-safe.
 #[cfg(test)]
 pub(crate) fn cache_contains(name: &str) -> bool {
-    VALID_TOOL_CACHE.lock().map(|c| c.contains(name)).unwrap_or(false)
+    VALID_TOOL_CACHE
+        .lock()
+        .map(|c| c.contains(name))
+        .unwrap_or(false)
 }
 
 #[cfg(test)]
@@ -196,7 +199,10 @@ mod tests {
             json!({ "properties": { "x": { "type": "string" } } }),
         )];
         let result = isolated_validate(tools);
-        assert!(result.is_empty(), "schema without 'type' should be rejected");
+        assert!(
+            result.is_empty(),
+            "schema without 'type' should be rejected"
+        );
     }
 
     // ── Rule 3: required ⊆ properties ────────────────────────────────────────
@@ -212,7 +218,10 @@ mod tests {
             }),
         )];
         let result = isolated_validate(tools);
-        assert!(result.is_empty(), "schema with required field not in properties should be rejected");
+        assert!(
+            result.is_empty(),
+            "schema with required field not in properties should be rejected"
+        );
     }
 
     #[test]
@@ -298,11 +307,17 @@ mod tests {
         let schema = valid_schema();
         // First call — populates cache.
         let _ = preflight_validate(vec![make_tool(unique_name, schema.clone())]);
-        assert!(cache_contains(unique_name), "tool must be cached after first call");
+        assert!(
+            cache_contains(unique_name),
+            "tool must be cached after first call"
+        );
         // Second call — cache hit; tool still passes through validation.
         let result = preflight_validate(vec![make_tool(unique_name, schema)]);
         assert_eq!(result.len(), 1, "tool must still pass through on cache hit");
-        assert!(cache_contains(unique_name), "entry must persist after cache hit");
+        assert!(
+            cache_contains(unique_name),
+            "entry must persist after cache hit"
+        );
     }
 
     #[test]

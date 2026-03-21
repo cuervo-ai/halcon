@@ -51,19 +51,22 @@ impl Tool for ProcessListTool {
 
     #[tracing::instrument(skip(self), fields(tool = "process_list"))]
     async fn execute(&self, input: ToolInput) -> Result<ToolOutput> {
-        let filter_name = input.arguments
+        let filter_name = input
+            .arguments
             .get("name")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_lowercase();
 
-        let filter_user = input.arguments
+        let filter_user = input
+            .arguments
             .get("user")
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_lowercase();
 
-        let limit = input.arguments
+        let limit = input
+            .arguments
             .get("limit")
             .and_then(|v| v.as_u64())
             .unwrap_or(50)
@@ -216,8 +219,15 @@ mod tests {
         };
         let out = tool.execute(input).await.unwrap();
         assert!(!out.is_error);
-        assert!(out.content.contains("No processes found") || out.metadata.as_ref().unwrap()["process_count"].as_u64().unwrap_or(1) == 0,
-            "content: {}", out.content);
+        assert!(
+            out.content.contains("No processes found")
+                || out.metadata.as_ref().unwrap()["process_count"]
+                    .as_u64()
+                    .unwrap_or(1)
+                    == 0,
+            "content: {}",
+            out.content
+        );
     }
 
     #[tokio::test]
@@ -230,7 +240,9 @@ mod tests {
         };
         let out = tool.execute(input).await.unwrap();
         assert!(!out.is_error);
-        let count = out.metadata.as_ref().unwrap()["process_count"].as_u64().unwrap_or(999);
+        let count = out.metadata.as_ref().unwrap()["process_count"]
+            .as_u64()
+            .unwrap_or(999);
         assert!(count <= 3, "expected at most 3 processes, got {count}");
     }
 }

@@ -119,11 +119,7 @@ impl HalconRuntime {
     }
 
     /// Invoke a specific agent by ID.
-    pub async fn invoke_agent(
-        &self,
-        id: &Uuid,
-        request: AgentRequest,
-    ) -> Result<AgentResponse> {
+    pub async fn invoke_agent(&self, id: &Uuid, request: AgentRequest) -> Result<AgentResponse> {
         self.registry.invoke(id, request).await
     }
 
@@ -280,7 +276,10 @@ mod tests {
     #[tokio::test]
     async fn runtime_find_agents() {
         let rt = HalconRuntime::new(RuntimeConfig::default());
-        let a1 = Arc::new(TestAgent::new("coder", vec![AgentCapability::CodeGeneration]));
+        let a1 = Arc::new(TestAgent::new(
+            "coder",
+            vec![AgentCapability::CodeGeneration],
+        ));
         let a2 = Arc::new(TestAgent::new("searcher", vec![AgentCapability::WebSearch]));
         rt.register_agent(a1).await;
         rt.register_agent(a2).await;
@@ -293,8 +292,10 @@ mod tests {
     #[tokio::test]
     async fn runtime_all_agents() {
         let rt = HalconRuntime::new(RuntimeConfig::default());
-        rt.register_agent(Arc::new(TestAgent::new("a", vec![]))).await;
-        rt.register_agent(Arc::new(TestAgent::new("b", vec![]))).await;
+        rt.register_agent(Arc::new(TestAgent::new("a", vec![])))
+            .await;
+        rt.register_agent(Arc::new(TestAgent::new("b", vec![])))
+            .await;
 
         let all = rt.all_agents().await;
         assert_eq!(all.len(), 2);
@@ -315,8 +316,10 @@ mod tests {
     #[tokio::test]
     async fn runtime_shutdown() {
         let rt = HalconRuntime::new(RuntimeConfig::default());
-        rt.register_agent(Arc::new(TestAgent::new("a", vec![]))).await;
-        rt.register_agent(Arc::new(TestAgent::new("b", vec![]))).await;
+        rt.register_agent(Arc::new(TestAgent::new("a", vec![])))
+            .await;
+        rt.register_agent(Arc::new(TestAgent::new("b", vec![])))
+            .await;
 
         rt.shutdown().await.unwrap();
         assert_eq!(rt.agent_count().await, 0);
@@ -335,7 +338,10 @@ mod tests {
         use crate::executor::{AgentSelector, TaskNode};
 
         let rt = HalconRuntime::new(RuntimeConfig::default());
-        let agent = Arc::new(TestAgent::new("worker", vec![AgentCapability::CodeGeneration]));
+        let agent = Arc::new(TestAgent::new(
+            "worker",
+            vec![AgentCapability::CodeGeneration],
+        ));
         let name = agent.descriptor().name.clone();
         rt.register_agent(agent).await;
 

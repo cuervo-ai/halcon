@@ -377,7 +377,10 @@ mod tests {
         let model = make_model(true, true); // reasoning model
         let intent = make_intent(true, TaskComplexity::Complex, TaskScope::ProjectWide);
         let ctx = ctx_with("design a distributed system", &intent, Some(&model), "deep");
-        assert_eq!(policy.evaluate(&ctx), Some(PlanningDecision::LightweightPlan));
+        assert_eq!(
+            policy.evaluate(&ctx),
+            Some(PlanningDecision::LightweightPlan)
+        );
     }
 
     #[test]
@@ -420,16 +423,32 @@ mod tests {
     fn intent_driven_lightweight_for_moderate_task() {
         let policy = IntentDrivenPlanningPolicy;
         let intent = make_intent(true, TaskComplexity::Moderate, TaskScope::LocalContext);
-        let ctx = ctx_with("add input validation to login form", &intent, None, "balanced");
-        assert_eq!(policy.evaluate(&ctx), Some(PlanningDecision::LightweightPlan));
+        let ctx = ctx_with(
+            "add input validation to login form",
+            &intent,
+            None,
+            "balanced",
+        );
+        assert_eq!(
+            policy.evaluate(&ctx),
+            Some(PlanningDecision::LightweightPlan)
+        );
     }
 
     #[test]
     fn intent_driven_lightweight_for_simple_task_that_still_needs_planning() {
         let policy = IntentDrivenPlanningPolicy;
         let intent = make_intent(true, TaskComplexity::Simple, TaskScope::LocalContext);
-        let ctx = ctx_with("add a docstring to this function", &intent, None, "balanced");
-        assert_eq!(policy.evaluate(&ctx), Some(PlanningDecision::LightweightPlan));
+        let ctx = ctx_with(
+            "add a docstring to this function",
+            &intent,
+            None,
+            "balanced",
+        );
+        assert_eq!(
+            policy.evaluate(&ctx),
+            Some(PlanningDecision::LightweightPlan)
+        );
     }
 
     // ── CompositePlanningPolicy ──────────────────────────────────────────────
@@ -449,9 +468,17 @@ mod tests {
         let policy = default_policy();
         let model = make_model(true, true); // reasoning, supports tools
         let intent = make_intent(true, TaskComplexity::Complex, TaskScope::ProjectWide);
-        let ctx = ctx_with("design a consensus algorithm", &intent, Some(&model), "deep");
+        let ctx = ctx_with(
+            "design a consensus algorithm",
+            &intent,
+            Some(&model),
+            "deep",
+        );
         // ToolAware passes (has tools), ReasoningModel fires → LightweightPlan
-        assert_eq!(policy.evaluate(&ctx), Some(PlanningDecision::LightweightPlan));
+        assert_eq!(
+            policy.evaluate(&ctx),
+            Some(PlanningDecision::LightweightPlan)
+        );
     }
 
     #[test]
@@ -493,7 +520,11 @@ mod tests {
         let intent = IntentScorer::score("hello");
         let ctx = ctx_with("hello", &intent, Some(&model), intent.routing_tier());
         let decision = policy.evaluate(&ctx).unwrap();
-        assert_eq!(decision, PlanningDecision::SkipPlanning, "conversational → skip");
+        assert_eq!(
+            decision,
+            PlanningDecision::SkipPlanning,
+            "conversational → skip"
+        );
     }
 
     #[test]
@@ -511,7 +542,11 @@ mod tests {
         );
         let decision = policy.evaluate(&ctx).unwrap();
         // Multi-service project-wide task should require full planning
-        assert_ne!(decision, PlanningDecision::SkipPlanning, "project-wide refactor must plan");
+        assert_ne!(
+            decision,
+            PlanningDecision::SkipPlanning,
+            "project-wide refactor must plan"
+        );
     }
 
     #[test]
@@ -528,7 +563,11 @@ mod tests {
             intent.routing_tier(),
         );
         let decision = policy.evaluate(&ctx).unwrap();
-        assert_ne!(decision, PlanningDecision::SkipPlanning, "Spanish project task must plan");
+        assert_ne!(
+            decision,
+            PlanningDecision::SkipPlanning,
+            "Spanish project task must plan"
+        );
     }
 
     #[test]

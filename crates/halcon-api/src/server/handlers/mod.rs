@@ -1,6 +1,6 @@
 pub mod admin;
-pub mod chat;
 pub mod agents;
+pub mod chat;
 pub mod config;
 pub mod observability;
 pub mod system;

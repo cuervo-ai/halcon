@@ -34,7 +34,10 @@ pub struct SearchMemoryTool {
 impl SearchMemoryTool {
     /// Create a new tool wrapping the given shared store.
     pub fn new(store: SharedVectorStore) -> Self {
-        Self { store, default_k: 5 }
+        Self {
+            store,
+            default_k: 5,
+        }
     }
 
     /// Override the default top-K.
@@ -140,7 +143,12 @@ impl Tool for SearchMemoryTool {
             ));
         }
 
-        Ok(ToolOutput { tool_use_id, content: output, is_error: false, metadata: None })
+        Ok(ToolOutput {
+            tool_use_id,
+            content: output,
+            is_error: false,
+            metadata: None,
+        })
     }
 }
 
@@ -186,7 +194,10 @@ mod tests {
     #[tokio::test]
     async fn search_finds_relevant_entry() {
         let tool = SearchMemoryTool::new(make_store_with_entries());
-        let out = tool.execute(make_input("JWT authentication token")).await.unwrap();
+        let out = tool
+            .execute(make_input("JWT authentication token"))
+            .await
+            .unwrap();
         assert!(!out.is_error);
         assert!(out.content.contains("Authentication") || out.content.contains("JWT"));
     }
@@ -194,7 +205,10 @@ mod tests {
     #[tokio::test]
     async fn search_finds_debugging_entry() {
         let tool = SearchMemoryTool::new(make_store_with_entries());
-        let out = tool.execute(make_input("file path errors FASE-2")).await.unwrap();
+        let out = tool
+            .execute(make_input("file path errors FASE-2"))
+            .await
+            .unwrap();
         assert!(!out.is_error);
         assert!(out.content.contains("FASE-2") || out.content.contains("path"));
     }
@@ -203,7 +217,10 @@ mod tests {
     async fn empty_query_returns_error() {
         let store = Arc::new(Mutex::new(VectorMemoryStore::new()));
         let tool = SearchMemoryTool::new(store);
-        let out = tool.execute(make_input_args(json!({ "query": "" }))).await.unwrap();
+        let out = tool
+            .execute(make_input_args(json!({ "query": "" })))
+            .await
+            .unwrap();
         assert!(out.is_error);
     }
 
@@ -218,7 +235,10 @@ mod tests {
     #[tokio::test]
     async fn no_matches_returns_not_found_message() {
         let tool = SearchMemoryTool::new(make_store_with_entries());
-        let out = tool.execute(make_input("quantum physics superposition")).await.unwrap();
+        let out = tool
+            .execute(make_input("quantum physics superposition"))
+            .await
+            .unwrap();
         assert!(!out.is_error);
         assert!(out.content.contains("No memory entries found") || out.content.contains("Result"));
     }
@@ -227,7 +247,9 @@ mod tests {
     async fn top_k_limits_results() {
         let tool = SearchMemoryTool::new(make_store_with_entries());
         let out = tool
-            .execute(make_input_args(json!({ "query": "implementation", "top_k": 1 })))
+            .execute(make_input_args(
+                json!({ "query": "implementation", "top_k": 1 }),
+            ))
             .await
             .unwrap();
         assert!(!out.is_error);

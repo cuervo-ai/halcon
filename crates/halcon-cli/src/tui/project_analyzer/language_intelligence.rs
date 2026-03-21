@@ -114,10 +114,28 @@ static LANG_EXTENSIONS: &[(&str, &str)] = &[
 
 // Skip directories that inflate file counts
 static SKIP_DIRS: &[&str] = &[
-    "target", "node_modules", ".git", ".svn", "dist", "build",
-    "out", "__pycache__", ".venv", "venv", ".tox", ".mypy_cache",
-    ".pytest_cache", ".cargo", "vendor", ".gradle", ".idea",
-    ".vscode", "coverage", ".nyc_output", "tmp", "temp",
+    "target",
+    "node_modules",
+    ".git",
+    ".svn",
+    "dist",
+    "build",
+    "out",
+    "__pycache__",
+    ".venv",
+    "venv",
+    ".tox",
+    ".mypy_cache",
+    ".pytest_cache",
+    ".cargo",
+    "vendor",
+    ".gradle",
+    ".idea",
+    ".vscode",
+    "coverage",
+    ".nyc_output",
+    "tmp",
+    "temp",
 ];
 
 // ─── Framework / tooling detection ───────────────────────────────────────────
@@ -165,7 +183,7 @@ static DATA_MARKERS: &[(&str, &str)] = &[
     ("airflow_settings.yaml", "Airflow"),
     ("kedro_pipeline.py", "Kedro"),
     ("conf/base/catalog.yml", "Kedro"),
-    ("requirements.txt", "Python/pip"),  // fallback for python-heavy repos
+    ("requirements.txt", "Python/pip"), // fallback for python-heavy repos
     ("environment.yml", "Conda"),
     ("pyproject.toml", "Python/Poetry"),
 ];
@@ -249,11 +267,20 @@ fn scan_language_intelligence(root: &Path) -> ToolOutput {
     // Filter: ignore pure-config languages (YAML/JSON/TOML) if other code languages exist
     let code_langs: Vec<(String, u32)> = lang_vec
         .iter()
-        .filter(|(l, _)| !matches!(l.as_str(), "YAML" | "JSON" | "TOML" | "Markdown" | "reStructuredText"))
+        .filter(|(l, _)| {
+            !matches!(
+                l.as_str(),
+                "YAML" | "JSON" | "TOML" | "Markdown" | "reStructuredText"
+            )
+        })
         .cloned()
         .collect();
 
-    let display_langs = if code_langs.is_empty() { &lang_vec } else { &code_langs };
+    let display_langs = if code_langs.is_empty() {
+        &lang_vec
+    } else {
+        &code_langs
+    };
 
     let primary_language = display_langs
         .first()
@@ -271,9 +298,9 @@ fn scan_language_intelligence(root: &Path) -> ToolOutput {
 
     // 3. Framework detection (presence-only)
     let frontend_framework = detect_from_markers(root, FRONTEND_MARKERS);
-    let mobile_framework   = detect_from_markers(root, MOBILE_MARKERS);
-    let data_framework     = detect_framework_data(root);
-    let infra_tool         = detect_from_markers(root, INFRA_MARKERS);
+    let mobile_framework = detect_from_markers(root, MOBILE_MARKERS);
+    let data_framework = detect_framework_data(root);
+    let infra_tool = detect_from_markers(root, INFRA_MARKERS);
 
     // 4. Monorepo detection
     let (is_monorepo, monorepo_tool) = detect_monorepo(root);
@@ -330,10 +357,7 @@ fn count_extensions(root: &Path, max_files: u32) -> (HashMap<String, u32>, u32) 
                 break;
             }
             let path = entry.path();
-            let file_name = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("");
+            let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
 
             if path.is_dir() {
                 if !SKIP_DIRS.contains(&file_name) {
@@ -380,13 +404,19 @@ fn detect_framework_data(root: &Path) -> Option<String> {
     // Check for ML-flavored requirements or pyproject
     if root.join("requirements.txt").exists() {
         if let Ok(content) = fs::read_to_string(root.join("requirements.txt")) {
-            if content.contains("torch") || content.contains("tensorflow") || content.contains("keras") {
+            if content.contains("torch")
+                || content.contains("tensorflow")
+                || content.contains("keras")
+            {
                 return Some("PyTorch/TensorFlow".to_string());
             }
             if content.contains("scikit-learn") || content.contains("sklearn") {
                 return Some("scikit-learn".to_string());
             }
-            if content.contains("fastapi") || content.contains("flask") || content.contains("django") {
+            if content.contains("fastapi")
+                || content.contains("flask")
+                || content.contains("django")
+            {
                 return None; // It's web, not data — let frontend_framework handle it
             }
         }
@@ -453,15 +483,23 @@ fn detect_sub_projects_recursive(
     max_depth: u32,
     result: &mut Vec<String>,
 ) {
-    if depth > max_depth { return; }
+    if depth > max_depth {
+        return;
+    }
     if depth == 0 {
         // Skip root itself; scan its children
         if let Ok(entries) = fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_dir() {
-                    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
-                    if SKIP_DIRS.contains(&name.as_str()) { continue; }
+                    let name = path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("")
+                        .to_string();
+                    if SKIP_DIRS.contains(&name.as_str()) {
+                        continue;
+                    }
                     detect_sub_projects_recursive(root, &path, 1, max_depth, result);
                 }
             }
@@ -483,8 +521,14 @@ fn detect_sub_projects_recursive(
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_dir() {
-                    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
-                    if SKIP_DIRS.contains(&name.as_str()) { continue; }
+                    let name = path
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("")
+                        .to_string();
+                    if SKIP_DIRS.contains(&name.as_str()) {
+                        continue;
+                    }
                     detect_sub_projects_recursive(root, &path, depth + 1, max_depth, result);
                 }
             }
@@ -496,10 +540,10 @@ fn detect_sub_projects_recursive(
 
 pub fn determine_project_scale(file_count: u32) -> String {
     match file_count {
-        0..=500       => "Small".to_string(),
-        501..=5_000   => "Medium".to_string(),
+        0..=500 => "Small".to_string(),
+        501..=5_000 => "Medium".to_string(),
         5_001..=50_000 => "Large".to_string(),
-        _              => "Enterprise".to_string(),
+        _ => "Enterprise".to_string(),
     }
 }
 
@@ -607,7 +651,9 @@ mod tests {
     fn primary_language_rust() {
         let tmp = TempDir::new().unwrap();
         let root = tmp.path();
-        for i in 0..5 { make_file(root, &format!("f{i}.rs")); }
+        for i in 0..5 {
+            make_file(root, &format!("f{i}.rs"));
+        }
         make_file(root, "one.go");
         let out = scan_language_intelligence(root);
         assert_eq!(out.primary_language.as_deref(), Some("Rust"));
@@ -617,9 +663,15 @@ mod tests {
     fn polyglot_detected_with_multiple_languages() {
         let tmp = TempDir::new().unwrap();
         let root = tmp.path();
-        for i in 0..3 { make_file(root, &format!("a{i}.rs")); }
-        for i in 0..3 { make_file(root, &format!("b{i}.go")); }
-        for i in 0..3 { make_file(root, &format!("c{i}.py")); }
+        for i in 0..3 {
+            make_file(root, &format!("a{i}.rs"));
+        }
+        for i in 0..3 {
+            make_file(root, &format!("b{i}.go"));
+        }
+        for i in 0..3 {
+            make_file(root, &format!("c{i}.py"));
+        }
         let out = scan_language_intelligence(root);
         assert_eq!(out.is_polyglot, Some(true));
     }
@@ -639,7 +691,11 @@ mod tests {
     fn detects_cargo_workspace() {
         let tmp = TempDir::new().unwrap();
         let root = tmp.path();
-        fs::write(root.join("Cargo.toml"), b"[workspace]\nmembers = [\"crates/*\"]\n").unwrap();
+        fs::write(
+            root.join("Cargo.toml"),
+            b"[workspace]\nmembers = [\"crates/*\"]\n",
+        )
+        .unwrap();
         let (is_mono, tool) = detect_monorepo(root);
         assert!(is_mono);
         assert_eq!(tool.as_deref(), Some("Cargo workspaces"));

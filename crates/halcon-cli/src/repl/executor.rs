@@ -2655,9 +2655,15 @@ mod tests {
         assert!(!is_transient_error("file not found: /tmp/missing.rs"));
         assert!(!is_transient_error("permission denied"));
         // HTTP 5xx gateway/overload errors are transient
-        assert!(is_transient_error("HTTP 502: request to https://api.example.com failed"));
-        assert!(is_transient_error("HTTP 503: request to https://api.example.com failed"));
-        assert!(is_transient_error("HTTP 504: request to https://api.example.com failed"));
+        assert!(is_transient_error(
+            "HTTP 502: request to https://api.example.com failed"
+        ));
+        assert!(is_transient_error(
+            "HTTP 503: request to https://api.example.com failed"
+        ));
+        assert!(is_transient_error(
+            "HTTP 504: request to https://api.example.com failed"
+        ));
         assert!(is_transient_error("503 Service Unavailable"));
         assert!(is_transient_error("502 Bad Gateway"));
         // HTTP client errors (4xx except 429) are NOT transient
@@ -2802,7 +2808,9 @@ mod tests {
         ));
         // OpenAI HTTP 502/503 (via load balancer)
         assert!(is_transient_error("502 Bad Gateway"));
-        assert!(is_transient_error("503 Service Unavailable — try again later"));
+        assert!(is_transient_error(
+            "503 Service Unavailable — try again later"
+        ));
         // OpenAI overloaded / capacity
         assert!(is_transient_error(
             "openai: overloaded — model capacity exceeded, retry recommended"
@@ -2815,9 +2823,7 @@ mod tests {
         assert!(!is_transient_error(
             "HTTP 400: invalid_request_error — model 'gpt-99' does not exist"
         ));
-        assert!(!is_transient_error(
-            "HTTP 401: Incorrect API key provided"
-        ));
+        assert!(!is_transient_error("HTTP 401: Incorrect API key provided"));
     }
 
     // ── S1: Unified is_error retry contract ─────────────────────────────────

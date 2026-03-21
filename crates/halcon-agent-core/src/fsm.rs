@@ -45,7 +45,10 @@ pub enum AgentState {
 impl AgentState {
     /// Returns `true` for states where no further transitions are valid.
     pub fn is_terminal(&self) -> bool {
-        matches!(self, AgentState::Terminating | AgentState::Converged | AgentState::Error(_))
+        matches!(
+            self,
+            AgentState::Terminating | AgentState::Converged | AgentState::Error(_)
+        )
     }
 
     /// Short lowercase label suitable for logging and metrics.
@@ -104,7 +107,10 @@ pub struct AgentFsm {
 impl AgentFsm {
     /// Create a new FSM starting in [`AgentState::Idle`].
     pub fn new() -> Self {
-        Self { state: AgentState::Idle, history: Vec::new() }
+        Self {
+            state: AgentState::Idle,
+            history: Vec::new(),
+        }
     }
 
     /// Current state (borrowed).
@@ -119,7 +125,10 @@ impl AgentFsm {
 
     /// Number of times the FSM has entered [`AgentState::Replanning`].
     pub fn replan_count(&self) -> usize {
-        self.history.iter().filter(|s| **s == AgentState::Replanning).count()
+        self.history
+            .iter()
+            .filter(|s| **s == AgentState::Replanning)
+            .count()
     }
 
     /// Total number of transitions recorded (length of history + 1 for current).
@@ -197,7 +206,7 @@ fn is_valid_transition(from: &AgentState, to: &AgentState) -> bool {
         // Verifying
         (AgentState::Verifying, AgentState::Converged) => true,
         (AgentState::Verifying, AgentState::Replanning) => true,
-        (AgentState::Verifying, AgentState::Executing) => true,  // continue without replan
+        (AgentState::Verifying, AgentState::Executing) => true, // continue without replan
         (AgentState::Verifying, AgentState::Terminating) => true,
         (AgentState::Verifying, AgentState::Error(_)) => true,
 
@@ -289,9 +298,14 @@ mod tests {
     #[test]
     fn label_not_empty_for_all_states() {
         let states = [
-            AgentState::Idle, AgentState::Planning, AgentState::Executing,
-            AgentState::Verifying, AgentState::Replanning, AgentState::Terminating,
-            AgentState::Converged, AgentState::Error("x".into()),
+            AgentState::Idle,
+            AgentState::Planning,
+            AgentState::Executing,
+            AgentState::Verifying,
+            AgentState::Replanning,
+            AgentState::Terminating,
+            AgentState::Converged,
+            AgentState::Error("x".into()),
         ];
         for s in &states {
             assert!(!s.label().is_empty());

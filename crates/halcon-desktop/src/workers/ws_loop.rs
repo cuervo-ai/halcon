@@ -6,8 +6,8 @@ use halcon_client::EventStream;
 use std::time::{Duration, Instant};
 use tokio::sync::mpsc;
 
-use super::{BackendMessage, RepaintFn};
 use super::ws_translator::translate_ws_event;
+use super::{BackendMessage, RepaintFn};
 
 /// Background task: receive WebSocket events and forward them as `BackendMessage`.
 ///
@@ -29,17 +29,17 @@ pub async fn run_ws_event_loop(
     // The five channels that were previously covered only by All are now explicit:
     // Tasks, Tools, Metrics, Protocols, System.
     let channels = vec![
-        WsChannel::Chat,        // ChatStreamToken, ThinkingProgress, ConversationCompleted, session lifecycle
+        WsChannel::Chat, // ChatStreamToken, ThinkingProgress, ConversationCompleted, session lifecycle
         WsChannel::Permissions, // PermissionRequired, PermissionResolved
-        WsChannel::Execution,   // ExecutionFailed
-        WsChannel::SubAgents,   // SubAgentStarted, SubAgentCompleted
-        WsChannel::Agents,      // AgentRegistered/Deregistered/HealthChanged/Invoked/Completed
-        WsChannel::Tasks,       // TaskSubmitted, TaskProgress, TaskCompleted
-        WsChannel::Tools,       // ToolExecuted
-        WsChannel::Logs,        // Log(LogEntry)
-        WsChannel::Metrics,     // Metric(MetricPoint)
-        WsChannel::Protocols,   // Protocol(ProtocolMessageInfo)
-        WsChannel::System,      // ConfigChanged, SystemHealthChanged, Error, Pong, Connected
+        WsChannel::Execution, // ExecutionFailed
+        WsChannel::SubAgents, // SubAgentStarted, SubAgentCompleted
+        WsChannel::Agents, // AgentRegistered/Deregistered/HealthChanged/Invoked/Completed
+        WsChannel::Tasks, // TaskSubmitted, TaskProgress, TaskCompleted
+        WsChannel::Tools, // ToolExecuted
+        WsChannel::Logs, // Log(LogEntry)
+        WsChannel::Metrics, // Metric(MetricPoint)
+        WsChannel::Protocols, // Protocol(ProtocolMessageInfo)
+        WsChannel::System, // ConfigChanged, SystemHealthChanged, Error, Pong, Connected
     ];
     if let Err(e) = stream.subscribe(channels) {
         tracing::warn!(error = %e, "WS subscribe failed");
@@ -74,12 +74,7 @@ pub async fn run_ws_event_loop(
     let mut dropped_total: u64 = 0;
 
     loop {
-        match tokio::time::timeout(
-            Duration::from_secs(KEEPALIVE_SECS),
-            stream.next_event(),
-        )
-        .await
-        {
+        match tokio::time::timeout(Duration::from_secs(KEEPALIVE_SECS), stream.next_event()).await {
             // ── Normal event — resets the zombie clock ───────────────────────
             Ok(Some(event)) => {
                 last_activity = Instant::now();
@@ -94,7 +89,10 @@ pub async fn run_ws_event_loop(
                             dropped_total
                         );
                     } else {
-                        tracing::trace!(dropped_total, "BackendMessage channel full; WS event dropped");
+                        tracing::trace!(
+                            dropped_total,
+                            "BackendMessage channel full; WS event dropped"
+                        );
                     }
                 }
                 (repaint)();
@@ -123,9 +121,8 @@ pub async fn run_ws_event_loop(
                         threshold_secs = ZOMBIE_THRESHOLD_SECS,
                         "WS zombie detected — no activity; declaring disconnect"
                     );
-                    let _ = msg_tx.try_send(BackendMessage::Disconnected(
-                        "heartbeat timeout".into(),
-                    ));
+                    let _ =
+                        msg_tx.try_send(BackendMessage::Disconnected("heartbeat timeout".into()));
                     (repaint)();
                     break;
                 }

@@ -112,10 +112,7 @@ impl AgentStateMachine {
         reason: Option<String>,
     ) -> Result<&StateTransition, String> {
         if !self.current.can_transition_to(to) {
-            return Err(format!(
-                "invalid transition: {} -> {}",
-                self.current, to,
-            ));
+            return Err(format!("invalid transition: {} -> {}", self.current, to,));
         }
         let transition = StateTransition {
             execution_id: self.execution_id,
@@ -159,9 +156,7 @@ mod tests {
     #[test]
     fn state_idle_to_executing() {
         let mut sm = AgentStateMachine::new(Uuid::new_v4());
-        assert!(sm
-            .transition(AgentState::Executing, 0, now(), None)
-            .is_ok());
+        assert!(sm.transition(AgentState::Executing, 0, now(), None).is_ok());
         assert_eq!(sm.current(), AgentState::Executing);
     }
 
@@ -169,9 +164,7 @@ mod tests {
     fn state_planning_to_executing() {
         let mut sm = AgentStateMachine::new(Uuid::new_v4());
         sm.transition(AgentState::Planning, 0, now(), None).unwrap();
-        assert!(sm
-            .transition(AgentState::Executing, 0, now(), None)
-            .is_ok());
+        assert!(sm.transition(AgentState::Executing, 0, now(), None).is_ok());
     }
 
     #[test]
@@ -179,9 +172,7 @@ mod tests {
         let mut sm = AgentStateMachine::new(Uuid::new_v4());
         sm.transition(AgentState::Executing, 0, now(), None)
             .unwrap();
-        assert!(sm
-            .transition(AgentState::ToolWait, 0, now(), None)
-            .is_ok());
+        assert!(sm.transition(AgentState::ToolWait, 0, now(), None).is_ok());
     }
 
     #[test]
@@ -189,9 +180,7 @@ mod tests {
         let mut sm = AgentStateMachine::new(Uuid::new_v4());
         sm.transition(AgentState::Executing, 0, now(), None)
             .unwrap();
-        assert!(sm
-            .transition(AgentState::Complete, 0, now(), None)
-            .is_ok());
+        assert!(sm.transition(AgentState::Complete, 0, now(), None).is_ok());
     }
 
     #[test]
@@ -232,9 +221,7 @@ mod tests {
         sm.transition(AgentState::ToolWait, 0, now(), None).unwrap();
         sm.transition(AgentState::Reflecting, 0, now(), None)
             .unwrap();
-        assert!(sm
-            .transition(AgentState::Executing, 1, now(), None)
-            .is_ok());
+        assert!(sm.transition(AgentState::Executing, 1, now(), None).is_ok());
     }
 
     #[test]
@@ -244,9 +231,7 @@ mod tests {
             .unwrap();
         sm.transition(AgentState::Reflecting, 0, now(), None)
             .unwrap();
-        assert!(sm
-            .transition(AgentState::Complete, 0, now(), None)
-            .is_ok());
+        assert!(sm.transition(AgentState::Complete, 0, now(), None).is_ok());
     }
 
     #[test]

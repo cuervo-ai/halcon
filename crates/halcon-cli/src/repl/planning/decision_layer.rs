@@ -56,86 +56,206 @@ pub(crate) struct TaskSignals {
 
 /// Action verb indicators for complexity estimation.
 const ACTION_VERBS: &[&str] = &[
-    "create", "write", "add", "implement", "build", "make",
-    "fix", "repair", "debug", "patch", "resolve",
-    "refactor", "restructure", "redesign", "rewrite",
-    "delete", "remove", "clean", "purge",
-    "test", "verify", "validate", "check", "audit",
-    "deploy", "publish", "release", "ship",
-    "analyze", "investigate", "review", "inspect", "explore",
-    "configure", "setup", "install",
+    "create",
+    "write",
+    "add",
+    "implement",
+    "build",
+    "make",
+    "fix",
+    "repair",
+    "debug",
+    "patch",
+    "resolve",
+    "refactor",
+    "restructure",
+    "redesign",
+    "rewrite",
+    "delete",
+    "remove",
+    "clean",
+    "purge",
+    "test",
+    "verify",
+    "validate",
+    "check",
+    "audit",
+    "deploy",
+    "publish",
+    "release",
+    "ship",
+    "analyze",
+    "investigate",
+    "review",
+    "inspect",
+    "explore",
+    "configure",
+    "setup",
+    "install",
     // Spanish — full stems (start_with match), not just full words, so conjugated
     // forms like "revisa", "revisando", "revision", "realiza", "realizó" all match.
-    "crear", "escribir", "agregar", "implementar", "construir",
-    "arreglar", "reparar", "depurar", "corregir",
-    "refactorizar", "reescribir",
-    "eliminar", "limpiar",
-    "probar", "verificar", "validar", "revisar", "auditar",
-    "desplegar", "publicar",
-    "analizar", "investigar", "explorar",
-    "configurar", "instalar",
+    "crear",
+    "escribir",
+    "agregar",
+    "implementar",
+    "construir",
+    "arreglar",
+    "reparar",
+    "depurar",
+    "corregir",
+    "refactorizar",
+    "reescribir",
+    "eliminar",
+    "limpiar",
+    "probar",
+    "verificar",
+    "validar",
+    "revisar",
+    "auditar",
+    "desplegar",
+    "publicar",
+    "analizar",
+    "investigar",
+    "explorar",
+    "configurar",
+    "instalar",
     // Spanish stems — matches conjugated/nominalized forms via starts_with prefix
     "revis",   // revisar, revisa, revisando, revision, revises
     "realiz",  // realizar, realiza, realizó, realización
     "identif", // identificar, identifica, identificación
-    "buscar", "busca", // buscar/busca (search)
-    "evaluar", "evalu", // evaluar, evalúa, evaluación
+    "buscar",
+    "busca", // buscar/busca (search)
+    "evaluar",
+    "evalu", // evaluar, evalúa, evaluación
 ];
 
 /// Domain indicators — each match counts as a separate domain.
 const DOMAIN_INDICATORS: &[(&str, &str)] = &[
-    ("file", "file_ops"), ("read", "file_ops"), ("write", "file_ops"),
-    ("edit", "file_ops"), ("create", "file_ops"),
-    ("refactor", "code_ops"), ("restructure", "code_ops"), ("rewrite", "code_ops"),
-    ("implement", "code_ops"), ("function", "code_ops"), ("module", "code_ops"),
-    ("git", "git"), ("commit", "git"), ("branch", "git"), ("push", "git"),
-    ("test", "testing"), ("spec", "testing"), ("coverage", "testing"),
-    ("lint", "quality"), ("format", "quality"), ("style", "quality"),
-    ("build", "build"), ("compile", "build"), ("cargo", "build"), ("npm", "build"),
-    ("deploy", "deploy"), ("docker", "deploy"), ("ci", "deploy"),
-    ("web", "web"), ("api", "web"), ("http", "web"), ("fetch", "web"),
-    ("database", "data"), ("sql", "data"), ("migration", "data"),
-    ("security", "security"), ("vulnerability", "security"), ("audit", "security"),
+    ("file", "file_ops"),
+    ("read", "file_ops"),
+    ("write", "file_ops"),
+    ("edit", "file_ops"),
+    ("create", "file_ops"),
+    ("refactor", "code_ops"),
+    ("restructure", "code_ops"),
+    ("rewrite", "code_ops"),
+    ("implement", "code_ops"),
+    ("function", "code_ops"),
+    ("module", "code_ops"),
+    ("git", "git"),
+    ("commit", "git"),
+    ("branch", "git"),
+    ("push", "git"),
+    ("test", "testing"),
+    ("spec", "testing"),
+    ("coverage", "testing"),
+    ("lint", "quality"),
+    ("format", "quality"),
+    ("style", "quality"),
+    ("build", "build"),
+    ("compile", "build"),
+    ("cargo", "build"),
+    ("npm", "build"),
+    ("deploy", "deploy"),
+    ("docker", "deploy"),
+    ("ci", "deploy"),
+    ("web", "web"),
+    ("api", "web"),
+    ("http", "web"),
+    ("fetch", "web"),
+    ("database", "data"),
+    ("sql", "data"),
+    ("migration", "data"),
+    ("security", "security"),
+    ("vulnerability", "security"),
+    ("audit", "security"),
     // Spanish
-    ("archivo", "file_ops"), ("leer", "file_ops"), ("escribir", "file_ops"),
-    ("refactorizar", "code_ops"), ("módulo", "code_ops"),
-    ("prueba", "testing"), ("cobertura", "testing"),
-    ("construir", "build"), ("compilar", "build"),
+    ("archivo", "file_ops"),
+    ("leer", "file_ops"),
+    ("escribir", "file_ops"),
+    ("refactorizar", "code_ops"),
+    ("módulo", "code_ops"),
+    ("prueba", "testing"),
+    ("cobertura", "testing"),
+    ("construir", "build"),
+    ("compilar", "build"),
     ("desplegar", "deploy"),
-    ("seguridad", "security"), ("vulnerabilidad", "security"),
+    ("seguridad", "security"),
+    ("vulnerabilidad", "security"),
     // Spanish code/review terms commonly absent from English lists
-    ("codigo", "code_ops"), ("código", "code_ops"),  // "código fuente"
-    ("fuente", "code_ops"),                           // "código fuente" / "fuentes"
-    ("brecha", "security"),                           // "brechas de seguridad"
-    ("revision", "quality"),                          // "revisión de código"
+    ("codigo", "code_ops"),
+    ("código", "code_ops"),  // "código fuente"
+    ("fuente", "code_ops"),  // "código fuente" / "fuentes"
+    ("brecha", "security"),  // "brechas de seguridad"
+    ("revision", "quality"), // "revisión de código"
     ("revisión", "quality"),
-    ("función", "code_ops"), ("funcion", "code_ops"),
-    ("error", "quality"), ("fallo", "quality"),
-    ("clase", "code_ops"), ("interfaz", "code_ops"),
+    ("función", "code_ops"),
+    ("funcion", "code_ops"),
+    ("error", "quality"),
+    ("fallo", "quality"),
+    ("clase", "code_ops"),
+    ("interfaz", "code_ops"),
 ];
 
 /// Multi-target indicators — suggests working across multiple files/components.
 const MULTI_TARGET_INDICATORS: &[&str] = &[
-    "all", "every", "each", "multiple", "several", "across", "throughout",
-    "project", "codebase", "repository", "repo",
-    "todos", "cada", "múltiples", "varios", "proyecto", "repositorio",
+    "all",
+    "every",
+    "each",
+    "multiple",
+    "several",
+    "across",
+    "throughout",
+    "project",
+    "codebase",
+    "repository",
+    "repo",
+    "todos",
+    "cada",
+    "múltiples",
+    "varios",
+    "proyecto",
+    "repositorio",
 ];
 
 /// Investigation indicators — suggests analysis before action.
 const INVESTIGATION_INDICATORS: &[&str] = &[
-    "find", "search", "discover", "identify", "locate", "determine",
-    "understand", "explain", "why", "how does", "how to", "what causes",
-    "analyze", "investigate", "diagnose", "profile", "benchmark",
-    "buscar", "encontrar", "identificar", "determinar",
-    "entender", "explicar", "por qué", "cómo",
-    "analizar", "investigar", "diagnosticar",
+    "find",
+    "search",
+    "discover",
+    "identify",
+    "locate",
+    "determine",
+    "understand",
+    "explain",
+    "why",
+    "how does",
+    "how to",
+    "what causes",
+    "analyze",
+    "investigate",
+    "diagnose",
+    "profile",
+    "benchmark",
+    "buscar",
+    "encontrar",
+    "identificar",
+    "determinar",
+    "entender",
+    "explicar",
+    "por qué",
+    "cómo",
+    "analizar",
+    "investigar",
+    "diagnosticar",
     // Additional Spanish investigation signals
-    "revision", "revisión",  // "hacer una revisión", "revisión de código"
-    "profund",               // "análisis profundo", "profundamente"
-    "avanzad",               // "análisis avanzado", "revisión avanzada"
-    "detall",                // "detallado", "en detalle"
-    "exhaustiv",             // "revisión exhaustiva"
-    "compr",                 // "comprensivo", "comprensión"
+    "revision",
+    "revisión",  // "hacer una revisión", "revisión de código"
+    "profund",   // "análisis profundo", "profundamente"
+    "avanzad",   // "análisis avanzado", "revisión avanzada"
+    "detall",    // "detallado", "en detalle"
+    "exhaustiv", // "revisión exhaustiva"
+    "compr",     // "comprensivo", "comprensión"
 ];
 
 /// Estimate task complexity from user message and available context.
@@ -154,7 +274,8 @@ fn extract_signals(message: &str, tool_count: usize) -> TaskSignals {
     let word_count = words.len();
 
     // Count distinct action verbs
-    let action_count = ACTION_VERBS.iter()
+    let action_count = ACTION_VERBS
+        .iter()
         .filter(|verb| words.iter().any(|w| w.starts_with(**verb)))
         .count();
 
@@ -168,11 +289,13 @@ fn extract_signals(message: &str, tool_count: usize) -> TaskSignals {
     let domain_count = domains.len();
 
     // Multi-target detection
-    let multi_target = MULTI_TARGET_INDICATORS.iter()
+    let multi_target = MULTI_TARGET_INDICATORS
+        .iter()
         .any(|ind| lower.contains(ind));
 
     // Investigation detection
-    let requires_investigation = INVESTIGATION_INDICATORS.iter()
+    let requires_investigation = INVESTIGATION_INDICATORS
+        .iter()
         .any(|ind| lower.contains(ind));
 
     TaskSignals {
@@ -253,7 +376,10 @@ mod tests {
 
     #[test]
     fn structured_bug_fix() {
-        let d = estimate_complexity("find the bug in the login function and fix it", &empty_tools());
+        let d = estimate_complexity(
+            "find the bug in the login function and fix it",
+            &empty_tools(),
+        );
         assert!(d.complexity >= TaskComplexity::StructuredTask);
         assert!(!d.use_orchestration);
     }
@@ -290,7 +416,10 @@ mod tests {
 
     #[test]
     fn spanish_investigation() {
-        let d = estimate_complexity("analizar y revisar la estructura del proyecto", &empty_tools());
+        let d = estimate_complexity(
+            "analizar y revisar la estructura del proyecto",
+            &empty_tools(),
+        );
         assert!(d.complexity >= TaskComplexity::StructuredTask);
     }
 

@@ -47,9 +47,13 @@ pub struct ComplexityTracker {
 
 impl ComplexityTracker {
     /// Create a new tracker with initial complexity classification.
-    pub fn new(complexity: TaskComplexity, expected_rounds: usize, policy: Arc<PolicyConfig>) -> Self {
+    pub fn new(
+        complexity: TaskComplexity,
+        expected_rounds: usize,
+        policy: Arc<PolicyConfig>,
+    ) -> Self {
         Self {
-            original_complexity: complexity.clone(),
+            original_complexity: complexity,
             current_complexity: complexity,
             expected_rounds: expected_rounds.max(1),
             already_upgraded: false,
@@ -73,17 +77,14 @@ impl ComplexityTracker {
 
         // Gate: no room to upgrade
         let next = next_complexity(&self.current_complexity);
-        let next = match next {
-            Some(n) => n,
-            None => return None, // already at LongHorizon
-        };
+        let next = next?;
 
         // Check: actual rounds significantly exceed expected
         let ratio = obs.rounds_used as f64 / self.expected_rounds as f64;
         if ratio < self.policy.complexity_upgrade_ratio {
             return Some(ComplexityAdjustment {
-                original: self.original_complexity.clone(),
-                adjusted: self.current_complexity.clone(),
+                original: self.original_complexity,
+                adjusted: self.current_complexity,
                 was_upgraded: false,
                 sla_refresh_needed: false,
                 confidence: 0.0,
@@ -95,8 +96,8 @@ impl ComplexityTracker {
         let confidence = compute_upgrade_confidence(obs, &self.current_complexity, ratio);
         if confidence < self.policy.complexity_confidence_threshold {
             return Some(ComplexityAdjustment {
-                original: self.original_complexity.clone(),
-                adjusted: self.current_complexity.clone(),
+                original: self.original_complexity,
+                adjusted: self.current_complexity,
                 was_upgraded: false,
                 sla_refresh_needed: false,
                 confidence,
@@ -105,11 +106,11 @@ impl ComplexityTracker {
         }
 
         // Upgrade!
-        self.current_complexity = next.clone();
+        self.current_complexity = next;
         self.already_upgraded = true;
 
         Some(ComplexityAdjustment {
-            original: self.original_complexity.clone(),
+            original: self.original_complexity,
             adjusted: next,
             was_upgraded: true,
             sla_refresh_needed: true,
@@ -203,22 +204,15 @@ mod tests {
 
     #[test]
     fn phase3_complexity_no_upgrade_below_min_rounds() {
-        let mut tracker = ComplexityTracker::new(
-            TaskComplexity::SimpleExecution,
-            5,
-            test_policy(),
-        );
+        let mut tracker = ComplexityTracker::new(TaskComplexity::SimpleExecution, 5, test_policy());
         let obs = basic_obs(2); // below min_rounds=3
         assert!(tracker.evaluate(&obs).is_none());
     }
 
     #[test]
     fn phase3_complexity_no_upgrade_below_ratio() {
-        let mut tracker = ComplexityTracker::new(
-            TaskComplexity::SimpleExecution,
-            10,
-            test_policy(),
-        );
+        let mut tracker =
+            ComplexityTracker::new(TaskComplexity::SimpleExecution, 10, test_policy());
         let obs = basic_obs(5); // ratio=0.5, below 1.5
         let adj = tracker.evaluate(&obs).unwrap();
         assert!(!adj.was_upgraded);
@@ -227,11 +221,7 @@ mod tests {
 
     #[test]
     fn phase3_complexity_upgrade_simple_to_structured() {
-        let mut tracker = ComplexityTracker::new(
-            TaskComplexity::SimpleExecution,
-            3,
-            test_policy(),
-        );
+        let mut tracker = ComplexityTracker::new(TaskComplexity::SimpleExecution, 3, test_policy());
         // ratio = 8/3 = 2.67 → triggers. Need high confidence too.
         let obs = ComplexityObservation {
             rounds_used: 8,
@@ -250,11 +240,7 @@ mod tests {
 
     #[test]
     fn phase3_complexity_single_upgrade_only() {
-        let mut tracker = ComplexityTracker::new(
-            TaskComplexity::SimpleExecution,
-            3,
-            test_policy(),
-        );
+        let mut tracker = ComplexityTracker::new(TaskComplexity::SimpleExecution, 3, test_policy());
         let obs = ComplexityObservation {
             rounds_used: 8,
             replans_triggered: 2,
@@ -274,22 +260,14 @@ mod tests {
 
     #[test]
     fn phase3_complexity_no_upgrade_at_long_horizon() {
-        let mut tracker = ComplexityTracker::new(
-            TaskComplexity::LongHorizon,
-            3,
-            test_policy(),
-        );
+        let mut tracker = ComplexityTracker::new(TaskComplexity::LongHorizon, 3, test_policy());
         let obs = basic_obs(10);
         assert!(tracker.evaluate(&obs).is_none());
     }
 
     #[test]
     fn phase3_complexity_confidence_below_threshold() {
-        let mut tracker = ComplexityTracker::new(
-            TaskComplexity::SimpleExecution,
-            3,
-            test_policy(),
-        );
+        let mut tracker = ComplexityTracker::new(TaskComplexity::SimpleExecution, 3, test_policy());
         // Ratio = 5/3 ≈ 1.67 → triggers ratio check
         // But minimal supporting signals → low confidence
         let obs = ComplexityObservation {
@@ -309,9 +287,18 @@ mod tests {
     #[test]
     fn phase3_complexity_upgrade_chain() {
         // Verify the upgrade chain: Simple → Structured → Multi → Long
-        assert!(matches!(next_complexity(&TaskComplexity::SimpleExecution), Some(TaskComplexity::StructuredTask)));
-        assert!(matches!(next_complexity(&TaskComplexity::StructuredTask), Some(TaskComplexity::MultiDomain)));
-        assert!(matches!(next_complexity(&TaskComplexity::MultiDomain), Some(TaskComplexity::LongHorizon)));
+        assert!(matches!(
+            next_complexity(&TaskComplexity::SimpleExecution),
+            Some(TaskComplexity::StructuredTask)
+        ));
+        assert!(matches!(
+            next_complexity(&TaskComplexity::StructuredTask),
+            Some(TaskComplexity::MultiDomain)
+        ));
+        assert!(matches!(
+            next_complexity(&TaskComplexity::MultiDomain),
+            Some(TaskComplexity::LongHorizon)
+        ));
         assert!(next_complexity(&TaskComplexity::LongHorizon).is_none());
     }
 
@@ -327,7 +314,10 @@ mod tests {
             tool_errors: 0,
         };
         let conf = compute_upgrade_confidence(&high_obs, &TaskComplexity::SimpleExecution, 3.0);
-        assert!(conf >= 0.70, "high-signal obs should have confidence ≥0.70, got {conf}");
+        assert!(
+            conf >= 0.70,
+            "high-signal obs should have confidence ≥0.70, got {conf}"
+        );
 
         let low_obs = ComplexityObservation {
             rounds_used: 5,
@@ -339,16 +329,15 @@ mod tests {
             tool_errors: 5,
         };
         let conf = compute_upgrade_confidence(&low_obs, &TaskComplexity::SimpleExecution, 1.6);
-        assert!(conf < 0.70, "low-signal obs should have confidence <0.70, got {conf}");
+        assert!(
+            conf < 0.70,
+            "low-signal obs should have confidence <0.70, got {conf}"
+        );
     }
 
     #[test]
     fn phase3_complexity_current_tracks_upgrade() {
-        let mut tracker = ComplexityTracker::new(
-            TaskComplexity::SimpleExecution,
-            3,
-            test_policy(),
-        );
+        let mut tracker = ComplexityTracker::new(TaskComplexity::SimpleExecution, 3, test_policy());
         assert!(matches!(tracker.current(), TaskComplexity::SimpleExecution));
 
         let obs = ComplexityObservation {

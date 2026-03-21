@@ -13,9 +13,8 @@ use std::collections::HashMap;
 use std::time::Duration;
 
 use super::{
-    HookEvent, HookEventName, HookOutcome, HookRunner,
     config::{HookDef, HookType, HooksConfig},
-    lifecycle_event, tool_event,
+    lifecycle_event, tool_event, HookEvent, HookEventName, HookOutcome, HookRunner,
 };
 
 // ── HookRunner construction ───────────────────────────────────────────────────
@@ -29,7 +28,10 @@ fn disabled_runner_always_allows() {
 
 #[test]
 fn runner_with_no_definitions_has_no_hooks() {
-    let config = HooksConfig { enabled: true, definitions: vec![] };
+    let config = HooksConfig {
+        enabled: true,
+        definitions: vec![],
+    };
     let runner = HookRunner::new(config);
     assert!(!runner.has_hooks_for(HookEventName::PreToolUse));
 }
@@ -195,7 +197,7 @@ async fn runner_skips_non_matching_tool() {
         enabled: true,
         definitions: vec![HookDef {
             event: HookEventName::PreToolUse,
-            matcher: "bash".to_string(),  // Only bash
+            matcher: "bash".to_string(), // Only bash
             hook_type: HookType::Rhai,
             command: None,
             script: Some(r#"deny("denied");"#.to_string()),
@@ -218,7 +220,7 @@ async fn runner_skips_non_matching_tool() {
 async fn runner_disabled_flag_blocks_all_hooks() {
     // enabled=false master switch: even with a deny hook, nothing fires.
     let config = HooksConfig {
-        enabled: false,  // Master kill switch OFF
+        enabled: false, // Master kill switch OFF
         definitions: vec![HookDef {
             event: HookEventName::PreToolUse,
             matcher: "*".to_string(),
@@ -283,11 +285,7 @@ fn fase2_catastrophic_patterns_independent_of_hook_outcome() {
     assert!(matches!(hook_outcome, HookOutcome::Allow));
 
     // CATASTROPHIC_PATTERNS still block the command — independently.
-    let dangerous_commands = [
-        "rm -rf /",
-        "rm -rf /*",
-        "mkfs.ext4 /dev/sda",
-    ];
+    let dangerous_commands = ["rm -rf /", "rm -rf /*", "mkfs.ext4 /dev/sda"];
 
     for cmd in &dangerous_commands {
         let is_blocked = CATASTROPHIC_PATTERNS.iter().any(|pattern| {

@@ -60,8 +60,7 @@ fn load_manifest(path: &PathBuf) -> Result<UsersManifest> {
     }
     let content = std::fs::read_to_string(path)
         .with_context(|| format!("Failed to read {}", path.display()))?;
-    toml::from_str(&content)
-        .with_context(|| format!("Failed to parse {}", path.display()))
+    toml::from_str(&content).with_context(|| format!("Failed to parse {}", path.display()))
 }
 
 fn save_manifest(path: &PathBuf, manifest: &UsersManifest) -> Result<()> {
@@ -69,10 +68,8 @@ fn save_manifest(path: &PathBuf, manifest: &UsersManifest) -> Result<()> {
         std::fs::create_dir_all(parent)
             .with_context(|| format!("Failed to create directory {}", parent.display()))?;
     }
-    let content = toml::to_string_pretty(manifest)
-        .context("Failed to serialize users manifest")?;
-    std::fs::write(path, content)
-        .with_context(|| format!("Failed to write {}", path.display()))
+    let content = toml::to_string_pretty(manifest).context("Failed to serialize users manifest")?;
+    std::fs::write(path, content).with_context(|| format!("Failed to write {}", path.display()))
 }
 
 /// `halcon users add --email <email> --role <role>`
@@ -84,10 +81,11 @@ pub fn add(email: &str, role_str: &str) -> Result<()> {
 }
 
 fn add_with_path(email: &str, role_str: &str, path: &PathBuf) -> Result<()> {
-    let role = Role::from_str(role_str)
-        .ok_or_else(|| anyhow::anyhow!(
+    let role = Role::from_str(role_str).ok_or_else(|| {
+        anyhow::anyhow!(
             "Unknown role '{role_str}'. Valid roles: Admin, Developer, ReadOnly, AuditViewer"
-        ))?;
+        )
+    })?;
 
     let mut manifest = load_manifest(path)?;
 
@@ -126,7 +124,7 @@ fn list_with_path(path: &PathBuf) -> Result<()> {
         return Ok(());
     }
 
-    println!("{:<35} {:<15} {:<8} {}", "Email", "Role", "Active", "Added At");
+    println!("{:<35} {:<15} {:<8} Added At", "Email", "Role", "Active");
     println!("{}", "─".repeat(90));
 
     let mut users: Vec<&UserRecord> = manifest.users.values().collect();
@@ -134,7 +132,10 @@ fn list_with_path(path: &PathBuf) -> Result<()> {
 
     for user in users {
         let active = if user.active { "yes" } else { "no" };
-        println!("{:<35} {:<15} {:<8} {}", user.email, user.role, active, user.added_at);
+        println!(
+            "{:<35} {:<15} {:<8} {}",
+            user.email, user.role, active, user.added_at
+        );
     }
 
     println!("\n{} user(s) total.", manifest.users.len());
@@ -151,7 +152,9 @@ pub fn revoke(email: &str) -> Result<()> {
 fn revoke_with_path(email: &str, path: &PathBuf) -> Result<()> {
     let mut manifest = load_manifest(path)?;
 
-    let user = manifest.users.get_mut(email)
+    let user = manifest
+        .users
+        .get_mut(email)
         .ok_or_else(|| anyhow::anyhow!("User '{email}' not found."))?;
 
     if !user.active {

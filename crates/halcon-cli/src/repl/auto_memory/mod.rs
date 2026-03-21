@@ -116,7 +116,10 @@ fn classify_trigger_snapshot(snapshot: &MemoryResultSnapshot) -> Option<MemoryTr
     if !snapshot.tool_trust_failures.is_empty() {
         return Some(MemoryTrigger::ErrorRecovery);
     }
-    if matches!(snapshot.stop_condition, crate::repl::agent_types::StopCondition::EndTurn) {
+    if matches!(
+        snapshot.stop_condition,
+        crate::repl::agent_types::StopCondition::EndTurn
+    ) {
         if let Some(ref v) = snapshot.critic_verdict {
             if v.achieved && v.confidence >= 0.6 {
                 return Some(MemoryTrigger::TaskSuccess);
@@ -143,12 +146,21 @@ fn score_snapshot(snapshot: &MemoryResultSnapshot, trigger: &MemoryTrigger) -> f
         MemoryTrigger::TaskSuccess => score += 0.2,
     }
     if let Some(ref v) = snapshot.critic_verdict {
-        if v.achieved { score += 0.1 + v.confidence * 0.2; }
+        if v.achieved {
+            score += 0.1 + v.confidence * 0.2;
+        }
     }
-    if snapshot.rounds >= 5 { score += 0.1; }
+    if snapshot.rounds >= 5 {
+        score += 0.1;
+    }
     let distinct: std::collections::HashSet<_> = snapshot.tools_executed.iter().collect();
-    if distinct.len() >= 3 { score += 0.1; }
-    if matches!(snapshot.stop_condition, crate::repl::agent_types::StopCondition::EndTurn) {
+    if distinct.len() >= 3 {
+        score += 0.1;
+    }
+    if matches!(
+        snapshot.stop_condition,
+        crate::repl::agent_types::StopCondition::EndTurn
+    ) {
         score += 0.05;
     }
     score.clamp(0.0, 1.0)
@@ -172,29 +184,57 @@ fn build_summary_from_snapshot(
     let one_liner = match &trigger {
         MemoryTrigger::UserCorrection => format!("user correction during: {goal_excerpt}"),
         MemoryTrigger::ErrorRecovery => {
-            let tools: Vec<&str> = snapshot.tool_trust_failures.iter().map(|f| f.tool_name.as_str()).collect();
-            format!("recovered from {} failure(s) [{}] during: {goal_excerpt}", tools.len(), tools.join(", "))
+            let tools: Vec<&str> = snapshot
+                .tool_trust_failures
+                .iter()
+                .map(|f| f.tool_name.as_str())
+                .collect();
+            format!(
+                "recovered from {} failure(s) [{}] during: {goal_excerpt}",
+                tools.len(),
+                tools.join(", ")
+            )
         }
         MemoryTrigger::ToolPatternDiscovered => {
             let distinct: std::collections::HashSet<_> = snapshot.tools_executed.iter().collect();
             let sample: Vec<_> = distinct.into_iter().take(3).collect();
-            format!("effective tool pattern [{}] for: {goal_excerpt}", sample.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", "))
+            format!(
+                "effective tool pattern [{}] for: {goal_excerpt}",
+                sample
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
         }
         MemoryTrigger::TaskSuccess => {
             format!(
                 "{} rounds, critic={} during: {goal_excerpt}",
                 snapshot.rounds,
-                snapshot.critic_verdict.as_ref().map(|v| v.achieved).unwrap_or(false),
+                snapshot
+                    .critic_verdict
+                    .as_ref()
+                    .map(|v| v.achieved)
+                    .unwrap_or(false),
             )
         }
     };
 
     let details = match &trigger {
         MemoryTrigger::ErrorRecovery => {
-            let lines: Vec<String> = snapshot.tool_trust_failures.iter()
+            let lines: Vec<String> = snapshot
+                .tool_trust_failures
+                .iter()
                 .map(|f| format!("- `{}` failed {} time(s)", f.tool_name, f.failure_count))
                 .collect();
-            if lines.is_empty() { None } else { Some(format!("**Tool failures recovered:**\n\n{}", lines.join("\n"))) }
+            if lines.is_empty() {
+                None
+            } else {
+                Some(format!(
+                    "**Tool failures recovered:**\n\n{}",
+                    lines.join("\n")
+                ))
+            }
         }
         MemoryTrigger::ToolPatternDiscovered => {
             let mut sorted: Vec<_> = snapshot.tools_executed.iter().collect();
@@ -204,14 +244,31 @@ fn build_summary_from_snapshot(
             Some(format!("**Tools used:**\n\n{}", lines.join("\n")))
         }
         MemoryTrigger::TaskSuccess => {
-            let achieved = snapshot.critic_verdict.as_ref().map(|v| v.achieved).unwrap_or(false);
-            let conf = snapshot.critic_verdict.as_ref().map(|v| v.confidence).unwrap_or(0.0);
-            Some(format!("**Session stats:** rounds={}, critic_achieved={achieved}, confidence={conf:.2}", snapshot.rounds))
+            let achieved = snapshot
+                .critic_verdict
+                .as_ref()
+                .map(|v| v.achieved)
+                .unwrap_or(false);
+            let conf = snapshot
+                .critic_verdict
+                .as_ref()
+                .map(|v| v.confidence)
+                .unwrap_or(0.0);
+            Some(format!(
+                "**Session stats:** rounds={}, critic_achieved={achieved}, confidence={conf:.2}",
+                snapshot.rounds
+            ))
         }
         MemoryTrigger::UserCorrection => None,
     };
 
-    SessionSummary { timestamp, trigger_tag, importance, one_liner, details }
+    SessionSummary {
+        timestamp,
+        trigger_tag,
+        importance,
+        one_liner,
+        details,
+    }
 }
 
 /// Memory write trigger classification.
@@ -349,14 +406,22 @@ fn build_summary(
             let sample: Vec<_> = distinct.into_iter().take(3).collect();
             format!(
                 "effective tool pattern [{tools}] for: {goal_excerpt}",
-                tools = sample.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(", ")
+                tools = sample
+                    .iter()
+                    .map(|s| s.as_str())
+                    .collect::<Vec<_>>()
+                    .join(", ")
             )
         }
         MemoryTrigger::TaskSuccess => {
             format!(
                 "{rounds} rounds, critic={achieved} during: {goal_excerpt}",
                 rounds = result.rounds,
-                achieved = result.critic_verdict.as_ref().map(|v| v.achieved).unwrap_or(false),
+                achieved = result
+                    .critic_verdict
+                    .as_ref()
+                    .map(|v| v.achieved)
+                    .unwrap_or(false),
             )
         }
     };
@@ -383,7 +448,10 @@ fn build_details(result: &AgentLoopResult, trigger: &MemoryTrigger) -> Option<St
             if lines.is_empty() {
                 None
             } else {
-                Some(format!("**Tool failures recovered:**\n\n{}", lines.join("\n")))
+                Some(format!(
+                    "**Tool failures recovered:**\n\n{}",
+                    lines.join("\n")
+                ))
             }
         }
         MemoryTrigger::ToolPatternDiscovered => {
@@ -394,8 +462,16 @@ fn build_details(result: &AgentLoopResult, trigger: &MemoryTrigger) -> Option<St
             Some(format!("**Tools used:**\n\n{}", lines.join("\n")))
         }
         MemoryTrigger::TaskSuccess => {
-            let achieved = result.critic_verdict.as_ref().map(|v| v.achieved).unwrap_or(false);
-            let confidence = result.critic_verdict.as_ref().map(|v| v.confidence).unwrap_or(0.0);
+            let achieved = result
+                .critic_verdict
+                .as_ref()
+                .map(|v| v.achieved)
+                .unwrap_or(false);
+            let confidence = result
+                .critic_verdict
+                .as_ref()
+                .map(|v| v.confidence)
+                .unwrap_or(0.0);
             Some(format!(
                 "**Session stats:** rounds={}, critic_achieved={achieved}, confidence={confidence:.2}",
                 result.rounds,
@@ -474,7 +550,13 @@ mod tests {
 
         let result = base_result();
         let policy = policy_with_auto_memory(false, 0.3);
-        record_session(&result, "test goal", dir.path().to_str().unwrap(), "repo", &policy);
+        record_session(
+            &result,
+            "test goal",
+            dir.path().to_str().unwrap(),
+            "repo",
+            &policy,
+        );
 
         let memory = halcon.join("memory").join("MEMORY.md");
         assert!(!memory.exists(), "no memory file when feature disabled");
@@ -494,7 +576,13 @@ mod tests {
         result.critic_verdict = None;
 
         let policy = policy_with_auto_memory(true, 0.3);
-        record_session(&result, "goal", dir.path().to_str().unwrap(), "repo", &policy);
+        record_session(
+            &result,
+            "goal",
+            dir.path().to_str().unwrap(),
+            "repo",
+            &policy,
+        );
 
         // No trigger classified → no write
         let memory = halcon.join("memory").join("MEMORY.md");
@@ -516,13 +604,21 @@ mod tests {
         });
 
         let policy = policy_with_auto_memory(true, 0.1); // low threshold to ensure write
-        record_session(&result, "analyse security audit", dir.path().to_str().unwrap(), "repo", &policy);
+        record_session(
+            &result,
+            "analyse security audit",
+            dir.path().to_str().unwrap(),
+            "repo",
+            &policy,
+        );
 
         let memory = halcon.join("memory").join("MEMORY.md");
         assert!(memory.exists(), "MEMORY.md should be created");
         let content = fs::read_to_string(&memory).unwrap();
-        assert!(content.contains("TaskSuccess") || content.contains("ToolPatternDiscovered"),
-            "should contain a trigger tag: {content}");
+        assert!(
+            content.contains("TaskSuccess") || content.contains("ToolPatternDiscovered"),
+            "should contain a trigger tag: {content}"
+        );
     }
 
     #[test]
@@ -534,7 +630,10 @@ mod tests {
             summary.one_liner.len() <= 200,
             "one-liner should not be excessively long"
         );
-        assert!(summary.one_liner.contains('…'), "should contain ellipsis for truncated goal");
+        assert!(
+            summary.one_liner.contains('…'),
+            "should contain ellipsis for truncated goal"
+        );
     }
 
     #[test]
@@ -542,6 +641,9 @@ mod tests {
         assert_eq!(MemoryTrigger::ErrorRecovery.to_string(), "ErrorRecovery");
         assert_eq!(MemoryTrigger::UserCorrection.to_string(), "UserCorrection");
         assert_eq!(MemoryTrigger::TaskSuccess.to_string(), "TaskSuccess");
-        assert_eq!(MemoryTrigger::ToolPatternDiscovered.to_string(), "ToolPatternDiscovered");
+        assert_eq!(
+            MemoryTrigger::ToolPatternDiscovered.to_string(),
+            "ToolPatternDiscovered"
+        );
     }
 }

@@ -74,7 +74,7 @@ pub const DRIFT_THRESHOLD: f32 = 0.20;
 pub const MAX_PENDING_EVENTS: usize = 256;
 
 /// UCB1 exploration constant c = √2 ≈ 1.414.
-const UCB1_C: f32 = 1.414_213_5_f32;
+const UCB1_C: f32 = std::f32::consts::SQRT_2;
 
 /// Number of distinct TaskType variants (must match PrototypeStore::type_to_idx).
 pub const TASK_TYPE_COUNT: usize = 9;
@@ -742,7 +742,11 @@ impl DynamicPrototypeStore {
         // Centroids from a different engine have incompatible dimensions and are discarded.
         let engine_dims = {
             let v = store.engine.embed("probe");
-            if v.is_empty() { 0 } else { v.len() }
+            if v.is_empty() {
+                0
+            } else {
+                v.len()
+            }
         };
 
         for record in snapshot.prototypes {

@@ -54,14 +54,17 @@ mod tests {
             1.0,
             Some(r#"{"round":1}"#.to_string()),
             "agent_loop",
-        ).unwrap();
+        )
+        .unwrap();
     }
 
     #[test]
     fn insert_runtime_metric_sync_dedup() {
         let db = Database::open_in_memory().unwrap();
         // Two inserts with different metric_ids should both succeed (OR IGNORE on PK).
-        db.insert_runtime_metric_sync("m", "gauge", 1.0, None, "svc").unwrap();
-        db.insert_runtime_metric_sync("m", "gauge", 2.0, None, "svc").unwrap();
+        db.insert_runtime_metric_sync("m", "gauge", 1.0, None, "svc")
+            .unwrap();
+        db.insert_runtime_metric_sync("m", "gauge", 2.0, None, "svc")
+            .unwrap();
     }
 }

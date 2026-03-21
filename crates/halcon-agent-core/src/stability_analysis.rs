@@ -75,7 +75,11 @@ pub struct LyapunovCoefficients {
 
 impl Default for LyapunovCoefficients {
     fn default() -> Self {
-        Self { alpha: 0.5, beta: 0.3, gamma: 0.2 }
+        Self {
+            alpha: 0.5,
+            beta: 0.3,
+            gamma: 0.2,
+        }
     }
 }
 
@@ -252,7 +256,11 @@ mod tests {
     fn lyapunov_near_one_at_worst_state() {
         let v = compute_lyapunov(&LyapunovPoint::worst(), &coeffs());
         // V = 0.5×1 + 0.3×1 + 0.2×1 = 1.0
-        assert!((v - 1.0).abs() < 1e-9, "V should be 1.0 at worst state, got {}", v);
+        assert!(
+            (v - 1.0).abs() < 1e-9,
+            "V should be 1.0 at worst state, got {}",
+            v
+        );
     }
 
     #[test]
@@ -271,7 +279,12 @@ mod tests {
         let p2 = LyapunovPoint::new(0.7, 0.2, 0.1);
         let v1 = compute_lyapunov(&p1, &c);
         let v2 = compute_lyapunov(&p2, &c);
-        assert!(v2 < v1, "V should decrease when GAS improves: v1={} v2={}", v1, v2);
+        assert!(
+            v2 < v1,
+            "V should decrease when GAS improves: v1={} v2={}",
+            v1,
+            v2
+        );
     }
 
     #[test]
@@ -295,15 +308,22 @@ mod tests {
         let mut tracker = LyapunovTracker::default_coeffs();
         tracker.record(&LyapunovPoint::new(0.9, 0.1, 0.05));
         let dv = tracker.record(&LyapunovPoint::new(0.2, 0.5, 0.3)).unwrap();
-        assert!(dv > 0.0, "ΔV should be positive when system degrades, got {}", dv);
+        assert!(
+            dv > 0.0,
+            "ΔV should be positive when system degrades, got {}",
+            dv
+        );
     }
 
     #[test]
     fn stable_regime_mean_delta_v_nonpositive() {
         // I-7.3: mean ΔV ≤ 0 under stable regime
         let (_tracker, mean_dv) = simulate_stable_regime(10_000);
-        assert!(mean_dv <= 0.0,
-            "mean ΔV should be ≤ 0 in stable regime, got {:.6}", mean_dv);
+        assert!(
+            mean_dv <= 0.0,
+            "mean ΔV should be ≤ 0 in stable regime, got {:.6}",
+            mean_dv
+        );
     }
 
     #[test]
@@ -321,7 +341,10 @@ mod tests {
     #[test]
     fn lyapunov_coefficients_valid() {
         let c = LyapunovCoefficients::default();
-        assert!(c.is_valid(), "default coefficients should be valid (sum=1.0)");
+        assert!(
+            c.is_valid(),
+            "default coefficients should be valid (sum=1.0)"
+        );
     }
 
     #[test]

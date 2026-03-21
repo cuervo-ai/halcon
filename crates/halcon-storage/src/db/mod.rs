@@ -13,12 +13,12 @@ mod episodes;
 mod loop_events_repo;
 mod memories;
 mod metrics_repo;
+pub mod model_quality;
 pub mod palette_optimization;
 pub mod permissions;
-pub mod plugins;
 mod plans;
+pub mod plugins;
 mod policies;
-pub mod model_quality;
 pub mod reasoning;
 mod resilience_repo;
 mod runtime_metrics;
@@ -72,7 +72,10 @@ impl Database {
     where
         F: FnOnce(&Connection) -> rusqlite::Result<T>,
     {
-        let conn = self.conn.lock().unwrap_or_else(|p| { tracing::error!("db mutex poisoned — recovering"); p.into_inner() });
+        let conn = self.conn.lock().unwrap_or_else(|p| {
+            tracing::error!("db mutex poisoned — recovering");
+            p.into_inner()
+        });
         f(&conn)
     }
 }

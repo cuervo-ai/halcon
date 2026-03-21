@@ -341,17 +341,11 @@ mod tests {
     fn outcome_trigger_labels() {
         assert_eq!(RoundOutcome::Success.trigger_label(), "success");
         assert_eq!(
-            RoundOutcome::Partial {
-                failures: vec![]
-            }
-            .trigger_label(),
+            RoundOutcome::Partial { failures: vec![] }.trigger_label(),
             "partial"
         );
         assert_eq!(
-            RoundOutcome::Failure {
-                error: "x".into()
-            }
-            .trigger_label(),
+            RoundOutcome::Failure { error: "x".into() }.trigger_label(),
             "failure"
         );
     }
@@ -398,7 +392,8 @@ mod tests {
             advice: String,
         }
 
-        let json = r#"{"analysis": "The file path was wrong", "advice": "Check path exists first"}"#;
+        let json =
+            r#"{"analysis": "The file path was wrong", "advice": "Check path exists first"}"#;
         let parsed: ReflectionJson = serde_json::from_str(json).unwrap();
         assert_eq!(parsed.analysis, "The file path was wrong");
         assert_eq!(parsed.advice, "Check path exists first");

@@ -318,9 +318,12 @@ impl ArimaPredictor {
         }
 
         let mean = self.residuals.iter().sum::<f64>() / self.residuals.len() as f64;
-        let variance = self.residuals.iter()
+        let variance = self
+            .residuals
+            .iter()
             .map(|r| (r - mean).powi(2))
-            .sum::<f64>() / self.residuals.len() as f64;
+            .sum::<f64>()
+            / self.residuals.len() as f64;
 
         variance.sqrt()
     }
@@ -370,8 +373,10 @@ impl ResourcePredictor {
         output_tokens: u64,
         cost: f64,
     ) {
-        self.input_token_predictor.add_observation(round, input_tokens as f64);
-        self.output_token_predictor.add_observation(round, output_tokens as f64);
+        self.input_token_predictor
+            .add_observation(round, input_tokens as f64);
+        self.output_token_predictor
+            .add_observation(round, output_tokens as f64);
         self.cost_predictor.add_observation(round, cost);
 
         // Fit if this is the first time we have sufficient data
@@ -455,7 +460,8 @@ impl ResourcePrediction {
     pub(crate) fn total_tokens_mean(&self) -> Option<f64> {
         match (&self.input_tokens, &self.output_tokens) {
             (Some(input), Some(output)) => {
-                let total: f64 = input.iter()
+                let total: f64 = input
+                    .iter()
                     .zip(output.iter())
                     .map(|((_, i_mean, _), (_, o_mean, _))| i_mean + o_mean)
                     .sum();
@@ -467,9 +473,9 @@ impl ResourcePrediction {
 
     /// Get total predicted cost for horizon.
     pub(crate) fn total_cost_mean(&self) -> Option<f64> {
-        self.cost.as_ref().map(|predictions| {
-            predictions.iter().map(|(_, mean, _)| mean).sum()
-        })
+        self.cost
+            .as_ref()
+            .map(|predictions| predictions.iter().map(|(_, mean, _)| mean).sum())
     }
 
     /// Check if budget will be exceeded within horizon.
@@ -581,7 +587,12 @@ mod tests {
 
         // Add observations
         for round in 1..=10 {
-            predictor.observe(round, 1000 + round as u64 * 100, 500 + round as u64 * 50, 0.01 * round as f64);
+            predictor.observe(
+                round,
+                1000 + round as u64 * 100,
+                500 + round as u64 * 50,
+                0.01 * round as f64,
+            );
         }
 
         assert!(predictor.is_ready());
@@ -628,7 +639,11 @@ mod tests {
             horizon: 3,
             input_tokens: None,
             output_tokens: None,
-            cost: Some(vec![(0.01, 0.02, 0.03), (0.02, 0.03, 0.04), (0.03, 0.04, 0.05)]),
+            cost: Some(vec![
+                (0.01, 0.02, 0.03),
+                (0.02, 0.03, 0.04),
+                (0.03, 0.04, 0.05),
+            ]),
         };
 
         let total = prediction.total_cost_mean().unwrap();

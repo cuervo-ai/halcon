@@ -1,0 +1,52 @@
+# Validation build: halcon Linux ARM64 + smoke test
+# .dockerignore excludes target/ so context is lean (<200MB)
+
+FROM rust:1.85-alpine AS builder
+
+RUN apk add --no-cache \
+    musl-dev \
+    perl \
+    make \
+    cmake \
+    gcc \
+    git \
+    pkgconfig \
+    openssl-dev \
+    openssl-libs-static \
+    dbus-dev \
+    linux-headers
+
+WORKDIR /src
+COPY . .
+
+ENV LIBGIT2_SYS_USE_PKG_CONFIG=0 \
+    LIBGIT2_STATIC=1 \
+    OPENSSL_STATIC=1 \
+    OPENSSL_NO_VENDOR=1 \
+    OPENSSL_DIR=/usr \
+    CARGO_PROFILE_RELEASE_LTO=thin
+
+RUN cargo build --release \
+    --no-default-features \
+    --features "headless,vendored-openssl" \
+    -p halcon-cli 2>&1 | tail -10
+
+RUN strip target/release/halcon && \
+    ls -lh target/release/halcon && echo "Build OK"
+
+# ── Smoke test ────────────────────────────────────────────────────────────────
+FROM alpine:3.21 AS smoketest
+
+COPY --from=builder /src/target/release/halcon /usr/local/bin/halcon
+
+RUN file /usr/local/bin/halcon && ls -lh /usr/local/bin/halcon
+
+RUN halcon --version
+
+RUN halcon auth status 2>&1 || true
+
+RUN halcon --help 2>&1 | head -20
+
+RUN halcon auth --help 2>&1 | head -10
+
+RUN printf "\n✅ SMOKE TEST PASSED — halcon %s Linux\n" "$(halcon --version | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"

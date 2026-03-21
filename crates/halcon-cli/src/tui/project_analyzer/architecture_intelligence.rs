@@ -6,11 +6,7 @@
 //! All detection uses only file *presence* and simple string-contains checks
 //! on small config files — never AST parsing or heavyweight analysis.
 
-use std::{
-    collections::HashSet,
-    fs,
-    path::Path,
-};
+use std::{collections::HashSet, fs, path::Path};
 
 use super::tools::{ProjectContext, ToolOutput};
 
@@ -28,13 +24,17 @@ fn detect_microservices(root: &Path) -> bool {
             }
         }
     }
-    if dockerfile_dirs >= 2 { return true; }
+    if dockerfile_dirs >= 2 {
+        return true;
+    }
 
     // docker-compose with 3+ services hints at microservices
     let compose_content = read_compose(root);
     if let Some(c) = &compose_content {
         let service_count = c.matches("image:").count() + c.matches("build:").count();
-        if service_count >= 3 { return true; }
+        if service_count >= 3 {
+            return true;
+        }
     }
 
     false
@@ -44,12 +44,23 @@ fn detect_event_driven(root: &Path) -> bool {
     let compose = read_compose(root);
     if let Some(c) = &compose {
         for kw in &["kafka", "rabbitmq", "nats", "pulsar", "redis", "activemq"] {
-            if c.to_lowercase().contains(kw) { return true; }
+            if c.to_lowercase().contains(kw) {
+                return true;
+            }
         }
     }
     // Check for event-related directory names
-    for name in &["events", "messages", "queue", "consumers", "producers", "handlers"] {
-        if root.join(name).is_dir() { return true; }
+    for name in &[
+        "events",
+        "messages",
+        "queue",
+        "consumers",
+        "producers",
+        "handlers",
+    ] {
+        if root.join(name).is_dir() {
+            return true;
+        }
     }
     false
 }
@@ -81,7 +92,9 @@ fn detect_message_broker(root: &Path) -> Option<String> {
             ("pulsar", "Pulsar"),
             ("activemq", "ActiveMQ"),
         ] {
-            if c_low.contains(kw) { return Some(name.to_string()); }
+            if c_low.contains(kw) {
+                return Some(name.to_string());
+            }
         }
     }
     None
@@ -104,7 +117,7 @@ fn detect_observability_stack(root: &Path) -> bool {
     let obs_markers = [
         "prometheus.yml",
         "prometheus.yaml",
-        "grafana",        // directory
+        "grafana", // directory
         "jaeger-config.yml",
         "otel-collector-config.yaml",
         ".otel",
@@ -126,7 +139,7 @@ fn detect_api_gateway(root: &Path) -> bool {
         "traefik.yaml",
         "kong.yml",
         "kong.yaml",
-        "gateway",      // directory named "gateway"
+        "gateway", // directory named "gateway"
         "api-gateway",
     ];
     gw_markers.iter().any(|f| root.join(f).exists())
@@ -154,7 +167,12 @@ fn count_distributed_services(root: &Path) -> u32 {
 // ─── Helper: read docker-compose ──────────────────────────────────────────────
 
 fn read_compose(root: &Path) -> Option<String> {
-    for name in &["docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"] {
+    for name in &[
+        "docker-compose.yml",
+        "docker-compose.yaml",
+        "compose.yml",
+        "compose.yaml",
+    ] {
         let p = root.join(name);
         if p.exists() {
             return fs::read_to_string(p).ok();
@@ -171,23 +189,43 @@ pub fn compute_architecture_quality_score(ctx: &ProjectContext) -> u8 {
 
     // Explicit architecture patterns are positive signals
     let patterns = &ctx.architecture_patterns;
-    if patterns.contains(&"DDD".to_string())       { score += 15; }
-    if patterns.contains(&"Hexagonal".to_string())  { score += 15; }
-    if patterns.contains(&"CQRS".to_string())       { score += 10; }
-    if patterns.contains(&"Microservices".to_string()) { score += 5; }
+    if patterns.contains(&"DDD".to_string()) {
+        score += 15;
+    }
+    if patterns.contains(&"Hexagonal".to_string()) {
+        score += 15;
+    }
+    if patterns.contains(&"CQRS".to_string()) {
+        score += 10;
+    }
+    if patterns.contains(&"Microservices".to_string()) {
+        score += 5;
+    }
 
     // Clean project structure indicators
-    if ctx.has_tests           { score += 10; }
-    if ctx.has_security_policy { score += 5; }
-    if ctx.has_audit_config    { score += 5; }
-    if ctx.has_ci              { score += 5; }
+    if ctx.has_tests {
+        score += 10;
+    }
+    if ctx.has_security_policy {
+        score += 5;
+    }
+    if ctx.has_audit_config {
+        score += 5;
+    }
+    if ctx.has_ci {
+        score += 5;
+    }
 
     // Circular deps are a negative
-    if ctx.has_circular_deps { score -= 20; }
+    if ctx.has_circular_deps {
+        score -= 20;
+    }
 
     // Complexity penalty
     if let Some(c) = ctx.complexity_score {
-        if c > 80 { score -= 10; }
+        if c > 80 {
+            score -= 10;
+        }
     }
 
     score.clamp(0, 100) as u8
@@ -197,21 +235,43 @@ pub fn compute_architecture_quality_score(ctx: &ProjectContext) -> u8 {
 pub fn compute_scalability_score(ctx: &ProjectContext) -> u8 {
     let mut score: i32 = 40;
 
-    if ctx.has_docker              { score += 20; }
-    if ctx.has_message_broker      { score += 15; }
-    if ctx.has_service_mesh        { score += 10; }
-    if ctx.has_api_gateway         { score += 10; }
-    if ctx.has_observability_stack { score += 5; }
-    if ctx.distributed_services_count >= 3 { score += 10; }
+    if ctx.has_docker {
+        score += 20;
+    }
+    if ctx.has_message_broker {
+        score += 15;
+    }
+    if ctx.has_service_mesh {
+        score += 10;
+    }
+    if ctx.has_api_gateway {
+        score += 10;
+    }
+    if ctx.has_observability_stack {
+        score += 5;
+    }
+    if ctx.distributed_services_count >= 3 {
+        score += 10;
+    }
 
     // K8s / Terraform readiness
-    if ctx.tool_has_kubectl   { score += 5; }
-    if ctx.tool_has_terraform { score += 5; }
-    if ctx.tool_has_helm      { score += 5; }
+    if ctx.tool_has_kubectl {
+        score += 5;
+    }
+    if ctx.tool_has_terraform {
+        score += 5;
+    }
+    if ctx.tool_has_helm {
+        score += 5;
+    }
 
     // Large projects that lack Docker are penalised
-    if !ctx.has_docker && ctx.project_scale == "Large" { score -= 10; }
-    if !ctx.has_docker && ctx.project_scale == "Enterprise" { score -= 15; }
+    if !ctx.has_docker && ctx.project_scale == "Large" {
+        score -= 10;
+    }
+    if !ctx.has_docker && ctx.project_scale == "Enterprise" {
+        score -= 15;
+    }
 
     score.clamp(0, 100) as u8
 }
@@ -220,26 +280,44 @@ pub fn compute_scalability_score(ctx: &ProjectContext) -> u8 {
 pub fn compute_maintainability_score(ctx: &ProjectContext) -> u8 {
     let mut score: i32 = 40;
 
-    if ctx.has_tests           { score += 20; }
-    if ctx.has_ci              { score += 15; }
-    if ctx.has_readme          { score += 10; }
-    if ctx.has_security_policy { score += 5; }
-    if ctx.has_audit_config    { score += 5; }
+    if ctx.has_tests {
+        score += 20;
+    }
+    if ctx.has_ci {
+        score += 15;
+    }
+    if ctx.has_readme {
+        score += 10;
+    }
+    if ctx.has_security_policy {
+        score += 5;
+    }
+    if ctx.has_audit_config {
+        score += 5;
+    }
 
     // Coverage estimate bonus
     if let Some(cov) = ctx.test_coverage_est {
-        if cov >= 80      { score += 15; }
-        else if cov >= 50 { score += 8; }
-        else if cov >= 20 { score += 3; }
+        if cov >= 80 {
+            score += 15;
+        } else if cov >= 50 {
+            score += 8;
+        } else if cov >= 20 {
+            score += 3;
+        }
     }
 
     // Bus-factor penalty
     if let Some(bf) = ctx.bus_factor {
-        if bf == 1 { score -= 10; }
+        if bf == 1 {
+            score -= 10;
+        }
     }
 
     // Circular deps hurt maintainability
-    if ctx.has_circular_deps { score -= 15; }
+    if ctx.has_circular_deps {
+        score -= 15;
+    }
 
     score.clamp(0, 100) as u8
 }
@@ -248,24 +326,42 @@ pub fn compute_maintainability_score(ctx: &ProjectContext) -> u8 {
 pub fn compute_technical_debt_score(ctx: &ProjectContext) -> u8 {
     let mut debt: i32 = 0;
 
-    if !ctx.has_tests           { debt += 20; }
-    if !ctx.has_ci              { debt += 15; }
-    if ctx.has_circular_deps    { debt += 25; }
-    if !ctx.has_security_policy { debt += 10; }
-    if !ctx.has_readme          { debt += 5; }
+    if !ctx.has_tests {
+        debt += 20;
+    }
+    if !ctx.has_ci {
+        debt += 15;
+    }
+    if ctx.has_circular_deps {
+        debt += 25;
+    }
+    if !ctx.has_security_policy {
+        debt += 10;
+    }
+    if !ctx.has_readme {
+        debt += 5;
+    }
 
     if let Some(cov) = ctx.test_coverage_est {
-        if cov < 20 { debt += 15; }
-        else if cov < 50 { debt += 8; }
+        if cov < 20 {
+            debt += 15;
+        } else if cov < 50 {
+            debt += 8;
+        }
     }
 
     if let Some(c) = ctx.complexity_score {
-        if c > 80 { debt += 15; }
-        else if c > 60 { debt += 8; }
+        if c > 80 {
+            debt += 15;
+        } else if c > 60 {
+            debt += 8;
+        }
     }
 
     if let Some(bf) = ctx.bus_factor {
-        if bf == 1 { debt += 10; }
+        if bf == 1 {
+            debt += 10;
+        }
     }
 
     debt.clamp(0, 100) as u8
@@ -275,23 +371,47 @@ pub fn compute_technical_debt_score(ctx: &ProjectContext) -> u8 {
 pub fn compute_dev_ex_score(ctx: &ProjectContext) -> u8 {
     let mut score: i32 = 40;
 
-    if ctx.has_ci       { score += 15; }
-    if ctx.has_docker   { score += 10; }
-    if ctx.has_readme   { score += 10; }
-    if ctx.has_tests    { score += 10; }
+    if ctx.has_ci {
+        score += 15;
+    }
+    if ctx.has_docker {
+        score += 10;
+    }
+    if ctx.has_readme {
+        score += 10;
+    }
+    if ctx.has_tests {
+        score += 10;
+    }
 
     // Good version control signals
-    if ctx.branch.is_some()               { score += 5; }
-    if ctx.commit_velocity_per_week.map(|v| v > 1.0).unwrap_or(false) { score += 5; }
+    if ctx.branch.is_some() {
+        score += 5;
+    }
+    if ctx
+        .commit_velocity_per_week
+        .map(|v| v > 1.0)
+        .unwrap_or(false)
+    {
+        score += 5;
+    }
 
     // IDE integration
-    if ctx.ide_detected.is_some()    { score += 5; }
-    if ctx.ide_lsp_connected         { score += 5; }
-    if ctx.agent_orchestration_on    { score += 5; }
+    if ctx.ide_detected.is_some() {
+        score += 5;
+    }
+    if ctx.ide_lsp_connected {
+        score += 5;
+    }
+    if ctx.agent_orchestration_on {
+        score += 5;
+    }
 
     // Bus factor risk hurts DX
     if let Some(bf) = ctx.bus_factor {
-        if bf == 1 { score -= 10; }
+        if bf == 1 {
+            score -= 10;
+        }
     }
 
     score.clamp(0, 100) as u8
@@ -302,26 +422,50 @@ pub fn compute_ai_readiness_score(ctx: &ProjectContext) -> u8 {
     let mut score: i32 = 30;
 
     // Agent capabilities
-    if ctx.agent_reasoning_enabled  { score += 15; }
-    if ctx.agent_orchestration_on   { score += 10; }
-    if ctx.agent_multimodal_on      { score += 5; }
-    if ctx.agent_plugin_system_on   { score += 5; }
-    if ctx.agent_hicon_active       { score += 5; }
-    if !ctx.agent_mcp_servers.is_empty() { score += 5; }
-    if ctx.agent_plugins_loaded > 0 { score += 5; }
+    if ctx.agent_reasoning_enabled {
+        score += 15;
+    }
+    if ctx.agent_orchestration_on {
+        score += 10;
+    }
+    if ctx.agent_multimodal_on {
+        score += 5;
+    }
+    if ctx.agent_plugin_system_on {
+        score += 5;
+    }
+    if ctx.agent_hicon_active {
+        score += 5;
+    }
+    if !ctx.agent_mcp_servers.is_empty() {
+        score += 5;
+    }
+    if ctx.agent_plugins_loaded > 0 {
+        score += 5;
+    }
 
     // Good project hygiene aids AI understanding
-    if ctx.has_tests           { score += 5; }
-    if ctx.has_readme          { score += 5; }
-    if ctx.has_ci              { score += 5; }
+    if ctx.has_tests {
+        score += 5;
+    }
+    if ctx.has_readme {
+        score += 5;
+    }
+    if ctx.has_ci {
+        score += 5;
+    }
 
     // Complexity penalty
     if let Some(c) = ctx.complexity_score {
-        if c > 80 { score -= 10; }
+        if c > 80 {
+            score -= 10;
+        }
     }
 
     // Data/AI framework is a positive signal
-    if ctx.data_framework.is_some()   { score += 5; }
+    if ctx.data_framework.is_some() {
+        score += 5;
+    }
 
     score.clamp(0, 100) as u8
 }
@@ -330,21 +474,42 @@ pub fn compute_ai_readiness_score(ctx: &ProjectContext) -> u8 {
 pub fn compute_distributed_maturity_score(ctx: &ProjectContext) -> u8 {
     let mut score: i32 = 10;
 
-    if ctx.has_docker              { score += 15; }
-    if ctx.has_message_broker      { score += 15; }
-    if ctx.has_service_mesh        { score += 15; }
-    if ctx.has_observability_stack { score += 20; }
-    if ctx.has_api_gateway         { score += 10; }
-    if ctx.has_ci                  { score += 10; }
-    if ctx.has_security_policy     { score += 5; }
+    if ctx.has_docker {
+        score += 15;
+    }
+    if ctx.has_message_broker {
+        score += 15;
+    }
+    if ctx.has_service_mesh {
+        score += 15;
+    }
+    if ctx.has_observability_stack {
+        score += 20;
+    }
+    if ctx.has_api_gateway {
+        score += 10;
+    }
+    if ctx.has_ci {
+        score += 10;
+    }
+    if ctx.has_security_policy {
+        score += 5;
+    }
 
     // K8s tooling
-    if ctx.tool_has_kubectl   { score += 5; }
-    if ctx.tool_has_helm      { score += 5; }
+    if ctx.tool_has_kubectl {
+        score += 5;
+    }
+    if ctx.tool_has_helm {
+        score += 5;
+    }
 
     // Scale matters
-    if ctx.project_scale == "Enterprise" { score += 10; }
-    else if ctx.project_scale == "Large" { score += 5; }
+    if ctx.project_scale == "Enterprise" {
+        score += 10;
+    } else if ctx.project_scale == "Large" {
+        score += 5;
+    }
 
     score.clamp(0, 100) as u8
 }
@@ -379,23 +544,38 @@ pub fn suggest_agent_configuration(ctx: &ProjectContext) -> AgentSuggestion {
     if is_enterprise || is_distributed || is_complex || is_complex_monorepo || is_polyglot_complex {
         flags.push("--full".to_string());
         flags.push("--expert".to_string());
-        if is_enterprise       { reasons.push("enterprise scale project"); }
-        if is_distributed      { reasons.push("distributed architecture detected"); }
-        if is_complex          { reasons.push("complex architecture patterns"); }
-        if is_complex_monorepo { reasons.push("large monorepo with many sub-projects"); }
-        if is_polyglot_complex { reasons.push("polyglot repository"); }
+        if is_enterprise {
+            reasons.push("enterprise scale project");
+        }
+        if is_distributed {
+            reasons.push("distributed architecture detected");
+        }
+        if is_complex {
+            reasons.push("complex architecture patterns");
+        }
+        if is_complex_monorepo {
+            reasons.push("large monorepo with many sub-projects");
+        }
+        if is_polyglot_complex {
+            reasons.push("polyglot repository");
+        }
     }
 
     // Deep reasoning for architectural complexity
-    let activate_reasoning_deep = is_enterprise || is_distributed || is_complex
-        || is_complex_monorepo || ctx.architecture_quality_score < 50;
+    let activate_reasoning_deep = is_enterprise
+        || is_distributed
+        || is_complex
+        || is_complex_monorepo
+        || ctx.architecture_quality_score < 50;
 
     // Multimodal for data/AI or if images might be relevant
     let activate_multimodal = ctx.data_framework.is_some()
         || ctx.primary_language == "Python"
         || ctx.primary_language == "R"
         || ctx.primary_language == "Julia";
-    if activate_multimodal { reasons.push("Data/AI project — multimodal analysis useful"); }
+    if activate_multimodal {
+        reasons.push("Data/AI project — multimodal analysis useful");
+    }
 
     // Fast mode for small/simple projects
     let use_fast_mode = ctx.project_scale == "Small"
@@ -452,11 +632,21 @@ fn scan_architecture_intelligence(root: &Path) -> ToolOutput {
     // Pattern detection
     let mut patterns: HashSet<String> = HashSet::new();
 
-    if detect_microservices(root)  { patterns.insert("Microservices".to_string()); }
-    if detect_event_driven(root)   { patterns.insert("Event-Driven".to_string()); }
-    if detect_cqrs(root)           { patterns.insert("CQRS".to_string()); }
-    if detect_ddd(root)            { patterns.insert("DDD".to_string()); }
-    if detect_hexagonal(root)      { patterns.insert("Hexagonal".to_string()); }
+    if detect_microservices(root) {
+        patterns.insert("Microservices".to_string());
+    }
+    if detect_event_driven(root) {
+        patterns.insert("Event-Driven".to_string());
+    }
+    if detect_cqrs(root) {
+        patterns.insert("CQRS".to_string());
+    }
+    if detect_ddd(root) {
+        patterns.insert("DDD".to_string());
+    }
+    if detect_hexagonal(root) {
+        patterns.insert("Hexagonal".to_string());
+    }
 
     let architecture_patterns: Vec<String> = {
         let mut v: Vec<String> = patterns.into_iter().collect();
@@ -529,7 +719,8 @@ mod tests {
         fs::write(
             root.join("docker-compose.yml"),
             b"services:\n  kafka:\n    image: confluentinc/cp-kafka\n",
-        ).unwrap();
+        )
+        .unwrap();
         assert!(detect_event_driven(root));
     }
 
@@ -696,7 +887,10 @@ mod tests {
     fn distributed_maturity_zero_for_bare_project() {
         let ctx = ProjectContext::default();
         let score = compute_distributed_maturity_score(&ctx);
-        assert!(score <= 20, "Expected low distributed maturity, got {score}");
+        assert!(
+            score <= 20,
+            "Expected low distributed maturity, got {score}"
+        );
     }
 
     // ── Phase 119: Auto-mode suggestions ──────────────────────────────────────
@@ -770,7 +964,8 @@ mod tests {
         fs::write(
             root.join("docker-compose.yml"),
             b"services:\n  kafka:\n    image: confluentinc/cp-kafka:latest\n",
-        ).unwrap();
+        )
+        .unwrap();
         let broker = detect_message_broker(root);
         assert_eq!(broker.as_deref(), Some("Kafka"));
     }
@@ -782,7 +977,8 @@ mod tests {
         fs::write(
             root.join("docker-compose.yml"),
             b"services:\n  rabbitmq:\n    image: rabbitmq:3-management\n",
-        ).unwrap();
+        )
+        .unwrap();
         let broker = detect_message_broker(root);
         assert_eq!(broker.as_deref(), Some("RabbitMQ"));
     }

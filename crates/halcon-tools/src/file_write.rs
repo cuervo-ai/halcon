@@ -62,10 +62,7 @@ impl Tool for FileWriteTool {
             if meta.is_symlink() {
                 return Err(HalconError::ToolExecutionFailed {
                     tool: "file_write".into(),
-                    message: format!(
-                        "refusing to write through symlink: {}",
-                        resolved.display()
-                    ),
+                    message: format!("refusing to write through symlink: {}", resolved.display()),
                 });
             }
         }

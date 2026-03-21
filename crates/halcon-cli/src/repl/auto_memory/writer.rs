@@ -100,11 +100,7 @@ fn format_index_entry(summary: &SessionSummary) -> String {
     };
     format!(
         "- [{}] {} ({:.2}) — {}{}",
-        summary.timestamp,
-        summary.trigger_tag,
-        summary.importance,
-        summary.one_liner,
-        link_suffix,
+        summary.timestamp, summary.trigger_tag, summary.importance, summary.one_liner, link_suffix,
     )
 }
 
@@ -116,10 +112,7 @@ fn enforce_index_cap(content: String, max_lines: usize) -> String {
 
     // Find the first entry line (starts with "- [") to begin LRU eviction from.
     // Header lines (# ..., blank, <!-- ... -->) are preserved.
-    let first_entry_idx = lines
-        .iter()
-        .position(|l| l.starts_with("- ["))
-        .unwrap_or(4); // fallback: skip first 4 lines
+    let first_entry_idx = lines.iter().position(|l| l.starts_with("- [")).unwrap_or(4); // fallback: skip first 4 lines
 
     let excess = lines.len().saturating_sub(max_lines);
     // Remove `excess` lines starting from `first_entry_idx`.
@@ -222,7 +215,12 @@ mod tests {
     use super::*;
     use tempfile::TempDir;
 
-    fn make_summary(tag: &str, importance: f32, one_liner: &str, details: Option<&str>) -> SessionSummary {
+    fn make_summary(
+        tag: &str,
+        importance: f32,
+        one_liner: &str,
+        details: Option<&str>,
+    ) -> SessionSummary {
         SessionSummary {
             timestamp: "2026-03-08T12:00Z".to_string(),
             trigger_tag: tag.to_string(),
@@ -238,7 +236,12 @@ mod tests {
         let halcon = dir.path().join(".halcon");
         fs::create_dir(&halcon).unwrap();
 
-        let summary = make_summary("ErrorRecovery", 0.72, "used directory_tree to recover", Some("detail text"));
+        let summary = make_summary(
+            "ErrorRecovery",
+            0.72,
+            "used directory_tree to recover",
+            Some("detail text"),
+        );
         write_project_memory(&halcon, &summary);
 
         let content = fs::read_to_string(halcon.join("memory").join("MEMORY.md")).unwrap();
@@ -253,7 +256,12 @@ mod tests {
         let halcon = dir.path().join(".halcon");
         fs::create_dir(&halcon).unwrap();
 
-        let summary = make_summary("ErrorRecovery", 0.72, "path error recovery", Some("- paths were wrong\n- used glob first"));
+        let summary = make_summary(
+            "ErrorRecovery",
+            0.72,
+            "path error recovery",
+            Some("- paths were wrong\n- used glob first"),
+        );
         write_project_memory(&halcon, &summary);
 
         let topic = halcon.join("memory").join("errors.md");
@@ -279,7 +287,9 @@ mod tests {
     fn index_cap_evicts_oldest_entries() {
         let content = format!(
             "# Agent Memory\n\n<!-- header -->\n\n{}",
-            (0..200).map(|i| format!("- [ts] Tag (0.5) — entry {i}\n")).collect::<String>()
+            (0..200)
+                .map(|i| format!("- [ts] Tag (0.5) — entry {i}\n"))
+                .collect::<String>()
         );
         let capped = enforce_index_cap(content, 180);
         let lines: Vec<&str> = capped.lines().collect();

@@ -234,8 +234,9 @@ impl ManagedProcess {
         }
 
         let factory = self.factory.clone();
-        let mut last_err =
-            HalconError::ProviderUnavailable { provider: "claude_code".into() };
+        let mut last_err = HalconError::ProviderUnavailable {
+            provider: "claude_code".into(),
+        };
 
         for attempt in 0..=self.max_retries {
             if attempt > 0 {
@@ -294,7 +295,10 @@ impl ManagedProcess {
         };
 
         self.state = ProtocolState::Draining;
-        debug!("claude-code: draining pending response (timeout={}s)", self.drain_timeout.as_secs());
+        debug!(
+            "claude-code: draining pending response (timeout={}s)",
+            self.drain_timeout.as_secs()
+        );
 
         let deadline = Instant::now() + self.drain_timeout;
         let mut timed_out = false;
@@ -346,10 +350,12 @@ impl ManagedProcess {
         let req_id = self.next_id();
         let line = control_request_set_model(model, req_id);
 
-        let transport = self
-            .transport
-            .as_mut()
-            .ok_or_else(|| HalconError::ProviderUnavailable { provider: "claude_code".into() })?;
+        let transport =
+            self.transport
+                .as_mut()
+                .ok_or_else(|| HalconError::ProviderUnavailable {
+                    provider: "claude_code".into(),
+                })?;
 
         transport.send_line(&line).await?;
 
@@ -423,10 +429,12 @@ impl ManagedProcess {
         ndjson: &str,
         request_timeout: Duration,
     ) -> Result<Vec<ModelChunk>> {
-        let transport = self
-            .transport
-            .as_mut()
-            .ok_or_else(|| HalconError::ProviderUnavailable { provider: "claude_code".into() })?;
+        let transport =
+            self.transport
+                .as_mut()
+                .ok_or_else(|| HalconError::ProviderUnavailable {
+                    provider: "claude_code".into(),
+                })?;
 
         transport.send_line(ndjson).await?;
         self.state = ProtocolState::AwaitingResponse;
@@ -494,29 +502,33 @@ impl ManagedProcess {
             // When Claude Code CLI is not in --dangerously-skip-permissions mode,
             // it sends control_request { subtype: "can_use_tool" } before each tool.
             // We must respond immediately or the subprocess blocks and times out.
-            if let NdjsonChunk::ControlRequest { ref request_id, ref request } = chunk {
+            if let NdjsonChunk::ControlRequest {
+                ref request_id,
+                ref request,
+            } = chunk
+            {
                 let response_line = match request {
-                    NdjsonIncomingRequest::CanUseTool { tool_use_id, input, .. } => {
-                        match self.tool_permission_policy {
-                            ToolPermissionPolicy::AllowAll => {
-                                debug!(
-                                    tool_use_id = %tool_use_id,
-                                    "claude-code: allowing can_use_tool (AllowAll policy)"
-                                );
-                                control_response_allow_tool(request_id, tool_use_id, input)
-                            }
-                            ToolPermissionPolicy::DenyAll => {
-                                warn!(
-                                    tool_use_id = %tool_use_id,
-                                    "claude-code: denying can_use_tool (DenyAll policy)"
-                                );
-                                control_response_deny_tool(
-                                    request_id,
-                                    "Tool use denied by halcon policy",
-                                )
-                            }
+                    NdjsonIncomingRequest::CanUseTool {
+                        tool_use_id, input, ..
+                    } => match self.tool_permission_policy {
+                        ToolPermissionPolicy::AllowAll => {
+                            debug!(
+                                tool_use_id = %tool_use_id,
+                                "claude-code: allowing can_use_tool (AllowAll policy)"
+                            );
+                            control_response_allow_tool(request_id, tool_use_id, input)
                         }
-                    }
+                        ToolPermissionPolicy::DenyAll => {
+                            warn!(
+                                tool_use_id = %tool_use_id,
+                                "claude-code: denying can_use_tool (DenyAll policy)"
+                            );
+                            control_response_deny_tool(
+                                request_id,
+                                "Tool use denied by halcon policy",
+                            )
+                        }
+                    },
                     NdjsonIncomingRequest::Unknown => {
                         // Unknown subtype — respond with a generic deny to unblock the subprocess.
                         debug!(
@@ -711,7 +723,9 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(chunks.iter().any(|c| matches!(c, ModelChunk::TextDelta(t) if t == "done")));
+        assert!(chunks
+            .iter()
+            .any(|c| matches!(c, ModelChunk::TextDelta(t) if t == "done")));
         assert!(chunks.iter().any(|c| matches!(c, ModelChunk::Done(_))));
     }
 
@@ -749,8 +763,12 @@ mod tests {
             .unwrap();
 
         // Expect: TextDelta + Usage + Done
-        let has_text = chunks.iter().any(|c| matches!(c, ModelChunk::TextDelta(t) if t.contains("hello world")));
-        let has_done = chunks.iter().any(|c| matches!(c, ModelChunk::Done(StopReason::EndTurn)));
+        let has_text = chunks
+            .iter()
+            .any(|c| matches!(c, ModelChunk::TextDelta(t) if t.contains("hello world")));
+        let has_done = chunks
+            .iter()
+            .any(|c| matches!(c, ModelChunk::Done(StopReason::EndTurn)));
         assert!(has_text, "missing TextDelta");
         assert!(has_done, "missing Done");
     }
@@ -766,7 +784,9 @@ mod tests {
             .await
             .unwrap();
 
-        assert!(chunks.iter().any(|c| matches!(c, ModelChunk::Error(e) if e.contains("auth failed"))));
+        assert!(chunks
+            .iter()
+            .any(|c| matches!(c, ModelChunk::Error(e) if e.contains("auth failed"))));
     }
 
     // ── Multiple requests ─────────────────────────────────────────────────────
@@ -779,11 +799,21 @@ mod tests {
 
         let mut mgd = managed_with_mock(mock);
 
-        let r1 = mgd.execute_request("req1", Duration::from_secs(5)).await.unwrap();
-        assert!(r1.iter().any(|c| matches!(c, ModelChunk::TextDelta(t) if t.contains("first"))));
+        let r1 = mgd
+            .execute_request("req1", Duration::from_secs(5))
+            .await
+            .unwrap();
+        assert!(r1
+            .iter()
+            .any(|c| matches!(c, ModelChunk::TextDelta(t) if t.contains("first"))));
 
-        let r2 = mgd.execute_request("req2", Duration::from_secs(5)).await.unwrap();
-        assert!(r2.iter().any(|c| matches!(c, ModelChunk::TextDelta(t) if t.contains("second"))));
+        let r2 = mgd
+            .execute_request("req2", Duration::from_secs(5))
+            .await
+            .unwrap();
+        assert!(r2
+            .iter()
+            .any(|c| matches!(c, ModelChunk::TextDelta(t) if t.contains("second"))));
     }
 
     // ── Drain ─────────────────────────────────────────────────────────────────
@@ -860,7 +890,9 @@ mod tests {
         let mut mgd = managed_with_mock(mock);
 
         assert_eq!(mgd.state, ProtocolState::Idle);
-        mgd.execute_request("req", Duration::from_secs(5)).await.unwrap();
+        mgd.execute_request("req", Duration::from_secs(5))
+            .await
+            .unwrap();
         assert_eq!(mgd.state, ProtocolState::Idle); // back to Idle after result
         assert!(!mgd.needs_drain);
     }
@@ -880,7 +912,9 @@ mod tests {
         // Factory always fails, transport starts dead.
         let factory: RespawnFactory = Arc::new(|| {
             Box::pin(async {
-                Err(HalconError::ProviderUnavailable { provider: "claude_code".into() })
+                Err(HalconError::ProviderUnavailable {
+                    provider: "claude_code".into(),
+                })
             })
         });
         let mut mgd = ManagedProcess::new(factory, "default", Duration::from_secs(1));
@@ -918,7 +952,9 @@ mod tests {
     fn spawn_count_starts_at_zero_lazy() {
         let factory: RespawnFactory = Arc::new(|| {
             Box::pin(async {
-                Err(HalconError::ProviderUnavailable { provider: "claude_code".into() })
+                Err(HalconError::ProviderUnavailable {
+                    provider: "claude_code".into(),
+                })
             })
         });
         let mgd = ManagedProcess::new(factory, "model", Duration::from_secs(5));

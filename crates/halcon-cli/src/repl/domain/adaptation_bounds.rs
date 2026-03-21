@@ -201,19 +201,27 @@ impl AdaptationBoundsChecker {
     pub fn usage_fraction(&self, channel: AdaptationChannel) -> f64 {
         match channel {
             AdaptationChannel::StructuralReplan => {
-                if self.policy.max_structural_replans == 0 { return 1.0; }
+                if self.policy.max_structural_replans == 0 {
+                    return 1.0;
+                }
                 self.replans_used as f64 / self.policy.max_structural_replans as f64
             }
             AdaptationChannel::StrategyMutation => {
-                if self.policy.max_strategy_mutations == 0 { return 1.0; }
+                if self.policy.max_strategy_mutations == 0 {
+                    return 1.0;
+                }
                 self.mutations_used as f64 / self.policy.max_strategy_mutations as f64
             }
             AdaptationChannel::SensitivityShift => {
-                if self.policy.max_sensitivity_shift <= 0.0 { return 1.0; }
+                if self.policy.max_sensitivity_shift <= 0.0 {
+                    return 1.0;
+                }
                 self.sensitivity_shift_used / self.policy.max_sensitivity_shift
             }
             AdaptationChannel::ModelDowngrade => {
-                if self.policy.max_model_downgrades == 0 { return 1.0; }
+                if self.policy.max_model_downgrades == 0 {
+                    return 1.0;
+                }
                 self.downgrades_used as f64 / self.policy.max_model_downgrades as f64
             }
         }
@@ -246,7 +254,9 @@ mod tests {
     #[test]
     fn phase4_bounds_replan_exhausted() {
         let mut checker = make_checker();
-        for _ in 0..4 { checker.try_replan(); }
+        for _ in 0..4 {
+            checker.try_replan();
+        }
         assert!(checker.is_exhausted(AdaptationChannel::StructuralReplan));
     }
 
@@ -272,7 +282,10 @@ mod tests {
         assert!(checker.try_sensitivity_shift(0.20));
         // Total now 0.40, next 0.15 would be 0.55 > 0.50
         assert!(!checker.try_sensitivity_shift(0.15), "would exceed budget");
-        assert!(checker.try_sensitivity_shift(0.10), "0.50 total should still fit");
+        assert!(
+            checker.try_sensitivity_shift(0.10),
+            "0.50 total should still fit"
+        );
     }
 
     #[test]
@@ -300,7 +313,9 @@ mod tests {
     fn phase4_bounds_channels_independent() {
         let mut checker = make_checker();
         // Exhaust replans
-        for _ in 0..4 { checker.try_replan(); }
+        for _ in 0..4 {
+            checker.try_replan();
+        }
         assert!(checker.is_exhausted(AdaptationChannel::StructuralReplan));
         // Other channels should still be available
         assert!(!checker.is_exhausted(AdaptationChannel::StrategyMutation));
@@ -329,8 +344,12 @@ mod tests {
     #[test]
     fn phase4_bounds_exhausted_count() {
         let mut checker = make_checker();
-        for _ in 0..4 { checker.try_replan(); }
-        for _ in 0..2 { checker.try_downgrade(); }
+        for _ in 0..4 {
+            checker.try_replan();
+        }
+        for _ in 0..2 {
+            checker.try_downgrade();
+        }
         assert_eq!(checker.exhausted_count(), 2);
     }
 
@@ -348,7 +367,10 @@ mod tests {
         policy.max_structural_replans = 0;
         let checker = AdaptationBoundsChecker::new(Arc::new(policy));
         // Zero budget → fraction = 1.0 (exhausted immediately)
-        assert_eq!(checker.usage_fraction(AdaptationChannel::StructuralReplan), 1.0);
+        assert_eq!(
+            checker.usage_fraction(AdaptationChannel::StructuralReplan),
+            1.0
+        );
     }
 
     #[test]

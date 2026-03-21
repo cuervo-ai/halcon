@@ -12,6 +12,8 @@ BINARY_NAME="halcon"
 FORCE="${HALCON_FORCE:-0}"
 NO_MODIFY_PATH="${HALCON_NO_MODIFY_PATH:-0}"
 CHANNEL="${HALCON_CHANNEL:-stable}"
+VERBOSE="${HALCON_VERBOSE:-0}"
+CI_MODE="${HALCON_CI:-0}"
 
 # ─── Colors ────────────────────────────────────────────────────────────────
 if [ -t 1 ] && command -v tput >/dev/null 2>&1; then
@@ -29,6 +31,7 @@ info()  { printf "${CYAN}  →${RESET} %s\n" "$*"; }
 ok()    { printf "${GREEN}  ✓${RESET} %s\n" "$*"; }
 warn()  { printf "${YELLOW}  !${RESET} %s\n" "$*" >&2; }
 error() { printf "${RED}  ✗${RESET} %s\n" "$*" >&2; exit 1; }
+debug() { [ "$VERBOSE" = "1" ] && printf "${CYAN}  [debug]${RESET} %s\n" "$*" >&2 || true; }
 
 # ─── Parse args ────────────────────────────────────────────────────────────
 parse_args() {
@@ -39,6 +42,8 @@ parse_args() {
             --channel)        CHANNEL="$2";        shift 2 ;;
             --force|-f)       FORCE=1;             shift ;;
             --no-modify-path) NO_MODIFY_PATH=1;    shift ;;
+            --verbose)        VERBOSE=1;           shift ;;
+            --ci)             CI_MODE=1; NO_MODIFY_PATH=1; shift ;;
             --uninstall)      _do_uninstall;       exit 0 ;;
             --help|-h)
                 printf "Halcon CLI Installer\n\n"
@@ -48,6 +53,8 @@ parse_args() {
                 printf "  --channel CHANNEL     Release channel: stable|beta|nightly (default: stable)\n"
                 printf "  --force, -f           Reinstall even if already at target version\n"
                 printf "  --no-modify-path      Skip shell RC file modification\n"
+                printf "  --verbose             Enable debug logging\n"
+                printf "  --ci                  CI mode: non-interactive, skip PATH modification\n"
                 printf "\nEnv vars:\n"
                 printf "  HALCON_VERSION        Version to install\n"
                 printf "  HALCON_INSTALL_DIR    Install directory override\n"
@@ -348,6 +355,9 @@ verify_sha256() {
     elif command -v shasum >/dev/null 2>&1; then
         actual="$(shasum -a 256 "$file" | cut -d' ' -f1)"
     else
+        if [ "$CI_MODE" = "1" ]; then
+            error "Cannot verify SHA-256: sha256sum/shasum not found (required in CI mode)"
+        fi
         warn "Cannot verify SHA-256: sha256sum/shasum not found"
         return 0
     fi
@@ -711,7 +721,7 @@ main() {
     # ─── Full-capacity configuration ─────────────────────────────────────────
     configure_halcon
 
-    printf "\n${GREEN}${BOLD}  ✅ Instalación completa — Halcon CLI v${VERSION}${RESET}\n"
+    printf "\n${GREEN}${BOLD}  ✅ Installation complete — Halcon CLI v${VERSION}${RESET}\n"
     printf "  ──────────────────────────────────────────────\n\n"
 
     # ── Verify binary executes correctly ─────────────────────────────────────
@@ -725,71 +735,71 @@ main() {
 
     # ── Cenzontle active path ─────────────────────────────────────────────────
     if [ "$_SYS_CENZONTLE_CONFIGURED" = "true" ]; then
-        printf "\n${GREEN}${BOLD}  ✓ Cenzontle AI activo — ¡listo para comenzar!${RESET}\n\n"
-        printf "  ${BOLD}Iniciar ahora:${RESET}\n"
-        printf "    ${BOLD}halcon chat --tui --full --expert${RESET}       ${CYAN}# TUI completo con Cenzontle${RESET}\n"
-        printf "    ${BOLD}halcon chat${RESET}                             ${CYAN}# modo clásico${RESET}\n"
-        printf "    ${BOLD}halcon auth status${RESET}                      ${CYAN}# verificar token${RESET}\n"
-        printf "\n  ${BOLD}Cenzontle Agent Orchestration (v0.3.11):${RESET}\n"
-        printf "    ${BOLD}halcon cenzontle agent \"analiza este repo\"${RESET}          ${CYAN}# ejecutar agente${RESET}\n"
-        printf "    ${BOLD}halcon cenzontle agent --context \"optimiza\"${RESET}         ${CYAN}# con contexto local${RESET}\n"
-        printf "    ${BOLD}halcon cenzontle tools${RESET}                              ${CYAN}# MCP tools disponibles${RESET}\n"
-        printf "    ${BOLD}halcon cenzontle search \"architecture\"${RESET}              ${CYAN}# RAG knowledge search${RESET}\n"
-        printf "    ${BOLD}halcon cenzontle agents${RESET}                             ${CYAN}# agentes registrados${RESET}\n"
-        printf "\n  ${BOLD}Otros proveedores (opcional):${RESET}\n"
-        printf "    ${BOLD}halcon -p anthropic chat${RESET}                ${CYAN}# Claude directo${RESET}\n"
-        printf "    ${BOLD}halcon -p ollama chat${RESET}                   ${CYAN}# local, sin API key${RESET}\n"
+        printf "\n${GREEN}${BOLD}  ✓ Cenzontle AI active — you're ready to go!${RESET}\n\n"
+        printf "  ${BOLD}Start now:${RESET}\n"
+        printf "    ${BOLD}halcon chat --tui --full --expert${RESET}       ${CYAN}# default: Cenzontle${RESET}\n"
+        printf "    ${BOLD}halcon -p cenzontle chat --tui${RESET}          ${CYAN}# explicit${RESET}\n"
+        printf "    ${BOLD}halcon auth status${RESET}                      ${CYAN}# verify token${RESET}\n"
+        printf "\n  ${BOLD}Cenzontle Agent Orchestration:${RESET}\n"
+        printf "    ${BOLD}halcon cenzontle agent \"analyze this repo\"${RESET}           ${CYAN}# run agent${RESET}\n"
+        printf "    ${BOLD}halcon cenzontle agent --context \"optimize\"${RESET}          ${CYAN}# with local context${RESET}\n"
+        printf "    ${BOLD}halcon cenzontle tools${RESET}                               ${CYAN}# available MCP tools${RESET}\n"
+        printf "    ${BOLD}halcon cenzontle search \"architecture\"${RESET}               ${CYAN}# RAG knowledge search${RESET}\n"
+        printf "    ${BOLD}halcon cenzontle agents${RESET}                              ${CYAN}# registered agents${RESET}\n"
+        printf "\n  ${BOLD}Other providers (optional):${RESET}\n"
+        printf "    ${BOLD}halcon -p anthropic chat${RESET}                ${CYAN}# Claude direct${RESET}\n"
+        printf "    ${BOLD}halcon -p ollama chat${RESET}                   ${CYAN}# local, no API key${RESET}\n"
     else
-        # ── Interactive auth gate notice (v0.3.10+) ──────────────────────────
-        printf "\n  ${CYAN}${BOLD}⚡ Auth wizard integrado (v0.3.11)${RESET}\n"
-        printf "  Al ejecutar ${BOLD}halcon chat${RESET} por primera vez, se abrirá automáticamente\n"
-        printf "  un asistente interactivo para configurar tu proveedor de IA.\n\n"
-        printf "  ${BOLD}Solo ejecuta:${RESET}\n"
-        printf "    ${BOLD}halcon chat --tui${RESET}               ${CYAN}# el wizard abre si no hay proveedor configurado${RESET}\n"
-        printf "\n  ${BOLD}O configura manualmente:${RESET}\n"
-        printf "\n  ${CYAN}Enterprise (recomendado):${RESET}\n"
-        printf "    ${BOLD}halcon auth login cenzontle${RESET}     ${CYAN}# SSO OAuth — sin API key${RESET}\n"
-        printf "\n  ${CYAN}APIs en la nube:${RESET}\n"
-        printf "    ${BOLD}halcon auth login anthropic${RESET}     ${CYAN}# Claude (ANTHROPIC_API_KEY)${RESET}\n"
+        # ── Interactive auth gate notice ─────────────────────────────────────
+        printf "\n  ${CYAN}${BOLD}⚡ Built-in auth wizard${RESET}\n"
+        printf "  Running ${BOLD}halcon chat${RESET} for the first time will automatically open\n"
+        printf "  an interactive assistant to configure your AI provider.\n\n"
+        printf "  ${BOLD}Just run:${RESET}\n"
+        printf "    ${BOLD}halcon chat --tui${RESET}               ${CYAN}# wizard opens if no provider configured${RESET}\n"
+        printf "\n  ${BOLD}Or configure manually:${RESET}\n"
+        printf "\n  ${CYAN}Enterprise (recommended):${RESET}\n"
+        printf "    ${BOLD}halcon auth login cenzontle${RESET}     ${CYAN}# Cenzontle SSO — browser OAuth${RESET}\n"
+        printf "\n  ${CYAN}Cloud APIs (API key):${RESET}\n"
+        printf "    ${BOLD}halcon auth login anthropic${RESET}     ${CYAN}# Claude — recommended${RESET}\n"
         printf "    ${BOLD}halcon auth login openai${RESET}        ${CYAN}# GPT models${RESET}\n"
-        printf "    ${BOLD}halcon auth login deepseek${RESET}      ${CYAN}# más económico${RESET}\n"
+        printf "    ${BOLD}halcon auth login deepseek${RESET}      ${CYAN}# cheapest option${RESET}\n"
         printf "    ${BOLD}halcon auth login gemini${RESET}        ${CYAN}# Google Gemini${RESET}\n"
-        printf "\n  ${CYAN}Infraestructura cloud:${RESET}\n"
+        printf "\n  ${CYAN}Cloud Infrastructure:${RESET}\n"
         printf "    ${BOLD}export CLAUDE_CODE_USE_BEDROCK=1${RESET} ${CYAN}# AWS Bedrock${RESET}\n"
         printf "    ${BOLD}export CLAUDE_CODE_USE_VERTEX=1${RESET}  ${CYAN}# Google Vertex AI${RESET}\n"
-        printf "\n  ${CYAN}Local (sin API key):${RESET}\n"
-        printf "    ${BOLD}halcon chat -p ollama${RESET}           ${CYAN}# Ollama — 100%% local${RESET}\n"
+        printf "\n  ${CYAN}Local (no API key):${RESET}\n"
+        printf "    ${BOLD}halcon chat -p ollama${RESET}           ${CYAN}# Ollama — fully local${RESET}\n"
     fi
 
-    printf "\n  ${BOLD}Características clave:${RESET}\n"
-    printf "    ${BOLD}halcon chat --tui --full --expert${RESET}   ${CYAN}# TUI completo + todos los agentes${RESET}\n"
-    printf "    ${BOLD}halcon cenzontle agent \"prompt\"${RESET}     ${CYAN}# agente multi-modelo (Cenzontle)${RESET}\n"
+    printf "\n  ${BOLD}Useful commands:${RESET}\n"
+    printf "    ${BOLD}halcon chat --tui --full --expert${RESET}   ${CYAN}# full TUI + all agents${RESET}\n"
+    printf "    ${BOLD}halcon cenzontle agent \"prompt\"${RESET}     ${CYAN}# multi-model agent (Cenzontle)${RESET}\n"
     printf "    ${BOLD}halcon cenzontle tools${RESET}               ${CYAN}# MCP tools (RAG, LLM, agents)${RESET}\n"
-    printf "    ${BOLD}halcon auth status${RESET}                  ${CYAN}# proveedores configurados${RESET}\n"
-    printf "    ${BOLD}halcon doctor${RESET}                       ${CYAN}# diagnóstico del sistema${RESET}\n"
-    printf "    ${BOLD}halcon update${RESET}                       ${CYAN}# actualizar (wizard integrado)${RESET}\n"
-    printf "    ${BOLD}halcon audit export --format pdf${RESET}    ${CYAN}# exportar auditoría SOC2${RESET}\n"
-    printf "    ${BOLD}halcon mcp serve${RESET}                    ${CYAN}# exponer como servidor MCP${RESET}\n"
-    printf "    ${BOLD}halcon agents list${RESET}                  ${CYAN}# sub-agentes registrados${RESET}\n"
-    printf "    ${BOLD}halcon schedule add '0 9 * * 1' 'revisa PRs'${RESET}  ${CYAN}# agente programado${RESET}\n"
+    printf "    ${BOLD}halcon auth status${RESET}                  ${CYAN}# check configured providers${RESET}\n"
+    printf "    ${BOLD}halcon doctor${RESET}                       ${CYAN}# runtime diagnostics${RESET}\n"
+    printf "    ${BOLD}halcon update${RESET}                       ${CYAN}# update to latest version${RESET}\n"
+    printf "    ${BOLD}halcon audit export --format pdf${RESET}    ${CYAN}# export SOC2 audit trail${RESET}\n"
+    printf "    ${BOLD}halcon mcp serve${RESET}                    ${CYAN}# expose as MCP server${RESET}\n"
+    printf "    ${BOLD}halcon agents list${RESET}                  ${CYAN}# sub-agent registry${RESET}\n"
+    printf "    ${BOLD}halcon schedule add '0 9 * * 1' 'review PRs'${RESET}  ${CYAN}# scheduled agent${RESET}\n"
 
-    printf "\n  ${BOLD}Archivos de configuración:${RESET}\n"
-    printf "    ${CYAN}~/.halcon/config.toml${RESET}        — configuración principal\n"
-    printf "    ${CYAN}~/.halcon/MEMORY.md${RESET}          — memoria semántica del agente\n"
-    printf "    ${CYAN}~/.halcon/agents/README.md${RESET}   — cómo crear sub-agentes\n"
+    printf "\n  ${BOLD}Configuration files:${RESET}\n"
+    printf "    ${CYAN}~/.halcon/config.toml${RESET}        — main configuration\n"
+    printf "    ${CYAN}~/.halcon/MEMORY.md${RESET}          — agent semantic memory\n"
+    printf "    ${CYAN}~/.halcon/agents/README.md${RESET}   — how to create sub-agents\n"
     printf "    ${CYAN}~/.halcon/hooks/README.md${RESET}    — lifecycle hooks (pre/post tool)\n"
 
     # ── Run doctor if binary is accessible ───────────────────────────────────
     if [ "$_SYS_IS_CI" = "0" ] && [ "$_SYS_IS_CONTAINER" = "0" ] && [ -t 1 ]; then
-        printf "\n  ${BOLD}Ejecutando diagnóstico...${RESET}\n"
+        printf "\n  ${BOLD}Running diagnostics...${RESET}\n"
         if "${_HALCON_BIN}" doctor 2>/dev/null; then
             true
         else
-            warn "halcon doctor falló — verifica tu configuración con: halcon auth status"
+            warn "halcon doctor failed — check your config with: halcon auth status"
         fi
     fi
 
-    printf "\n${GREEN}${BOLD}  ¡Listo! Ejecuta: halcon chat --tui${RESET}\n\n"
+    printf "\n${GREEN}${BOLD}  Done! Run: halcon chat --tui${RESET}\n\n"
 }
 
 # ─── System detection ────────────────────────────────────────────────────────
@@ -1306,7 +1316,7 @@ _write_config() {
 #    halcon -p deepseek  chat --tui --full --expert   # cheapest
 #    halcon -p ollama    chat --tui --full --expert   # local / no API key
 #
-#  Cenzontle Agent Orchestration (v0.3.11):
+#  Cenzontle Agent Orchestration:
 #    halcon cenzontle agent "analiza este repo"       # multi-agent execution
 #    halcon cenzontle agent --context "optimiza"       # with local project context
 #    halcon cenzontle tools                            # list MCP tools

@@ -11,7 +11,9 @@ use halcon_core::types::Session;
 
 use crate::cache::CacheEntry;
 use crate::memory::MemoryEntry;
-use crate::metrics::{InvocationMetric, ProviderWindowedMetrics, SystemMetrics, ToolExecutionMetric};
+use crate::metrics::{
+    InvocationMetric, ProviderWindowedMetrics, SystemMetrics, ToolExecutionMetric,
+};
 use crate::resilience::ResilienceEvent;
 use crate::trace::TraceStep;
 use crate::Database;
@@ -322,10 +324,7 @@ impl AsyncDatabase {
             .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
     }
 
-    pub async fn save_episode(
-        &self,
-        episode: &crate::memory::MemoryEpisode,
-    ) -> Result<()> {
+    pub async fn save_episode(&self, episode: &crate::memory::MemoryEpisode) -> Result<()> {
         let db = self.inner.clone();
         let episode = episode.clone();
         tokio::task::spawn_blocking(move || db.save_episode(&episode))
@@ -587,10 +586,7 @@ impl AsyncDatabase {
             .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
     }
 
-    pub async fn delete_structured_tasks_by_session(
-        &self,
-        session_id: String,
-    ) -> Result<u64> {
+    pub async fn delete_structured_tasks_by_session(&self, session_id: String) -> Result<u64> {
         let db = self.inner.clone();
         tokio::task::spawn_blocking(move || db.delete_structured_tasks_by_session(&session_id))
             .await
@@ -688,7 +684,10 @@ impl AsyncDatabase {
 
     // --- Permission Rules ---
 
-    pub async fn save_permission_rule(&self, rule: &halcon_core::types::PermissionRule) -> Result<()> {
+    pub async fn save_permission_rule(
+        &self,
+        rule: &halcon_core::types::PermissionRule,
+    ) -> Result<()> {
         let db = self.inner.clone();
         let rule = rule.clone();
         tokio::task::spawn_blocking(move || db.save_permission_rule(&rule))
@@ -696,7 +695,10 @@ impl AsyncDatabase {
             .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
     }
 
-    pub async fn update_permission_rule(&self, rule: &halcon_core::types::PermissionRule) -> Result<()> {
+    pub async fn update_permission_rule(
+        &self,
+        rule: &halcon_core::types::PermissionRule,
+    ) -> Result<()> {
         let db = self.inner.clone();
         let rule = rule.clone();
         tokio::task::spawn_blocking(move || db.update_permission_rule(&rule))
@@ -712,7 +714,10 @@ impl AsyncDatabase {
             .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
     }
 
-    pub async fn load_permission_rule(&self, rule_id: &str) -> Result<Option<halcon_core::types::PermissionRule>> {
+    pub async fn load_permission_rule(
+        &self,
+        rule_id: &str,
+    ) -> Result<Option<halcon_core::types::PermissionRule>> {
         let db = self.inner.clone();
         let rule_id = rule_id.to_string();
         tokio::task::spawn_blocking(move || db.load_permission_rule(&rule_id))
@@ -730,7 +735,10 @@ impl AsyncDatabase {
             .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
     }
 
-    pub async fn find_permission_rules_by_tool(&self, tool_name: &str) -> Result<Vec<halcon_core::types::PermissionRule>> {
+    pub async fn find_permission_rules_by_tool(
+        &self,
+        tool_name: &str,
+    ) -> Result<Vec<halcon_core::types::PermissionRule>> {
         let db = self.inner.clone();
         let tool_name = tool_name.to_string();
         tokio::task::spawn_blocking(move || db.find_permission_rules_by_tool(&tool_name))
@@ -745,12 +753,16 @@ impl AsyncDatabase {
     ) -> Result<Vec<halcon_core::types::PermissionRule>> {
         let db = self.inner.clone();
         let scope_value = scope_value.to_string();
-        tokio::task::spawn_blocking(move || db.find_permission_rules_by_scope_value(scope, &scope_value))
-            .await
-            .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
+        tokio::task::spawn_blocking(move || {
+            db.find_permission_rules_by_scope_value(scope, &scope_value)
+        })
+        .await
+        .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
     }
 
-    pub async fn load_all_permission_rules(&self) -> Result<Vec<halcon_core::types::PermissionRule>> {
+    pub async fn load_all_permission_rules(
+        &self,
+    ) -> Result<Vec<halcon_core::types::PermissionRule>> {
         let db = self.inner.clone();
         tokio::task::spawn_blocking(move || db.load_all_permission_rules())
             .await
@@ -780,7 +792,13 @@ impl AsyncDatabase {
         let metric_type = metric_type.to_string();
         let service_name = service_name.unwrap_or("agent_loop").to_string();
         tokio::task::spawn_blocking(move || {
-            db.insert_runtime_metric_sync(&metric_name, &metric_type, metric_value, labels_json, &service_name)
+            db.insert_runtime_metric_sync(
+                &metric_name,
+                &metric_type,
+                metric_value,
+                labels_json,
+                &service_name,
+            )
         })
         .await
         .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
@@ -800,9 +818,11 @@ impl AsyncDatabase {
             db.save_search_history(&query, &search_mode, match_count, session_id.as_deref())
         })
         .await
-        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::other(
-            format!("spawn_blocking: {e}"),
-        ))))?
+        .map_err(|e| {
+            rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::other(format!(
+                "spawn_blocking: {e}"
+            ))))
+        })?
     }
 
     pub async fn load_search_history(
@@ -812,27 +832,33 @@ impl AsyncDatabase {
         let db = self.inner.clone();
         tokio::task::spawn_blocking(move || db.load_search_history(limit))
             .await
-            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::other(
-                format!("spawn_blocking: {e}"),
-            ))))?
+            .map_err(|e| {
+                rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::other(format!(
+                    "spawn_blocking: {e}"
+                ))))
+            })?
     }
 
     pub async fn get_recent_queries(&self, limit: usize) -> rusqlite::Result<Vec<String>> {
         let db = self.inner.clone();
         tokio::task::spawn_blocking(move || db.get_recent_queries(limit))
             .await
-            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::other(
-                format!("spawn_blocking: {e}"),
-            ))))?
+            .map_err(|e| {
+                rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::other(format!(
+                    "spawn_blocking: {e}"
+                ))))
+            })?
     }
 
     pub async fn clear_search_history(&self) -> rusqlite::Result<()> {
         let db = self.inner.clone();
         tokio::task::spawn_blocking(move || db.clear_search_history())
             .await
-            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::other(
-                format!("spawn_blocking: {e}"),
-            ))))?
+            .map_err(|e| {
+                rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::other(format!(
+                    "spawn_blocking: {e}"
+                ))))
+            })?
     }
 
     // ── Media Cache (M27) ────────────────────────────────────────────────────
@@ -846,7 +872,9 @@ impl AsyncDatabase {
         let hash = content_hash.to_owned();
         tokio::task::spawn_blocking(move || db.get_media_cache(&hash))
             .await
-            .map_err(|e| halcon_core::error::HalconError::Internal(format!("spawn_blocking: {e}")))?
+            .map_err(|e| {
+                halcon_core::error::HalconError::Internal(format!("spawn_blocking: {e}"))
+            })?
     }
 
     /// Store a media analysis result in the cache.
@@ -858,7 +886,9 @@ impl AsyncDatabase {
         let entry = entry.clone();
         tokio::task::spawn_blocking(move || db.store_media_cache(&entry))
             .await
-            .map_err(|e| halcon_core::error::HalconError::Internal(format!("spawn_blocking: {e}")))?
+            .map_err(|e| {
+                halcon_core::error::HalconError::Internal(format!("spawn_blocking: {e}"))
+            })?
     }
 
     /// Evict expired media cache entries (older than TTL seconds).
@@ -869,7 +899,9 @@ impl AsyncDatabase {
         let db = self.inner.clone();
         tokio::task::spawn_blocking(move || db.evict_expired_media_cache(ttl_secs))
             .await
-            .map_err(|e| halcon_core::error::HalconError::Internal(format!("spawn_blocking: {e}")))?
+            .map_err(|e| {
+                halcon_core::error::HalconError::Internal(format!("spawn_blocking: {e}"))
+            })?
     }
 
     // ── Media Index (M28) ────────────────────────────────────────────────────
@@ -883,7 +915,9 @@ impl AsyncDatabase {
         let entry = entry.clone();
         tokio::task::spawn_blocking(move || db.store_media_index_entry(&entry))
             .await
-            .map_err(|e| halcon_core::error::HalconError::Internal(format!("spawn_blocking: {e}")))?
+            .map_err(|e| {
+                halcon_core::error::HalconError::Internal(format!("spawn_blocking: {e}"))
+            })?
     }
 
     /// Search media index by cosine similarity (linear scan, returns top-k).
@@ -985,9 +1019,7 @@ impl AsyncDatabase {
     }
 
     /// Load all installed plugin records.
-    pub async fn load_installed_plugins(
-        &self,
-    ) -> Result<Vec<crate::db::plugins::InstalledPlugin>> {
+    pub async fn load_installed_plugins(&self) -> Result<Vec<crate::db::plugins::InstalledPlugin>> {
         let db = self.inner.clone();
         tokio::task::spawn_blocking(move || {
             db.load_installed_plugins()
@@ -1041,14 +1073,13 @@ impl AsyncDatabase {
         .await
         .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
     }
-
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
     use crate::trace::TraceStepType;
+    use chrono::Utc;
     use sha2::{Digest, Sha256};
     use uuid::Uuid;
 
@@ -1163,7 +1194,8 @@ mod tests {
     async fn async_db_load_session() {
         let adb = test_async_db();
 
-        let mut session = halcon_core::types::Session::new("model".into(), "provider".into(), "/tmp".into());
+        let mut session =
+            halcon_core::types::Session::new("model".into(), "provider".into(), "/tmp".into());
         session.tool_invocations = 5;
         session.agent_rounds = 3;
         session.total_latency_ms = 1500;
@@ -1183,7 +1215,8 @@ mod tests {
     async fn resume_preserves_metrics() {
         let adb = test_async_db();
 
-        let mut session = halcon_core::types::Session::new("claude".into(), "anthropic".into(), "/home".into());
+        let mut session =
+            halcon_core::types::Session::new("claude".into(), "anthropic".into(), "/home".into());
         session.tool_invocations = 12;
         session.agent_rounds = 7;
         session.total_latency_ms = 5200;
@@ -1245,7 +1278,8 @@ mod tests {
     async fn concurrent_save_does_not_corrupt() {
         let adb = test_async_db();
 
-        let mut session = halcon_core::types::Session::new("echo".into(), "echo".into(), "/tmp".into());
+        let mut session =
+            halcon_core::types::Session::new("echo".into(), "echo".into(), "/tmp".into());
         let id = session.id;
 
         // Save multiple times concurrently.
@@ -1377,7 +1411,10 @@ mod tests {
         adb.insert_memory(&entry).await.unwrap();
 
         // Boost relevance via async wrapper.
-        let updated = adb.update_memory_relevance(entry.entry_id, 1.8).await.unwrap();
+        let updated = adb
+            .update_memory_relevance(entry.entry_id, 1.8)
+            .await
+            .unwrap();
         assert!(updated);
 
         // Verify via sync inner.
@@ -1435,7 +1472,10 @@ mod tests {
         adb.insert_resilience_event(&event).await.unwrap();
 
         // Verify via sync inner.
-        let events = adb.inner().resilience_events(Some("test"), None, 10).unwrap();
+        let events = adb
+            .inner()
+            .resilience_events(Some("test"), None, 10)
+            .unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type, "breaker_transition");
     }
@@ -1445,7 +1485,10 @@ mod tests {
     #[tokio::test]
     async fn async_db_recent_tool_executions_empty_for_unknown_tool() {
         let adb = test_async_db();
-        let rows = adb.recent_tool_executions("no_such_tool".to_string(), 10).await.unwrap();
+        let rows = adb
+            .recent_tool_executions("no_such_tool".to_string(), 10)
+            .await
+            .unwrap();
         assert!(rows.is_empty());
     }
 
@@ -1453,17 +1496,20 @@ mod tests {
     async fn async_db_recent_tool_executions_returns_inserted_rows() {
         let adb = test_async_db();
         let metric = crate::metrics::ToolExecutionMetric {
-            tool_name:    "bash".to_string(),
-            session_id:   None,
-            duration_ms:  75,
-            success:      true,
-            is_parallel:  false,
+            tool_name: "bash".to_string(),
+            session_id: None,
+            duration_ms: 75,
+            success: true,
+            is_parallel: false,
             input_summary: Some("echo hello".into()),
-            created_at:   Utc::now(),
+            created_at: Utc::now(),
         };
         adb.insert_tool_metric(&metric).await.unwrap();
 
-        let rows = adb.recent_tool_executions("bash".to_string(), 5).await.unwrap();
+        let rows = adb
+            .recent_tool_executions("bash".to_string(), 5)
+            .await
+            .unwrap();
         assert_eq!(rows.len(), 1);
         assert_eq!(rows[0].tool_name, "bash");
         assert_eq!(rows[0].duration_ms, 75);
@@ -1482,18 +1528,21 @@ mod tests {
         let adb = test_async_db();
         let metric = InvocationMetric {
             provider: "test".to_string(),
-            model:    "m".to_string(),
-            latency_ms:           50,
-            input_tokens:         10,
-            output_tokens:        5,
-            estimated_cost_usd:   0.0,
-            success:              true,
-            stop_reason:          "end_turn".into(),
-            session_id:           None,
-            created_at:           Utc::now(),
+            model: "m".to_string(),
+            latency_ms: 50,
+            input_tokens: 10,
+            output_tokens: 5,
+            estimated_cost_usd: 0.0,
+            success: true,
+            stop_reason: "end_turn".into(),
+            session_id: None,
+            created_at: Utc::now(),
         };
         adb.insert_metric(&metric).await.unwrap();
         let eps = adb.events_per_second_last_60s().await.unwrap();
-        assert!(eps > 0.0, "eps should be > 0 after inserting a recent metric");
+        assert!(
+            eps > 0.0,
+            "eps should be > 0 after inserting a recent metric"
+        );
     }
 }

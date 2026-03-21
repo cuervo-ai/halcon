@@ -187,8 +187,14 @@ impl GitBranchTool {
             }
 
             let name = parts[0].trim_start_matches("remotes/").to_string();
-            let sha = parts.get(1).map(|s| s.trim().to_string()).unwrap_or_default();
-            let desc = parts.get(2).map(|s| s.trim().to_string()).unwrap_or_default();
+            let sha = parts
+                .get(1)
+                .map(|s| s.trim().to_string())
+                .unwrap_or_default();
+            let desc = parts
+                .get(2)
+                .map(|s| s.trim().to_string())
+                .unwrap_or_default();
 
             if is_current {
                 current = name.clone();
@@ -210,7 +216,11 @@ impl GitBranchTool {
 
         let content = format!(
             "Current branch: {}\n{} branches total\n\n{}",
-            if current.is_empty() { "(unknown)" } else { &current },
+            if current.is_empty() {
+                "(unknown)"
+            } else {
+                &current
+            },
             branches.len(),
             out.stdout.trim()
         );
@@ -437,7 +447,10 @@ mod tests {
 
     #[test]
     fn parse_ahead_behind_extracts_values() {
-        assert_eq!(parse_ahead_behind("[origin/main: ahead 3, behind 1]"), (3, 1));
+        assert_eq!(
+            parse_ahead_behind("[origin/main: ahead 3, behind 1]"),
+            (3, 1)
+        );
         assert_eq!(parse_ahead_behind("[origin/main: ahead 5]"), (5, 0));
         assert_eq!(parse_ahead_behind("[origin/main: behind 2]"), (0, 2));
         assert_eq!(parse_ahead_behind(""), (0, 0));
@@ -487,12 +500,39 @@ mod tests {
         let path = dir.path().to_str().unwrap();
 
         // Init repo with a commit so branches work.
-        tokio::process::Command::new("git").args(["init"]).current_dir(path).output().await.unwrap();
-        tokio::process::Command::new("git").args(["config", "user.email", "test@test.com"]).current_dir(path).output().await.unwrap();
-        tokio::process::Command::new("git").args(["config", "user.name", "Test"]).current_dir(path).output().await.unwrap();
-        tokio::fs::write(format!("{path}/f.txt"), b"hi").await.unwrap();
-        tokio::process::Command::new("git").args(["add", "."]).current_dir(path).output().await.unwrap();
-        tokio::process::Command::new("git").args(["commit", "-m", "init"]).current_dir(path).output().await.unwrap();
+        tokio::process::Command::new("git")
+            .args(["init"])
+            .current_dir(path)
+            .output()
+            .await
+            .unwrap();
+        tokio::process::Command::new("git")
+            .args(["config", "user.email", "test@test.com"])
+            .current_dir(path)
+            .output()
+            .await
+            .unwrap();
+        tokio::process::Command::new("git")
+            .args(["config", "user.name", "Test"])
+            .current_dir(path)
+            .output()
+            .await
+            .unwrap();
+        tokio::fs::write(format!("{path}/f.txt"), b"hi")
+            .await
+            .unwrap();
+        tokio::process::Command::new("git")
+            .args(["add", "."])
+            .current_dir(path)
+            .output()
+            .await
+            .unwrap();
+        tokio::process::Command::new("git")
+            .args(["commit", "-m", "init"])
+            .current_dir(path)
+            .output()
+            .await
+            .unwrap();
 
         let t = GitBranchTool::new();
         let input = ToolInput {
@@ -509,7 +549,12 @@ mod tests {
     async fn invalid_operation_returns_error() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().to_str().unwrap();
-        tokio::process::Command::new("git").args(["init"]).current_dir(path).output().await.unwrap();
+        tokio::process::Command::new("git")
+            .args(["init"])
+            .current_dir(path)
+            .output()
+            .await
+            .unwrap();
 
         let t = GitBranchTool::new();
         let input = ToolInput {

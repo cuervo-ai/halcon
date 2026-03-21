@@ -19,13 +19,11 @@
 
 use std::collections::HashMap;
 use std::io::{BufWriter, Write};
-use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use printpdf::*;
 
 use super::events::{event_types, AuditEvent};
-use super::query;
 use super::summary::SessionSummary;
 
 // A4 dimensions in mm.
@@ -115,17 +113,29 @@ enum RiskTier {
 /// classify events post-hoc from log data.
 fn classify_tool(tool_name: &str) -> RiskTier {
     let name = tool_name.to_lowercase();
-    if name.contains("read") || name.contains("list") || name.contains("get")
-        || name.contains("search") || name.contains("grep") || name.contains("find")
+    if name.contains("read")
+        || name.contains("list")
+        || name.contains("get")
+        || name.contains("search")
+        || name.contains("grep")
+        || name.contains("find")
         || name.contains("view")
     {
         RiskTier::ReadOnly
-    } else if name.contains("write") || name.contains("create") || name.contains("edit")
-        || name.contains("update") || name.contains("put") || name.contains("patch")
+    } else if name.contains("write")
+        || name.contains("create")
+        || name.contains("edit")
+        || name.contains("update")
+        || name.contains("put")
+        || name.contains("patch")
     {
         RiskTier::ReadWrite
-    } else if name.contains("bash") || name.contains("exec") || name.contains("delete")
-        || name.contains("remove") || name.contains("rm") || name.contains("kill")
+    } else if name.contains("bash")
+        || name.contains("exec")
+        || name.contains("delete")
+        || name.contains("remove")
+        || name.contains("rm")
+        || name.contains("kill")
         || name.contains("drop")
     {
         RiskTier::Destructive
@@ -154,8 +164,7 @@ pub fn generate_compliance_report<W: Write + std::io::Seek>(
         system_name
     );
 
-    let (doc, page1, layer1) =
-        PdfDocument::new(&title, Mm(PAGE_W), Mm(PAGE_H), "Cover");
+    let (doc, page1, layer1) = PdfDocument::new(&title, Mm(PAGE_W), Mm(PAGE_H), "Cover");
     let font = doc
         .add_builtin_font(BuiltinFont::HelveticaBold)
         .expect("builtin font");
@@ -171,7 +180,7 @@ pub fn generate_compliance_report<W: Write + std::io::Seek>(
         layer.use_text(&title, FONT_TITLE, Mm(MARGIN_L), Mm(y), &font);
         y -= 8.0;
         layer.use_text(
-            &format!("Generated: {report_ts}"),
+            format!("Generated: {report_ts}"),
             FONT_BODY,
             Mm(MARGIN_L),
             Mm(y),
@@ -179,7 +188,7 @@ pub fn generate_compliance_report<W: Write + std::io::Seek>(
         );
         y -= 6.0;
         layer.use_text(
-            &format!("Reporting Period: {period_from} to {period_to}"),
+            format!("Reporting Period: {period_from} to {period_to}"),
             FONT_BODY,
             Mm(MARGIN_L),
             Mm(y),
@@ -187,7 +196,7 @@ pub fn generate_compliance_report<W: Write + std::io::Seek>(
         );
         y -= 6.0;
         layer.use_text(
-            &format!("System: {system_name}"),
+            format!("System: {system_name}"),
             FONT_BODY,
             Mm(MARGIN_L),
             Mm(y),
@@ -197,7 +206,7 @@ pub fn generate_compliance_report<W: Write + std::io::Seek>(
         // Framework control families.
         y -= 10.0;
         layer.use_text(
-            &format!("Framework: {}", format.display_name()),
+            format!("Framework: {}", format.display_name()),
             FONT_H3,
             Mm(MARGIN_L),
             Mm(y),
@@ -206,7 +215,7 @@ pub fn generate_compliance_report<W: Write + std::io::Seek>(
         y -= 6.0;
         for (control_id, control_name) in format.control_families() {
             layer.use_text(
-                &format!("  {control_id}: {control_name}"),
+                format!("  {control_id}: {control_name}"),
                 FONT_BODY,
                 Mm(MARGIN_L),
                 Mm(y),
@@ -250,11 +259,20 @@ pub fn generate_compliance_report<W: Write + std::io::Seek>(
         let layer = doc.get_page(page_ref).get_layer(layer_ref);
         let mut y = PAGE_H - 20.0;
 
-        layer.use_text("Section 2: Session Activity", FONT_H2, Mm(MARGIN_L), Mm(y), &font);
+        layer.use_text(
+            "Section 2: Session Activity",
+            FONT_H2,
+            Mm(MARGIN_L),
+            Mm(y),
+            &font,
+        );
         y -= 8.0;
         layer.use_text(
-            &format!("Total sessions in period: {}", sessions.len()),
-            FONT_BODY, Mm(MARGIN_L), Mm(y), &font_reg,
+            format!("Total sessions in period: {}", sessions.len()),
+            FONT_BODY,
+            Mm(MARGIN_L),
+            Mm(y),
+            &font_reg,
         );
         y -= 5.0;
 
@@ -264,32 +282,53 @@ pub fn generate_compliance_report<W: Write + std::io::Seek>(
         let total_tools: u64 = sessions.iter().map(|s| s.tool_calls_count).sum();
 
         layer.use_text(
-            &format!("Total tokens consumed:    {total_tokens}"),
-            FONT_BODY, Mm(MARGIN_L), Mm(y), &font_reg,
+            format!("Total tokens consumed:    {total_tokens}"),
+            FONT_BODY,
+            Mm(MARGIN_L),
+            Mm(y),
+            &font_reg,
         );
         y -= 5.0;
         layer.use_text(
-            &format!("Estimated cost (USD):     ${total_cost:.4}"),
-            FONT_BODY, Mm(MARGIN_L), Mm(y), &font_reg,
+            format!("Estimated cost (USD):     ${total_cost:.4}"),
+            FONT_BODY,
+            Mm(MARGIN_L),
+            Mm(y),
+            &font_reg,
         );
         y -= 5.0;
         layer.use_text(
-            &format!("Total agent rounds:       {total_rounds}"),
-            FONT_BODY, Mm(MARGIN_L), Mm(y), &font_reg,
+            format!("Total agent rounds:       {total_rounds}"),
+            FONT_BODY,
+            Mm(MARGIN_L),
+            Mm(y),
+            &font_reg,
         );
         y -= 5.0;
         layer.use_text(
-            &format!("Total tool invocations:   {total_tools}"),
-            FONT_BODY, Mm(MARGIN_L), Mm(y), &font_reg,
+            format!("Total tool invocations:   {total_tools}"),
+            FONT_BODY,
+            Mm(MARGIN_L),
+            Mm(y),
+            &font_reg,
         );
         y -= 10.0;
 
         // Session table (up to 50 rows).
-        layer.use_text("Session Details (up to 50)", FONT_H3, Mm(MARGIN_L), Mm(y), &font);
+        layer.use_text(
+            "Session Details (up to 50)",
+            FONT_H3,
+            Mm(MARGIN_L),
+            Mm(y),
+            &font,
+        );
         y -= 6.0;
         layer.use_text(
             SessionSummary::display_header(),
-            FONT_SMALL, Mm(MARGIN_L), Mm(y), &font_reg,
+            FONT_SMALL,
+            Mm(MARGIN_L),
+            Mm(y),
+            &font_reg,
         );
         y -= 1.0;
         let line = Line {
@@ -306,7 +345,7 @@ pub fn generate_compliance_report<W: Write + std::io::Seek>(
             if y < 15.0 {
                 break;
             }
-            layer.use_text(&s.display_row(), FONT_SMALL, Mm(MARGIN_L), Mm(y), &font_reg);
+            layer.use_text(s.display_row(), FONT_SMALL, Mm(MARGIN_L), Mm(y), &font_reg);
             y -= 4.5;
         }
     }
@@ -319,7 +358,10 @@ pub fn generate_compliance_report<W: Write + std::io::Seek>(
 
         layer.use_text(
             "Section 3: Tool Usage by Risk Tier",
-            FONT_H2, Mm(MARGIN_L), Mm(y), &font,
+            FONT_H2,
+            Mm(MARGIN_L),
+            Mm(y),
+            &font,
         );
         y -= 8.0;
 
@@ -331,7 +373,11 @@ pub fn generate_compliance_report<W: Write + std::io::Seek>(
             .collect();
 
         for ev in &tool_events {
-            let tool_name = ev.payload.get("tool").and_then(|v| v.as_str()).unwrap_or("unknown");
+            let tool_name = ev
+                .payload
+                .get("tool")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown");
             let tier = match classify_tool(tool_name) {
                 RiskTier::ReadOnly => "ReadOnly",
                 RiskTier::ReadWrite => "ReadWrite",
@@ -350,8 +396,11 @@ pub fn generate_compliance_report<W: Write + std::io::Seek>(
         ] {
             let pct = (*count as f64 / total_tool_events as f64) * 100.0;
             layer.use_text(
-                &format!("{tier:<15}  {count:>6} calls  ({pct:.1}%)"),
-                FONT_BODY, Mm(MARGIN_L), Mm(y), &font_reg,
+                format!("{tier:<15}  {count:>6} calls  ({pct:.1}%)"),
+                FONT_BODY,
+                Mm(MARGIN_L),
+                Mm(y),
+                &font_reg,
             );
             y -= 5.5;
         }
@@ -365,7 +414,10 @@ pub fn generate_compliance_report<W: Write + std::io::Seek>(
 
         layer.use_text(
             "Section 4: Security Events (FASE-2 Activations)",
-            FONT_H2, Mm(MARGIN_L), Mm(y), &font,
+            FONT_H2,
+            Mm(MARGIN_L),
+            Mm(y),
+            &font,
         );
         y -= 8.0;
 
@@ -375,15 +427,19 @@ pub fn generate_compliance_report<W: Write + std::io::Seek>(
             .collect();
 
         layer.use_text(
-            &format!("Total FASE-2 activations: {}", safety_events.len()),
-            FONT_BODY, Mm(MARGIN_L), Mm(y), &font_reg,
+            format!("Total FASE-2 activations: {}", safety_events.len()),
+            FONT_BODY,
+            Mm(MARGIN_L),
+            Mm(y),
+            &font_reg,
         );
         y -= 7.0;
 
         // Group by pattern (from payload "pattern" field).
         let mut pattern_counts: HashMap<String, usize> = HashMap::new();
         for ev in &safety_events {
-            let pattern = ev.payload
+            let pattern = ev
+                .payload
                 .get("pattern")
                 .and_then(|v| v.as_str())
                 .unwrap_or("unspecified")
@@ -397,17 +453,35 @@ pub fn generate_compliance_report<W: Write + std::io::Seek>(
         if patterns.is_empty() {
             layer.use_text(
                 "No FASE-2 activations in reporting period.",
-                FONT_BODY, Mm(MARGIN_L), Mm(y), &font_reg,
+                FONT_BODY,
+                Mm(MARGIN_L),
+                Mm(y),
+                &font_reg,
             );
         } else {
-            layer.use_text("Pattern                          Count", FONT_BODY, Mm(MARGIN_L), Mm(y), &font);
+            layer.use_text(
+                "Pattern                          Count",
+                FONT_BODY,
+                Mm(MARGIN_L),
+                Mm(y),
+                &font,
+            );
             y -= 5.5;
             for (pattern, count) in patterns.iter().take(20) {
-                if y < 15.0 { break; }
-                let p_trunc = if pattern.len() > 32 { &pattern[..32] } else { pattern.as_str() };
+                if y < 15.0 {
+                    break;
+                }
+                let p_trunc = if pattern.len() > 32 {
+                    &pattern[..32]
+                } else {
+                    pattern.as_str()
+                };
                 layer.use_text(
-                    &format!("{p_trunc:<33} {count}"),
-                    FONT_BODY, Mm(MARGIN_L), Mm(y), &font_reg,
+                    format!("{p_trunc:<33} {count}"),
+                    FONT_BODY,
+                    Mm(MARGIN_L),
+                    Mm(y),
+                    &font_reg,
                 );
                 y -= 5.0;
             }
@@ -422,26 +496,38 @@ pub fn generate_compliance_report<W: Write + std::io::Seek>(
 
         layer.use_text(
             "Section 5: Audit Integrity",
-            FONT_H2, Mm(MARGIN_L), Mm(y), &font,
+            FONT_H2,
+            Mm(MARGIN_L),
+            Mm(y),
+            &font,
         );
         y -= 8.0;
         layer.use_text(
             "Halcon uses HMAC-SHA256 hash chains to ensure audit log integrity.",
-            FONT_BODY, Mm(MARGIN_L), Mm(y), &font_reg,
+            FONT_BODY,
+            Mm(MARGIN_L),
+            Mm(y),
+            &font_reg,
         );
         y -= 5.5;
         layer.use_text(
             "Run `halcon audit verify <session-id>` to verify individual sessions.",
-            FONT_BODY, Mm(MARGIN_L), Mm(y), &font_reg,
+            FONT_BODY,
+            Mm(MARGIN_L),
+            Mm(y),
+            &font_reg,
         );
         y -= 8.0;
 
         layer.use_text(
-            &format!(
+            format!(
                 "Sessions exported: {}  (use halcon audit verify to check each chain)",
                 sessions.len()
             ),
-            FONT_BODY, Mm(MARGIN_L), Mm(y), &font_reg,
+            FONT_BODY,
+            Mm(MARGIN_L),
+            Mm(y),
+            &font_reg,
         );
     }
 
@@ -453,22 +539,41 @@ pub fn generate_compliance_report<W: Write + std::io::Seek>(
 
         layer.use_text(
             "Appendix: Session Index for Independent Verification",
-            FONT_H2, Mm(MARGIN_L), Mm(y), &font,
+            FONT_H2,
+            Mm(MARGIN_L),
+            Mm(y),
+            &font,
         );
         y -= 8.0;
         layer.use_text(
             "SESSION-ID (first 36 chars)          START TIME",
-            FONT_SMALL, Mm(MARGIN_L), Mm(y), &font,
+            FONT_SMALL,
+            Mm(MARGIN_L),
+            Mm(y),
+            &font,
         );
         y -= 5.0;
 
         for s in sessions.iter().take(80) {
-            if y < 15.0 { break; }
-            let id_part = if s.session_id.len() >= 36 { &s.session_id[..36] } else { &s.session_id };
-            let start_part = if s.start_time.len() >= 19 { &s.start_time[..19] } else { &s.start_time };
+            if y < 15.0 {
+                break;
+            }
+            let id_part = if s.session_id.len() >= 36 {
+                &s.session_id[..36]
+            } else {
+                &s.session_id
+            };
+            let start_part = if s.start_time.len() >= 19 {
+                &s.start_time[..19]
+            } else {
+                &s.start_time
+            };
             layer.use_text(
-                &format!("{id_part:<38} {start_part}"),
-                FONT_SMALL, Mm(MARGIN_L), Mm(y), &font_reg,
+                format!("{id_part:<38} {start_part}"),
+                FONT_SMALL,
+                Mm(MARGIN_L),
+                Mm(y),
+                &font_reg,
             );
             y -= 4.5;
         }
@@ -488,19 +593,31 @@ mod tests {
     fn make_test_events() -> Vec<AuditEvent> {
         vec![
             AuditEvent::new(
-                event_types::TOOL_CALL, "2026-03-08T10:00:00Z", "sess-001", 1,
+                event_types::TOOL_CALL,
+                "2026-03-08T10:00:00Z",
+                "sess-001",
+                1,
                 json!({"tool": "bash", "command": "ls"}),
             ),
             AuditEvent::new(
-                event_types::SAFETY_GATE_TRIGGER, "2026-03-08T10:01:00Z", "sess-001", 2,
+                event_types::SAFETY_GATE_TRIGGER,
+                "2026-03-08T10:01:00Z",
+                "sess-001",
+                2,
                 json!({"pattern": "rm -rf /*"}),
             ),
             AuditEvent::new(
-                event_types::TOOL_BLOCKED, "2026-03-08T10:02:00Z", "sess-001", 3,
+                event_types::TOOL_BLOCKED,
+                "2026-03-08T10:02:00Z",
+                "sess-001",
+                3,
                 json!({}),
             ),
             AuditEvent::new(
-                event_types::TOOL_CALL, "2026-03-08T10:03:00Z", "sess-001", 4,
+                event_types::TOOL_CALL,
+                "2026-03-08T10:03:00Z",
+                "sess-001",
+                4,
                 json!({"tool": "file_read"}),
             ),
         ]
@@ -524,9 +641,18 @@ mod tests {
 
     #[test]
     fn compliance_format_from_str() {
-        assert_eq!(ComplianceFormat::from_str("soc2").unwrap(), ComplianceFormat::Soc2);
-        assert_eq!(ComplianceFormat::from_str("fedramp").unwrap(), ComplianceFormat::FedRamp);
-        assert_eq!(ComplianceFormat::from_str("iso27001").unwrap(), ComplianceFormat::Iso27001);
+        assert_eq!(
+            ComplianceFormat::from_str("soc2").unwrap(),
+            ComplianceFormat::Soc2
+        );
+        assert_eq!(
+            ComplianceFormat::from_str("fedramp").unwrap(),
+            ComplianceFormat::FedRamp
+        );
+        assert_eq!(
+            ComplianceFormat::from_str("iso27001").unwrap(),
+            ComplianceFormat::Iso27001
+        );
         assert!(ComplianceFormat::from_str("unknown").is_err());
     }
 
@@ -537,11 +663,15 @@ mod tests {
         let mut buf = std::io::Cursor::new(Vec::new());
 
         generate_compliance_report(
-            &mut buf, &events, &sessions,
+            &mut buf,
+            &events,
+            &sessions,
             ComplianceFormat::Soc2,
-            "2026-01-01", "2026-03-08",
+            "2026-01-01",
+            "2026-03-08",
             "Halcon CLI",
-        ).unwrap();
+        )
+        .unwrap();
 
         let inner = buf.into_inner();
         assert!(inner.starts_with(b"%PDF"), "output must be a valid PDF");
@@ -554,14 +684,21 @@ mod tests {
         let mut buf = std::io::Cursor::new(Vec::new());
 
         generate_compliance_report(
-            &mut buf, &events, &sessions,
+            &mut buf,
+            &events,
+            &sessions,
             ComplianceFormat::FedRamp,
-            "2026-01-01", "2026-03-08",
+            "2026-01-01",
+            "2026-03-08",
             "Halcon CLI",
-        ).unwrap();
+        )
+        .unwrap();
 
         let inner = buf.into_inner();
-        assert!(inner.starts_with(b"%PDF"), "FedRAMP output must be a valid PDF");
+        assert!(
+            inner.starts_with(b"%PDF"),
+            "FedRAMP output must be a valid PDF"
+        );
     }
 
     #[test]
@@ -571,14 +708,21 @@ mod tests {
         let mut buf = std::io::Cursor::new(Vec::new());
 
         generate_compliance_report(
-            &mut buf, &events, &sessions,
+            &mut buf,
+            &events,
+            &sessions,
             ComplianceFormat::Iso27001,
-            "2026-01-01", "2026-03-08",
+            "2026-01-01",
+            "2026-03-08",
             "Halcon CLI",
-        ).unwrap();
+        )
+        .unwrap();
 
         let inner = buf.into_inner();
-        assert!(inner.starts_with(b"%PDF"), "ISO 27001 output must be a valid PDF");
+        assert!(
+            inner.starts_with(b"%PDF"),
+            "ISO 27001 output must be a valid PDF"
+        );
     }
 
     #[test]
@@ -607,11 +751,15 @@ mod tests {
     fn empty_events_and_sessions_generates_valid_pdf() {
         let mut buf = std::io::Cursor::new(Vec::new());
         generate_compliance_report(
-            &mut buf, &[], &[],
+            &mut buf,
+            &[],
+            &[],
             ComplianceFormat::Soc2,
-            "2026-01-01", "2026-03-08",
+            "2026-01-01",
+            "2026-03-08",
             "Test System",
-        ).unwrap();
+        )
+        .unwrap();
         let inner = buf.into_inner();
         assert!(inner.starts_with(b"%PDF"));
     }

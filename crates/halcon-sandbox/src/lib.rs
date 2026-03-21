@@ -23,4 +23,4 @@ pub mod executor;
 pub mod policy;
 
 pub use executor::{ExecutionResult, SandboxConfig, SandboxedExecutor};
-pub use policy::{SandboxPolicy, PolicyViolation, PolicyViolationKind};
+pub use policy::{PolicyViolation, PolicyViolationKind, SandboxPolicy};

@@ -37,6 +37,7 @@ pub struct JsonRpcEventSink {
 }
 
 impl JsonRpcEventSink {
+    #[must_use]
     pub fn new() -> Self {
         Self {
             stdout: Mutex::new(std::io::stdout()),
@@ -45,7 +46,9 @@ impl JsonRpcEventSink {
 }
 
 impl Default for JsonRpcEventSink {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl EventSink for JsonRpcEventSink {
@@ -81,15 +84,21 @@ pub struct MemoryJsonSink {
 }
 
 impl MemoryJsonSink {
+    #[must_use]
     pub fn new() -> Self {
-        Self { buffer: Mutex::new(Vec::new()) }
+        Self {
+            buffer: Mutex::new(Vec::new()),
+        }
     }
 
     /// Return all emitted lines as a `Vec<String>`.
     pub fn lines(&self) -> Vec<String> {
         let buf = self.buffer.lock().unwrap();
         let s = std::str::from_utf8(&buf).unwrap_or("");
-        s.lines().filter(|l| !l.is_empty()).map(|l| l.to_string()).collect()
+        s.lines()
+            .filter(|l| !l.is_empty())
+            .map(|l| l.to_string())
+            .collect()
     }
 
     /// Parse all emitted lines as `RuntimeEvent` and return them.
@@ -102,7 +111,9 @@ impl MemoryJsonSink {
 }
 
 impl Default for MemoryJsonSink {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl EventSink for MemoryJsonSink {
@@ -122,22 +133,31 @@ mod tests {
     use crate::event::{RuntimeEventKind, ToolBatchKind};
     use uuid::Uuid;
 
-    fn session() -> Uuid { Uuid::new_v4() }
+    fn session() -> Uuid {
+        Uuid::new_v4()
+    }
 
     #[test]
     fn memory_sink_captures_events() {
         let sink = MemoryJsonSink::new();
 
-        sink.emit(&RuntimeEvent::new(session(), RuntimeEventKind::RoundStarted {
-            round: 3,
-            model: "claude-sonnet-4-6".into(),
-            tools_allowed: true,
-            token_budget_remaining: 7_000,
-        }));
+        sink.emit(&RuntimeEvent::new(
+            session(),
+            RuntimeEventKind::RoundStarted {
+                round: 3,
+                model: "claude-sonnet-4-6".into(),
+                tools_allowed: true,
+                token_budget_remaining: 7_000,
+            },
+        ));
 
         let lines = sink.lines();
         assert_eq!(lines.len(), 1);
-        assert!(lines[0].contains("\"type\":\"round_started\""), "line={}", lines[0]);
+        assert!(
+            lines[0].contains("\"type\":\"round_started\""),
+            "line={}",
+            lines[0]
+        );
         assert!(lines[0].contains("\"round\":3"), "line={}", lines[0]);
     }
 
@@ -146,18 +166,24 @@ mod tests {
         let sink = MemoryJsonSink::new();
         let session_id = session();
 
-        sink.emit(&RuntimeEvent::new(session_id, RuntimeEventKind::ToolBatchStarted {
-            round: 1,
-            batch_kind: ToolBatchKind::Parallel,
-            tool_names: vec!["file_read".into(), "bash".into()],
-        }));
-        sink.emit(&RuntimeEvent::new(session_id, RuntimeEventKind::ToolBatchCompleted {
-            round: 1,
-            batch_kind: ToolBatchKind::Parallel,
-            success_count: 2,
-            failure_count: 0,
-            total_duration_ms: 450,
-        }));
+        sink.emit(&RuntimeEvent::new(
+            session_id,
+            RuntimeEventKind::ToolBatchStarted {
+                round: 1,
+                batch_kind: ToolBatchKind::Parallel,
+                tool_names: vec!["file_read".into(), "bash".into()],
+            },
+        ));
+        sink.emit(&RuntimeEvent::new(
+            session_id,
+            RuntimeEventKind::ToolBatchCompleted {
+                round: 1,
+                batch_kind: ToolBatchKind::Parallel,
+                success_count: 2,
+                failure_count: 0,
+                total_duration_ms: 450,
+            },
+        ));
 
         let events = sink.events();
         assert_eq!(events.len(), 2);
@@ -171,13 +197,16 @@ mod tests {
         let session_id = session();
         let edit_id = Uuid::new_v4();
 
-        sink.emit(&RuntimeEvent::new(session_id, RuntimeEventKind::EditProposed {
-            round: 2,
-            file_uri: "file:///project/src/lib.rs".into(),
-            diff: "--- a/lib.rs\n+++ b/lib.rs\n@@ -1 +1 @@\n-old\n+new".into(),
-            original_hash: "sha256:abc".into(),
-            edit_id,
-        }));
+        sink.emit(&RuntimeEvent::new(
+            session_id,
+            RuntimeEventKind::EditProposed {
+                round: 2,
+                file_uri: "file:///project/src/lib.rs".into(),
+                diff: "--- a/lib.rs\n+++ b/lib.rs\n@@ -1 +1 @@\n-old\n+new".into(),
+                original_hash: "sha256:abc".into(),
+                edit_id,
+            },
+        ));
 
         let events = sink.events();
         assert_eq!(events.len(), 1);

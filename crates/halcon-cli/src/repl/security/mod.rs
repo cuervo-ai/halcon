@@ -11,24 +11,14 @@
 //! - subagent_contract: Validates sub-agent results against their assigned contracts
 
 pub mod blacklist;
+pub mod lifecycle;
 pub mod output_risk;
 pub mod risk_tier;
-pub mod lifecycle;
+pub mod subagent_contract;
 pub(crate) mod tool_policy;
 pub(crate) mod tool_trust;
-pub mod subagent_contract;
 
 // Re-exports for public types used by callers outside security/
-pub use blacklist::{analyze_command, DangerousPattern, SafetyAnalysis};
-pub use output_risk::{OutputRiskFlag, OutputRiskReport, score_tool_args, score_model_output};
-pub use risk_tier::{RiskTier, RiskTierClassifier};
-pub use lifecycle::PermissionLifecycle;
-pub(crate) use tool_policy::{ToolCategory, classify as classify_tool, tools_to_remove};
-pub(crate) use tool_trust::{ToolMetrics, ToolTrustScorer, TrustDecision};
-pub use subagent_contract::{
-    SubAgentContract, SubAgentContractValidator, ValidationResult, ValidationStatus,
-    RejectionReason, StepType,
-};
 
 // C-2: files migrated from repl/ root
 pub mod adaptive_prompt;
@@ -47,11 +37,3 @@ pub mod schema_validator;
 pub mod validation;
 
 // Re-exports — preserve API surface for callers outside security/
-pub use adaptive_prompt::AdaptivePromptBuilder;
-pub use authorization::{AuthorizationMiddleware, AuthorizationPolicy, AuthorizationState};
-pub use circuit_breaker::{BreakerState, ProviderBreaker};
-pub use conversational::ConversationalPermissionHandler;
-pub use permissions::PermissionChecker;
-pub use rule_matcher::RuleMatcher;
-pub(crate) use schema_validator::preflight_validate;
-pub use validation::PermissionValidator;

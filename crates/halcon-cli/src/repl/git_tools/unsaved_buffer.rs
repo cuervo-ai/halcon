@@ -192,7 +192,9 @@ mod tests {
     #[tokio::test]
     async fn change_unknown_uri_returns_false() {
         let tracker = UnsavedBufferTracker::new();
-        let updated = tracker.change("file:///nonexistent.rs", 1, "x".to_string()).await;
+        let updated = tracker
+            .change("file:///nonexistent.rs", 1, "x".to_string())
+            .await;
         assert!(!updated);
     }
 
@@ -240,10 +242,20 @@ mod tests {
     async fn tracked_uris_lists_all_open() {
         let tracker = UnsavedBufferTracker::new();
         tracker
-            .open("file:///a.rs".to_string(), 1, "rust".to_string(), "".to_string())
+            .open(
+                "file:///a.rs".to_string(),
+                1,
+                "rust".to_string(),
+                "".to_string(),
+            )
             .await;
         tracker
-            .open("file:///b.rs".to_string(), 1, "rust".to_string(), "".to_string())
+            .open(
+                "file:///b.rs".to_string(),
+                1,
+                "rust".to_string(),
+                "".to_string(),
+            )
             .await;
         let mut uris = tracker.tracked_uris().await;
         uris.sort();
@@ -255,7 +267,12 @@ mod tests {
         let tracker = UnsavedBufferTracker::new();
         assert!(tracker.is_empty().await);
         tracker
-            .open("file:///x.rs".to_string(), 1, "rust".to_string(), "x".to_string())
+            .open(
+                "file:///x.rs".to_string(),
+                1,
+                "rust".to_string(),
+                "x".to_string(),
+            )
             .await;
         assert_eq!(tracker.len().await, 1);
         assert!(!tracker.is_empty().await);
@@ -307,10 +324,20 @@ mod tests {
     async fn open_overwrites_existing_uri() {
         let tracker = UnsavedBufferTracker::new();
         tracker
-            .open("file:///f.rs".to_string(), 1, "rust".to_string(), "v1".to_string())
+            .open(
+                "file:///f.rs".to_string(),
+                1,
+                "rust".to_string(),
+                "v1".to_string(),
+            )
             .await;
         tracker
-            .open("file:///f.rs".to_string(), 2, "rust".to_string(), "v2".to_string())
+            .open(
+                "file:///f.rs".to_string(),
+                2,
+                "rust".to_string(),
+                "v2".to_string(),
+            )
             .await;
         let entry = tracker.get("file:///f.rs").await.unwrap();
         assert_eq!(entry.version, 2);
@@ -322,7 +349,12 @@ mod tests {
         let tracker = UnsavedBufferTracker::new();
         let clone = tracker.clone();
         tracker
-            .open("file:///shared.rs".to_string(), 1, "rust".to_string(), "shared".to_string())
+            .open(
+                "file:///shared.rs".to_string(),
+                1,
+                "rust".to_string(),
+                "shared".to_string(),
+            )
             .await;
         // The clone should see the same buffer.
         assert!(clone.get("file:///shared.rs").await.is_some());

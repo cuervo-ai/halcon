@@ -111,7 +111,9 @@ pub fn detect_repair_actions(
     // ── Generic file locks ────────────────────────────────────────────────────
     // Pattern: "Resource temporarily unavailable" / "EAGAIN" / ".lock" files
     // Skip if the cargo-lock rule already fired — avoid emitting two actions for the same lock.
-    let cargo_lock_already_detected = actions.iter().any(|a| matches!(a, EnvRepairAction::RemoveCargoLock { .. }));
+    let cargo_lock_already_detected = actions
+        .iter()
+        .any(|a| matches!(a, EnvRepairAction::RemoveCargoLock { .. }));
     if !cargo_lock_already_detected
         && (lower.contains("resource temporarily unavailable")
             || lower.contains("eagain")
@@ -263,7 +265,9 @@ pub fn execute_repair(action: &EnvRepairAction) -> EnvRepairResult {
             );
             EnvRepairResult {
                 repaired: false, // no filesystem action taken — relying on retry backoff
-                description: format!("acknowledged: relying on backoff for lock release — {description}"),
+                description: format!(
+                    "acknowledged: relying on backoff for lock release — {description}"
+                ),
                 action: action.clone(),
             }
         }
@@ -376,14 +380,18 @@ mod tests {
         let err = "error: failed to open: /path/to/project/target/debug/.cargo-lock";
         let actions = detect_repair_actions(err, "lint_check", "/path/to/project");
         assert_eq!(actions.len(), 1);
-        assert!(matches!(&actions[0], EnvRepairAction::RemoveCargoLock { path } if path.contains(".cargo-lock")));
+        assert!(
+            matches!(&actions[0], EnvRepairAction::RemoveCargoLock { path } if path.contains(".cargo-lock"))
+        );
     }
 
     #[test]
     fn detects_cargo_lock_via_package_cache_message() {
         let err = "could not acquire package cache lock";
         let actions = detect_repair_actions(err, "bash", "/workspace");
-        assert!(actions.iter().any(|a| matches!(a, EnvRepairAction::RemoveCargoLock { .. })));
+        assert!(actions
+            .iter()
+            .any(|a| matches!(a, EnvRepairAction::RemoveCargoLock { .. })));
     }
 
     #[test]
@@ -398,7 +406,10 @@ mod tests {
         // Auth failures should NOT produce repair actions.
         let err = "Error: unauthorized — invalid API key";
         let actions = detect_repair_actions(err, "bash", "/workspace");
-        assert!(actions.is_empty(), "Auth errors must not trigger env repair");
+        assert!(
+            actions.is_empty(),
+            "Auth errors must not trigger env repair"
+        );
     }
 
     #[test]
@@ -433,7 +444,10 @@ mod tests {
     fn extract_path_finds_cargo_lock_in_error() {
         let err = "failed to open: /some/project/target/debug/.cargo-lock";
         let path = extract_path_from_error(err, ".cargo-lock");
-        assert_eq!(path.as_deref(), Some("/some/project/target/debug/.cargo-lock"));
+        assert_eq!(
+            path.as_deref(),
+            Some("/some/project/target/debug/.cargo-lock")
+        );
     }
 
     #[test]

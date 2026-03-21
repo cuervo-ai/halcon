@@ -50,7 +50,9 @@ impl Tool for FileEditTool {
             HalconError::InvalidInput("file_edit requires 'new_string' string".into())
         })?;
         if old_string.is_empty() {
-            return Err(HalconError::InvalidInput("file_edit: old_string must not be empty".into()));
+            return Err(HalconError::InvalidInput(
+                "file_edit: old_string must not be empty".into(),
+            ));
         }
         let replace_all = input.arguments["replace_all"].as_bool().unwrap_or(false);
 
@@ -67,10 +69,7 @@ impl Tool for FileEditTool {
         if meta.is_symlink() {
             return Err(HalconError::ToolExecutionFailed {
                 tool: "file_edit".into(),
-                message: format!(
-                    "refusing to edit through symlink: {}",
-                    resolved.display()
-                ),
+                message: format!("refusing to edit through symlink: {}", resolved.display()),
             });
         }
 
@@ -115,7 +114,9 @@ impl Tool for FileEditTool {
             content.replacen(old_string, new_string, 1)
         };
 
-        self.fs.atomic_write(&resolved, new_content.as_bytes()).await?;
+        self.fs
+            .atomic_write(&resolved, new_content.as_bytes())
+            .await?;
 
         let replacements = if replace_all { match_count } else { 1 };
         let mut output_text = format!(

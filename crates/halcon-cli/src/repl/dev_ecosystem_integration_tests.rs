@@ -23,9 +23,9 @@ use super::ci_result_ingestor::{
     CiApiClient, CiEvent, CiIngestorConfig, CiResultIngestor, CiRunRecord, CiRunStatus,
 };
 use super::dev_gateway::DevGateway;
+use super::git_tools::test_results::{parse_cargo_test, parse_junit_xml, TestStatus};
 use super::ide_protocol_handler::IdeProtocolHandler;
 use super::runtime_signal_ingestor::{metrics_to_markdown, RuntimeSignal, RuntimeSignalIngestor};
-use super::git_tools::test_results::{parse_cargo_test, parse_junit_xml, TestStatus};
 use super::unsaved_buffer_tracker::UnsavedBufferTracker;
 
 // ── Phase 1–2 invariants ──────────────────────────────────────────────────────

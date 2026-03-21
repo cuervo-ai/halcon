@@ -1,4 +1,6 @@
-use halcon_core::types::{AuthzDecision, PermissionDecision, PermissionLevel, TaskContext, ToolInput};
+use halcon_core::types::{
+    AuthzDecision, PermissionDecision, PermissionLevel, TaskContext, ToolInput,
+};
 
 use super::authorization::AuthorizationMiddleware;
 
@@ -26,7 +28,13 @@ pub struct PermissionChecker {
     /// channel instead of falling through to the middleware's stdin prompt.
     /// The TUI sends PermissionDecision values for advanced 8-option modal support.
     #[cfg(feature = "tui")]
-    tui_approve_rx: Option<std::sync::Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<halcon_core::types::PermissionDecision>>>>,
+    tui_approve_rx: Option<
+        std::sync::Arc<
+            tokio::sync::Mutex<
+                tokio::sync::mpsc::UnboundedReceiver<halcon_core::types::PermissionDecision>,
+            >,
+        >,
+    >,
     /// Sudo password channel (TUI → executor).
     ///
     /// After a sudo command is approved, the TUI sends the OS password here.
@@ -34,7 +42,9 @@ pub struct PermissionChecker {
     /// Kept separate from `perm_tx` because `PermissionDecision` is `Copy` and
     /// cannot carry a `String` payload.
     #[cfg(feature = "tui")]
-    sudo_pw_rx: Option<std::sync::Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Option<String>>>>>,
+    sudo_pw_rx: Option<
+        std::sync::Arc<tokio::sync::Mutex<tokio::sync::mpsc::UnboundedReceiver<Option<String>>>>,
+    >,
     /// TUI notification channel for permission events (e.g. timeout denial).
     ///
     /// When set, `authorize()` sends a `UiEvent::Warning` to the TUI activity
@@ -72,7 +82,11 @@ impl PermissionChecker {
         prompt_timeout_secs: u64,
     ) -> Self {
         Self {
-            middleware: AuthorizationMiddleware::new(confirm_destructive, auto_approve_in_ci, prompt_timeout_secs),
+            middleware: AuthorizationMiddleware::new(
+                confirm_destructive,
+                auto_approve_in_ci,
+                prompt_timeout_secs,
+            ),
             task_contexts: Vec::new(),
             tbac_enabled,
             #[cfg(feature = "tui")]
@@ -101,7 +115,10 @@ impl PermissionChecker {
     /// prompt. This is essential in TUI mode where stdin is in raw mode.
     /// Now supports advanced 8-option modal with PermissionDecision values.
     #[cfg(feature = "tui")]
-    pub fn set_tui_channel(&mut self, rx: tokio::sync::mpsc::UnboundedReceiver<halcon_core::types::PermissionDecision>) {
+    pub fn set_tui_channel(
+        &mut self,
+        rx: tokio::sync::mpsc::UnboundedReceiver<halcon_core::types::PermissionDecision>,
+    ) {
         self.tui_approve_rx = Some(std::sync::Arc::new(tokio::sync::Mutex::new(rx)));
     }
 
@@ -263,7 +280,9 @@ impl PermissionChecker {
             }
         }
 
-        self.middleware.authorize(tool_name, perm_level, input).await
+        self.middleware
+            .authorize(tool_name, perm_level, input)
+            .await
     }
 
     /// Check if a tool execution should be allowed (convenience for sync callers/tests).
@@ -396,7 +415,10 @@ mod tests {
             .unwrap();
         assert_eq!(result, PermissionDecision::Allowed);
         let prompt = String::from_utf8(writer).unwrap();
-        assert!(prompt.contains("Allow file_write"), "Must show consent prompt");
+        assert!(
+            prompt.contains("Allow file_write"),
+            "Must show consent prompt"
+        );
         assert!(prompt.contains("/tmp/test.txt"), "Must show file path");
     }
 

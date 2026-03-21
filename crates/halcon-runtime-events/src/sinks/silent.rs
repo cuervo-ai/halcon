@@ -19,13 +19,15 @@ impl EventSink for SilentSink {
     fn emit(&self, _event: &RuntimeEvent) {}
 
     #[inline(always)]
-    fn is_silent(&self) -> bool { true }
+    fn is_silent(&self) -> bool {
+        true
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::event::{RuntimeEventKind};
+    use crate::event::RuntimeEventKind;
     use uuid::Uuid;
 
     #[test]

@@ -4,8 +4,8 @@
 //! returns a `ToolOutput` — a sparse struct with `Option<T>` fields.
 //! The orchestrator (mod.rs) merges all outputs into a single `ProjectContext`.
 
-use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 
 // ─── Core types ───────────────────────────────────────────────────────────────
 
@@ -294,133 +294,353 @@ impl ToolOutput {
     /// Merge all `Some` values from this output into the accumulated context.
     pub fn merge_into(self, ctx: &mut ProjectContext) {
         // Project identity
-        if let Some(v) = self.project_type { ctx.project_type = v; }
-        if let Some(v) = self.package_name { ctx.package_name = Some(v); }
-        if let Some(v) = self.version { ctx.version = Some(v); }
-        if let Some(v) = self.description { ctx.description = Some(v); }
-        if let Some(v) = self.edition { ctx.edition = Some(v); }
-        if let Some(v) = self.license { ctx.license = Some(v); }
-        if let Some(v) = self.members { ctx.members = v; }
-        if let Some(v) = self.stack { ctx.stack = v; }
-        if let Some(v) = self.top_dirs { ctx.top_dirs = v; }
-        if let Some(v) = self.has_readme { ctx.has_readme = v; }
-        if let Some(v) = self.files_scanned { ctx.files_scanned = v; }
+        if let Some(v) = self.project_type {
+            ctx.project_type = v;
+        }
+        if let Some(v) = self.package_name {
+            ctx.package_name = Some(v);
+        }
+        if let Some(v) = self.version {
+            ctx.version = Some(v);
+        }
+        if let Some(v) = self.description {
+            ctx.description = Some(v);
+        }
+        if let Some(v) = self.edition {
+            ctx.edition = Some(v);
+        }
+        if let Some(v) = self.license {
+            ctx.license = Some(v);
+        }
+        if let Some(v) = self.members {
+            ctx.members = v;
+        }
+        if let Some(v) = self.stack {
+            ctx.stack = v;
+        }
+        if let Some(v) = self.top_dirs {
+            ctx.top_dirs = v;
+        }
+        if let Some(v) = self.has_readme {
+            ctx.has_readme = v;
+        }
+        if let Some(v) = self.files_scanned {
+            ctx.files_scanned = v;
+        }
         // Git
-        if let Some(v) = self.branch { ctx.branch = Some(v); }
-        if let Some(v) = self.remote { ctx.remote = Some(v); }
-        if let Some(v) = self.last_commit { ctx.last_commit = Some(v); }
-        if let Some(v) = self.status_summary { ctx.status_summary = Some(v); }
-        if let Some(v) = self.total_commits { ctx.total_commits = Some(v); }
-        if let Some(v) = self.contributors { ctx.contributors = v; }
-        if let Some(v) = self.commit_velocity_per_week { ctx.commit_velocity_per_week = Some(v); }
-        if let Some(v) = self.bus_factor { ctx.bus_factor = Some(v); }
+        if let Some(v) = self.branch {
+            ctx.branch = Some(v);
+        }
+        if let Some(v) = self.remote {
+            ctx.remote = Some(v);
+        }
+        if let Some(v) = self.last_commit {
+            ctx.last_commit = Some(v);
+        }
+        if let Some(v) = self.status_summary {
+            ctx.status_summary = Some(v);
+        }
+        if let Some(v) = self.total_commits {
+            ctx.total_commits = Some(v);
+        }
+        if let Some(v) = self.contributors {
+            ctx.contributors = v;
+        }
+        if let Some(v) = self.commit_velocity_per_week {
+            ctx.commit_velocity_per_week = Some(v);
+        }
+        if let Some(v) = self.bus_factor {
+            ctx.bus_factor = Some(v);
+        }
         // Infrastructure
-        if let Some(v) = self.has_ci { ctx.has_ci = v; }
-        if let Some(v) = self.ci_system { ctx.ci_system = Some(v); }
-        if let Some(v) = self.has_docker { ctx.has_docker = v; }
+        if let Some(v) = self.has_ci {
+            ctx.has_ci = v;
+        }
+        if let Some(v) = self.ci_system {
+            ctx.ci_system = Some(v);
+        }
+        if let Some(v) = self.has_docker {
+            ctx.has_docker = v;
+        }
         // Security & Quality
-        if let Some(v) = self.has_tests { ctx.has_tests = v; }
-        if let Some(v) = self.test_coverage_est { ctx.test_coverage_est = Some(v); }
-        if let Some(v) = self.has_security_policy { ctx.has_security_policy = v; }
-        if let Some(v) = self.dep_count { ctx.dep_count = Some(v); }
-        if let Some(v) = self.has_audit_config { ctx.has_audit_config = v; }
+        if let Some(v) = self.has_tests {
+            ctx.has_tests = v;
+        }
+        if let Some(v) = self.test_coverage_est {
+            ctx.test_coverage_est = Some(v);
+        }
+        if let Some(v) = self.has_security_policy {
+            ctx.has_security_policy = v;
+        }
+        if let Some(v) = self.dep_count {
+            ctx.dep_count = Some(v);
+        }
+        if let Some(v) = self.has_audit_config {
+            ctx.has_audit_config = v;
+        }
         // Architecture
-        if let Some(v) = self.architecture_style { ctx.architecture_style = Some(v); }
-        if let Some(v) = self.has_circular_deps { ctx.has_circular_deps = v; }
-        if let Some(v) = self.complexity_score { ctx.complexity_score = Some(v); }
+        if let Some(v) = self.architecture_style {
+            ctx.architecture_style = Some(v);
+        }
+        if let Some(v) = self.has_circular_deps {
+            ctx.has_circular_deps = v;
+        }
+        if let Some(v) = self.complexity_score {
+            ctx.complexity_score = Some(v);
+        }
         // System Profile
-        if let Some(v) = self.sys_os { ctx.sys_os = v; }
-        if let Some(v) = self.sys_cpu_cores { ctx.sys_cpu_cores = v; }
-        if let Some(v) = self.sys_ram_mb { ctx.sys_ram_mb = v; }
-        if let Some(v) = self.sys_disk_free_gb { ctx.sys_disk_free_gb = Some(v); }
-        if let Some(v) = self.sys_gpu_available { ctx.sys_gpu_available = v; }
-        if let Some(v) = self.sys_is_wsl { ctx.sys_is_wsl = v; }
-        if let Some(v) = self.sys_is_container { ctx.sys_is_container = v; }
+        if let Some(v) = self.sys_os {
+            ctx.sys_os = v;
+        }
+        if let Some(v) = self.sys_cpu_cores {
+            ctx.sys_cpu_cores = v;
+        }
+        if let Some(v) = self.sys_ram_mb {
+            ctx.sys_ram_mb = v;
+        }
+        if let Some(v) = self.sys_disk_free_gb {
+            ctx.sys_disk_free_gb = Some(v);
+        }
+        if let Some(v) = self.sys_gpu_available {
+            ctx.sys_gpu_available = v;
+        }
+        if let Some(v) = self.sys_is_wsl {
+            ctx.sys_is_wsl = v;
+        }
+        if let Some(v) = self.sys_is_container {
+            ctx.sys_is_container = v;
+        }
         // Tool Versions
-        if let Some(v) = self.tool_git_version { ctx.tool_git_version = Some(v); }
-        if let Some(v) = self.tool_docker_version { ctx.tool_docker_version = Some(v); }
-        if let Some(v) = self.tool_node_version { ctx.tool_node_version = Some(v); }
-        if let Some(v) = self.tool_python_version { ctx.tool_python_version = Some(v); }
-        if let Some(v) = self.tool_rust_version { ctx.tool_rust_version = Some(v); }
-        if let Some(v) = self.tool_go_version { ctx.tool_go_version = Some(v); }
-        if let Some(v) = self.tool_cargo_version { ctx.tool_cargo_version = Some(v); }
-        if let Some(v) = self.tool_make_version { ctx.tool_make_version = Some(v); }
-        if let Some(v) = self.tool_has_kubectl { ctx.tool_has_kubectl = v; }
-        if let Some(v) = self.tool_has_helm { ctx.tool_has_helm = v; }
-        if let Some(v) = self.tool_has_terraform { ctx.tool_has_terraform = v; }
-        if let Some(v) = self.tool_has_ansible { ctx.tool_has_ansible = v; }
+        if let Some(v) = self.tool_git_version {
+            ctx.tool_git_version = Some(v);
+        }
+        if let Some(v) = self.tool_docker_version {
+            ctx.tool_docker_version = Some(v);
+        }
+        if let Some(v) = self.tool_node_version {
+            ctx.tool_node_version = Some(v);
+        }
+        if let Some(v) = self.tool_python_version {
+            ctx.tool_python_version = Some(v);
+        }
+        if let Some(v) = self.tool_rust_version {
+            ctx.tool_rust_version = Some(v);
+        }
+        if let Some(v) = self.tool_go_version {
+            ctx.tool_go_version = Some(v);
+        }
+        if let Some(v) = self.tool_cargo_version {
+            ctx.tool_cargo_version = Some(v);
+        }
+        if let Some(v) = self.tool_make_version {
+            ctx.tool_make_version = Some(v);
+        }
+        if let Some(v) = self.tool_has_kubectl {
+            ctx.tool_has_kubectl = v;
+        }
+        if let Some(v) = self.tool_has_helm {
+            ctx.tool_has_helm = v;
+        }
+        if let Some(v) = self.tool_has_terraform {
+            ctx.tool_has_terraform = v;
+        }
+        if let Some(v) = self.tool_has_ansible {
+            ctx.tool_has_ansible = v;
+        }
         // IDE Context
-        if let Some(v) = self.ide_detected { ctx.ide_detected = Some(v); }
-        if let Some(v) = self.ide_workspace { ctx.ide_workspace = Some(v); }
-        if let Some(v) = self.ide_active_file { ctx.ide_active_file = Some(v); }
-        if let Some(v) = self.ide_lsp_connected { ctx.ide_lsp_connected = v; }
-        if let Some(v) = self.ide_lsp_port { ctx.ide_lsp_port = Some(v); }
+        if let Some(v) = self.ide_detected {
+            ctx.ide_detected = Some(v);
+        }
+        if let Some(v) = self.ide_workspace {
+            ctx.ide_workspace = Some(v);
+        }
+        if let Some(v) = self.ide_active_file {
+            ctx.ide_active_file = Some(v);
+        }
+        if let Some(v) = self.ide_lsp_connected {
+            ctx.ide_lsp_connected = v;
+        }
+        if let Some(v) = self.ide_lsp_port {
+            ctx.ide_lsp_port = Some(v);
+        }
         // Agent Capabilities
-        if let Some(v) = self.agent_tools_available { ctx.agent_tools_available = v; }
-        if let Some(v) = self.agent_mcp_servers { ctx.agent_mcp_servers = v; }
-        if let Some(v) = self.agent_plugins_loaded { ctx.agent_plugins_loaded = v; }
-        if let Some(v) = self.agent_model_name { ctx.agent_model_name = Some(v); }
-        if let Some(v) = self.agent_model_tier { ctx.agent_model_tier = Some(v); }
-        if let Some(v) = self.agent_reasoning_enabled { ctx.agent_reasoning_enabled = v; }
-        if let Some(v) = self.agent_orchestration_on { ctx.agent_orchestration_on = v; }
-        if let Some(v) = self.agent_plugin_system_on { ctx.agent_plugin_system_on = v; }
-        if let Some(v) = self.agent_multimodal_on { ctx.agent_multimodal_on = v; }
-        if let Some(v) = self.agent_hicon_active { ctx.agent_hicon_active = v; }
+        if let Some(v) = self.agent_tools_available {
+            ctx.agent_tools_available = v;
+        }
+        if let Some(v) = self.agent_mcp_servers {
+            ctx.agent_mcp_servers = v;
+        }
+        if let Some(v) = self.agent_plugins_loaded {
+            ctx.agent_plugins_loaded = v;
+        }
+        if let Some(v) = self.agent_model_name {
+            ctx.agent_model_name = Some(v);
+        }
+        if let Some(v) = self.agent_model_tier {
+            ctx.agent_model_tier = Some(v);
+        }
+        if let Some(v) = self.agent_reasoning_enabled {
+            ctx.agent_reasoning_enabled = v;
+        }
+        if let Some(v) = self.agent_orchestration_on {
+            ctx.agent_orchestration_on = v;
+        }
+        if let Some(v) = self.agent_plugin_system_on {
+            ctx.agent_plugin_system_on = v;
+        }
+        if let Some(v) = self.agent_multimodal_on {
+            ctx.agent_multimodal_on = v;
+        }
+        if let Some(v) = self.agent_hicon_active {
+            ctx.agent_hicon_active = v;
+        }
         // Runtime Profile
-        if let Some(v) = self.runtime_model_router_active { ctx.runtime_model_router_active = v; }
-        if let Some(v) = self.runtime_convergence_controller_on { ctx.runtime_convergence_controller_on = v; }
-        if let Some(v) = self.runtime_intent_scorer_on { ctx.runtime_intent_scorer_on = v; }
-        if let Some(v) = self.runtime_token_budget { ctx.runtime_token_budget = Some(v); }
-        if let Some(v) = self.runtime_ci_environment { ctx.runtime_ci_environment = v; }
+        if let Some(v) = self.runtime_model_router_active {
+            ctx.runtime_model_router_active = v;
+        }
+        if let Some(v) = self.runtime_convergence_controller_on {
+            ctx.runtime_convergence_controller_on = v;
+        }
+        if let Some(v) = self.runtime_intent_scorer_on {
+            ctx.runtime_intent_scorer_on = v;
+        }
+        if let Some(v) = self.runtime_token_budget {
+            ctx.runtime_token_budget = Some(v);
+        }
+        if let Some(v) = self.runtime_ci_environment {
+            ctx.runtime_ci_environment = v;
+        }
         // Language Intelligence (Phase 110)
-        if let Some(v) = self.primary_language { ctx.primary_language = v; }
-        if let Some(v) = self.secondary_languages { ctx.secondary_languages = v; }
-        if let Some(v) = self.is_polyglot { ctx.is_polyglot = v; }
-        if let Some(v) = self.language_breakdown { ctx.language_breakdown = v; }
-        if let Some(v) = self.frontend_framework { ctx.frontend_framework = Some(v); }
-        if let Some(v) = self.mobile_framework { ctx.mobile_framework = Some(v); }
-        if let Some(v) = self.data_framework { ctx.data_framework = Some(v); }
-        if let Some(v) = self.infra_tool { ctx.infra_tool = Some(v); }
+        if let Some(v) = self.primary_language {
+            ctx.primary_language = v;
+        }
+        if let Some(v) = self.secondary_languages {
+            ctx.secondary_languages = v;
+        }
+        if let Some(v) = self.is_polyglot {
+            ctx.is_polyglot = v;
+        }
+        if let Some(v) = self.language_breakdown {
+            ctx.language_breakdown = v;
+        }
+        if let Some(v) = self.frontend_framework {
+            ctx.frontend_framework = Some(v);
+        }
+        if let Some(v) = self.mobile_framework {
+            ctx.mobile_framework = Some(v);
+        }
+        if let Some(v) = self.data_framework {
+            ctx.data_framework = Some(v);
+        }
+        if let Some(v) = self.infra_tool {
+            ctx.infra_tool = Some(v);
+        }
         // Monorepo Intelligence (Phase 111)
-        if let Some(v) = self.is_monorepo { ctx.is_monorepo = v; }
-        if let Some(v) = self.monorepo_tool { ctx.monorepo_tool = Some(v); }
-        if let Some(v) = self.sub_project_count { ctx.sub_project_count = v; }
-        if let Some(v) = self.sub_projects { ctx.sub_projects = v; }
+        if let Some(v) = self.is_monorepo {
+            ctx.is_monorepo = v;
+        }
+        if let Some(v) = self.monorepo_tool {
+            ctx.monorepo_tool = Some(v);
+        }
+        if let Some(v) = self.sub_project_count {
+            ctx.sub_project_count = v;
+        }
+        if let Some(v) = self.sub_projects {
+            ctx.sub_projects = v;
+        }
         // Project Scale (Phase 112)
-        if let Some(v) = self.project_scale { ctx.project_scale = v; }
-        if let Some(v) = self.total_file_count { ctx.total_file_count = v; }
-        if let Some(v) = self.estimated_loc { ctx.estimated_loc = v; }
+        if let Some(v) = self.project_scale {
+            ctx.project_scale = v;
+        }
+        if let Some(v) = self.total_file_count {
+            ctx.total_file_count = v;
+        }
+        if let Some(v) = self.estimated_loc {
+            ctx.estimated_loc = v;
+        }
         // Distributed Architecture (Phase 113)
-        if let Some(v) = self.architecture_patterns { ctx.architecture_patterns = v; }
-        if let Some(v) = self.has_message_broker { ctx.has_message_broker = v; }
-        if let Some(v) = self.message_broker_type { ctx.message_broker_type = Some(v); }
-        if let Some(v) = self.has_service_mesh { ctx.has_service_mesh = v; }
-        if let Some(v) = self.has_observability_stack { ctx.has_observability_stack = v; }
-        if let Some(v) = self.has_api_gateway { ctx.has_api_gateway = v; }
-        if let Some(v) = self.distributed_services_count { ctx.distributed_services_count = v; }
+        if let Some(v) = self.architecture_patterns {
+            ctx.architecture_patterns = v;
+        }
+        if let Some(v) = self.has_message_broker {
+            ctx.has_message_broker = v;
+        }
+        if let Some(v) = self.message_broker_type {
+            ctx.message_broker_type = Some(v);
+        }
+        if let Some(v) = self.has_service_mesh {
+            ctx.has_service_mesh = v;
+        }
+        if let Some(v) = self.has_observability_stack {
+            ctx.has_observability_stack = v;
+        }
+        if let Some(v) = self.has_api_gateway {
+            ctx.has_api_gateway = v;
+        }
+        if let Some(v) = self.distributed_services_count {
+            ctx.distributed_services_count = v;
+        }
         // Advanced Scores (Phase 117)
-        if let Some(v) = self.architecture_quality_score { ctx.architecture_quality_score = v; }
-        if let Some(v) = self.scalability_score { ctx.scalability_score = v; }
-        if let Some(v) = self.maintainability_score { ctx.maintainability_score = v; }
-        if let Some(v) = self.technical_debt_score { ctx.technical_debt_score = v; }
-        if let Some(v) = self.dev_ex_score { ctx.dev_ex_score = v; }
-        if let Some(v) = self.ai_readiness_score { ctx.ai_readiness_score = v; }
-        if let Some(v) = self.distributed_maturity_score { ctx.distributed_maturity_score = v; }
+        if let Some(v) = self.architecture_quality_score {
+            ctx.architecture_quality_score = v;
+        }
+        if let Some(v) = self.scalability_score {
+            ctx.scalability_score = v;
+        }
+        if let Some(v) = self.maintainability_score {
+            ctx.maintainability_score = v;
+        }
+        if let Some(v) = self.technical_debt_score {
+            ctx.technical_debt_score = v;
+        }
+        if let Some(v) = self.dev_ex_score {
+            ctx.dev_ex_score = v;
+        }
+        if let Some(v) = self.ai_readiness_score {
+            ctx.ai_readiness_score = v;
+        }
+        if let Some(v) = self.distributed_maturity_score {
+            ctx.distributed_maturity_score = v;
+        }
         // Auto-Mode Suggestions (Phase 119)
-        if let Some(v) = self.suggested_model_tier { ctx.suggested_model_tier = Some(v); }
-        if let Some(v) = self.suggested_agent_flags { ctx.suggested_agent_flags = v; }
-        if let Some(v) = self.suggested_planning_strategy { ctx.suggested_planning_strategy = Some(v); }
-        if let Some(v) = self.activate_reasoning_deep { ctx.activate_reasoning_deep = v; }
-        if let Some(v) = self.activate_multimodal_for_init { ctx.activate_multimodal_for_init = v; }
-        if let Some(v) = self.use_fast_mode { ctx.use_fast_mode = v; }
-        if let Some(v) = self.agent_mode_rationale { ctx.agent_mode_rationale = Some(v); }
+        if let Some(v) = self.suggested_model_tier {
+            ctx.suggested_model_tier = Some(v);
+        }
+        if let Some(v) = self.suggested_agent_flags {
+            ctx.suggested_agent_flags = v;
+        }
+        if let Some(v) = self.suggested_planning_strategy {
+            ctx.suggested_planning_strategy = Some(v);
+        }
+        if let Some(v) = self.activate_reasoning_deep {
+            ctx.activate_reasoning_deep = v;
+        }
+        if let Some(v) = self.activate_multimodal_for_init {
+            ctx.activate_multimodal_for_init = v;
+        }
+        if let Some(v) = self.use_fast_mode {
+            ctx.use_fast_mode = v;
+        }
+        if let Some(v) = self.agent_mode_rationale {
+            ctx.agent_mode_rationale = Some(v);
+        }
         // AI Context Files (Phase 122) — extend, not replace
-        if let Some(v) = self.ai_context_files { ctx.ai_context_files.extend(v); }
+        if let Some(v) = self.ai_context_files {
+            ctx.ai_context_files.extend(v);
+        }
         // Telemetry (accumulate, not overwrite)
-        if let Some(v) = self.resource_detection_time_ms { ctx.resource_detection_time_ms = ctx.resource_detection_time_ms.max(v); }
-        if let Some(v) = self.environment_scan_time_ms { ctx.environment_scan_time_ms = ctx.environment_scan_time_ms.max(v); }
-        if let Some(v) = self.ide_context_integration_time_ms { ctx.ide_context_integration_time_ms = ctx.ide_context_integration_time_ms.max(v); }
-        if let Some(v) = self.hicon_query_time_ms { ctx.hicon_query_time_ms = ctx.hicon_query_time_ms.max(v); }
+        if let Some(v) = self.resource_detection_time_ms {
+            ctx.resource_detection_time_ms = ctx.resource_detection_time_ms.max(v);
+        }
+        if let Some(v) = self.environment_scan_time_ms {
+            ctx.environment_scan_time_ms = ctx.environment_scan_time_ms.max(v);
+        }
+        if let Some(v) = self.ide_context_integration_time_ms {
+            ctx.ide_context_integration_time_ms = ctx.ide_context_integration_time_ms.max(v);
+        }
+        if let Some(v) = self.hicon_query_time_ms {
+            ctx.hicon_query_time_ms = ctx.hicon_query_time_ms.max(v);
+        }
     }
 }
 
@@ -437,9 +657,15 @@ pub struct WorkspaceMember {
 /// Walk up from `start` looking for a workspace/project root.
 pub fn find_project_root(start: &Path) -> Option<PathBuf> {
     const MARKERS: &[&str] = &[
-        "Cargo.toml", "package.json", "pyproject.toml",
-        "setup.py", "go.mod", "build.gradle", "pom.xml",
-        "CMakeLists.txt", "Makefile",
+        "Cargo.toml",
+        "package.json",
+        "pyproject.toml",
+        "setup.py",
+        "go.mod",
+        "build.gradle",
+        "pom.xml",
+        "CMakeLists.txt",
+        "Makefile",
     ];
     let mut current = start.to_path_buf();
     loop {
@@ -448,7 +674,9 @@ pub fn find_project_root(start: &Path) -> Option<PathBuf> {
                 return Some(current);
             }
         }
-        if !current.pop() { break; }
+        if !current.pop() {
+            break;
+        }
     }
     None
 }
@@ -458,9 +686,20 @@ pub fn find_project_root(start: &Path) -> Option<PathBuf> {
 /// Scan top-level directory structure and count source files.
 pub async fn filesystem_scanner(root: &Path) -> ToolOutput {
     const SKIP: &[&str] = &[
-        "target", "node_modules", ".git", ".cargo", "dist", "build",
-        "__pycache__", ".venv", ".next", "out", "coverage", ".turbo",
-        "vendor", "third_party",
+        "target",
+        "node_modules",
+        ".git",
+        ".cargo",
+        "dist",
+        "build",
+        "__pycache__",
+        ".venv",
+        ".next",
+        "out",
+        "coverage",
+        ".turbo",
+        "vendor",
+        "third_party",
     ];
 
     let mut top_dirs = vec![];
@@ -470,7 +709,11 @@ pub async fn filesystem_scanner(root: &Path) -> ToolOutput {
     if let Ok(entries) = std::fs::read_dir(root) {
         for entry in entries.flatten() {
             let path = entry.path();
-            let name = path.file_name().unwrap_or_default().to_string_lossy().to_string();
+            let name = path
+                .file_name()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .to_string();
             if path.is_dir() {
                 if !name.starts_with('.') && !SKIP.contains(&name.as_str()) {
                     top_dirs.push(name.clone());
@@ -482,7 +725,9 @@ pub async fn filesystem_scanner(root: &Path) -> ToolOutput {
             } else {
                 // Check for README at root level
                 let lower = name.to_lowercase();
-                if lower.starts_with("readme") { has_readme = true; }
+                if lower.starts_with("readme") {
+                    has_readme = true;
+                }
                 files_scanned += 1;
             }
         }
@@ -502,31 +747,48 @@ pub async fn filesystem_scanner(root: &Path) -> ToolOutput {
 /// Detect the primary project type from well-known marker files.
 pub fn type_detector(root: &Path) -> ToolOutput {
     let project_type = detect_project_type(root);
-    ToolOutput { project_type: Some(project_type), ..Default::default() }
+    ToolOutput {
+        project_type: Some(project_type),
+        ..Default::default()
+    }
 }
 
 /// Standalone function (also used by tests).
 pub fn detect_project_type(root: &Path) -> String {
     if root.join("Cargo.toml").exists() {
         if let Ok(c) = std::fs::read_to_string(root.join("Cargo.toml")) {
-            if c.contains("[workspace]") { return "Rust Workspace".to_string(); }
+            if c.contains("[workspace]") {
+                return "Rust Workspace".to_string();
+            }
         }
         return "Rust".to_string();
     }
     if root.join("package.json").exists() {
         if let Ok(c) = std::fs::read_to_string(root.join("package.json")) {
-            if c.contains("\"workspaces\"") { return "Node.js Monorepo".to_string(); }
-            if c.contains("\"next\"") { return "Next.js".to_string(); }
-            if c.contains("\"react\"") { return "React".to_string(); }
+            if c.contains("\"workspaces\"") {
+                return "Node.js Monorepo".to_string();
+            }
+            if c.contains("\"next\"") {
+                return "Next.js".to_string();
+            }
+            if c.contains("\"react\"") {
+                return "React".to_string();
+            }
         }
         return "Node.js".to_string();
     }
     if root.join("pyproject.toml").exists() || root.join("setup.py").exists() {
         return "Python".to_string();
     }
-    if root.join("go.mod").exists() { return "Go".to_string(); }
-    if root.join("build.gradle").exists() { return "Java/Kotlin (Gradle)".to_string(); }
-    if root.join("pom.xml").exists() { return "Java (Maven)".to_string(); }
+    if root.join("go.mod").exists() {
+        return "Go".to_string();
+    }
+    if root.join("build.gradle").exists() {
+        return "Java/Kotlin (Gradle)".to_string();
+    }
+    if root.join("pom.xml").exists() {
+        return "Java (Maven)".to_string();
+    }
     "Unknown".to_string()
 }
 
@@ -535,7 +797,10 @@ pub fn detect_project_type(root: &Path) -> String {
 pub async fn metadata_reader(root: &Path, project_type: &str) -> ToolOutput {
     if project_type.starts_with("Rust") {
         read_cargo_metadata(root).await
-    } else if project_type.contains("Node") || project_type.contains("React") || project_type.contains("Next") {
+    } else if project_type.contains("Node")
+        || project_type.contains("React")
+        || project_type.contains("Next")
+    {
         read_npm_metadata(root).await
     } else if project_type == "Python" {
         read_python_metadata(root).await
@@ -563,15 +828,37 @@ async fn read_cargo_metadata(root: &Path) -> ToolOutput {
 
     for line in content.lines() {
         let t = line.trim();
-        if t == "[package]" { in_package = true; in_workspace = false; collecting_members = false; continue; }
-        if t == "[workspace]" { in_workspace = true; in_package = false; collecting_members = false; continue; }
-        if t.starts_with('[') && !t.starts_with("[[") { in_package = false; in_workspace = false; collecting_members = false; }
+        if t == "[package]" {
+            in_package = true;
+            in_workspace = false;
+            collecting_members = false;
+            continue;
+        }
+        if t == "[workspace]" {
+            in_workspace = true;
+            in_package = false;
+            collecting_members = false;
+            continue;
+        }
+        if t.starts_with('[') && !t.starts_with("[[") {
+            in_package = false;
+            in_workspace = false;
+            collecting_members = false;
+        }
 
         if in_package {
-            if name.is_none() { name = parse_toml_str(t, "name"); }
-            if version.is_none() { version = parse_toml_str(t, "version"); }
-            if description.is_none() { description = parse_toml_str(t, "description"); }
-            if edition.is_none() { edition = parse_toml_str(t, "edition"); }
+            if name.is_none() {
+                name = parse_toml_str(t, "name");
+            }
+            if version.is_none() {
+                version = parse_toml_str(t, "version");
+            }
+            if description.is_none() {
+                description = parse_toml_str(t, "description");
+            }
+            if edition.is_none() {
+                edition = parse_toml_str(t, "edition");
+            }
         }
 
         if in_workspace {
@@ -622,7 +909,9 @@ fn count_cargo_deps(content: &str) -> u32 {
             in_deps = true;
             continue;
         }
-        if t.starts_with('[') && !t.starts_with("[[") { in_deps = false; }
+        if t.starts_with('[') && !t.starts_with("[[") {
+            in_deps = false;
+        }
         if in_deps && !t.is_empty() && !t.starts_with('#') && t.contains('=') {
             count += 1;
         }
@@ -642,10 +931,17 @@ async fn expand_workspace_members(root: &Path, patterns: &[String]) -> Vec<Works
                     if path.is_dir() && path.join("Cargo.toml").exists() {
                         let crate_name = read_crate_field(&path, "name").await;
                         let desc = read_crate_field(&path, "description").await;
-                        let rel = path.strip_prefix(root).unwrap_or(&path).to_string_lossy().to_string();
+                        let rel = path
+                            .strip_prefix(root)
+                            .unwrap_or(&path)
+                            .to_string_lossy()
+                            .to_string();
                         result.push(WorkspaceMember {
                             name: crate_name.unwrap_or_else(|| {
-                                path.file_name().unwrap_or_default().to_string_lossy().to_string()
+                                path.file_name()
+                                    .unwrap_or_default()
+                                    .to_string_lossy()
+                                    .to_string()
                             }),
                             path: rel,
                             description: desc,
@@ -671,14 +967,23 @@ async fn expand_workspace_members(root: &Path, patterns: &[String]) -> Vec<Works
 }
 
 async fn read_crate_field(crate_root: &Path, field: &str) -> Option<String> {
-    let content = tokio::fs::read_to_string(crate_root.join("Cargo.toml")).await.ok()?;
+    let content = tokio::fs::read_to_string(crate_root.join("Cargo.toml"))
+        .await
+        .ok()?;
     let mut in_pkg = false;
     for line in content.lines() {
         let t = line.trim();
-        if t == "[package]" { in_pkg = true; continue; }
-        if t.starts_with('[') { in_pkg = false; }
+        if t == "[package]" {
+            in_pkg = true;
+            continue;
+        }
+        if t.starts_with('[') {
+            in_pkg = false;
+        }
         if in_pkg {
-            if let Some(v) = parse_toml_str(t, field) { return Some(v); }
+            if let Some(v) = parse_toml_str(t, field) {
+                return Some(v);
+            }
         }
     }
     None
@@ -703,7 +1008,11 @@ fn detect_rust_stack(content: &str) -> Vec<String> {
         ("thiserror", "thiserror"),
         ("anyhow", "anyhow"),
     ];
-    candidates.iter().filter(|(dep, _)| content.contains(dep)).map(|(_, label)| label.to_string()).collect()
+    candidates
+        .iter()
+        .filter(|(dep, _)| content.contains(dep))
+        .map(|(_, label)| label.to_string())
+        .collect()
 }
 
 async fn read_npm_metadata(root: &Path) -> ToolOutput {
@@ -734,8 +1043,13 @@ fn count_json_deps(json: &str) -> u32 {
         if in_deps {
             brace_depth += t.chars().filter(|&c| c == '{').count() as i32;
             brace_depth -= t.chars().filter(|&c| c == '}').count() as i32;
-            if brace_depth == 2 && t.starts_with('"') { count += 1; }
-            if brace_depth <= 0 { in_deps = false; brace_depth = 0; }
+            if brace_depth == 2 && t.starts_with('"') {
+                count += 1;
+            }
+            if brace_depth <= 0 {
+                in_deps = false;
+                brace_depth = 0;
+            }
         }
     }
     count
@@ -759,10 +1073,14 @@ async fn read_go_metadata(root: &Path) -> ToolOutput {
         return ToolOutput::default();
     };
     // First non-comment line: `module github.com/user/repo`
-    let module = content.lines()
+    let module = content
+        .lines()
         .find(|l| l.trim().starts_with("module "))
         .map(|l| l.trim().trim_start_matches("module ").trim().to_string());
-    ToolOutput { package_name: module, ..Default::default() }
+    ToolOutput {
+        package_name: module,
+        ..Default::default()
+    }
 }
 
 // ─── Wave 2B: Git Intelligence ────────────────────────────────────────────────
@@ -777,7 +1095,10 @@ pub async fn git_intelligence(root: &Path) -> ToolOutput {
             .ok()
             .and_then(|o| {
                 if o.status.success() {
-                    String::from_utf8(o.stdout).ok().map(|s| s.trim().to_string()).filter(|s| !s.is_empty())
+                    String::from_utf8(o.stdout)
+                        .ok()
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
                 } else {
                     None
                 }
@@ -795,7 +1116,11 @@ pub async fn git_intelligence(root: &Path) -> ToolOutput {
 
     let status_summary = git(&["status", "--porcelain"]).map(|s| {
         let n = s.lines().filter(|l| !l.trim().is_empty()).count();
-        if n == 0 { "working tree limpio".to_string() } else { format!("{n} archivos modificados") }
+        if n == 0 {
+            "working tree limpio".to_string()
+        } else {
+            format!("{n} archivos modificados")
+        }
     });
 
     let total_commits = git(&["rev-list", "--count", "HEAD"]).and_then(|s| s.parse::<u32>().ok());
@@ -809,7 +1134,11 @@ pub async fn git_intelligence(root: &Path) -> ToolOutput {
         .take(20)
         .filter_map(|l| {
             let parts: Vec<&str> = l.trim().splitn(2, '\t').collect();
-            if parts.len() == 2 { Some(format!("{} ({})", parts[1].trim(), parts[0].trim())) } else { None }
+            if parts.len() == 2 {
+                Some(format!("{} ({})", parts[1].trim(), parts[0].trim()))
+            } else {
+                None
+            }
         })
         .collect();
 
@@ -851,14 +1180,23 @@ pub async fn cicd_detector(root: &Path) -> ToolOutput {
     let has_drone = root.join(".drone.yml").exists();
     let has_buildkite = root.join(".buildkite").exists();
 
-    let ci_system = if has_github_actions { Some("GitHub Actions".to_string()) }
-        else if has_gitlab_ci { Some("GitLab CI".to_string()) }
-        else if has_jenkins { Some("Jenkins".to_string()) }
-        else if has_circle { Some("CircleCI".to_string()) }
-        else if has_travis { Some("Travis CI".to_string()) }
-        else if has_drone { Some("Drone CI".to_string()) }
-        else if has_buildkite { Some("Buildkite".to_string()) }
-        else { None };
+    let ci_system = if has_github_actions {
+        Some("GitHub Actions".to_string())
+    } else if has_gitlab_ci {
+        Some("GitLab CI".to_string())
+    } else if has_jenkins {
+        Some("Jenkins".to_string())
+    } else if has_circle {
+        Some("CircleCI".to_string())
+    } else if has_travis {
+        Some("Travis CI".to_string())
+    } else if has_drone {
+        Some("Drone CI".to_string())
+    } else if has_buildkite {
+        Some("Buildkite".to_string())
+    } else {
+        None
+    };
 
     let has_ci = ci_system.is_some();
 
@@ -897,7 +1235,7 @@ pub async fn security_scanner(root: &Path) -> ToolOutput {
         || root.join(".cargo-audit.toml").exists()             // cargo-audit
         || root.join(".snyk").exists()                         // Snyk
         || root.join("trivy.yaml").exists()                    // Trivy
-        || root.join(".grype.yaml").exists();                  // Grype
+        || root.join(".grype.yaml").exists(); // Grype
 
     // Check for license file
     let license = detect_license(root);
@@ -911,18 +1249,37 @@ pub async fn security_scanner(root: &Path) -> ToolOutput {
 }
 
 fn detect_license(root: &Path) -> Option<String> {
-    let candidates = ["LICENSE", "LICENSE.md", "LICENSE.txt", "LICENSE-MIT", "LICENSE-APACHE", "COPYING"];
+    let candidates = [
+        "LICENSE",
+        "LICENSE.md",
+        "LICENSE.txt",
+        "LICENSE-MIT",
+        "LICENSE-APACHE",
+        "COPYING",
+    ];
     for name in &candidates {
         let path = root.join(name);
         if path.exists() {
             if let Ok(content) = std::fs::read_to_string(&path) {
                 let first_lines: String = content.lines().take(5).collect::<Vec<_>>().join(" ");
-                if first_lines.contains("MIT") { return Some("MIT".to_string()); }
-                if first_lines.contains("Apache") { return Some("Apache-2.0".to_string()); }
-                if first_lines.contains("GNU GENERAL PUBLIC") { return Some("GPL".to_string()); }
-                if first_lines.contains("Mozilla") { return Some("MPL-2.0".to_string()); }
-                if first_lines.contains("BSD") { return Some("BSD".to_string()); }
-                if first_lines.contains("ISC") { return Some("ISC".to_string()); }
+                if first_lines.contains("MIT") {
+                    return Some("MIT".to_string());
+                }
+                if first_lines.contains("Apache") {
+                    return Some("Apache-2.0".to_string());
+                }
+                if first_lines.contains("GNU GENERAL PUBLIC") {
+                    return Some("GPL".to_string());
+                }
+                if first_lines.contains("Mozilla") {
+                    return Some("MPL-2.0".to_string());
+                }
+                if first_lines.contains("BSD") {
+                    return Some("BSD".to_string());
+                }
+                if first_lines.contains("ISC") {
+                    return Some("ISC".to_string());
+                }
                 return Some("Custom".to_string());
             }
             return Some("(present)".to_string());
@@ -948,9 +1305,22 @@ async fn estimate_test_coverage(root: &Path, project_type: &str) -> (bool, Optio
         let test_count = count_rust_tests(root).await;
         let has_tests = test_count > 0;
         // Rough coverage estimate: tests > 50 → ~60%, tests > 200 → ~80%
-        let est = if !has_tests { 0 } else if test_count < 20 { 20 } else if test_count < 50 { 40 } else if test_count < 200 { 65 } else { 80 };
+        let est = if !has_tests {
+            0
+        } else if test_count < 20 {
+            20
+        } else if test_count < 50 {
+            40
+        } else if test_count < 200 {
+            65
+        } else {
+            80
+        };
         (has_tests, if has_tests { Some(est) } else { None })
-    } else if project_type.contains("Node") || project_type.contains("React") || project_type.contains("Next") {
+    } else if project_type.contains("Node")
+        || project_type.contains("React")
+        || project_type.contains("Next")
+    {
         // Check for jest/vitest/mocha config
         let has_jest = root.join("jest.config.js").exists()
             || root.join("jest.config.ts").exists()
@@ -970,25 +1340,30 @@ async fn estimate_test_coverage(root: &Path, project_type: &str) -> (bool, Optio
         let has_tests = has_pytest || has_test_dir;
         (has_tests, if has_tests { Some(45) } else { None })
     } else {
-        let has_test_dir = root.join("test").exists() || root.join("tests").exists() || root.join("spec").exists();
+        let has_test_dir =
+            root.join("test").exists() || root.join("tests").exists() || root.join("spec").exists();
         (has_test_dir, None)
     }
 }
 
 async fn count_rust_tests(root: &Path) -> u32 {
     let root = root.to_path_buf();
-    tokio::task::spawn_blocking(move || {
-        count_pattern_in_dir(&root, "#[test]", &["target", ".git"])
-    }).await.unwrap_or(0)
+    tokio::task::spawn_blocking(move || count_pattern_in_dir(&root, "#[test]", &["target", ".git"]))
+        .await
+        .unwrap_or(0)
 }
 
 fn count_pattern_in_dir(dir: &Path, pattern: &str, skip: &[&str]) -> u32 {
     let mut count = 0u32;
-    let Ok(entries) = std::fs::read_dir(dir) else { return count; };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return count;
+    };
     for entry in entries.flatten() {
         let path = entry.path();
         let name = path.file_name().unwrap_or_default().to_string_lossy();
-        if skip.contains(&name.as_ref()) { continue; }
+        if skip.contains(&name.as_ref()) {
+            continue;
+        }
         if path.is_dir() {
             count += count_pattern_in_dir(&path, pattern, skip);
         } else if path.extension().map(|e| e == "rs").unwrap_or(false) {
@@ -1042,7 +1417,13 @@ pub async fn architecture_detector(root: &Path, members: &[WorkspaceMember]) -> 
     };
 
     // Complexity estimate based on member count and file count
-    let complexity = if members.len() > 10 { 70 } else if members.len() > 5 { 50 } else { 30 } as u8;
+    let complexity = if members.len() > 10 {
+        70
+    } else if members.len() > 5 {
+        50
+    } else {
+        30
+    } as u8;
 
     ToolOutput {
         architecture_style: Some(style),
@@ -1081,7 +1462,15 @@ pub fn health_score_calculator(ctx: &ProjectContext) -> (u8, Vec<String>, Vec<St
     // Tests (0-20)
     if ctx.has_tests {
         let coverage = ctx.test_coverage_est.unwrap_or(30);
-        let test_score = if coverage >= 80 { 20 } else if coverage >= 60 { 16 } else if coverage >= 40 { 12 } else { 8 };
+        let test_score = if coverage >= 80 {
+            20
+        } else if coverage >= 60 {
+            16
+        } else if coverage >= 40 {
+            12
+        } else {
+            8
+        };
         score += test_score;
         if coverage < 60 {
             issues.push(format!("Low estimated test coverage (~{}%)", coverage));
@@ -1089,18 +1478,29 @@ pub fn health_score_calculator(ctx: &ProjectContext) -> (u8, Vec<String>, Vec<St
         }
     } else {
         issues.push("No test suite detected".to_string());
-        recommendations.push("Add tests using the appropriate framework for your project".to_string());
+        recommendations
+            .push("Add tests using the appropriate framework for your project".to_string());
     }
 
     // Git activity (0-15)
     if ctx.branch.is_some() {
         let velocity = ctx.commit_velocity_per_week.unwrap_or(0.0);
-        let git_score = if velocity >= 5.0 { 15 } else if velocity >= 2.0 { 12 } else if velocity >= 0.5 { 8 } else { 4 };
+        let git_score = if velocity >= 5.0 {
+            15
+        } else if velocity >= 2.0 {
+            12
+        } else if velocity >= 0.5 {
+            8
+        } else {
+            4
+        };
         score += git_score;
         if let Some(bf) = ctx.bus_factor {
             if bf <= 1 {
                 issues.push("Bus factor of 1 — single point of failure".to_string());
-                recommendations.push("Encourage more contributors to reduce knowledge concentration".to_string());
+                recommendations.push(
+                    "Encourage more contributors to reduce knowledge concentration".to_string(),
+                );
             }
         }
         if velocity < 1.0 && ctx.total_commits.unwrap_or(0) > 0 {
@@ -1125,14 +1525,20 @@ pub fn health_score_calculator(ctx: &ProjectContext) -> (u8, Vec<String>, Vec<St
     }
 
     // Docker/containers (0-5)
-    if ctx.has_docker { score += 5; }
+    if ctx.has_docker {
+        score += 5;
+    }
 
     // Architecture quality (0-10)
     match ctx.architecture_style.as_deref() {
         Some("layered") | Some("api-first") => score += 10,
         Some("workspace") | Some("monorepo") => score += 8,
-        Some("monolith") => { score += 5; }
-        _ => { score += 3; }
+        Some("monolith") => {
+            score += 5;
+        }
+        _ => {
+            score += 3;
+        }
     }
 
     // Documentation (0-10)
@@ -1140,15 +1546,26 @@ pub fn health_score_calculator(ctx: &ProjectContext) -> (u8, Vec<String>, Vec<St
         score += 7;
     } else {
         issues.push("No README found".to_string());
-        recommendations.push("Add a README.md with project overview and setup instructions".to_string());
+        recommendations
+            .push("Add a README.md with project overview and setup instructions".to_string());
     }
-    if ctx.license.is_some() { score += 3; } else {
+    if ctx.license.is_some() {
+        score += 3;
+    } else {
         recommendations.push("Add a LICENSE file to clarify usage terms".to_string());
     }
 
     // Complexity (inverse, 0-10)
     let complexity = ctx.complexity_score.unwrap_or(30);
-    let complexity_score = if complexity < 30 { 10 } else if complexity < 50 { 7 } else if complexity < 70 { 4 } else { 1 };
+    let complexity_score = if complexity < 30 {
+        10
+    } else if complexity < 50 {
+        7
+    } else if complexity < 70 {
+        4
+    } else {
+        1
+    };
     score += complexity_score;
 
     let final_score = score.min(100) as u8;
@@ -1178,7 +1595,9 @@ pub fn parse_toml_str(line: &str, key: &str) -> Option<String> {
 
 pub fn find_toml_str(content: &str, key: &str) -> Option<String> {
     for line in content.lines() {
-        if let Some(v) = parse_toml_str(line.trim(), key) { return Some(v); }
+        if let Some(v) = parse_toml_str(line.trim(), key) {
+            return Some(v);
+        }
     }
     None
 }
@@ -1186,12 +1605,18 @@ pub fn find_toml_str(content: &str, key: &str) -> Option<String> {
 pub fn extract_string_array(text: &str) -> Vec<String> {
     let start = text.find('[').unwrap_or(text.len());
     let end = text.rfind(']').unwrap_or(0);
-    if start >= end { return vec![]; }
+    if start >= end {
+        return vec![];
+    }
     text[start + 1..end]
         .split(',')
         .filter_map(|s| {
             let s = s.trim().trim_matches('"').trim_matches('\'').trim();
-            if s.is_empty() { None } else { Some(s.to_string()) }
+            if s.is_empty() {
+                None
+            } else {
+                Some(s.to_string())
+            }
         })
         .collect()
 }
@@ -1229,26 +1654,28 @@ pub async fn ai_context_file_scanner(root: &Path) -> ToolOutput {
 fn scan_ai_context_files(root: &Path) -> ToolOutput {
     /// Maps (relative_path_components, display_name)
     const KNOWN_FILES: &[(&[&str], &str)] = &[
-        (&[".halcon", "HALCON.md"],                      "Halcon (generated)"),
-        (&["HALCON.md"],                                 "Halcon (root-level)"),
-        (&["AGENTS.md"],                                 "OpenAI Codex / Amp / Gemini CLI"),
-        (&["AGENT.md"],                                  "Amp (legacy)"),
-        (&["CLAUDE.md"],                                 "Claude Code"),
-        (&["CLAUDE.local.md"],                           "Claude Code (local override)"),
-        (&[".cursorrules"],                              "Cursor (legacy)"),
-        (&[".github", "copilot-instructions.md"],        "GitHub Copilot"),
-        (&[".junie", "guidelines.md"],                   "JetBrains Junie"),
-        (&[".continuerules"],                            "Continue"),
-        (&["GEMINI.md"],                                 "Gemini CLI"),
-        (&[".aider.conf.yml"],                           "Aider"),
-        (&[".claude", "settings.json"],                  "Claude Code (settings)"),
-        (&[".cursor", "rules"],                          "Cursor (rules dir)"),
+        (&[".halcon", "HALCON.md"], "Halcon (generated)"),
+        (&["HALCON.md"], "Halcon (root-level)"),
+        (&["AGENTS.md"], "OpenAI Codex / Amp / Gemini CLI"),
+        (&["AGENT.md"], "Amp (legacy)"),
+        (&["CLAUDE.md"], "Claude Code"),
+        (&["CLAUDE.local.md"], "Claude Code (local override)"),
+        (&[".cursorrules"], "Cursor (legacy)"),
+        (&[".github", "copilot-instructions.md"], "GitHub Copilot"),
+        (&[".junie", "guidelines.md"], "JetBrains Junie"),
+        (&[".continuerules"], "Continue"),
+        (&["GEMINI.md"], "Gemini CLI"),
+        (&[".aider.conf.yml"], "Aider"),
+        (&[".claude", "settings.json"], "Claude Code (settings)"),
+        (&[".cursor", "rules"], "Cursor (rules dir)"),
     ];
 
     let mut found: Vec<(String, String)> = Vec::new();
 
     for (components, tool_name) in KNOWN_FILES {
-        let path = components.iter().fold(root.to_path_buf(), |acc, c| acc.join(c));
+        let path = components
+            .iter()
+            .fold(root.to_path_buf(), |acc, c| acc.join(c));
         if path.exists() {
             // Use the last component as the display filename
             let fname = components.last().copied().unwrap_or("").to_string();
@@ -1271,7 +1698,10 @@ fn scan_ai_context_files(root: &Path) -> ToolOutput {
                 })
                 .count();
             if count > 0 {
-                found.push((format!(".cursor/rules/ ({count} rules)"), "Cursor".to_string()));
+                found.push((
+                    format!(".cursor/rules/ ({count} rules)"),
+                    "Cursor".to_string(),
+                ));
             }
         }
     }
@@ -1290,12 +1720,18 @@ pub mod tests {
 
     #[test]
     fn parse_toml_str_basic() {
-        assert_eq!(parse_toml_str(r#"name = "halcon-cli""#, "name"), Some("halcon-cli".to_string()));
+        assert_eq!(
+            parse_toml_str(r#"name = "halcon-cli""#, "name"),
+            Some("halcon-cli".to_string())
+        );
     }
 
     #[test]
     fn parse_toml_str_no_space_eq() {
-        assert_eq!(parse_toml_str(r#"version="0.3.0""#, "version"), Some("0.3.0".to_string()));
+        assert_eq!(
+            parse_toml_str(r#"version="0.3.0""#, "version"),
+            Some("0.3.0".to_string())
+        );
     }
 
     #[test]
@@ -1320,7 +1756,11 @@ pub mod tests {
     #[test]
     fn detect_rust_workspace() {
         let tmp = tempfile::tempdir().unwrap();
-        std::fs::write(tmp.path().join("Cargo.toml"), "[workspace]\nmembers = [\"crates/*\"]").unwrap();
+        std::fs::write(
+            tmp.path().join("Cargo.toml"),
+            "[workspace]\nmembers = [\"crates/*\"]",
+        )
+        .unwrap();
         assert_eq!(detect_project_type(tmp.path()), "Rust Workspace");
     }
 
@@ -1435,8 +1875,14 @@ pub mod tests {
             ..Default::default()
         };
         let (score, issues, _) = health_score_calculator(&ctx);
-        assert!(score >= 80, "Well-configured project should score >= 80, got {score}");
-        assert!(issues.is_empty() || issues.len() <= 1, "Few issues expected, got: {issues:?}");
+        assert!(
+            score >= 80,
+            "Well-configured project should score >= 80, got {score}"
+        );
+        assert!(
+            issues.is_empty() || issues.len() <= 1,
+            "Few issues expected, got: {issues:?}"
+        );
     }
 
     #[test]

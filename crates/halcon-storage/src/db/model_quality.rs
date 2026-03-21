@@ -5,7 +5,7 @@
 //! across halcon sessions — not just within a single session.
 
 use chrono::Utc;
-use rusqlite::{Connection, Result, params};
+use rusqlite::{params, Connection, Result};
 
 /// A persisted model quality record.
 #[derive(Debug, Clone)]

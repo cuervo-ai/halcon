@@ -110,7 +110,9 @@ impl VerifiableCriterion {
         Self {
             description: description.into(),
             weight: 1.0,
-            kind: CriterionKind::PatternMatch { pattern: pattern.into() },
+            kind: CriterionKind::PatternMatch {
+                pattern: pattern.into(),
+            },
             threshold: 0.8,
         }
     }
@@ -178,7 +180,8 @@ pub struct Evidence {
 impl Evidence {
     pub fn record_tool_success(&mut self, tool_name: &str, output: &str) {
         *self.tools_called.entry(tool_name.to_string()).or_insert(0) += 1;
-        self.tool_outputs.push((tool_name.to_string(), output.to_string()));
+        self.tool_outputs
+            .push((tool_name.to_string(), output.to_string()));
 
         // Attempt JSON parse for structured output.
         if let Ok(v) = serde_json::from_str::<serde_json::Value>(output) {
@@ -238,7 +241,11 @@ impl CriterionEvaluator {
                 Ok(Some(VerificationResult {
                     criterion: criterion.description.clone(),
                     satisfied,
-                    confidence: if satisfied { ConfidenceScore::FULL } else { ConfidenceScore::ZERO },
+                    confidence: if satisfied {
+                        ConfidenceScore::FULL
+                    } else {
+                        ConfidenceScore::ZERO
+                    },
                     evidence: found_in,
                     gaps: if satisfied {
                         vec![]
@@ -248,8 +255,15 @@ impl CriterionEvaluator {
                 }))
             }
 
-            CriterionKind::ToolInvoked { tool_name, min_calls } => {
-                let count = evidence.tools_called.get(tool_name.as_str()).copied().unwrap_or(0);
+            CriterionKind::ToolInvoked {
+                tool_name,
+                min_calls,
+            } => {
+                let count = evidence
+                    .tools_called
+                    .get(tool_name.as_str())
+                    .copied()
+                    .unwrap_or(0);
                 let satisfied = count >= *min_calls;
                 Ok(Some(VerificationResult {
                     criterion: criterion.description.clone(),
@@ -290,8 +304,14 @@ impl CriterionEvaluator {
                     criterion: criterion.description.clone(),
                     satisfied: missing.is_empty(),
                     confidence: ConfidenceScore::new(ratio),
-                    evidence: found.iter().map(|k| format!("keyword `{k}` present")).collect(),
-                    gaps: missing.iter().map(|k| format!("keyword `{k}` missing")).collect(),
+                    evidence: found
+                        .iter()
+                        .map(|k| format!("keyword `{k}` present"))
+                        .collect(),
+                    gaps: missing
+                        .iter()
+                        .map(|k| format!("keyword `{k}` missing"))
+                        .collect(),
                 }))
             }
 
@@ -307,7 +327,11 @@ impl CriterionEvaluator {
                 Ok(Some(VerificationResult {
                     criterion: criterion.description.clone(),
                     satisfied,
-                    confidence: if satisfied { ConfidenceScore::FULL } else { ConfidenceScore::ZERO },
+                    confidence: if satisfied {
+                        ConfidenceScore::FULL
+                    } else {
+                        ConfidenceScore::ZERO
+                    },
                     evidence: found.clone(),
                     gaps: if satisfied {
                         vec![]
@@ -323,7 +347,11 @@ impl CriterionEvaluator {
                 Ok(Some(VerificationResult {
                     criterion: criterion.description.clone(),
                     satisfied: called,
-                    confidence: if called { ConfidenceScore::FULL } else { ConfidenceScore::ZERO },
+                    confidence: if called {
+                        ConfidenceScore::FULL
+                    } else {
+                        ConfidenceScore::ZERO
+                    },
                     evidence: if called {
                         vec![format!("`{tool_name}` succeeded")]
                     } else {
@@ -337,7 +365,10 @@ impl CriterionEvaluator {
                 }))
             }
 
-            CriterionKind::JsonField { field_path, expected_value } => {
+            CriterionKind::JsonField {
+                field_path,
+                expected_value,
+            } => {
                 let parts: Vec<&str> = field_path.split('.').collect();
                 let mut found_values = Vec::new();
                 for json in &evidence.json_outputs {
@@ -355,7 +386,11 @@ impl CriterionEvaluator {
                 Ok(Some(VerificationResult {
                     criterion: criterion.description.clone(),
                     satisfied,
-                    confidence: if satisfied { ConfidenceScore::FULL } else { ConfidenceScore::ZERO },
+                    confidence: if satisfied {
+                        ConfidenceScore::FULL
+                    } else {
+                        ConfidenceScore::ZERO
+                    },
                     evidence: found_values,
                     gaps: if satisfied {
                         vec![]
@@ -380,9 +415,9 @@ impl CriterionEvaluator {
             return Some(value);
         }
         match value {
-            serde_json::Value::Object(map) => {
-                map.get(path[0]).and_then(|v| Self::json_traverse(v, &path[1..]))
-            }
+            serde_json::Value::Object(map) => map
+                .get(path[0])
+                .and_then(|v| Self::json_traverse(v, &path[1..])),
             _ => None,
         }
     }
@@ -474,7 +509,11 @@ impl GoalVerificationEngine {
         if self.spec.criteria.is_empty() {
             // Conversational goal — trivially satisfied by any assistant response.
             let satisfied = !evidence.assistant_text.is_empty();
-            return if satisfied { ConfidenceScore::FULL } else { ConfidenceScore::ZERO };
+            return if satisfied {
+                ConfidenceScore::FULL
+            } else {
+                ConfidenceScore::ZERO
+            };
         }
 
         let mut weighted_sum = 0.0f32;
@@ -555,7 +594,13 @@ impl GoalVerificationEngine {
         if self.history.len() < 2 {
             return 0.0;
         }
-        let recent: Vec<f32> = self.history.iter().rev().take(window).map(|s| s.value()).collect();
+        let recent: Vec<f32> = self
+            .history
+            .iter()
+            .rev()
+            .take(window)
+            .map(|s| s.value())
+            .collect();
         if recent.len() < 2 {
             return 0.0;
         }
@@ -582,7 +627,9 @@ pub struct GoalSpecParser {
 
 impl Default for GoalSpecParser {
     fn default() -> Self {
-        Self { completion_threshold: 0.75 }
+        Self {
+            completion_threshold: 0.75,
+        }
     }
 }
 
@@ -597,8 +644,12 @@ impl GoalSpecParser {
         let mut max_rounds = 20usize;
 
         // ── Domain: Security / Credentials ─────────────────────────────────
-        if lower.contains("credential") || lower.contains("secret") || lower.contains("api key")
-            || lower.contains("password") || lower.contains("token") || lower.contains("leak")
+        if lower.contains("credential")
+            || lower.contains("secret")
+            || lower.contains("api key")
+            || lower.contains("password")
+            || lower.contains("token")
+            || lower.contains("leak")
             || lower.contains("expose")
         {
             criteria.push(VerifiableCriterion {
@@ -632,10 +683,12 @@ impl GoalSpecParser {
             });
             max_rounds = 15;
         }
-
         // ── Domain: Code Execution / Testing ────────────────────────────────
-        else if lower.contains("test") || lower.contains("compile") || lower.contains("build")
-            || lower.contains("run") && (lower.contains("cargo") || lower.contains("npm") || lower.contains("make"))
+        else if lower.contains("test")
+            || lower.contains("compile")
+            || lower.contains("build")
+            || lower.contains("run")
+                && (lower.contains("cargo") || lower.contains("npm") || lower.contains("make"))
         {
             criteria.push(VerifiableCriterion {
                 description: "Build/test tool invoked".to_string(),
@@ -658,10 +711,12 @@ impl GoalSpecParser {
             });
             max_rounds = 12;
         }
-
         // ── Domain: File Operations ──────────────────────────────────────────
-        else if lower.contains("create") || lower.contains("write") || lower.contains("generate")
-            || lower.contains("edit") || lower.contains("modify")
+        else if lower.contains("create")
+            || lower.contains("write")
+            || lower.contains("generate")
+            || lower.contains("edit")
+            || lower.contains("modify")
         {
             criteria.push(VerifiableCriterion {
                 description: "File write tool invoked".to_string(),
@@ -687,10 +742,13 @@ impl GoalSpecParser {
             });
             max_rounds = 10;
         }
-
         // ── Domain: Analysis / Explanation ──────────────────────────────────
-        else if lower.contains("explain") || lower.contains("analyze") || lower.contains("analyse")
-            || lower.contains("describe") || lower.contains("audit") || lower.contains("review")
+        else if lower.contains("explain")
+            || lower.contains("analyze")
+            || lower.contains("analyse")
+            || lower.contains("describe")
+            || lower.contains("audit")
+            || lower.contains("review")
         {
             criteria.push(VerifiableCriterion {
                 description: "Sufficient information gathered (file reads)".to_string(),
@@ -727,7 +785,12 @@ impl GoalSpecParser {
             max_rounds = 15;
         }
 
-        GoalSpec::new(user_message, criteria, self.completion_threshold, max_rounds)
+        GoalSpec::new(
+            user_message,
+            criteria,
+            self.completion_threshold,
+            max_rounds,
+        )
     }
 }
 
@@ -750,7 +813,10 @@ mod tests {
         let parser = GoalSpecParser::default();
         let spec = parser.parse("find credentials");
         let total: f32 = spec.criteria.iter().map(|c| c.weight).sum();
-        assert!((total - 1.0).abs() < 1e-4, "Weights must sum to 1.0, got {total}");
+        assert!(
+            (total - 1.0).abs() < 1e-4,
+            "Weights must sum to 1.0, got {total}"
+        );
     }
 
     #[test]
@@ -804,7 +870,10 @@ mod tests {
         let mut evidence = Evidence::default();
         evidence.record_tool_success("grep", "found: foo.rs:42 secret=...");
         let score = engine.evaluate(&evidence);
-        assert!(score.meets(0.9), "Score should meet 0.9 threshold, got {score}");
+        assert!(
+            score.meets(0.9),
+            "Score should meet 0.9 threshold, got {score}"
+        );
         assert!(engine.is_achieved());
     }
 

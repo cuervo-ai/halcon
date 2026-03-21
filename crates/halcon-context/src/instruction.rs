@@ -40,9 +40,9 @@ const GLOBAL_DIR: &str = ".halcon";
 /// These are concatenated after HALCON.md content so project-level HALCON.md
 /// takes precedence in the final merged system prompt.
 const PEER_FILENAMES: &[&str] = &[
-    "AGENTS.md",  // Universal — OpenAI Codex, Amp, Gemini CLI
-    "AGENT.md",   // Amp backward compat
-    "CLAUDE.md",  // Claude Code native format
+    "AGENTS.md", // Universal — OpenAI Codex, Amp, Gemini CLI
+    "AGENT.md",  // Amp backward compat
+    "CLAUDE.md", // Claude Code native format
 ];
 
 /// Special-case peer instruction paths (relative to a directory ancestor).
@@ -58,8 +58,8 @@ const PEER_PATHS: &[&[&str]] = &[
 /// Search order (each found file is appended in this order):
 /// 0. `~/.claude/projects/{id}/memory/MEMORY.md`  (Claude Code session memory)
 /// 1. `~/.halcon/HALCON.md`                        (global Halcon instructions)
-/// 1b. `~/.halcon/MEMORY.md`                       (global Halcon memory)
-/// 1c. `~/.halcon/skills/*.md`                     (sorted — domain skill files)
+///    1b. `~/.halcon/MEMORY.md`                       (global Halcon memory)
+///    1c. `~/.halcon/skills/*.md`                     (sorted — domain skill files)
 /// 2. For each ancestor directory (root → cwd):
 ///    a. `{ancestor}/HALCON.md`          (root-level placement)
 ///    b. `{ancestor}/.halcon/HALCON.md`  (subdir placement used by `/init`)
@@ -161,7 +161,7 @@ pub fn find_instruction_files(working_dir: &Path) -> Vec<PathBuf> {
         if let Ok(entries) = std::fs::read_dir(&skills_dir) {
             let mut skill_paths: Vec<PathBuf> = entries
                 .filter_map(|e| e.ok().map(|e| e.path()))
-                .filter(|p| p.extension().map_or(false, |ext| ext == "md") && p.is_file())
+                .filter(|p| p.extension().is_some_and(|ext| ext == "md") && p.is_file())
                 .collect();
             skill_paths.sort();
             for path in skill_paths {
@@ -256,7 +256,7 @@ fn load_skills_dir(
     };
     let mut skill_paths: Vec<PathBuf> = entries
         .filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| p.extension().map_or(false, |ext| ext == "md") && p.is_file())
+        .filter(|p| p.extension().is_some_and(|ext| ext == "md") && p.is_file())
         .collect();
     skill_paths.sort();
     for path in skill_paths {
@@ -365,7 +365,10 @@ mod tests {
         std::fs::write(github_dir.join("copilot-instructions.md"), "Copilot rules.").unwrap();
 
         let result = load_instructions(dir.path());
-        assert!(result.is_some(), ".github/copilot-instructions.md should be discovered");
+        assert!(
+            result.is_some(),
+            ".github/copilot-instructions.md should be discovered"
+        );
         assert!(result.unwrap().contains("Copilot rules."));
     }
 
@@ -387,7 +390,10 @@ mod tests {
         let result = load_instructions(dir.path()).unwrap();
         // "Only once." should appear at most once despite two potential matches
         let count = result.matches("Only once.").count();
-        assert!(count <= 2, "Deduplication should prevent excess copies, got {count}");
+        assert!(
+            count <= 2,
+            "Deduplication should prevent excess copies, got {count}"
+        );
     }
 
     #[test]
@@ -412,8 +418,7 @@ mod tests {
 
         let files = find_instruction_files(&child);
         let parent_found = files.iter().any(|p| {
-            p.parent().and_then(|pp| pp.canonicalize().ok())
-                == parent.path().canonicalize().ok()
+            p.parent().and_then(|pp| pp.canonicalize().ok()) == parent.path().canonicalize().ok()
         });
         let child_found = files
             .iter()
@@ -429,8 +434,12 @@ mod tests {
         std::fs::write(dir.path().join("CLAUDE.md"), "claude").unwrap();
 
         let files = find_instruction_files(dir.path());
-        let agents = files.iter().any(|p| p.file_name().map(|n| n == "AGENTS.md").unwrap_or(false));
-        let claude = files.iter().any(|p| p.file_name().map(|n| n == "CLAUDE.md").unwrap_or(false));
+        let agents = files
+            .iter()
+            .any(|p| p.file_name().map(|n| n == "AGENTS.md").unwrap_or(false));
+        let claude = files
+            .iter()
+            .any(|p| p.file_name().map(|n| n == "CLAUDE.md").unwrap_or(false));
         assert!(agents, "AGENTS.md should be listed");
         assert!(claude, "CLAUDE.md should be listed");
     }
@@ -441,7 +450,11 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let halcon_dir = dir.path().join(".halcon");
         std::fs::create_dir(&halcon_dir).unwrap();
-        std::fs::write(halcon_dir.join("MEMORY.md"), "Accumulated project knowledge.").unwrap();
+        std::fs::write(
+            halcon_dir.join("MEMORY.md"),
+            "Accumulated project knowledge.",
+        )
+        .unwrap();
 
         let result = load_instructions(dir.path());
         assert!(result.is_some(), ".halcon/MEMORY.md should be discovered");

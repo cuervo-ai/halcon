@@ -20,9 +20,9 @@ use std::time::Instant;
 use halcon_core::types::PolicyConfig;
 
 /// Weights for trust score components (internal formula, not user-tunable).
-const ALPHA_SUCCESS: f64 = 0.60;   // Success rate weight (dominant)
-const BETA_LATENCY: f64 = 0.25;    // Latency efficiency weight
-const GAMMA_RECENCY: f64 = 0.15;   // Recency bonus weight
+const ALPHA_SUCCESS: f64 = 0.60; // Success rate weight (dominant)
+const BETA_LATENCY: f64 = 0.25; // Latency efficiency weight
+const GAMMA_RECENCY: f64 = 0.15; // Recency bonus weight
 
 // NOTE: HIDE_THRESHOLD, DEPRIORITIZE_THRESHOLD, MIN_CALLS_FOR_FILTERING
 // are now read from PolicyConfig (hide_threshold, deprioritize_threshold, min_calls_for_filtering).
@@ -117,7 +117,10 @@ impl ToolTrustScorer {
 
     /// Record a successful tool execution.
     pub fn record_success(&mut self, tool_name: &str, latency_ms: u64) {
-        let m = self.metrics.entry(tool_name.to_string()).or_insert_with(ToolMetrics::new);
+        let m = self
+            .metrics
+            .entry(tool_name.to_string())
+            .or_insert_with(ToolMetrics::new);
         m.success_count += 1;
         m.total_latency_ms += latency_ms;
         m.last_used = Some(Instant::now());
@@ -125,7 +128,10 @@ impl ToolTrustScorer {
 
     /// Record a failed tool execution.
     pub fn record_failure(&mut self, tool_name: &str, latency_ms: u64, error: Option<&str>) {
-        let m = self.metrics.entry(tool_name.to_string()).or_insert_with(ToolMetrics::new);
+        let m = self
+            .metrics
+            .entry(tool_name.to_string())
+            .or_insert_with(ToolMetrics::new);
         m.failure_count += 1;
         m.total_latency_ms += latency_ms;
         m.last_used = Some(Instant::now());
@@ -206,19 +212,23 @@ impl ToolTrustScorer {
 
     /// Get failure records for retry mutation — tools with at least one failure.
     pub fn failure_records(&self) -> Vec<super::super::retry_mutation::ToolFailureRecord> {
-        self.metrics.iter()
+        self.metrics
+            .iter()
             .filter(|(_, m)| m.failure_count > 0)
-            .map(|(name, m)| super::super::retry_mutation::ToolFailureRecord {
-                tool_name: name.clone(),
-                failure_count: m.failure_count,
-            })
+            .map(
+                |(name, m)| super::super::retry_mutation::ToolFailureRecord {
+                    tool_name: name.clone(),
+                    failure_count: m.failure_count,
+                },
+            )
             .collect()
     }
 
     /// Get all tools with their current trust scores.
     pub fn all_scores(&self) -> Vec<(&str, f64)> {
-        self.metrics.iter()
-            .map(|(name, _)| (name.as_str(), self.trust_score(name)))
+        self.metrics
+            .keys()
+            .map(|name| (name.as_str(), self.trust_score(name)))
             .collect()
     }
 }
@@ -254,13 +264,14 @@ impl halcon_core::traits::ToolTrust for ToolTrustScorer {
     }
 
     fn get_metrics(&self, tool_name: &str) -> Option<halcon_core::types::ToolTrustMetrics> {
-        self.get_metrics(tool_name).map(|m| halcon_core::types::ToolTrustMetrics {
-            tool_name: tool_name.to_string(),
-            success_rate: m.success_rate(),
-            avg_latency_ms: m.avg_latency_ms(),
-            call_count: m.total_calls(),
-            failure_count: m.failure_count,
-        })
+        self.get_metrics(tool_name)
+            .map(|m| halcon_core::types::ToolTrustMetrics {
+                tool_name: tool_name.to_string(),
+                success_rate: m.success_rate(),
+                avg_latency_ms: m.avg_latency_ms(),
+                call_count: m.total_calls(),
+                failure_count: m.failure_count,
+            })
     }
 
     fn failure_records(&self) -> Vec<halcon_core::types::ToolFailureInfo> {
@@ -303,7 +314,10 @@ mod tests {
             scorer.record_success("file_read", 15);
         }
         let score = scorer.trust_score("file_read");
-        assert!(score > 0.80, "perfect tool should have high trust, got {score}");
+        assert!(
+            score > 0.80,
+            "perfect tool should have high trust, got {score}"
+        );
         assert_eq!(scorer.decide("file_read"), TrustDecision::Include);
     }
 
@@ -399,7 +413,10 @@ mod tests {
         }
         let score = scorer.trust_score("slow_tool");
         // Success rate = 1.0 (full α), but latency_score ≈ 0.17 (25000/30000 → 0.17 remaining)
-        assert!(score < 0.90, "high latency should reduce trust, got {score}");
+        assert!(
+            score < 0.90,
+            "high latency should reduce trust, got {score}"
+        );
     }
 
     #[test]

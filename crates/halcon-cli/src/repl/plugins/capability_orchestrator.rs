@@ -253,7 +253,9 @@ mod tests {
             force_no_tools_next_round: true,
             ..baseline_ctx()
         };
-        let decision = ForceNoToolsRule.evaluate(&ctx).expect("Rule must fire when flag is true");
+        let decision = ForceNoToolsRule
+            .evaluate(&ctx)
+            .expect("Rule must fire when flag is true");
         assert!(
             matches!(decision.suppress, Some(SuppressReason::ForcedByLoop)),
             "Suppress reason must be ForcedByLoop"
@@ -278,7 +280,9 @@ mod tests {
             tools_non_empty: false,
             ..baseline_ctx()
         };
-        let decision = ForceNoToolsRule.evaluate(&ctx).expect("Rule must fire regardless of tools_non_empty");
+        let decision = ForceNoToolsRule
+            .evaluate(&ctx)
+            .expect("Rule must fire regardless of tools_non_empty");
         assert!(decision.strip_ollama_emulation);
     }
 
@@ -292,7 +296,10 @@ mod tests {
             ..baseline_ctx()
         };
         let result = ModelCapabilityRule.evaluate(&ctx);
-        assert!(result.is_none(), "Rule must not fire when there are no tools to strip");
+        assert!(
+            result.is_none(),
+            "Rule must not fire when there are no tools to strip"
+        );
     }
 
     #[test]
@@ -303,7 +310,10 @@ mod tests {
             ..baseline_ctx()
         };
         let result = ModelCapabilityRule.evaluate(&ctx);
-        assert!(result.is_none(), "Rule must not fire when model supports tools");
+        assert!(
+            result.is_none(),
+            "Rule must not fire when model supports tools"
+        );
     }
 
     #[test]
@@ -352,7 +362,10 @@ mod tests {
     fn conversational_directive_rule_returns_none_when_not_conversational() {
         let ctx = baseline_ctx();
         let result = ConversationalDirectiveRule.evaluate(&ctx);
-        assert!(result.is_none(), "Rule must not fire for non-conversational intents");
+        assert!(
+            result.is_none(),
+            "Rule must not fire for non-conversational intents"
+        );
     }
 
     #[test]
@@ -364,7 +377,9 @@ mod tests {
         let decision = ConversationalDirectiveRule
             .evaluate(&ctx)
             .expect("Rule must fire for conversational intent");
-        let directive = decision.system_directive.expect("Directive must be produced");
+        let directive = decision
+            .system_directive
+            .expect("Directive must be produced");
         assert!(
             directive.contains("[CONVERSATIONAL MODE]"),
             "Directive must contain the CONVERSATIONAL MODE marker"
@@ -416,7 +431,10 @@ mod tests {
             matches!(decision.suppress, Some(SuppressReason::ForcedByLoop)),
             "ForcedByLoop must win over ModelCapability when both fire"
         );
-        assert!(decision.strip_ollama_emulation, "Ollama strip must be set by ForceNoToolsRule");
+        assert!(
+            decision.strip_ollama_emulation,
+            "Ollama strip must be set by ForceNoToolsRule"
+        );
     }
 
     #[test]
@@ -435,9 +453,16 @@ mod tests {
             matches!(decision.suppress, Some(SuppressReason::ForcedByLoop)),
             "Suppress from ForceNoToolsRule must be present"
         );
-        assert!(decision.strip_ollama_emulation, "Ollama strip must be present");
         assert!(
-            decision.system_directive.as_deref().map(|d| d.contains("[CONVERSATIONAL MODE]")).unwrap_or(false),
+            decision.strip_ollama_emulation,
+            "Ollama strip must be present"
+        );
+        assert!(
+            decision
+                .system_directive
+                .as_deref()
+                .map(|d| d.contains("[CONVERSATIONAL MODE]"))
+                .unwrap_or(false),
             "System directive from ConversationalDirectiveRule must be present"
         );
     }

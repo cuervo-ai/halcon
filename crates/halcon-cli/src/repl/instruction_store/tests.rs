@@ -24,7 +24,10 @@ fn local_scope_is_loaded() {
     fs::write(dir.path().join("HALCON.local.md"), "# Local rule").unwrap();
 
     let result = load_all_scopes(dir.path(), &[]);
-    assert!(result.text.contains("Local rule"), "Local scope should be loaded");
+    assert!(
+        result.text.contains("Local rule"),
+        "Local scope should be loaded"
+    );
     assert!(!result.sources.is_empty());
 }
 
@@ -36,7 +39,10 @@ fn project_scope_is_loaded() {
     fs::write(halcon.join("HALCON.md"), "# Project rule").unwrap();
 
     let result = load_all_scopes(dir.path(), &[]);
-    assert!(result.text.contains("Project rule"), "Project scope should be loaded");
+    assert!(
+        result.text.contains("Project rule"),
+        "Project scope should be loaded"
+    );
 }
 
 #[test]
@@ -60,7 +66,9 @@ fn scope_injection_order_local_before_managed() {
 
     // Local must appear BEFORE Project (injection order 1 < 3)
     let local_pos = text.find("LOCAL_MARKER").expect("LOCAL_MARKER not found");
-    let project_pos = text.find("PROJECT_MARKER").expect("PROJECT_MARKER not found");
+    let project_pos = text
+        .find("PROJECT_MARKER")
+        .expect("PROJECT_MARKER not found");
     assert!(
         local_pos < project_pos,
         "Local scope must precede Project scope (local_pos={local_pos} project_pos={project_pos})"
@@ -88,7 +96,10 @@ fn import_resolves_relative_to_containing_file() {
     .unwrap();
 
     let result = load_all_scopes(dir.path(), &[]);
-    assert!(result.text.contains("Shared content"), "Imported file content should appear");
+    assert!(
+        result.text.contains("Shared content"),
+        "Imported file content should appear"
+    );
     assert!(result.text.contains("Local extra"));
 }
 
@@ -121,17 +132,15 @@ fn import_depth_limit_is_enforced() {
         };
         fs::write(dir.path().join(format!("depth{i}.md")), content).unwrap();
     }
-    fs::write(
-        dir.path().join("HALCON.local.md"),
-        "@import depth0.md",
-    )
-    .unwrap();
+    fs::write(dir.path().join("HALCON.local.md"), "@import depth0.md").unwrap();
 
     // Must complete without panic.  Imports beyond depth 3 are skipped with a warn.
     let result = load_all_scopes(dir.path(), &[]);
     // Shallow levels (0..MAX_IMPORT_DEPTH) should be present.
-    assert!(result.text.contains("Level 0") || result.text.contains("Level 1"),
-            "Shallow import content should appear");
+    assert!(
+        result.text.contains("Level 0") || result.text.contains("Level 1"),
+        "Shallow import content should appear"
+    );
 }
 
 #[test]
@@ -144,7 +153,10 @@ fn import_missing_file_is_silently_skipped() {
     .unwrap();
 
     let result = load_all_scopes(dir.path(), &[]);
-    assert!(result.text.contains("Rest of file"), "Non-import content should still be present");
+    assert!(
+        result.text.contains("Rest of file"),
+        "Non-import content should still be present"
+    );
 }
 
 // ── Path-glob matching for .halcon/rules/ ─────────────────────────────────────
@@ -249,7 +261,11 @@ fn instruction_store_load_returns_none_when_no_files() {
 #[test]
 fn instruction_store_load_returns_section_header() {
     let dir = TempDir::new().unwrap();
-    fs::write(dir.path().join("HALCON.local.md"), "Always respond in Spanish.").unwrap();
+    fs::write(
+        dir.path().join("HALCON.local.md"),
+        "Always respond in Spanish.",
+    )
+    .unwrap();
 
     let mut store = InstructionStore::new(dir.path());
     let content = store.load().expect("should return content");
@@ -380,5 +396,8 @@ fn front_matter_split_with_paths() {
     let content = "---\npaths: [\"src/api/**\"]\n---\n# Rule content";
     let (yaml, body) = split_front_matter(content);
     assert!(yaml.contains("paths"), "YAML block should contain 'paths'");
-    assert!(body.contains("Rule content"), "Body should contain post-frontmatter text");
+    assert!(
+        body.contains("Rule content"),
+        "Body should contain post-frontmatter text"
+    );
 }

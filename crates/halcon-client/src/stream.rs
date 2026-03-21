@@ -1,5 +1,5 @@
-use halcon_api::types::ws::{WsChannel, WsClientMessage, WsServerEvent};
 use futures_util::{SinkExt, StreamExt};
+use halcon_api::types::ws::{WsChannel, WsClientMessage, WsServerEvent};
 use tokio::sync::mpsc;
 use tokio_tungstenite::tungstenite::Message;
 
@@ -34,9 +34,9 @@ impl EventStream {
             .map_err(|e| ClientError::WebSocket(e.to_string()))?;
         request.headers_mut().insert(
             "Authorization",
-            format!("Bearer {}", config.auth_token)
-                .parse()
-                .map_err(|e: http::header::InvalidHeaderValue| ClientError::WebSocket(e.to_string()))?,
+            format!("Bearer {}", config.auth_token).parse().map_err(
+                |e: http::header::InvalidHeaderValue| ClientError::WebSocket(e.to_string()),
+            )?,
         );
 
         let (ws_stream, _response) = tokio_tungstenite::connect_async(request)

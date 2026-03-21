@@ -552,7 +552,7 @@ impl ExplanationGenerator {
             if component.value > 0.3 {
                 builder = builder.reasoning(
                     ReasoningPoint::new(
-                        &component.category(),
+                        component.category(),
                         format!("{} impact: {:.0}%", component.name, component.value * 100.0),
                     )
                     .with_importance((component.value * 5.0) as u8),

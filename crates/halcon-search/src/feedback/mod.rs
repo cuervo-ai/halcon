@@ -27,9 +27,9 @@
 //! - Position bias: Distribution of clicks by rank
 
 use chrono::{DateTime, Utc};
+use rusqlite::OptionalExtension;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use rusqlite::OptionalExtension;
 
 /// User interaction with a search result.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -157,7 +157,11 @@ impl WeightOptimizer {
     }
 
     /// Create a new optimizer with custom configuration.
-    pub fn with_config(initial_weights: RankingWeights, learning_rate: f64, min_sample_size: u32) -> Self {
+    pub fn with_config(
+        initial_weights: RankingWeights,
+        learning_rate: f64,
+        min_sample_size: u32,
+    ) -> Self {
         Self {
             current_weights: initial_weights,
             learning_rate,
@@ -182,12 +186,12 @@ impl WeightOptimizer {
         }
 
         // Compute average quality with current weights
-        let avg_quality: f64 = metrics.iter().map(|m| m.quality_score()).sum::<f64>()
-            / metrics.len() as f64;
+        let avg_quality: f64 =
+            metrics.iter().map(|m| m.quality_score()).sum::<f64>() / metrics.len() as f64;
 
         // Record history
         self.history.push(WeightOptimizationEntry {
-            weights: self.current_weights.clone(),
+            weights: self.current_weights,
             avg_quality,
             sample_size: metrics.len() as u32,
             timestamp: Utc::now(),
@@ -227,9 +231,10 @@ impl WeightOptimizer {
             };
 
             // Apply gradient
-            self.current_weights.apply_gradient(&gradient, self.learning_rate);
+            self.current_weights
+                .apply_gradient(&gradient, self.learning_rate);
 
-            Some(self.current_weights.clone())
+            Some(self.current_weights)
         } else {
             None // Need more history
         }
@@ -281,7 +286,10 @@ impl FeedbackStore {
     }
 
     /// Get all interactions for a query.
-    pub async fn get_interactions_for_query(&self, query: &str) -> crate::Result<Vec<SearchInteraction>> {
+    pub async fn get_interactions_for_query(
+        &self,
+        query: &str,
+    ) -> crate::Result<Vec<SearchInteraction>> {
         let db = self.db.clone();
         let query_string = query.to_string();
 
@@ -313,21 +321,39 @@ impl FeedbackStore {
         .map_err(|e| crate::error::SearchError::DatabaseError(format!("Join error: {}", e)))?
         .map_err(|e| crate::error::SearchError::DatabaseError(format!("Database error: {}", e)))?;
 
-        let interactions: crate::Result<Vec<SearchInteraction>> = rows.into_iter().map(|(id, query, document_id, position, clicked_at_str, dwell_time_secs, session_id)| {
-            let clicked_at = chrono::DateTime::parse_from_rfc3339(&clicked_at_str)
-                .map_err(|e| crate::error::SearchError::ConfigError(format!("Invalid timestamp: {}", e)))?
-                .with_timezone(&chrono::Utc);
+        let interactions: crate::Result<Vec<SearchInteraction>> = rows
+            .into_iter()
+            .map(
+                |(
+                    id,
+                    query,
+                    document_id,
+                    position,
+                    clicked_at_str,
+                    dwell_time_secs,
+                    session_id,
+                )| {
+                    let clicked_at = chrono::DateTime::parse_from_rfc3339(&clicked_at_str)
+                        .map_err(|e| {
+                            crate::error::SearchError::ConfigError(format!(
+                                "Invalid timestamp: {}",
+                                e
+                            ))
+                        })?
+                        .with_timezone(&chrono::Utc);
 
-            Ok(SearchInteraction {
-                id,
-                query,
-                document_id,
-                position: position as usize,
-                clicked_at,
-                dwell_time_secs,
-                session_id,
-            })
-        }).collect();
+                    Ok(SearchInteraction {
+                        id,
+                        query,
+                        document_id,
+                        position: position as usize,
+                        clicked_at,
+                        dwell_time_secs,
+                        session_id,
+                    })
+                },
+            )
+            .collect();
 
         interactions
     }
@@ -397,21 +423,38 @@ impl FeedbackStore {
         .map_err(|e| crate::error::SearchError::DatabaseError(format!("Join error: {}", e)))?
         .map_err(|e| crate::error::SearchError::DatabaseError(format!("Database error: {}", e)))?;
 
-        let metrics_opt = row_opt.map(|(query, execution_count, ctr, mrr, avg_dwell_time, abandonment_rate, computed_at_str)| {
-            let computed_at = chrono::DateTime::parse_from_rfc3339(&computed_at_str)
-                .map_err(|e| crate::error::SearchError::ConfigError(format!("Invalid timestamp: {}", e)))?
-                .with_timezone(&chrono::Utc);
+        let metrics_opt = row_opt
+            .map(
+                |(
+                    query,
+                    execution_count,
+                    ctr,
+                    mrr,
+                    avg_dwell_time,
+                    abandonment_rate,
+                    computed_at_str,
+                )| {
+                    let computed_at = chrono::DateTime::parse_from_rfc3339(&computed_at_str)
+                        .map_err(|e| {
+                            crate::error::SearchError::ConfigError(format!(
+                                "Invalid timestamp: {}",
+                                e
+                            ))
+                        })?
+                        .with_timezone(&chrono::Utc);
 
-            Ok::<QueryQualityMetrics, crate::error::SearchError>(QueryQualityMetrics {
-                query,
-                execution_count: execution_count as u32,
-                ctr,
-                mrr,
-                avg_dwell_time,
-                abandonment_rate,
-                computed_at,
-            })
-        }).transpose()?;
+                    Ok::<QueryQualityMetrics, crate::error::SearchError>(QueryQualityMetrics {
+                        query,
+                        execution_count: execution_count as u32,
+                        ctr,
+                        mrr,
+                        avg_dwell_time,
+                        abandonment_rate,
+                        computed_at,
+                    })
+                },
+            )
+            .transpose()?;
 
         Ok(metrics_opt)
     }
@@ -447,21 +490,39 @@ impl FeedbackStore {
         .map_err(|e| crate::error::SearchError::DatabaseError(format!("Join error: {}", e)))?
         .map_err(|e| crate::error::SearchError::DatabaseError(format!("Database error: {}", e)))?;
 
-        let metrics: crate::Result<Vec<QueryQualityMetrics>> = rows.into_iter().map(|(query, execution_count, ctr, mrr, avg_dwell_time, abandonment_rate, computed_at_str)| {
-            let computed_at = chrono::DateTime::parse_from_rfc3339(&computed_at_str)
-                .map_err(|e| crate::error::SearchError::ConfigError(format!("Invalid timestamp: {}", e)))?
-                .with_timezone(&chrono::Utc);
+        let metrics: crate::Result<Vec<QueryQualityMetrics>> = rows
+            .into_iter()
+            .map(
+                |(
+                    query,
+                    execution_count,
+                    ctr,
+                    mrr,
+                    avg_dwell_time,
+                    abandonment_rate,
+                    computed_at_str,
+                )| {
+                    let computed_at = chrono::DateTime::parse_from_rfc3339(&computed_at_str)
+                        .map_err(|e| {
+                            crate::error::SearchError::ConfigError(format!(
+                                "Invalid timestamp: {}",
+                                e
+                            ))
+                        })?
+                        .with_timezone(&chrono::Utc);
 
-            Ok(QueryQualityMetrics {
-                query,
-                execution_count: execution_count as u32,
-                ctr,
-                mrr,
-                avg_dwell_time,
-                abandonment_rate,
-                computed_at,
-            })
-        }).collect();
+                    Ok(QueryQualityMetrics {
+                        query,
+                        execution_count: execution_count as u32,
+                        ctr,
+                        mrr,
+                        avg_dwell_time,
+                        abandonment_rate,
+                        computed_at,
+                    })
+                },
+            )
+            .collect();
 
         metrics
     }
@@ -493,7 +554,10 @@ impl FeedbackStore {
     }
 
     /// Get optimization history (latest N entries).
-    pub async fn get_optimization_history(&self, limit: usize) -> crate::Result<Vec<WeightOptimizationEntry>> {
+    pub async fn get_optimization_history(
+        &self,
+        limit: usize,
+    ) -> crate::Result<Vec<WeightOptimizationEntry>> {
         let db = self.db.clone();
         let limit = limit as i64;
 
@@ -524,18 +588,32 @@ impl FeedbackStore {
         .map_err(|e| crate::error::SearchError::DatabaseError(format!("Join error: {}", e)))?
         .map_err(|e| crate::error::SearchError::DatabaseError(format!("Database error: {}", e)))?;
 
-        let entries: crate::Result<Vec<WeightOptimizationEntry>> = rows.into_iter().map(|(bm25, semantic, pagerank, avg_quality, sample_size, timestamp_str)| {
-            let timestamp = chrono::DateTime::parse_from_rfc3339(&timestamp_str)
-                .map_err(|e| crate::error::SearchError::ConfigError(format!("Invalid timestamp: {}", e)))?
-                .with_timezone(&chrono::Utc);
+        let entries: crate::Result<Vec<WeightOptimizationEntry>> = rows
+            .into_iter()
+            .map(
+                |(bm25, semantic, pagerank, avg_quality, sample_size, timestamp_str)| {
+                    let timestamp = chrono::DateTime::parse_from_rfc3339(&timestamp_str)
+                        .map_err(|e| {
+                            crate::error::SearchError::ConfigError(format!(
+                                "Invalid timestamp: {}",
+                                e
+                            ))
+                        })?
+                        .with_timezone(&chrono::Utc);
 
-            Ok(WeightOptimizationEntry {
-                weights: RankingWeights { bm25, semantic, pagerank },
-                avg_quality,
-                sample_size: sample_size as u32,
-                timestamp,
-            })
-        }).collect();
+                    Ok(WeightOptimizationEntry {
+                        weights: RankingWeights {
+                            bm25,
+                            semantic,
+                            pagerank,
+                        },
+                        avg_quality,
+                        sample_size: sample_size as u32,
+                        timestamp,
+                    })
+                },
+            )
+            .collect();
 
         entries
     }
@@ -550,8 +628,8 @@ mod tests {
         let metrics = QueryQualityMetrics {
             query: "test".to_string(),
             execution_count: 100,
-            ctr: 0.8,          // 80% clicked
-            mrr: 0.9,          // First result clicked
+            ctr: 0.8,             // 80% clicked
+            mrr: 0.9,             // First result clicked
             avg_dwell_time: 30.0, // 30 seconds (good)
             abandonment_rate: 0.2,
             computed_at: Utc::now(),
@@ -568,9 +646,9 @@ mod tests {
         let metrics = QueryQualityMetrics {
             query: "test".to_string(),
             execution_count: 100,
-            ctr: 0.2,          // 20% clicked
-            mrr: 0.3,          // Low rank
-            avg_dwell_time: 5.0,  // 5 seconds (poor)
+            ctr: 0.2,            // 20% clicked
+            mrr: 0.3,            // Low rank
+            avg_dwell_time: 5.0, // 5 seconds (poor)
             abandonment_rate: 0.8,
             computed_at: Utc::now(),
         };
@@ -737,7 +815,8 @@ mod tests {
         db.with_connection(|conn| {
             halcon_storage::migrations::run_migrations(conn).unwrap();
             Ok::<(), rusqlite::Error>(())
-        }).unwrap();
+        })
+        .unwrap();
 
         let store = FeedbackStore::new(db);
 
@@ -753,7 +832,10 @@ mod tests {
 
         store.record_interaction(interaction).await.unwrap();
 
-        let interactions = store.get_interactions_for_query("rust programming").await.unwrap();
+        let interactions = store
+            .get_interactions_for_query("rust programming")
+            .await
+            .unwrap();
         assert_eq!(interactions.len(), 1);
         assert_eq!(interactions[0].id, "test-1");
         assert_eq!(interactions[0].position, 0);
@@ -766,7 +848,8 @@ mod tests {
         db.with_connection(|conn| {
             halcon_storage::migrations::run_migrations(conn).unwrap();
             Ok::<(), rusqlite::Error>(())
-        }).unwrap();
+        })
+        .unwrap();
 
         let store = FeedbackStore::new(db);
 
@@ -782,7 +865,11 @@ mod tests {
 
         store.save_metrics(&metrics).await.unwrap();
 
-        let retrieved = store.get_metrics("machine learning").await.unwrap().unwrap();
+        let retrieved = store
+            .get_metrics("machine learning")
+            .await
+            .unwrap()
+            .unwrap();
         assert_eq!(retrieved.query, "machine learning");
         assert_eq!(retrieved.execution_count, 50);
         assert!((retrieved.ctr - 0.75).abs() < 0.01);
@@ -795,7 +882,8 @@ mod tests {
         db.with_connection(|conn| {
             halcon_storage::migrations::run_migrations(conn).unwrap();
             Ok::<(), rusqlite::Error>(())
-        }).unwrap();
+        })
+        .unwrap();
 
         let store = FeedbackStore::new(db);
 
@@ -834,7 +922,8 @@ mod tests {
         db.with_connection(|conn| {
             halcon_storage::migrations::run_migrations(conn).unwrap();
             Ok::<(), rusqlite::Error>(())
-        }).unwrap();
+        })
+        .unwrap();
 
         let store = FeedbackStore::new(db);
 
@@ -871,7 +960,8 @@ mod tests {
         db.with_connection(|conn| {
             halcon_storage::migrations::run_migrations(conn).unwrap();
             Ok::<(), rusqlite::Error>(())
-        }).unwrap();
+        })
+        .unwrap();
 
         let store = FeedbackStore::new(db);
 
@@ -901,7 +991,8 @@ mod tests {
         db.with_connection(|conn| {
             halcon_storage::migrations::run_migrations(conn).unwrap();
             Ok::<(), rusqlite::Error>(())
-        }).unwrap();
+        })
+        .unwrap();
 
         let store = FeedbackStore::new(db);
 
@@ -936,23 +1027,24 @@ mod tests {
         db.with_connection(|conn| {
             halcon_storage::migrations::run_migrations(conn).unwrap();
             Ok::<(), rusqlite::Error>(())
-        }).unwrap();
+        })
+        .unwrap();
 
         let store = FeedbackStore::new(db);
 
         // === PHASE 1: Record user interactions ===
         // Simulate 10 queries with varying quality
         let queries = vec![
-            ("rust programming", 0, 45.0), // Position 0 (rank 1), good dwell time
-            ("machine learning", 1, 30.0), // Position 1 (rank 2), moderate
-            ("deep learning", 2, 20.0),    // Position 2 (rank 3), poor
-            ("neural networks", 0, 50.0),  // Position 0, excellent
-            ("data science", 1, 35.0),     // Position 1, good
-            ("python tutorial", 0, 40.0),  // Position 0, good
+            ("rust programming", 0, 45.0),  // Position 0 (rank 1), good dwell time
+            ("machine learning", 1, 30.0),  // Position 1 (rank 2), moderate
+            ("deep learning", 2, 20.0),     // Position 2 (rank 3), poor
+            ("neural networks", 0, 50.0),   // Position 0, excellent
+            ("data science", 1, 35.0),      // Position 1, good
+            ("python tutorial", 0, 40.0),   // Position 0, good
             ("javascript basics", 2, 15.0), // Position 2, poor
-            ("web development", 0, 48.0),  // Position 0, excellent
-            ("react hooks", 1, 28.0),      // Position 1, moderate
-            ("css flexbox", 0, 42.0),      // Position 0, good
+            ("web development", 0, 48.0),   // Position 0, excellent
+            ("react hooks", 1, 28.0),       // Position 1, moderate
+            ("css flexbox", 0, 42.0),       // Position 0, good
         ];
 
         for (i, (query, position, dwell_time)) in queries.iter().enumerate() {
@@ -973,7 +1065,11 @@ mod tests {
 
         for (query, _, _) in &queries {
             let interactions = store.get_interactions_for_query(query).await.unwrap();
-            assert!(!interactions.is_empty(), "Should have interactions for {}", query);
+            assert!(
+                !interactions.is_empty(),
+                "Should have interactions for {}",
+                query
+            );
 
             // Compute metrics
             let execution_count = 1; // Single execution per query in this test
@@ -1014,25 +1110,34 @@ mod tests {
 
         // First optimization (establishes baseline)
         let result1 = optimizer.optimize(&all_metrics);
-        assert!(result1.is_none(), "First optimization should only record baseline");
+        assert!(
+            result1.is_none(),
+            "First optimization should only record baseline"
+        );
         assert_eq!(optimizer.history().len(), 1);
 
         // Simulate improved metrics after weight adjustment
-        let improved_metrics: Vec<QueryQualityMetrics> = all_metrics.iter().map(|m| {
-            QueryQualityMetrics {
-                query: m.query.clone(),
-                execution_count: m.execution_count + 1,
-                ctr: (m.ctr + 0.1).min(1.0), // Improved CTR
-                mrr: (m.mrr + 0.05).min(1.0), // Improved MRR
-                avg_dwell_time: m.avg_dwell_time + 5.0, // Longer dwell time (better engagement)
-                abandonment_rate: (m.abandonment_rate - 0.1).max(0.0),
-                computed_at: Utc::now(),
-            }
-        }).collect();
+        let improved_metrics: Vec<QueryQualityMetrics> = all_metrics
+            .iter()
+            .map(|m| {
+                QueryQualityMetrics {
+                    query: m.query.clone(),
+                    execution_count: m.execution_count + 1,
+                    ctr: (m.ctr + 0.1).min(1.0),  // Improved CTR
+                    mrr: (m.mrr + 0.05).min(1.0), // Improved MRR
+                    avg_dwell_time: m.avg_dwell_time + 5.0, // Longer dwell time (better engagement)
+                    abandonment_rate: (m.abandonment_rate - 0.1).max(0.0),
+                    computed_at: Utc::now(),
+                }
+            })
+            .collect();
 
         // Second optimization (should adapt weights)
         let result2 = optimizer.optimize(&improved_metrics);
-        assert!(result2.is_some(), "Second optimization should update weights");
+        assert!(
+            result2.is_some(),
+            "Second optimization should update weights"
+        );
         assert_eq!(optimizer.history().len(), 2);
 
         let new_weights = result2.unwrap();
@@ -1047,8 +1152,13 @@ mod tests {
 
         // === PHASE 4: Verification ===
         // Verify quality improved
-        let baseline_quality: f64 = all_metrics.iter().map(|m| m.quality_score()).sum::<f64>() / all_metrics.len() as f64;
-        let improved_quality: f64 = improved_metrics.iter().map(|m| m.quality_score()).sum::<f64>() / improved_metrics.len() as f64;
+        let baseline_quality: f64 =
+            all_metrics.iter().map(|m| m.quality_score()).sum::<f64>() / all_metrics.len() as f64;
+        let improved_quality: f64 = improved_metrics
+            .iter()
+            .map(|m| m.quality_score())
+            .sum::<f64>()
+            / improved_metrics.len() as f64;
 
         assert!(
             improved_quality > baseline_quality,
@@ -1060,7 +1170,11 @@ mod tests {
         // Verify weights changed
         assert_ne!(
             (new_weights.bm25, new_weights.semantic, new_weights.pagerank),
-            (initial_weights.bm25, initial_weights.semantic, initial_weights.pagerank),
+            (
+                initial_weights.bm25,
+                initial_weights.semantic,
+                initial_weights.pagerank
+            ),
             "Weights should adapt based on quality feedback"
         );
 
@@ -1075,9 +1189,17 @@ mod tests {
         tracing::info!("✅ Complete feedback loop test passed:");
         tracing::info!("   Baseline quality: {:.3}", baseline_quality);
         tracing::info!("   Improved quality: {:.3}", improved_quality);
-        tracing::info!("   Initial weights: BM25={:.2} Semantic={:.2} PageRank={:.2}",
-            initial_weights.bm25, initial_weights.semantic, initial_weights.pagerank);
-        tracing::info!("   Optimized weights: BM25={:.2} Semantic={:.2} PageRank={:.2}",
-            new_weights.bm25, new_weights.semantic, new_weights.pagerank);
+        tracing::info!(
+            "   Initial weights: BM25={:.2} Semantic={:.2} PageRank={:.2}",
+            initial_weights.bm25,
+            initial_weights.semantic,
+            initial_weights.pagerank
+        );
+        tracing::info!(
+            "   Optimized weights: BM25={:.2} Semantic={:.2} PageRank={:.2}",
+            new_weights.bm25,
+            new_weights.semantic,
+            new_weights.pagerank
+        );
     }
 }

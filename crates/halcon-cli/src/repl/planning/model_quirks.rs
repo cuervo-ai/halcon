@@ -53,6 +53,12 @@ pub struct QuirkRegistry {
     quirks: Vec<Box<dyn ModelQuirk>>,
 }
 
+impl Default for QuirkRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl QuirkRegistry {
     /// Create an empty registry with no quirks registered.
     pub fn new() -> Self {
@@ -259,10 +265,7 @@ pub fn try_recover_json_text_tool_call(text: &str) -> Option<RecoveredToolCall> 
     if !text.contains('{') {
         return None;
     }
-    if !text.contains("\"name\"")
-        && !text.contains("\"tool\"")
-        && !text.contains("\"function\"")
-    {
+    if !text.contains("\"name\"") && !text.contains("\"tool\"") && !text.contains("\"function\"") {
         return None;
     }
 
@@ -340,7 +343,10 @@ pub fn try_recover_json_text_tool_call(text: &str) -> Option<RecoveredToolCall> 
 
         // Note: observability log is emitted by the caller (provider_round.rs) with
         // richer context (strategy detection, tool_names list).  Do not double-log here.
-        return Some(RecoveredToolCall { name: tool_name, input });
+        return Some(RecoveredToolCall {
+            name: tool_name,
+            input,
+        });
     }
 
     None
@@ -499,7 +505,9 @@ pub fn try_recover_tool_calls_from_text(text: &str) -> Option<Vec<RecoveredToolC
         });
 
         // Advance past this invoke block
-        rest = &rest[invoke_body_start + invoke_end + invoke_close.len().min(remaining.len() - invoke_end)..];
+        rest = &rest[invoke_body_start
+            + invoke_end
+            + invoke_close.len().min(remaining.len() - invoke_end)..];
     }
 
     if calls.is_empty() {
@@ -520,7 +528,12 @@ pub fn try_recover_tool_calls_from_text(text: &str) -> Option<Vec<RecoveredToolC
 mod tests {
     use super::*;
 
-    fn ctx<'a>(provider: &'a str, model: &'a str, tools: &'a [String], has_tools: bool) -> QuirkContext<'a> {
+    fn ctx<'a>(
+        provider: &'a str,
+        model: &'a str,
+        tools: &'a [String],
+        has_tools: bool,
+    ) -> QuirkContext<'a> {
         QuirkContext {
             provider_name: provider,
             model,
@@ -547,7 +560,11 @@ mod tests {
     #[test]
     fn anti_redo_injects_when_destructive_tools() {
         let quirk = AntiRedoQuirk;
-        let tools = vec!["file_write".to_string(), "grep".to_string(), "bash".to_string()];
+        let tools = vec![
+            "file_write".to_string(),
+            "grep".to_string(),
+            "bash".to_string(),
+        ];
         let c = ctx("deepseek", "deepseek-chat", &tools, false);
         let injection = quirk.post_delegation_injection(&c);
         assert!(injection.is_some());
@@ -568,7 +585,8 @@ mod tests {
     #[test]
     fn xml_filter_strips_function_calls() {
         let quirk = XmlArtifactFilterQuirk;
-        let text = "Hello\n<function_calls>\n<invoke name=\"test\">\n</invoke>\n</function_calls>\nWorld";
+        let text =
+            "Hello\n<function_calls>\n<invoke name=\"test\">\n</invoke>\n</function_calls>\nWorld";
         let c = ctx("deepseek", "deepseek-chat", &[], false);
         let filtered = quirk.filter_synthesis_text(text, &c);
         assert!(!filtered.contains("<function_calls>"));
@@ -626,9 +644,13 @@ mod tests {
 
     #[test]
     fn contains_tool_xml_artifacts_detection() {
-        assert!(contains_tool_xml_artifacts("<function_calls>test</function_calls>"));
+        assert!(contains_tool_xml_artifacts(
+            "<function_calls>test</function_calls>"
+        ));
         assert!(contains_tool_xml_artifacts("<invoke name=\"x\">"));
-        assert!(contains_tool_xml_artifacts("<halcon::tool_call>x</halcon::tool_call>"));
+        assert!(contains_tool_xml_artifacts(
+            "<halcon::tool_call>x</halcon::tool_call>"
+        ));
         assert!(!contains_tool_xml_artifacts("clean text without xml"));
     }
 
@@ -694,7 +716,10 @@ mod tests {
         assert_eq!(calls.len(), 1);
         assert_eq!(calls[0].name, "file_read");
         // Raw DSML parse: paths arrives as a string — coercion to array happens downstream (RP-1 fix).
-        assert!(calls[0].input["paths"].is_string(), "raw DSML parse returns string for paths");
+        assert!(
+            calls[0].input["paths"].is_string(),
+            "raw DSML parse returns string for paths"
+        );
         assert_eq!(calls[0].input["paths"], "/some/path");
     }
 
@@ -724,7 +749,10 @@ mod tests {
                             .get("type")
                             .and_then(|t| t.as_str())
                             .map_or(false, |t| t == "array");
-                        expects_array && arg_map.get(prop_name.as_str()).map_or(false, |v| v.is_string())
+                        expects_array
+                            && arg_map
+                                .get(prop_name.as_str())
+                                .map_or(false, |v| v.is_string())
                     })
                     .map(|(k, _)| k.clone())
                     .collect();
@@ -740,7 +768,10 @@ mod tests {
         assert!(args["paths"].is_array(), "paths should be coerced to array");
         assert_eq!(args["paths"][0], "/some/path");
         // command should remain a string (no coercion for non-array schema).
-        assert!(args["command"].is_string(), "command should remain a string");
+        assert!(
+            args["command"].is_string(),
+            "command should remain a string"
+        );
         assert_eq!(args["command"], "ls");
     }
 
@@ -766,8 +797,13 @@ mod tests {
                     .iter()
                     .filter(|(prop_name, prop_schema)| {
                         let expects_array = prop_schema
-                            .get("type").and_then(|t| t.as_str()).map_or(false, |t| t == "array");
-                        expects_array && arg_map.get(prop_name.as_str()).map_or(false, |v| v.is_string())
+                            .get("type")
+                            .and_then(|t| t.as_str())
+                            .map_or(false, |t| t == "array");
+                        expects_array
+                            && arg_map
+                                .get(prop_name.as_str())
+                                .map_or(false, |v| v.is_string())
                     })
                     .map(|(k, _)| k.clone())
                     .collect();
@@ -780,7 +816,10 @@ mod tests {
         }
         assert!(args["paths"].is_array());
         assert!(args["patterns"].is_array());
-        assert!(args["flags"].is_string(), "non-array args must not be coerced");
+        assert!(
+            args["flags"].is_string(),
+            "non-array args must not be coerced"
+        );
     }
 
     /// Already-array arg should NOT be double-wrapped.
@@ -797,8 +836,13 @@ mod tests {
                     .iter()
                     .filter(|(prop_name, prop_schema)| {
                         let expects_array = prop_schema
-                            .get("type").and_then(|t| t.as_str()).map_or(false, |t| t == "array");
-                        expects_array && arg_map.get(prop_name.as_str()).map_or(false, |v| v.is_string())
+                            .get("type")
+                            .and_then(|t| t.as_str())
+                            .map_or(false, |t| t == "array");
+                        expects_array
+                            && arg_map
+                                .get(prop_name.as_str())
+                                .map_or(false, |v| v.is_string())
                     })
                     .map(|(k, _)| k.clone())
                     .collect();

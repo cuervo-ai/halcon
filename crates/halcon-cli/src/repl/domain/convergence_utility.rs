@@ -168,8 +168,12 @@ mod tests {
     #[test]
     fn phase3_utility_default_weights_balanced() {
         let w = UtilityWeights::default();
-        let total = w.w_evidence + w.w_coherence + w.w_progress + w.w_pressure + w.w_cost + w.w_drift;
-        assert!((total - 1.0).abs() < f64::EPSILON, "weights must sum to 1.0, got {total}");
+        let total =
+            w.w_evidence + w.w_coherence + w.w_progress + w.w_pressure + w.w_cost + w.w_drift;
+        assert!(
+            (total - 1.0).abs() < f64::EPSILON,
+            "weights must sum to 1.0, got {total}"
+        );
     }
 
     #[test]
@@ -223,7 +227,11 @@ mod tests {
         let expected = 0.29 - 0.043;
         assert!((r.utility - expected).abs() < 1e-10, "got {}", r.utility);
         // utility=0.247 < threshold 0.35, so synthesis is correctly triggered
-        assert!(r.should_synthesize, "utility {} < 0.35 triggers synthesis", r.utility);
+        assert!(
+            r.should_synthesize,
+            "utility {} < 0.35 triggers synthesis",
+            r.utility
+        );
     }
 
     #[test]
@@ -348,8 +356,8 @@ mod tests {
             evidence_rate: 0.15,
         };
         let r = compute_utility(&inputs, &weights, 0.35, 0.05);
-        let expected = 0.50 * 0.80 + 0.10 * 0.60 + 0.10 * 0.50
-            - 0.10 * 0.04 - 0.10 * 0.10 - 0.10 * 0.10;
+        let expected =
+            0.50 * 0.80 + 0.10 * 0.60 + 0.10 * 0.50 - 0.10 * 0.04 - 0.10 * 0.10 - 0.10 * 0.10;
         assert!((r.utility - expected).abs() < 1e-10, "got {}", r.utility);
     }
 
@@ -368,7 +376,11 @@ mod tests {
         // U = 0.25*0.7 + 0.15*0.9 + 0.15*0.6 - 0.20*0.01 = 0.175+0.135+0.09-0.002 = 0.398
         // marginal = (1-0.7)*(1-0.1)*0.25 = 0.3*0.9*0.25 = 0.0675 > 0.05
         assert!(r.utility > 0.35, "utility {} should be > 0.35", r.utility);
-        assert!(r.marginal_utility > 0.05, "marginal {} should be > 0.05", r.marginal_utility);
+        assert!(
+            r.marginal_utility > 0.05,
+            "marginal {} should be > 0.05",
+            r.marginal_utility
+        );
         assert!(!r.should_synthesize, "healthy session should continue");
         assert!(r.reason.is_none());
     }

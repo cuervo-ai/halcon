@@ -256,7 +256,12 @@ pub fn collect_events_for_session(
         let session_window = conn.query_row(
             "SELECT MIN(created_at), MAX(created_at) FROM invocation_metrics WHERE session_id = ?1",
             params![session_id],
-            |row| Ok((row.get::<_, Option<String>>(0)?, row.get::<_, Option<String>>(1)?)),
+            |row| {
+                Ok((
+                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                ))
+            },
         );
 
         if let Ok((Some(start), Some(end))) = session_window {
@@ -267,7 +272,15 @@ pub fn collect_events_for_session(
                  ORDER BY created_at ASC",
             )?;
 
-            let rows: Vec<(String, String, Option<String>, Option<String>, Option<i64>, Option<String>, String)> = stmt
+            let rows: Vec<(
+                String,
+                String,
+                Option<String>,
+                Option<String>,
+                Option<i64>,
+                Option<String>,
+                String,
+            )> = stmt
                 .query_map(params![start, end], |row| {
                     Ok((
                         row.get(0)?,
@@ -348,9 +361,8 @@ pub fn collect_events_since(
     include_tool_outputs: bool,
 ) -> Result<Vec<AuditEvent>> {
     // Find all sessions that started after `since`.
-    let mut stmt = conn.prepare(
-        "SELECT id FROM sessions WHERE created_at >= ?1 ORDER BY created_at ASC",
-    )?;
+    let mut stmt =
+        conn.prepare("SELECT id FROM sessions WHERE created_at >= ?1 ORDER BY created_at ASC")?;
     let session_ids: Vec<String> = stmt
         .query_map(params![since], |row| row.get(0))?
         .filter_map(|r| r.ok())

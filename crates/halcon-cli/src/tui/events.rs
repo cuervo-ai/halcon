@@ -87,21 +87,42 @@ pub enum UiEvent {
     },
 
     // --- Phase 42B: Cockpit feedback events (9 new) ---
-
     /// Session initialized with ID (for status bar initialization).
     SessionInitialized { session_id: String },
     /// An agent round is starting with provider/model info.
-    RoundStarted { round: usize, provider: String, model: String },
+    RoundStarted {
+        round: usize,
+        provider: String,
+        model: String,
+    },
     /// An agent round ended with metrics.
-    RoundEnded { round: usize, input_tokens: u32, output_tokens: u32, cost: f64, duration_ms: u64 },
+    RoundEnded {
+        round: usize,
+        input_tokens: u32,
+        output_tokens: u32,
+        cost: f64,
+        duration_ms: u64,
+    },
     /// Model was selected/changed.
-    ModelSelected { model: String, provider: String, reason: String },
+    ModelSelected {
+        model: String,
+        provider: String,
+        reason: String,
+    },
     /// Provider fallback was triggered.
-    ProviderFallback { from: String, to: String, reason: String },
+    ProviderFallback {
+        from: String,
+        to: String,
+        reason: String,
+    },
     /// Tool loop guard took an escalation action.
     LoopGuardAction { action: String, reason: String },
     /// Context compaction completed.
-    CompactionComplete { old_msgs: usize, new_msgs: usize, tokens_saved: u64 },
+    CompactionComplete {
+        old_msgs: usize,
+        new_msgs: usize,
+        tokens_saved: u64,
+    },
     /// Cache hit or miss.
     CacheStatus { hit: bool, source: String },
     /// Speculative tool execution result.
@@ -117,7 +138,8 @@ pub enum UiEvent {
         /// Reply channel for routing the decision back to the requesting executor.
         /// `None`  = main agent (TuiApp uses its stored `perm_tx`).
         /// `Some`  = sub-agent (TuiApp sends via this dedicated sender).
-        reply_tx: Option<tokio::sync::mpsc::UnboundedSender<halcon_core::types::PermissionDecision>>,
+        reply_tx:
+            Option<tokio::sync::mpsc::UnboundedSender<halcon_core::types::PermissionDecision>>,
     },
     /// System password (sudo) elevation required for a bash command.
     ///
@@ -134,7 +156,6 @@ pub enum UiEvent {
     },
 
     // --- Phase 43C: Feedback completeness events (4 new) ---
-
     /// Reflection analysis started.
     ReflectionStarted,
     /// Reflection complete with analysis and score.
@@ -142,12 +163,20 @@ pub enum UiEvent {
     /// Memory consolidation operation in progress.
     ConsolidationStatus { action: String },
     /// Memory consolidation operation completed.
-    ConsolidationComplete { merged: usize, pruned: usize, duration_ms: u64 },
+    ConsolidationComplete {
+        merged: usize,
+        pruned: usize,
+        duration_ms: u64,
+    },
     /// Tool retrying after failure.
-    ToolRetrying { tool: String, attempt: usize, max_attempts: usize, delay_ms: u64 },
+    ToolRetrying {
+        tool: String,
+        attempt: usize,
+        max_attempts: usize,
+        delay_ms: u64,
+    },
 
     // --- Phase 43D: Live panel data events ---
-
     /// Context tier usage update from pipeline.
     ContextTierUpdate {
         l0_tokens: u32,
@@ -167,7 +196,6 @@ pub enum UiEvent {
     },
 
     // --- Phase 44B: Continuous interaction events (Phase 2) ---
-
     /// Agent started processing a prompt (dequeue from channel).
     AgentStartedPrompt,
     /// Agent finished processing a prompt (ready for next).
@@ -176,12 +204,10 @@ pub enum UiEvent {
     PromptQueueStatus(usize),
 
     // --- Phase 44A: Observability events ---
-
     /// Dry-run mode active indicator. Persistent banner when true.
     DryRunActive(bool),
 
     // --- Phase 2: Metrics & Observability ---
-
     /// Phase 2 metrics update (orchestrator, planning, strategy).
     Phase2Metrics {
         delegation_success_rate: Option<f64>,
@@ -204,7 +230,6 @@ pub enum UiEvent {
     },
 
     // --- Phase B4: Circuit breaker events ---
-
     /// Circuit breaker state change for a provider.
     CircuitBreakerUpdate {
         provider: String,
@@ -213,7 +238,6 @@ pub enum UiEvent {
     },
 
     // --- Phase B5: Agent state transition events ---
-
     /// Agent state transition (FSM change).
     AgentStateTransition {
         from: AgentState,
@@ -222,7 +246,6 @@ pub enum UiEvent {
     },
 
     // --- Sprint 1 B2+B3: Data parity events ---
-
     /// Task status update (parity with ClassicSink).
     TaskStatus {
         title: String,
@@ -241,7 +264,6 @@ pub enum UiEvent {
     },
 
     // --- Context Servers Integration (Feb 2026) ---
-
     /// Context servers list with real-time status.
     ContextServersList {
         servers: Vec<ContextServerInfo>,
@@ -250,7 +272,6 @@ pub enum UiEvent {
     },
 
     // --- Phase 45: Real-Time Token Visibility ---
-
     /// Incremental token usage update emitted on each Usage chunk from provider.
     TokenDelta {
         round_input: u32,
@@ -260,12 +281,10 @@ pub enum UiEvent {
     },
 
     // --- Phase 45: Session Browser ---
-
     /// List of past sessions for the session browser overlay.
     SessionList { sessions: Vec<SessionInfo> },
 
     // --- HICON Metrics Visibility (Feb 2026 - Remediation Phase 1.2) ---
-
     /// Agent self-corrector applied a strategy.
     HiconCorrection {
         strategy: String,
@@ -296,7 +315,6 @@ pub enum UiEvent {
     },
 
     // --- Dev Ecosystem Phase 5: IDE/Editor Connection Events ---
-
     /// Embedded LSP TCP server is listening and ready for IDE connections.
     ///
     /// Emitted once when `serve_tcp()` binds successfully. The IDE extension
@@ -309,10 +327,12 @@ pub enum UiEvent {
     /// Number of open IDE buffers changed (after didOpen / didClose).
     ///
     /// Emitted by the periodic buffer-count polling task in `run_tui()`.
-    IdeBuffersUpdated { count: usize, git_branch: Option<String> },
+    IdeBuffersUpdated {
+        count: usize,
+        git_branch: Option<String>,
+    },
 
     // --- Multi-Agent Orchestration Visibility ---
-
     /// Orchestrator is launching a parallel wave of sub-agents.
     OrchestratorWave {
         wave_index: usize,
@@ -343,21 +363,18 @@ pub enum UiEvent {
     },
 
     // --- Multimodal Analysis Feedback ---
-
     /// Multimodal analysis started for N files.
     MediaAnalysisStarted { count: usize },
     /// Single media file analysis complete.
     MediaAnalysisComplete { filename: String, tokens: u32 },
 
     // --- Phase-Aware Skeleton/Spinner ---
-
     /// An expensive agent phase started (planning, reasoning, reflecting).
     PhaseStarted { phase: String, label: String },
     /// The current agent phase ended (paired with PhaseStarted).
     PhaseEnded,
 
     // --- Phase 93: Media Attachment Chips ---
-
     /// A media file was added to the pending attachment list.
     ///
     /// Fired when the user pastes a media path or drags a file into the terminal.
@@ -366,12 +383,8 @@ pub enum UiEvent {
     AttachmentRemoved { index: usize },
 
     // --- Phase 94: Project Onboarding ---
-
     /// No project-level HALCON.md found — agent suggests running /init.
-    OnboardingAvailable {
-        root: String,
-        project_type: String,
-    },
+    OnboardingAvailable { root: String, project_type: String },
     /// ProjectInspector completed — wizard can advance to review step.
     /// Also carries generated preview + save path for the wizard.
     ProjectAnalysisComplete {
@@ -401,7 +414,6 @@ pub enum UiEvent {
     OpenInitWizard { dry_run: bool },
 
     // --- Phase 95: Plugin Auto-Implantation ---
-
     /// Plugin recommendations ready — triggers PluginSuggest overlay.
     PluginSuggestionReady {
         suggestions: Vec<PluginSuggestionItem>,
@@ -410,9 +422,16 @@ pub enum UiEvent {
     /// Plugin bootstrap started (auto-install).
     PluginBootstrapStarted { count: usize, dry_run: bool },
     /// Plugin bootstrap completed.
-    PluginBootstrapComplete { installed: usize, skipped: usize, failed: usize },
+    PluginBootstrapComplete {
+        installed: usize,
+        skipped: usize,
+        failed: usize,
+    },
     /// A plugin's operational state changed (suspend/resume).
-    PluginStatusChanged { plugin_id: String, new_status: String },
+    PluginStatusChanged {
+        plugin_id: String,
+        new_status: String,
+    },
     /// All configured providers and their models, sent once at session startup.
     /// Pre-populates the model selector so it has options even before any round runs.
     AvailableProviders {
@@ -439,7 +458,7 @@ pub struct SessionInfo {
     pub title: Option<String>,
     pub provider: String,
     pub model: String,
-    pub created_at: String,   // ISO8601 string
+    pub created_at: String, // ISO8601 string
     pub updated_at: String,
     pub input_tokens: u32,
     pub output_tokens: u32,
@@ -455,7 +474,7 @@ pub struct ContextServerInfo {
     pub enabled: bool,
     pub last_query_ms: Option<u64>,
     pub total_tokens: u32,
-    pub query_count: u64,  // Total number of queries to this server
+    pub query_count: u64, // Total number of queries to this server
 }
 
 /// Circuit breaker states for provider resilience.
@@ -486,28 +505,30 @@ impl AgentState {
     pub fn valid_successors(&self) -> &'static [AgentState] {
         match self {
             AgentState::Idle => &[AgentState::Planning, AgentState::Executing],
-            AgentState::Planning => &[AgentState::Executing, AgentState::Failed, AgentState::Paused],
+            AgentState::Planning => &[
+                AgentState::Executing,
+                AgentState::Failed,
+                AgentState::Paused,
+            ],
             AgentState::Executing => &[
-                AgentState::Planning,       // Replanning mid-execution
+                AgentState::Planning, // Replanning mid-execution
                 AgentState::ToolWait,
                 AgentState::Reflecting,
-                AgentState::Synthesizing,   // Tools stripped — synthesis mode
+                AgentState::Synthesizing, // Tools stripped — synthesis mode
                 AgentState::Complete,
                 AgentState::Failed,
                 AgentState::Paused,
             ],
             AgentState::ToolWait => &[
                 AgentState::Executing,
-                AgentState::Planning,       // Replan triggered after tool failure
-                AgentState::Synthesizing,   // Direct synthesis from ToolWait
+                AgentState::Planning,     // Replan triggered after tool failure
+                AgentState::Synthesizing, // Direct synthesis from ToolWait
                 AgentState::Failed,
                 AgentState::Paused,
             ],
-            AgentState::Synthesizing => &[
-                AgentState::Complete,
-                AgentState::Failed,
-                AgentState::Paused,
-            ],
+            AgentState::Synthesizing => {
+                &[AgentState::Complete, AgentState::Failed, AgentState::Paused]
+            }
             AgentState::Reflecting => &[
                 AgentState::Planning,
                 AgentState::Executing,
@@ -537,8 +558,13 @@ impl AgentState {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ProviderHealthStatus {
     Healthy,
-    Degraded { failure_rate: f64, latency_p95_ms: u64 },
-    Unhealthy { reason: String },
+    Degraded {
+        failure_rate: f64,
+        latency_p95_ms: u64,
+    },
+    Unhealthy {
+        reason: String,
+    },
 }
 
 /// Control events sent from the TUI to the agent loop (reverse direction).
@@ -619,7 +645,13 @@ mod tests {
             is_error: false,
             duration_ms: 42,
         };
-        assert!(matches!(ev, UiEvent::ToolOutput { duration_ms: 42, .. }));
+        assert!(matches!(
+            ev,
+            UiEvent::ToolOutput {
+                duration_ms: 42,
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -675,62 +707,117 @@ mod tests {
             current_step: 1,
             elapsed_ms: 500,
         };
-        assert!(matches!(ev, UiEvent::PlanProgress { current_step: 1, .. }));
+        assert!(matches!(
+            ev,
+            UiEvent::PlanProgress {
+                current_step: 1,
+                ..
+            }
+        ));
     }
 
     #[test]
     fn plan_step_display_status_eq() {
-        assert_eq!(PlanStepDisplayStatus::Pending, PlanStepDisplayStatus::Pending);
-        assert_ne!(PlanStepDisplayStatus::Succeeded, PlanStepDisplayStatus::Failed);
+        assert_eq!(
+            PlanStepDisplayStatus::Pending,
+            PlanStepDisplayStatus::Pending
+        );
+        assert_ne!(
+            PlanStepDisplayStatus::Succeeded,
+            PlanStepDisplayStatus::Failed
+        );
     }
 
     // --- Phase 42B: Cockpit event construction tests ---
 
     #[test]
     fn round_started_construction() {
-        let ev = UiEvent::RoundStarted { round: 1, provider: "deepseek".into(), model: "deepseek-chat".into() };
+        let ev = UiEvent::RoundStarted {
+            round: 1,
+            provider: "deepseek".into(),
+            model: "deepseek-chat".into(),
+        };
         assert!(matches!(ev, UiEvent::RoundStarted { round: 1, .. }));
     }
 
     #[test]
     fn round_ended_construction() {
-        let ev = UiEvent::RoundEnded { round: 2, input_tokens: 500, output_tokens: 200, cost: 0.002, duration_ms: 1500 };
-        assert!(matches!(ev, UiEvent::RoundEnded { round: 2, duration_ms: 1500, .. }));
+        let ev = UiEvent::RoundEnded {
+            round: 2,
+            input_tokens: 500,
+            output_tokens: 200,
+            cost: 0.002,
+            duration_ms: 1500,
+        };
+        assert!(matches!(
+            ev,
+            UiEvent::RoundEnded {
+                round: 2,
+                duration_ms: 1500,
+                ..
+            }
+        ));
     }
 
     #[test]
     fn model_selected_construction() {
-        let ev = UiEvent::ModelSelected { model: "gpt-4o".into(), provider: "openai".into(), reason: "complex task".into() };
+        let ev = UiEvent::ModelSelected {
+            model: "gpt-4o".into(),
+            provider: "openai".into(),
+            reason: "complex task".into(),
+        };
         assert!(matches!(ev, UiEvent::ModelSelected { ref model, .. } if model == "gpt-4o"));
     }
 
     #[test]
     fn provider_fallback_construction() {
-        let ev = UiEvent::ProviderFallback { from: "anthropic".into(), to: "deepseek".into(), reason: "auth error".into() };
+        let ev = UiEvent::ProviderFallback {
+            from: "anthropic".into(),
+            to: "deepseek".into(),
+            reason: "auth error".into(),
+        };
         assert!(matches!(ev, UiEvent::ProviderFallback { ref from, .. } if from == "anthropic"));
     }
 
     #[test]
     fn loop_guard_action_construction() {
-        let ev = UiEvent::LoopGuardAction { action: "inject_synthesis".into(), reason: "round 3".into() };
-        assert!(matches!(ev, UiEvent::LoopGuardAction { ref action, .. } if action == "inject_synthesis"));
+        let ev = UiEvent::LoopGuardAction {
+            action: "inject_synthesis".into(),
+            reason: "round 3".into(),
+        };
+        assert!(
+            matches!(ev, UiEvent::LoopGuardAction { ref action, .. } if action == "inject_synthesis")
+        );
     }
 
     #[test]
     fn compaction_complete_construction() {
-        let ev = UiEvent::CompactionComplete { old_msgs: 50, new_msgs: 10, tokens_saved: 4000 };
-        assert!(matches!(ev, UiEvent::CompactionComplete { old_msgs: 50, .. }));
+        let ev = UiEvent::CompactionComplete {
+            old_msgs: 50,
+            new_msgs: 10,
+            tokens_saved: 4000,
+        };
+        assert!(matches!(
+            ev,
+            UiEvent::CompactionComplete { old_msgs: 50, .. }
+        ));
     }
 
     #[test]
     fn cache_status_construction() {
-        let ev = UiEvent::CacheStatus { hit: true, source: "response_cache".into() };
+        let ev = UiEvent::CacheStatus {
+            hit: true,
+            source: "response_cache".into(),
+        };
         assert!(matches!(ev, UiEvent::CacheStatus { hit: true, .. }));
     }
 
     #[test]
     fn speculative_result_construction() {
-        let ev = UiEvent::SpeculativeResult { tool: "file_read".into(), hit: true };
+        let ev = UiEvent::SpeculativeResult {
+            tool: "file_read".into(),
+            hit: true,
+        };
         assert!(matches!(ev, UiEvent::SpeculativeResult { hit: true, .. }));
     }
 
@@ -776,20 +863,41 @@ mod tests {
 
     #[test]
     fn reflection_complete_construction() {
-        let ev = UiEvent::ReflectionComplete { analysis: "2 failures detected".into(), score: 0.7 };
-        assert!(matches!(ev, UiEvent::ReflectionComplete { score, .. } if (score - 0.7).abs() < f64::EPSILON));
+        let ev = UiEvent::ReflectionComplete {
+            analysis: "2 failures detected".into(),
+            score: 0.7,
+        };
+        assert!(
+            matches!(ev, UiEvent::ReflectionComplete { score, .. } if (score - 0.7).abs() < f64::EPSILON)
+        );
     }
 
     #[test]
     fn consolidation_status_construction() {
-        let ev = UiEvent::ConsolidationStatus { action: "merging 25 reflections".into() };
-        assert!(matches!(ev, UiEvent::ConsolidationStatus { ref action } if action.contains("merging")));
+        let ev = UiEvent::ConsolidationStatus {
+            action: "merging 25 reflections".into(),
+        };
+        assert!(
+            matches!(ev, UiEvent::ConsolidationStatus { ref action } if action.contains("merging"))
+        );
     }
 
     #[test]
     fn tool_retrying_construction() {
-        let ev = UiEvent::ToolRetrying { tool: "bash".into(), attempt: 2, max_attempts: 3, delay_ms: 500 };
-        assert!(matches!(ev, UiEvent::ToolRetrying { attempt: 2, max_attempts: 3, .. }));
+        let ev = UiEvent::ToolRetrying {
+            tool: "bash".into(),
+            attempt: 2,
+            max_attempts: 3,
+            delay_ms: 500,
+        };
+        assert!(matches!(
+            ev,
+            UiEvent::ToolRetrying {
+                attempt: 2,
+                max_attempts: 3,
+                ..
+            }
+        ));
     }
 
     // --- Phase 43D: Live panel data event tests ---
@@ -797,12 +905,23 @@ mod tests {
     #[test]
     fn context_tier_update_construction() {
         let ev = UiEvent::ContextTierUpdate {
-            l0_tokens: 500, l0_capacity: 2000,
-            l1_tokens: 300, l1_entries: 5,
-            l2_entries: 10, l3_entries: 8, l4_entries: 3,
+            l0_tokens: 500,
+            l0_capacity: 2000,
+            l1_tokens: 300,
+            l1_entries: 5,
+            l2_entries: 10,
+            l3_entries: 8,
+            l4_entries: 3,
             total_tokens: 1200,
         };
-        assert!(matches!(ev, UiEvent::ContextTierUpdate { l0_tokens: 500, total_tokens: 1200, .. }));
+        assert!(matches!(
+            ev,
+            UiEvent::ContextTierUpdate {
+                l0_tokens: 500,
+                total_tokens: 1200,
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -815,24 +934,45 @@ mod tests {
 
     #[test]
     fn token_budget_update_construction() {
-        let ev = UiEvent::TokenBudgetUpdate { used: 500, limit: 1000, rate_per_minute: 120.5 };
-        assert!(matches!(ev, UiEvent::TokenBudgetUpdate { used: 500, limit: 1000, .. }));
+        let ev = UiEvent::TokenBudgetUpdate {
+            used: 500,
+            limit: 1000,
+            rate_per_minute: 120.5,
+        };
+        assert!(matches!(
+            ev,
+            UiEvent::TokenBudgetUpdate {
+                used: 500,
+                limit: 1000,
+                ..
+            }
+        ));
     }
 
     #[test]
     fn provider_health_update_construction() {
         let ev = UiEvent::ProviderHealthUpdate {
             provider: "anthropic".into(),
-            status: ProviderHealthStatus::Degraded { failure_rate: 0.3, latency_p95_ms: 5000 },
+            status: ProviderHealthStatus::Degraded {
+                failure_rate: 0.3,
+                latency_p95_ms: 5000,
+            },
         };
-        assert!(matches!(ev, UiEvent::ProviderHealthUpdate { ref provider, .. } if provider == "anthropic"));
+        assert!(
+            matches!(ev, UiEvent::ProviderHealthUpdate { ref provider, .. } if provider == "anthropic")
+        );
     }
 
     #[test]
     fn provider_health_status_variants() {
         let healthy = ProviderHealthStatus::Healthy;
-        let degraded = ProviderHealthStatus::Degraded { failure_rate: 0.2, latency_p95_ms: 3000 };
-        let unhealthy = ProviderHealthStatus::Unhealthy { reason: "timeout".into() };
+        let degraded = ProviderHealthStatus::Degraded {
+            failure_rate: 0.2,
+            latency_p95_ms: 3000,
+        };
+        let unhealthy = ProviderHealthStatus::Unhealthy {
+            reason: "timeout".into(),
+        };
         assert_eq!(healthy, ProviderHealthStatus::Healthy);
         assert_ne!(healthy, degraded);
         assert_ne!(degraded, unhealthy);
@@ -845,7 +985,9 @@ mod tests {
             task_type: "CodeModification".into(),
             complexity: "Complex".into(),
         };
-        assert!(matches!(ev, UiEvent::ReasoningUpdate { ref strategy, .. } if strategy == "PlanExecuteReflect"));
+        assert!(
+            matches!(ev, UiEvent::ReasoningUpdate { ref strategy, .. } if strategy == "PlanExecuteReflect")
+        );
     }
 
     // --- Phase B4: Circuit breaker event tests ---
@@ -857,7 +999,13 @@ mod tests {
             state: CircuitBreakerState::Open,
             failure_count: 5,
         };
-        assert!(matches!(ev, UiEvent::CircuitBreakerUpdate { failure_count: 5, .. }));
+        assert!(matches!(
+            ev,
+            UiEvent::CircuitBreakerUpdate {
+                failure_count: 5,
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -876,7 +1024,9 @@ mod tests {
             to: AgentState::Planning,
             reason: "new task".into(),
         };
-        assert!(matches!(ev, UiEvent::AgentStateTransition { ref reason, .. } if reason == "new task"));
+        assert!(
+            matches!(ev, UiEvent::AgentStateTransition { ref reason, .. } if reason == "new task")
+        );
     }
 
     #[test]

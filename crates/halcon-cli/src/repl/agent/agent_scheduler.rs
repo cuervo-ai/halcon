@@ -161,7 +161,7 @@ impl AgentScheduler {
         last_run: Option<DateTime<Utc>>,
         now: DateTime<Utc>,
     ) -> std::result::Result<bool, String> {
-        let mut cron = Cron::new(cron_expr)
+        let cron = Cron::new(cron_expr)
             .with_seconds_optional()
             .parse()
             .map_err(|e| format!("parse cron '{cron_expr}': {e}"))?;
@@ -230,18 +230,29 @@ pub fn db_list_scheduled_tasks(db: &Database) -> Result<Vec<ScheduledTask>> {
 
     Ok(rows
         .into_iter()
-        .map(|(id, name, agent_id, instruction, cron_expr, enabled, last_run_at_str, created_at_str)| {
-            ScheduledTask {
+        .map(
+            |(
                 id,
                 name,
                 agent_id,
                 instruction,
                 cron_expr,
                 enabled,
-                last_run_at: last_run_at_str.and_then(|s| s.parse().ok()),
-                created_at: created_at_str.parse().unwrap_or_else(|_| Utc::now()),
-            }
-        })
+                last_run_at_str,
+                created_at_str,
+            )| {
+                ScheduledTask {
+                    id,
+                    name,
+                    agent_id,
+                    instruction,
+                    cron_expr,
+                    enabled,
+                    last_run_at: last_run_at_str.and_then(|s| s.parse().ok()),
+                    created_at: created_at_str.parse().unwrap_or_else(|_| Utc::now()),
+                }
+            },
+        )
         .collect())
 }
 
@@ -279,20 +290,29 @@ pub fn db_get_scheduled_task(db: &Database, id: &str) -> Result<Option<Scheduled
     });
 
     match result {
-        Ok((id, name, agent_id, instruction, cron_expr, enabled, last_run_at_str, created_at_str)) => {
-            Ok(Some(ScheduledTask {
-                id,
-                name,
-                agent_id,
-                instruction,
-                cron_expr,
-                enabled,
-                last_run_at: last_run_at_str.and_then(|s| s.parse().ok()),
-                created_at: created_at_str.parse().unwrap_or_else(|_| Utc::now()),
-            }))
-        }
+        Ok((
+            id,
+            name,
+            agent_id,
+            instruction,
+            cron_expr,
+            enabled,
+            last_run_at_str,
+            created_at_str,
+        )) => Ok(Some(ScheduledTask {
+            id,
+            name,
+            agent_id,
+            instruction,
+            cron_expr,
+            enabled,
+            last_run_at: last_run_at_str.and_then(|s| s.parse().ok()),
+            created_at: created_at_str.parse().unwrap_or_else(|_| Utc::now()),
+        })),
         Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-        Err(e) => Err(HalconError::DatabaseError(format!("get scheduled task: {e}"))),
+        Err(e) => Err(HalconError::DatabaseError(format!(
+            "get scheduled task: {e}"
+        ))),
     }
 }
 

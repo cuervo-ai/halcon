@@ -69,7 +69,6 @@ pub enum InputAction {
     OpenSessionList,
 
     // --- Phase 93: Cross-Platform SOTA ---
-
     /// Open native file picker for media attachment (Ctrl+O).
     ///
     /// In terminal context: shows a toast with drag-and-drop instructions.
@@ -129,9 +128,13 @@ pub fn dispatch_key(key: KeyEvent) -> InputAction {
         // Shift+Enter: insert newline (multi-line input without submitting)
         (m, KeyCode::Enter) if m.contains(KeyModifiers::SHIFT) => InputAction::InsertNewline,
         // Ctrl+S: open Context Servers overlay (was hardcoded before dispatch_key)
-        (m, KeyCode::Char('s')) if m.contains(KeyModifiers::CONTROL) => InputAction::OpenContextServers,
+        (m, KeyCode::Char('s')) if m.contains(KeyModifiers::CONTROL) => {
+            InputAction::OpenContextServers
+        }
         // Ctrl+V: paste from clipboard into prompt
-        (m, KeyCode::Char('v')) if m.contains(KeyModifiers::CONTROL) => InputAction::PasteFromClipboard,
+        (m, KeyCode::Char('v')) if m.contains(KeyModifiers::CONTROL) => {
+            InputAction::PasteFromClipboard
+        }
         // Ctrl+K: clear prompt
         (m, KeyCode::Char('k')) if m.contains(KeyModifiers::CONTROL) => InputAction::ClearPrompt,
         // Ctrl+Up: history back
@@ -139,7 +142,9 @@ pub fn dispatch_key(key: KeyEvent) -> InputAction {
         // Ctrl+Down: history forward
         (m, KeyCode::Down) if m.contains(KeyModifiers::CONTROL) => InputAction::HistoryForward,
         // Ctrl+P: open command palette
-        (m, KeyCode::Char('p')) if m.contains(KeyModifiers::CONTROL) => InputAction::OpenCommandPalette,
+        (m, KeyCode::Char('p')) if m.contains(KeyModifiers::CONTROL) => {
+            InputAction::OpenCommandPalette
+        }
         // Ctrl+F: open search overlay
         (m, KeyCode::Char('f')) if m.contains(KeyModifiers::CONTROL) => InputAction::OpenSearch,
         // Ctrl+T: dismiss active toasts
@@ -163,11 +168,17 @@ pub fn dispatch_key(key: KeyEvent) -> InputAction {
         // Ctrl+O: open file picker / show attachment instructions
         (m, KeyCode::Char('o')) if m.contains(KeyModifiers::CONTROL) => InputAction::OpenFilePicker,
         // Ctrl+Backspace: remove last attachment chip
-        (m, KeyCode::Backspace) if m.contains(KeyModifiers::CONTROL) => InputAction::RemoveLastAttachment,
+        (m, KeyCode::Backspace) if m.contains(KeyModifiers::CONTROL) => {
+            InputAction::RemoveLastAttachment
+        }
         // Ctrl+B: toggle sub-agent detail view (collapsed pills ↔ tool list + summary)
-        (m, KeyCode::Char('b')) if m.contains(KeyModifiers::CONTROL) => InputAction::ToggleSubAgentDetail,
+        (m, KeyCode::Char('b')) if m.contains(KeyModifiers::CONTROL) => {
+            InputAction::ToggleSubAgentDetail
+        }
         // Ctrl+M: open model selector overlay
-        (m, KeyCode::Char('m')) if m.contains(KeyModifiers::CONTROL) => InputAction::OpenModelSelector,
+        (m, KeyCode::Char('m')) if m.contains(KeyModifiers::CONTROL) => {
+            InputAction::OpenModelSelector
+        }
         // Tab: cycle focus
         (_, KeyCode::Tab) => InputAction::CycleFocus,
         // Shift+Up / PageUp: scroll activity up

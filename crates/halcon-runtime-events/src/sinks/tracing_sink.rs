@@ -28,7 +28,12 @@ impl EventSink for TracingSink {
         let session = event.session_id;
 
         match &event.kind {
-            RuntimeEventKind::BudgetExhausted { reason, tokens_used, tokens_total, .. } => {
+            RuntimeEventKind::BudgetExhausted {
+                reason,
+                tokens_used,
+                tokens_total,
+                ..
+            } => {
                 tracing::warn!(
                     event_type = ty,
                     %session,
@@ -38,7 +43,11 @@ impl EventSink for TracingSink {
                     "runtime_event: budget exhausted"
                 );
             }
-            RuntimeEventKind::CircuitBreakerOpened { resource, failure_count, reason } => {
+            RuntimeEventKind::CircuitBreakerOpened {
+                resource,
+                failure_count,
+                reason,
+            } => {
                 tracing::warn!(
                     event_type = ty,
                     %session,
@@ -48,7 +57,11 @@ impl EventSink for TracingSink {
                     "runtime_event: circuit breaker opened"
                 );
             }
-            RuntimeEventKind::GuardrailTriggered { guardrail_name, action, .. } => {
+            RuntimeEventKind::GuardrailTriggered {
+                guardrail_name,
+                action,
+                ..
+            } => {
                 tracing::warn!(
                     event_type = ty,
                     %session,
@@ -57,7 +70,9 @@ impl EventSink for TracingSink {
                     "runtime_event: guardrail triggered"
                 );
             }
-            RuntimeEventKind::ToolBlocked { tool_name, reason, .. } => {
+            RuntimeEventKind::ToolBlocked {
+                tool_name, reason, ..
+            } => {
                 tracing::warn!(
                     event_type = ty,
                     %session,

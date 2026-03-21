@@ -41,19 +41,15 @@ impl Tool for FileInspectTool {
     }
 
     async fn execute(&self, input: ToolInput) -> Result<ToolOutput> {
-        let path_str = input.arguments["path"]
-            .as_str()
-            .ok_or_else(|| HalconError::InvalidInput("file_inspect requires 'path' string".into()))?;
+        let path_str = input.arguments["path"].as_str().ok_or_else(|| {
+            HalconError::InvalidInput("file_inspect requires 'path' string".into())
+        })?;
 
         let resolved = self.fs.resolve_path(path_str, &input.working_directory)?;
 
-        let token_budget = input.arguments["token_budget"]
-            .as_u64()
-            .unwrap_or(2000) as usize;
+        let token_budget = input.arguments["token_budget"].as_u64().unwrap_or(2000) as usize;
 
-        let metadata_only = input.arguments["metadata_only"]
-            .as_bool()
-            .unwrap_or(false);
+        let metadata_only = input.arguments["metadata_only"].as_bool().unwrap_or(false);
 
         let inspector = halcon_files::FileInspector::new();
 
@@ -230,7 +226,9 @@ mod tests {
         let output = tool().execute(input).await.unwrap();
         assert!(!output.is_error);
         assert!(output.content.contains("json"));
-        assert!(output.metadata.as_ref().unwrap()["valid"].as_bool().unwrap());
+        assert!(output.metadata.as_ref().unwrap()["valid"]
+            .as_bool()
+            .unwrap());
     }
 
     #[tokio::test]

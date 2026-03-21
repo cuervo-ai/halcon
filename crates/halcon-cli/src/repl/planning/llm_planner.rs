@@ -82,7 +82,11 @@ impl LlmPlanner {
     /// - EXECUTION tasks (build, run, install, deploy, test, create, modify): granular steps,
     ///   synthesis ONLY when objective is fully achieved.
     /// Anti-collapse invariant: never generate a plan where all remaining steps have tool_name=null.
-    fn build_plan_prompt(user_message: &str, tools: &[ToolDefinition], blocked_tools: &[String]) -> String {
+    fn build_plan_prompt(
+        user_message: &str,
+        tools: &[ToolDefinition],
+        blocked_tools: &[String],
+    ) -> String {
         let tool_list: Vec<String> = tools
             .iter()
             .map(|t| format!("- {}: {}", t.name, t.description))
@@ -251,7 +255,11 @@ impl LlmPlanner {
         const MAX_ERROR_CHARS: usize = 200;
         let error_excerpt: &str = if error.chars().count() > MAX_ERROR_CHARS {
             // Safety: truncate at char boundary by finding byte offset of 200th char.
-            let byte_end = error.char_indices().nth(MAX_ERROR_CHARS).map(|(i, _)| i).unwrap_or(error.len());
+            let byte_end = error
+                .char_indices()
+                .nth(MAX_ERROR_CHARS)
+                .map(|(i, _)| i)
+                .unwrap_or(error.len());
             &error[..byte_end]
         } else {
             error
@@ -382,8 +390,10 @@ impl LlmPlanner {
         // BRECHA-S4: derive frontier contracts post-parse (not set by LLM).
         plan.mode = halcon_core::traits::ExecutionMode::PlanExecuteReflect;
         plan.requires_evidence = plan.steps.iter().any(|s| {
-            s.tool_name.as_deref().map_or(false, |t| {
-                PLAN_CONTENT_READ_TOOLS.iter().any(|&ct| t == ct || t.starts_with(ct))
+            s.tool_name.as_deref().is_some_and(|t| {
+                PLAN_CONTENT_READ_TOOLS
+                    .iter()
+                    .any(|&ct| t == ct || t.starts_with(ct))
             })
         });
         plan.blocked_tools = self.blocked_tools.clone();
@@ -484,7 +494,10 @@ impl Planner for LlmPlanner {
     }
 
     fn supports_model(&self) -> bool {
-        self.provider.supported_models().iter().any(|m| m.id == self.model)
+        self.provider
+            .supported_models()
+            .iter()
+            .any(|m| m.id == self.model)
     }
 }
 
@@ -740,14 +753,19 @@ mod tests {
     #[test]
     fn plan_parse_markdown_wrapped_without_extraction() {
         // This is what happens without extract_json — the raw markdown
-        let markdown = "```json\n{\"goal\":\"test\",\"steps\":[],\"requires_confirmation\":false}\n```";
+        let markdown =
+            "```json\n{\"goal\":\"test\",\"steps\":[],\"requires_confirmation\":false}\n```";
         let result = serde_json::from_str::<ExecutionPlan>(markdown);
-        assert!(result.is_err(), "Markdown-wrapped JSON must not parse as JSON directly");
+        assert!(
+            result.is_err(),
+            "Markdown-wrapped JSON must not parse as JSON directly"
+        );
     }
 
     #[test]
     fn plan_parse_markdown_wrapped_with_extraction() {
-        let markdown = "```json\n{\"goal\":\"test\",\"steps\":[],\"requires_confirmation\":false}\n```";
+        let markdown =
+            "```json\n{\"goal\":\"test\",\"steps\":[],\"requires_confirmation\":false}\n```";
         let extracted = extract_json(markdown);
         let plan: ExecutionPlan = serde_json::from_str(extracted).unwrap();
         assert_eq!(plan.goal, "test");
@@ -805,8 +823,14 @@ mod tests {
         let prompt = LlmPlanner::build_replan_prompt(&plan, 0, "file not found", &tools);
 
         // Must contain the exact schema fields
-        assert!(prompt.contains("\"goal\""), "Replan prompt must include 'goal' field");
-        assert!(prompt.contains("\"steps\""), "Replan prompt must include 'steps' field");
+        assert!(
+            prompt.contains("\"goal\""),
+            "Replan prompt must include 'goal' field"
+        );
+        assert!(
+            prompt.contains("\"steps\""),
+            "Replan prompt must include 'steps' field"
+        );
         assert!(
             prompt.contains("\"requires_confirmation\""),
             "Replan prompt must include 'requires_confirmation' field"
@@ -859,10 +883,7 @@ mod tests {
 
         // Both must mention the same required JSON fields
         for field in &["\"goal\"", "\"steps\"", "\"requires_confirmation\""] {
-            assert!(
-                plan_prompt.contains(field),
-                "Plan prompt missing {field}"
-            );
+            assert!(plan_prompt.contains(field), "Plan prompt missing {field}");
             assert!(
                 replan_prompt.contains(field),
                 "Replan prompt missing {field}"
@@ -905,7 +926,10 @@ mod tests {
 
         // Construct a 600-char error string (clearly > 200).
         let long_error = format!("Error: {}", "x".repeat(590));
-        assert!(long_error.chars().count() > 200, "Pre-condition: error must be >200 chars");
+        assert!(
+            long_error.chars().count() > 200,
+            "Pre-condition: error must be >200 chars"
+        );
 
         let prompt = LlmPlanner::build_replan_prompt(&plan, 0, &long_error, &[]);
 
@@ -941,7 +965,10 @@ mod tests {
         };
         let short_error = "file not found: /tmp/config.toml";
         let prompt = LlmPlanner::build_replan_prompt(&plan, 0, short_error, &[]);
-        assert!(prompt.contains(short_error), "Short error must not be truncated");
+        assert!(
+            prompt.contains(short_error),
+            "Short error must not be truncated"
+        );
     }
 
     // ── BUG-H6 regression: replan output is compressed ────────────────────
@@ -983,7 +1010,11 @@ mod tests {
             ..Default::default()
         };
 
-        assert_eq!(oversized.steps.len(), 9, "Pre-condition: 9 steps before compression");
+        assert_eq!(
+            oversized.steps.len(),
+            9,
+            "Pre-condition: 9 steps before compression"
+        );
 
         // Apply the same compression that replan() now calls.
         let (compressed, stats) = compress(oversized);

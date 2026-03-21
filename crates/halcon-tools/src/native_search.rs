@@ -48,15 +48,17 @@ impl Tool for NativeSearchTool {
     }
 
     async fn execute(&self, input: ToolInput) -> Result<ToolOutput> {
-        let query = input.arguments["query"]
-            .as_str()
-            .ok_or_else(|| HalconError::InvalidInput("native_search requires 'query' string".into()))?;
+        let query = input.arguments["query"].as_str().ok_or_else(|| {
+            HalconError::InvalidInput("native_search requires 'query' string".into())
+        })?;
 
         if query.trim().is_empty() {
             return Err(HalconError::InvalidInput("Query cannot be empty".into()));
         }
 
-        let limit = input.arguments.get("limit")
+        let limit = input
+            .arguments
+            .get("limit")
             .and_then(|v| v.as_u64())
             .unwrap_or(10)
             .min(50) as usize;
@@ -79,7 +81,8 @@ impl Tool for NativeSearchTool {
                              To enable native search in future sessions:\n\
                              1. Check ~/.halcon/config.toml for [search] section\n\
                              2. Run `halcon index init` to create the index\n\
-                             3. Use native_crawl to populate documents".to_string(),
+                             3. Use native_crawl to populate documents"
+                        .to_string(),
                     is_error: true,
                     metadata: Some(json!({
                         "status": "not_initialized",
@@ -96,7 +99,10 @@ impl Tool for NativeSearchTool {
             Err(e) => {
                 return Ok(ToolOutput {
                     tool_use_id: input.tool_use_id,
-                    content: format!("Search failed: {}\n\nTry checking index status with native_index_query.", e),
+                    content: format!(
+                        "Search failed: {}\n\nTry checking index status with native_index_query.",
+                        e
+                    ),
                     is_error: true,
                     metadata: Some(json!({
                         "error": e.to_string(),
@@ -108,7 +114,11 @@ impl Tool for NativeSearchTool {
 
         // Format results
         let mut content = format!("Search Results for: \"{}\"\n", query);
-        content.push_str(&format!("Found {} results (showing top {})\n\n", results.total_count, limit.min(results.results.len())));
+        content.push_str(&format!(
+            "Found {} results (showing top {})\n\n",
+            results.total_count,
+            limit.min(results.results.len())
+        ));
 
         if results.results.is_empty() {
             content.push_str("No documents match your query.\n\n");
@@ -118,7 +128,12 @@ impl Tool for NativeSearchTool {
             content.push_str("- Check native_index_query stats to see indexed documents\n");
         } else {
             for (i, result) in results.results.iter().take(limit).enumerate() {
-                content.push_str(&format!("{}. {} (score: {:.3})\n", i + 1, result.document.title, result.score));
+                content.push_str(&format!(
+                    "{}. {} (score: {:.3})\n",
+                    i + 1,
+                    result.document.title,
+                    result.score
+                ));
                 content.push_str(&format!("   URL: {}\n", result.document.url));
                 if !result.snippet.is_empty() {
                     content.push_str(&format!("   {}\n", result.snippet));
@@ -127,7 +142,10 @@ impl Tool for NativeSearchTool {
             }
 
             // Query timing
-            content.push_str(&format!("Search completed in {:.2}ms\n", results.elapsed_ms));
+            content.push_str(&format!(
+                "Search completed in {:.2}ms\n",
+                results.elapsed_ms
+            ));
         }
 
         Ok(ToolOutput {
@@ -193,14 +211,20 @@ mod tests {
         let input = ToolInput {
             tool_use_id: "test-1".to_string(),
             arguments: json!({"query": "machine learning"}),
-            working_directory: std::env::current_dir().unwrap().to_string_lossy().to_string(),
+            working_directory: std::env::current_dir()
+                .unwrap()
+                .to_string_lossy()
+                .to_string(),
         };
 
         let output = tool.execute(input).await.unwrap();
 
         // is_error=true so the agent loop classifies it as deterministic error
         // and stops retrying rather than treating it as successful output.
-        assert!(output.is_error, "engine_not_initialized must return is_error=true");
+        assert!(
+            output.is_error,
+            "engine_not_initialized must return is_error=true"
+        );
         assert!(output.content.contains("not initialized"));
     }
 
@@ -211,7 +235,10 @@ mod tests {
         let input = ToolInput {
             tool_use_id: "test-2".to_string(),
             arguments: json!({"query": "   "}),
-            working_directory: std::env::current_dir().unwrap().to_string_lossy().to_string(),
+            working_directory: std::env::current_dir()
+                .unwrap()
+                .to_string_lossy()
+                .to_string(),
         };
 
         let result = tool.execute(input).await;
@@ -226,7 +253,10 @@ mod tests {
         let input = ToolInput {
             tool_use_id: "test-3".to_string(),
             arguments: json!({}),
-            working_directory: std::env::current_dir().unwrap().to_string_lossy().to_string(),
+            working_directory: std::env::current_dir()
+                .unwrap()
+                .to_string_lossy()
+                .to_string(),
         };
 
         let result = tool.execute(input).await;

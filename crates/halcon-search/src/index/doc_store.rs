@@ -22,6 +22,7 @@ impl DocumentStore {
     }
 
     /// Insert a document with compression.
+    #[allow(clippy::too_many_arguments)]
     #[tracing::instrument(skip(self, text, html, metadata, outlinks), fields(url = %url))]
     pub async fn insert(
         &self,
@@ -108,11 +109,7 @@ impl DocumentStore {
     }
 
     /// Insert metadata for a document.
-    async fn insert_metadata(
-        &self,
-        doc_id: DocumentId,
-        metadata: DocumentMetadata,
-    ) -> Result<()> {
+    async fn insert_metadata(&self, doc_id: DocumentId, metadata: DocumentMetadata) -> Result<()> {
         let db = self.db.clone();
         let doc_id_bytes = doc_id.0.as_bytes().to_vec();
         let keywords_json = serde_json::to_string(&metadata.keywords)?;
@@ -208,7 +205,19 @@ impl DocumentStore {
         .map_err(|e| SearchError::Database(rusqlite::Error::ToSqlConversionFailure(Box::new(e))))?
         .map_err(SearchError::Database)?;
 
-        let (id_bytes, url_str, domain, title, text, indexed_at_str, last_crawled_str, pagerank, freshness, outlink_count, language) = row;
+        let (
+            id_bytes,
+            url_str,
+            domain,
+            title,
+            text,
+            indexed_at_str,
+            last_crawled_str,
+            pagerank,
+            freshness,
+            outlink_count,
+            language,
+        ) = row;
 
         let id = DocumentId::from_bytes(&id_bytes)
             .ok_or_else(|| SearchError::ParseError("Invalid document ID".to_string()))?;
@@ -216,13 +225,11 @@ impl DocumentStore {
         let indexed_at = DateTime::parse_from_rfc3339(&indexed_at_str)
             .map_err(|e| SearchError::ParseError(format!("Invalid indexed_at: {}", e)))?
             .with_timezone(&Utc);
-        let last_crawled = last_crawled_str
-            .map(|s| {
-                DateTime::parse_from_rfc3339(&s)
-                    .map(|dt| dt.with_timezone(&Utc))
-                    .ok()
-            })
-            .flatten();
+        let last_crawled = last_crawled_str.and_then(|s| {
+            DateTime::parse_from_rfc3339(&s)
+                .map(|dt| dt.with_timezone(&Utc))
+                .ok()
+        });
 
         Ok(Document {
             id,
@@ -279,16 +286,31 @@ impl DocumentStore {
         .map_err(SearchError::Database)?;
 
         let mut documents = Vec::new();
-        for (id_bytes, url_str, domain, title, text, indexed_at_str, last_crawled_str, pagerank, freshness, outlink_count, language) in rows {
+        for (
+            id_bytes,
+            url_str,
+            domain,
+            title,
+            text,
+            indexed_at_str,
+            last_crawled_str,
+            pagerank,
+            freshness,
+            outlink_count,
+            language,
+        ) in rows
+        {
             let id = DocumentId::from_bytes(&id_bytes)
                 .ok_or_else(|| SearchError::ParseError("Invalid document ID".to_string()))?;
             let url = Url::parse(&url_str)?;
             let indexed_at = DateTime::parse_from_rfc3339(&indexed_at_str)
                 .map_err(|e| SearchError::ParseError(format!("Invalid indexed_at: {}", e)))?
                 .with_timezone(&Utc);
-            let last_crawled = last_crawled_str
-                .map(|s| DateTime::parse_from_rfc3339(&s).map(|dt| dt.with_timezone(&Utc)).ok())
-                .flatten();
+            let last_crawled = last_crawled_str.and_then(|s| {
+                DateTime::parse_from_rfc3339(&s)
+                    .map(|dt| dt.with_timezone(&Utc))
+                    .ok()
+            });
 
             documents.push(Document {
                 id,
@@ -314,11 +336,9 @@ impl DocumentStore {
 
         let count = tokio::task::spawn_blocking(move || {
             db.with_connection(|conn| {
-                conn.query_row(
-                    "SELECT COUNT(*) FROM search_documents",
-                    [],
-                    |row| row.get::<_, i64>(0),
-                )
+                conn.query_row("SELECT COUNT(*) FROM search_documents", [], |row| {
+                    row.get::<_, i64>(0)
+                })
             })
         })
         .await

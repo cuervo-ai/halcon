@@ -1,0 +1,9 @@
+target/
+.git/
+*.md
+.DS_Store
+.env
+website/node_modules/
+website/dist/
+website/.wrangler/
+halcon-vscode/node_modules/

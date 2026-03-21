@@ -15,13 +15,7 @@
 //!   AuditViewer → /audit/* and /admin/usage/*
 //!   ReadOnly    → GET endpoints only (no writes)
 
-use axum::{
-    body::Body,
-    extract::Request,
-    http::StatusCode,
-    middleware::Next,
-    response::Response,
-};
+use axum::{body::Body, extract::Request, http::StatusCode, middleware::Next, response::Response};
 
 use halcon_auth::Role;
 
@@ -44,23 +38,21 @@ pub async fn require_role(
         .and_then(|v| v.to_str().ok());
 
     match role_header {
-        Some(role_str) => {
-            match Role::from_str(role_str) {
-                Some(role) if role.satisfies(&required) => Ok(next.run(request).await),
-                Some(role) => {
-                    tracing::warn!(
-                        user_role = %role,
-                        required_role = %required,
-                        "RBAC: insufficient role"
-                    );
-                    Err(StatusCode::FORBIDDEN)
-                }
-                None => {
-                    tracing::warn!(role = role_str, "RBAC: unrecognized role claim");
-                    Err(StatusCode::UNAUTHORIZED)
-                }
+        Some(role_str) => match Role::from_str(role_str) {
+            Some(role) if role.satisfies(&required) => Ok(next.run(request).await),
+            Some(role) => {
+                tracing::warn!(
+                    user_role = %role,
+                    required_role = %required,
+                    "RBAC: insufficient role"
+                );
+                Err(StatusCode::FORBIDDEN)
             }
-        }
+            None => {
+                tracing::warn!(role = role_str, "RBAC: unrecognized role claim");
+                Err(StatusCode::UNAUTHORIZED)
+            }
+        },
         None => {
             // No role header — fall through to next middleware or route handler.
             // The auth_middleware already validated the Bearer token; role enforcement

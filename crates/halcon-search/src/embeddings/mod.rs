@@ -52,7 +52,7 @@ impl Default for EmbeddingConfig {
 pub struct EmbeddingEngine {
     /// Lazily initialized model.  `OnceLock` guarantees at-most-once init.
     model: Arc<OnceLock<Mutex<TextEmbedding>>>,
-    config: EmbeddingConfig,
+    _config: EmbeddingConfig,
 }
 
 impl EmbeddingEngine {
@@ -68,7 +68,7 @@ impl EmbeddingEngine {
     pub fn with_config(config: EmbeddingConfig) -> Result<Self> {
         Ok(Self {
             model: Arc::new(OnceLock::new()),
-            config,
+            _config: config,
         })
     }
 
@@ -91,8 +91,7 @@ impl EmbeddingEngine {
         // Load in the blocking thread pool so we don't starve the async runtime.
         let model = tokio::task::spawn_blocking(move || -> Result<TextEmbedding> {
             TextEmbedding::try_new(
-                InitOptions::new(EmbeddingModel::AllMiniLML6V2)
-                    .with_show_download_progress(false),
+                InitOptions::new(EmbeddingModel::AllMiniLML6V2).with_show_download_progress(false),
             )
             .context("Failed to initialize embedding model (AllMiniLML6V2)")
         })
@@ -224,7 +223,10 @@ mod tests {
             "Third document".to_string(),
         ];
 
-        let embeddings = engine.embed_batch(&texts).await.expect("Batch embedding failed");
+        let embeddings = engine
+            .embed_batch(&texts)
+            .await
+            .expect("Batch embedding failed");
 
         assert_eq!(embeddings.len(), 3);
         for emb in &embeddings {
@@ -294,7 +296,11 @@ mod tests {
         // Normalized vector should have unit length
         let arr = Array1::from_vec(vec.clone());
         let length = arr.dot(&arr).sqrt();
-        assert!((length - 1.0).abs() < 0.001, "Expected length 1.0, got {}", length);
+        assert!(
+            (length - 1.0).abs() < 0.001,
+            "Expected length 1.0, got {}",
+            length
+        );
     }
 
     #[tokio::test]
@@ -321,7 +327,10 @@ mod tests {
         let elapsed = start.elapsed();
 
         // No model loaded yet.
-        assert!(engine.model.get().is_none(), "Model should not be loaded at construction");
+        assert!(
+            engine.model.get().is_none(),
+            "Model should not be loaded at construction"
+        );
         // Should be sub-millisecond.
         assert!(
             elapsed.as_millis() < 100,

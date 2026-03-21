@@ -42,9 +42,9 @@ impl Tool for BackgroundKillTool {
     }
 
     async fn execute(&self, input: ToolInput) -> Result<ToolOutput> {
-        let job_id = input.arguments["job_id"]
-            .as_str()
-            .ok_or_else(|| HalconError::InvalidInput("background_kill requires 'job_id' string".into()))?;
+        let job_id = input.arguments["job_id"].as_str().ok_or_else(|| {
+            HalconError::InvalidInput("background_kill requires 'job_id' string".into())
+        })?;
 
         let Some((was_running, exit_code)) = self.registry.kill(job_id) else {
             return Ok(ToolOutput {
@@ -58,8 +58,10 @@ impl Tool for BackgroundKillTool {
         let content = if was_running {
             format!("Killed job {job_id}")
         } else {
-            format!("Job {job_id} was already finished (exit code: {})",
-                exit_code.map(|c| c.to_string()).unwrap_or("unknown".into()))
+            format!(
+                "Job {job_id} was already finished (exit code: {})",
+                exit_code.map(|c| c.to_string()).unwrap_or("unknown".into())
+            )
         };
 
         Ok(ToolOutput {

@@ -48,7 +48,11 @@ impl VerifyReport {
         println!("Failed:      {}", self.failed);
         println!(
             "Chain:       {}",
-            if self.chain_intact { "INTACT ✓" } else { "TAMPERED ✗" }
+            if self.chain_intact {
+                "INTACT ✓"
+            } else {
+                "TAMPERED ✗"
+            }
         );
 
         if !self.results.is_empty() {
@@ -153,7 +157,14 @@ mod tests {
         (conn, key)
     }
 
-    fn insert_valid_row(conn: &Connection, key: &[u8], event_id: &str, ts: &str, payload: &str, prev_hash: &str) {
+    fn insert_valid_row(
+        conn: &Connection,
+        key: &[u8],
+        event_id: &str,
+        ts: &str,
+        payload: &str,
+        prev_hash: &str,
+    ) {
         let mut mac = HmacSha256::new_from_slice(key).unwrap();
         mac.update(prev_hash.as_bytes());
         mac.update(event_id.as_bytes());
@@ -170,8 +181,22 @@ mod tests {
     #[test]
     fn valid_chain_passes() {
         let (conn, key) = setup_db_with_hmac();
-        insert_valid_row(&conn, &key, "evt-1", "2026-01-01T00:00:01Z", r#"{"x":1}"#, "");
-        insert_valid_row(&conn, &key, "evt-2", "2026-01-01T00:00:02Z", r#"{"x":2}"#, "abc");
+        insert_valid_row(
+            &conn,
+            &key,
+            "evt-1",
+            "2026-01-01T00:00:01Z",
+            r#"{"x":1}"#,
+            "",
+        );
+        insert_valid_row(
+            &conn,
+            &key,
+            "evt-2",
+            "2026-01-01T00:00:02Z",
+            r#"{"x":2}"#,
+            "abc",
+        );
 
         let report = verify_chain(&conn, "sess-1", true).unwrap();
         assert!(report.chain_intact);
@@ -182,7 +207,14 @@ mod tests {
     #[test]
     fn tampered_row_detected() {
         let (conn, key) = setup_db_with_hmac();
-        insert_valid_row(&conn, &key, "evt-1", "2026-01-01T00:00:01Z", r#"{"x":1}"#, "");
+        insert_valid_row(
+            &conn,
+            &key,
+            "evt-1",
+            "2026-01-01T00:00:01Z",
+            r#"{"x":1}"#,
+            "",
+        );
         // Tamper: update payload after insertion (hash becomes invalid).
         conn.execute(
             "UPDATE audit_log SET payload_json = '{\"x\":999}' WHERE event_id = 'evt-1'",

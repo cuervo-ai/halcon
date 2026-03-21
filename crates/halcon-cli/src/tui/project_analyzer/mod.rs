@@ -51,11 +51,10 @@ use tokio::sync::mpsc;
 
 use crate::tui::events::UiEvent;
 use architecture_intelligence::{
-    architecture_intelligence_scanner,
-    compute_architecture_quality_score, compute_scalability_score,
-    compute_maintainability_score, compute_technical_debt_score,
-    compute_dev_ex_score, compute_ai_readiness_score,
-    compute_distributed_maturity_score, suggest_agent_configuration,
+    architecture_intelligence_scanner, compute_ai_readiness_score,
+    compute_architecture_quality_score, compute_dev_ex_score, compute_distributed_maturity_score,
+    compute_maintainability_score, compute_scalability_score, compute_technical_debt_score,
+    suggest_agent_configuration,
 };
 use language_intelligence::language_intelligence_scanner;
 use resource_intelligence::{
@@ -64,20 +63,26 @@ use resource_intelligence::{
     system_profile_scanner, tool_versions_scanner,
 };
 use tools::{
-    ProjectContext,
-    // Wave 0
-    find_project_root,
-    // Wave 1
-    filesystem_scanner, type_detector,
-    // Wave 2
-    cicd_detector, docker_detector, git_intelligence, metadata_reader, security_scanner,
-    test_coverage_estimator,
-    // Wave 3
-    dependency_analyzer, architecture_detector,
-    // Wave 4
-    health_score_calculator,
     // Phase 122: AI context file discovery
     ai_context_file_scanner,
+    architecture_detector,
+    // Wave 2
+    cicd_detector,
+    // Wave 3
+    dependency_analyzer,
+    docker_detector,
+    // Wave 1
+    filesystem_scanner,
+    // Wave 0
+    find_project_root,
+    git_intelligence,
+    // Wave 4
+    health_score_calculator,
+    metadata_reader,
+    security_scanner,
+    test_coverage_estimator,
+    type_detector,
+    ProjectContext,
 };
 
 // ─── Public entry point ───────────────────────────────────────────────────────
@@ -88,7 +93,9 @@ use tools::{
 /// Internally uses 5-wave parallel execution with resource discovery (Ph 103–109).
 pub async fn analyze_and_emit(tx: mpsc::UnboundedSender<UiEvent>, cwd: PathBuf) {
     macro_rules! info {
-        ($msg:expr) => { let _ = tx.send(UiEvent::Info($msg)); };
+        ($msg:expr) => {
+            let _ = tx.send(UiEvent::Info($msg));
+        };
     }
 
     let started = Instant::now();
@@ -106,7 +113,11 @@ pub async fn analyze_and_emit(tx: mpsc::UnboundedSender<UiEvent>, cwd: PathBuf) 
             cached.health_score, cached.agent_readiness_score
         ));
         let preview = halcon_md::generate(&cached);
-        let save_path = root.join(".halcon").join("HALCON.md").to_string_lossy().to_string();
+        let save_path = root
+            .join(".halcon")
+            .join("HALCON.md")
+            .to_string_lossy()
+            .to_string();
         let _ = tx.send(UiEvent::ProjectHealthCalculated {
             score: cached.health_score,
             issues: cached.health_issues.clone(),
@@ -150,10 +161,18 @@ pub async fn analyze_and_emit(tx: mpsc::UnboundedSender<UiEvent>, cwd: PathBuf) 
     let res_ms = res_started.elapsed().as_millis() as u64;
 
     // Emit resource discovery summary
-    info!(format!("[init] ◈ Sistema: {} · {} cores · {}MB RAM",
-        ctx.sys_os, ctx.sys_cpu_cores, ctx.sys_ram_mb / 1024.max(1)));
+    info!(format!(
+        "[init] ◈ Sistema: {} · {} cores · {}MB RAM",
+        ctx.sys_os,
+        ctx.sys_cpu_cores,
+        ctx.sys_ram_mb / 1024
+    ));
     if let Some(ref ide) = ctx.ide_detected {
-        let lsp = if ctx.ide_lsp_connected { " · LSP✓" } else { "" };
+        let lsp = if ctx.ide_lsp_connected {
+            " · LSP✓"
+        } else {
+            ""
+        };
         info!(format!("[init] ◈ IDE: {ide}{lsp}"));
     }
     if let Some(ref model) = ctx.agent_model_name {
@@ -161,7 +180,10 @@ pub async fn analyze_and_emit(tx: mpsc::UnboundedSender<UiEvent>, cwd: PathBuf) 
         info!(format!("[init] ◈ Agente: {model} [{tier}]"));
     }
     if !ctx.agent_mcp_servers.is_empty() {
-        info!(format!("[init] ◈ MCP: {} servers", ctx.agent_mcp_servers.len()));
+        info!(format!(
+            "[init] ◈ MCP: {} servers",
+            ctx.agent_mcp_servers.len()
+        ));
     }
     if ctx.agent_hicon_active {
         info!("[init] ◈ HICON: activo ✓".to_string());
@@ -179,8 +201,12 @@ pub async fn analyze_and_emit(tx: mpsc::UnboundedSender<UiEvent>, cwd: PathBuf) 
     ai_ctx_out.merge_into(&mut ctx);
     tools_run += 3;
 
-    info!(format!("[init] ◈ Tipo: {} · {} dirs · {} archivos",
-        ctx.project_type, ctx.top_dirs.len(), ctx.files_scanned));
+    info!(format!(
+        "[init] ◈ Tipo: {} · {} dirs · {} archivos",
+        ctx.project_type,
+        ctx.top_dirs.len(),
+        ctx.files_scanned
+    ));
 
     // ── Wave 2: Deep analysis (7 tools in parallel, +language_intelligence) ──
     info!("[init] ⟳ Wave 2: Análisis profundo del entorno + lenguajes…".to_string());
@@ -206,9 +232,15 @@ pub async fn analyze_and_emit(tx: mpsc::UnboundedSender<UiEvent>, cwd: PathBuf) 
     // Emit language intelligence summary
     if !ctx.primary_language.is_empty() {
         let polyglot = if ctx.is_polyglot { " (poliglota)" } else { "" };
-        let scale = if ctx.project_scale.is_empty() { "" } else { &ctx.project_scale };
-        info!(format!("[init] ◈ Lenguaje: {}{polyglot} · Escala: {scale} · {} archivos",
-            ctx.primary_language, ctx.total_file_count));
+        let scale = if ctx.project_scale.is_empty() {
+            ""
+        } else {
+            &ctx.project_scale
+        };
+        info!(format!(
+            "[init] ◈ Lenguaje: {}{polyglot} · Escala: {scale} · {} archivos",
+            ctx.primary_language, ctx.total_file_count
+        ));
     }
     if let Some(ref fw) = ctx.frontend_framework {
         info!(format!("[init] ◈ Frontend: {fw}"));
@@ -218,7 +250,10 @@ pub async fn analyze_and_emit(tx: mpsc::UnboundedSender<UiEvent>, cwd: PathBuf) 
     }
     if ctx.is_monorepo {
         let tool = ctx.monorepo_tool.as_deref().unwrap_or("monorepo");
-        info!(format!("[init] ◈ Monorepo: {tool} · {} sub-proyectos", ctx.sub_project_count));
+        info!(format!(
+            "[init] ◈ Monorepo: {tool} · {} sub-proyectos",
+            ctx.sub_project_count
+        ));
     }
 
     if let Some(ref n) = ctx.package_name {
@@ -226,16 +261,25 @@ pub async fn analyze_and_emit(tx: mpsc::UnboundedSender<UiEvent>, cwd: PathBuf) 
         info!(format!("[init] ◈ Paquete: {n} v{ver}"));
     }
     if !ctx.members.is_empty() {
-        info!(format!("[init] ◈ Workspace: {} crates/paquetes", ctx.members.len()));
+        info!(format!(
+            "[init] ◈ Workspace: {} crates/paquetes",
+            ctx.members.len()
+        ));
     }
     if let Some(ref b) = ctx.branch {
-        info!(format!("[init] ◈ Git: branch={b}, commits={}", ctx.total_commits.unwrap_or(0)));
+        info!(format!(
+            "[init] ◈ Git: branch={b}, commits={}",
+            ctx.total_commits.unwrap_or(0)
+        ));
     }
     if ctx.has_security_policy {
         info!("[init] ◈ Security policy: ✓".to_string());
     }
     if ctx.has_tests {
-        let cov = ctx.test_coverage_est.map(|c| format!(" ~{c}%")).unwrap_or_default();
+        let cov = ctx
+            .test_coverage_est
+            .map(|c| format!(" ~{c}%"))
+            .unwrap_or_default();
         info!(format!("[init] ◈ Tests detectados{cov}"));
     }
 
@@ -257,7 +301,10 @@ pub async fn analyze_and_emit(tx: mpsc::UnboundedSender<UiEvent>, cwd: PathBuf) 
         info!(format!("[init] ◈ Arquitectura: {style}"));
     }
     if !ctx.architecture_patterns.is_empty() {
-        info!(format!("[init] ◈ Patrones: {}", ctx.architecture_patterns.join(", ")));
+        info!(format!(
+            "[init] ◈ Patrones: {}",
+            ctx.architecture_patterns.join(", ")
+        ));
     }
     if ctx.has_message_broker {
         let broker = ctx.message_broker_type.as_deref().unwrap_or("broker");
@@ -269,48 +316,55 @@ pub async fn analyze_and_emit(tx: mpsc::UnboundedSender<UiEvent>, cwd: PathBuf) 
 
     // ── Wave 4: Synthesis — all scores (pure functions, Phases 107 + 117-119) ─
     let (score, issues, recommendations) = health_score_calculator(&ctx);
-    ctx.health_score            = score;
-    ctx.health_issues           = issues.clone();
-    ctx.health_recommendations  = recommendations.clone();
-    ctx.agent_readiness_score   = compute_agent_readiness_score(&ctx);
+    ctx.health_score = score;
+    ctx.health_issues = issues.clone();
+    ctx.health_recommendations = recommendations.clone();
+    ctx.agent_readiness_score = compute_agent_readiness_score(&ctx);
     ctx.environment_compatibility_score = compute_environment_compatibility_score(&ctx);
 
     // Phase 117: Advanced composite scores
-    ctx.architecture_quality_score  = compute_architecture_quality_score(&ctx);
-    ctx.scalability_score           = compute_scalability_score(&ctx);
-    ctx.maintainability_score       = compute_maintainability_score(&ctx);
-    ctx.technical_debt_score        = compute_technical_debt_score(&ctx);
-    ctx.dev_ex_score                = compute_dev_ex_score(&ctx);
-    ctx.ai_readiness_score          = compute_ai_readiness_score(&ctx);
-    ctx.distributed_maturity_score  = compute_distributed_maturity_score(&ctx);
+    ctx.architecture_quality_score = compute_architecture_quality_score(&ctx);
+    ctx.scalability_score = compute_scalability_score(&ctx);
+    ctx.maintainability_score = compute_maintainability_score(&ctx);
+    ctx.technical_debt_score = compute_technical_debt_score(&ctx);
+    ctx.dev_ex_score = compute_dev_ex_score(&ctx);
+    ctx.ai_readiness_score = compute_ai_readiness_score(&ctx);
+    ctx.distributed_maturity_score = compute_distributed_maturity_score(&ctx);
 
     // Phase 119: Auto-mode suggestion
     let suggestion = suggest_agent_configuration(&ctx);
-    ctx.suggested_model_tier        = suggestion.model_tier;
-    ctx.suggested_agent_flags       = suggestion.agent_flags.clone();
+    ctx.suggested_model_tier = suggestion.model_tier;
+    ctx.suggested_agent_flags = suggestion.agent_flags.clone();
     ctx.suggested_planning_strategy = suggestion.planning_strategy;
-    ctx.activate_reasoning_deep     = suggestion.activate_reasoning_deep;
+    ctx.activate_reasoning_deep = suggestion.activate_reasoning_deep;
     ctx.activate_multimodal_for_init = suggestion.activate_multimodal;
-    ctx.use_fast_mode               = suggestion.use_fast_mode;
-    ctx.agent_mode_rationale        = Some(suggestion.rationale.clone());
+    ctx.use_fast_mode = suggestion.use_fast_mode;
+    ctx.agent_mode_rationale = Some(suggestion.rationale.clone());
 
-    ctx.tools_run               = tools_run + 10; // +10 for score calculators + suggestion
-    ctx.analysis_duration_ms    = started.elapsed().as_millis() as u64;
+    ctx.tools_run = tools_run + 10; // +10 for score calculators + suggestion
+    ctx.analysis_duration_ms = started.elapsed().as_millis() as u64;
     ctx.resource_detection_time_ms = res_ms;
 
     info!(format!(
         "[init] ◈ Salud: {}/100 · Agente: {}/100 · Entorno: {}/100 ({} issues)",
-        ctx.health_score, ctx.agent_readiness_score, ctx.environment_compatibility_score,
+        ctx.health_score,
+        ctx.agent_readiness_score,
+        ctx.environment_compatibility_score,
         issues.len()
     ));
     info!(format!(
         "[init] ◈ Calidad: {}/100 · Deuda: {}/100 · DevEx: {}/100 · IA: {}/100",
-        ctx.architecture_quality_score, ctx.technical_debt_score,
-        ctx.dev_ex_score, ctx.ai_readiness_score
+        ctx.architecture_quality_score,
+        ctx.technical_debt_score,
+        ctx.dev_ex_score,
+        ctx.ai_readiness_score
     ));
     if !suggestion.agent_flags.is_empty() {
-        info!(format!("[init] ◈ Sugerencia: halcon chat {} ({})",
-            suggestion.agent_flags.join(" "), suggestion.rationale));
+        info!(format!(
+            "[init] ◈ Sugerencia: halcon chat {} ({})",
+            suggestion.agent_flags.join(" "),
+            suggestion.rationale
+        ));
     }
 
     // ── Cache: persist result asynchronously ──────────────────────────────────
@@ -323,7 +377,11 @@ pub async fn analyze_and_emit(tx: mpsc::UnboundedSender<UiEvent>, cwd: PathBuf) 
     // ── Generate HALCON.md ────────────────────────────────────────────────────
     info!("[init] ⟳ Generando HALCON.md contextual…".to_string());
     let preview = halcon_md::generate(&ctx);
-    let save_path = root.join(".halcon").join("HALCON.md").to_string_lossy().to_string();
+    let save_path = root
+        .join(".halcon")
+        .join("HALCON.md")
+        .to_string_lossy()
+        .to_string();
 
     info!("[init] ✓ Bootstrap completo — análisis contextual listo".to_string());
 
@@ -412,7 +470,8 @@ mod tests {
         std::fs::write(
             tmp.path().join("Cargo.toml"),
             "[package]\nname = \"test-proj\"\nversion = \"0.1.0\"\n",
-        ).unwrap();
+        )
+        .unwrap();
 
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         analyze_and_emit(tx, tmp.path().to_path_buf()).await;
@@ -423,7 +482,11 @@ mod tests {
         while let Ok(ev) = rx.try_recv() {
             match ev {
                 UiEvent::Info(_) => info_count += 1,
-                UiEvent::ProjectAnalysisComplete { package_name, preview, .. } => {
+                UiEvent::ProjectAnalysisComplete {
+                    package_name,
+                    preview,
+                    ..
+                } => {
                     got_complete = true;
                     assert_eq!(package_name, Some("test-proj".to_string()));
                     assert!(preview.contains("test-proj"));
@@ -438,7 +501,10 @@ mod tests {
         }
         assert!(got_complete, "ProjectAnalysisComplete must be emitted");
         assert!(got_health, "ProjectHealthCalculated must be emitted");
-        assert!(info_count >= 3, "Must emit at least 3 progress messages, got {info_count}");
+        assert!(
+            info_count >= 3,
+            "Must emit at least 3 progress messages, got {info_count}"
+        );
     }
 
     #[tokio::test]
@@ -447,9 +513,16 @@ mod tests {
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         analyze_and_emit(tx, tmp.path().to_path_buf()).await;
         let mut events = vec![];
-        while let Ok(ev) = rx.try_recv() { events.push(ev); }
-        let has_complete = events.iter().any(|e| matches!(e, UiEvent::ProjectAnalysisComplete { .. }));
-        assert!(has_complete, "Must emit ProjectAnalysisComplete even for empty dir");
+        while let Ok(ev) = rx.try_recv() {
+            events.push(ev);
+        }
+        let has_complete = events
+            .iter()
+            .any(|e| matches!(e, UiEvent::ProjectAnalysisComplete { .. }));
+        assert!(
+            has_complete,
+            "Must emit ProjectAnalysisComplete even for empty dir"
+        );
     }
 
     #[tokio::test]
@@ -459,11 +532,22 @@ mod tests {
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         analyze_and_emit(tx, tmp.path().to_path_buf()).await;
         let infos: Vec<String> = std::iter::from_fn(|| rx.try_recv().ok())
-            .filter_map(|ev| if let UiEvent::Info(s) = ev { Some(s) } else { None })
+            .filter_map(|ev| {
+                if let UiEvent::Info(s) = ev {
+                    Some(s)
+                } else {
+                    None
+                }
+            })
             .collect();
         // Must contain a Wave R resource info message
-        let has_resource = infos.iter().any(|s| s.contains("Wave R") || s.contains("Sistema") || s.contains("cores"));
-        assert!(has_resource, "Must emit resource discovery info. Got: {infos:?}");
+        let has_resource = infos
+            .iter()
+            .any(|s| s.contains("Wave R") || s.contains("Sistema") || s.contains("cores"));
+        assert!(
+            has_resource,
+            "Must emit resource discovery info. Got: {infos:?}"
+        );
     }
 
     #[tokio::test]
@@ -500,7 +584,10 @@ mod tests {
         let tmp2 = tempfile::tempdir().unwrap();
         std::fs::write(tmp1.path().join("Cargo.toml"), "[package]\nname=\"a\"").unwrap();
         std::fs::write(tmp2.path().join("Cargo.toml"), "[package]\nname=\"b\"").unwrap();
-        assert_ne!(compute_cache_key(tmp1.path()), compute_cache_key(tmp2.path()));
+        assert_ne!(
+            compute_cache_key(tmp1.path()),
+            compute_cache_key(tmp2.path())
+        );
     }
 
     #[tokio::test]

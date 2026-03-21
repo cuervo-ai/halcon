@@ -305,10 +305,7 @@ mod tests {
 
     #[test]
     fn compiled_patterns_blocks_matching() {
-        let compiled = CompiledPatterns::new(&[
-            ".env".to_string(),
-            "*.pem".to_string(),
-        ]);
+        let compiled = CompiledPatterns::new(&[".env".to_string(), "*.pem".to_string()]);
         assert!(compiled.is_blocked(Path::new("/project/.env")));
         assert!(compiled.is_blocked(Path::new("/certs/server.pem")));
         assert!(!compiled.is_blocked(Path::new("/project/main.rs")));

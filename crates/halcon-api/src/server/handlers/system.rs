@@ -5,9 +5,7 @@ use crate::server::state::AppState;
 use crate::types::system::*;
 
 /// GET /api/v1/system/status — get system status.
-pub async fn get_status(
-    State(state): State<AppState>,
-) -> Result<Json<SystemStatus>, ApiError> {
+pub async fn get_status(State(state): State<AppState>) -> Result<Json<SystemStatus>, ApiError> {
     let agents = state.runtime.all_agents().await;
     let tool_states = state.tool_states.read().await;
     let task_executions = state.task_executions.read().await;
@@ -21,18 +19,12 @@ pub async fn get_status(
         .count();
 
     let health_report = state.runtime.health_report().await;
-    let any_unhealthy = health_report.values().any(|h| {
-        matches!(
-            h,
-            halcon_runtime::AgentHealth::Unavailable { .. }
-        )
-    });
-    let any_degraded = health_report.values().any(|h| {
-        matches!(
-            h,
-            halcon_runtime::AgentHealth::Degraded { .. }
-        )
-    });
+    let any_unhealthy = health_report
+        .values()
+        .any(|h| matches!(h, halcon_runtime::AgentHealth::Unavailable { .. }));
+    let any_degraded = health_report
+        .values()
+        .any(|h| matches!(h, halcon_runtime::AgentHealth::Degraded { .. }));
 
     let health = if any_unhealthy {
         SystemHealth::Unhealthy
@@ -44,8 +36,7 @@ pub async fn get_status(
 
     Ok(Json(SystemStatus {
         version: env!("CARGO_PKG_VERSION").to_string(),
-        started_at: chrono::Utc::now()
-            - chrono::Duration::seconds(state.uptime_seconds() as i64),
+        started_at: chrono::Utc::now() - chrono::Duration::seconds(state.uptime_seconds() as i64),
         uptime_seconds: state.uptime_seconds(),
         agent_count: agents.len(),
         tool_count: tool_states.len(),
@@ -87,7 +78,11 @@ pub async fn shutdown(
         accepted: true,
         message: format!(
             "shutdown {} initiated",
-            if req.graceful { "graceful" } else { "immediate" }
+            if req.graceful {
+                "graceful"
+            } else {
+                "immediate"
+            }
         ),
     }))
 }

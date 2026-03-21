@@ -18,16 +18,16 @@
 //! - Total video duration validated by `SecurityLimits` before processing.
 //! - Temporary directory is cleaned up on drop.
 
-use std::sync::Arc;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::process::Command;
 use futures::future;
+use tokio::process::Command;
 
 use crate::error::{MultimodalError, Result};
 use crate::provider::MultimodalProvider;
-use crate::security::{ValidatedMedia, limits::SecurityLimits, mime::DetectedMime};
+use crate::security::{limits::SecurityLimits, mime::DetectedMime, ValidatedMedia};
 
 /// Output of a complete video analysis.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -50,10 +50,10 @@ impl VideoAnalysis {
     /// Construct a degraded analysis result (e.g., when FFmpeg is unavailable).
     pub fn degraded(reason: impl Into<String>) -> Self {
         Self {
-            frame_count:   0,
-            frames:        vec![],
-            transcript:    None,
-            summary:       reason.into(),
+            frame_count: 0,
+            frames: vec![],
+            transcript: None,
+            summary: reason.into(),
             duration_secs: 0.0,
             provider_name: "none".into(),
         }
@@ -65,7 +65,9 @@ impl VideoAnalysis {
     pub fn to_media_analysis(&self) -> crate::provider::MediaAnalysis {
         // Deduplicate entities across frames via a stable ordered set.
         let mut seen = std::collections::HashSet::new();
-        let entities: Vec<String> = self.frames.iter()
+        let entities: Vec<String> = self
+            .frames
+            .iter()
             .flat_map(|f| f.entities.iter().cloned())
             .filter(|e| seen.insert(e.clone()))
             .collect();
@@ -75,9 +77,7 @@ impl VideoAnalysis {
         } else {
             format!(
                 "Video ({:.1}s, {} frames analyzed):\n{}",
-                self.duration_secs,
-                self.frame_count,
-                self.summary,
+                self.duration_secs, self.frame_count, self.summary,
             )
         };
 
@@ -85,9 +85,9 @@ impl VideoAnalysis {
             description,
             entities,
             token_estimate: (self.summary.len() as u32 / 4).max(20),
-            provider_name:  self.provider_name.clone(),
-            is_local:       true, // FFmpeg is local inference
-            modality:       "video".into(),
+            provider_name: self.provider_name.clone(),
+            is_local: true, // FFmpeg is local inference
+            modality: "video".into(),
         }
     }
 }
@@ -98,16 +98,18 @@ impl VideoAnalysis {
 pub async fn is_ffmpeg_available() -> bool {
     use tokio::sync::OnceCell;
     static CACHED: OnceCell<bool> = OnceCell::const_new();
-    *CACHED.get_or_init(|| async {
-        tokio::process::Command::new("ffmpeg")
-            .arg("-version")
-            .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .status()
-            .await
-            .map(|s| s.success())
-            .unwrap_or(false)
-    }).await
+    *CACHED
+        .get_or_init(|| async {
+            tokio::process::Command::new("ffmpeg")
+                .arg("-version")
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .status()
+                .await
+                .map(|s| s.success())
+                .unwrap_or(false)
+        })
+        .await
 }
 
 /// Analysis of a single extracted video frame.
@@ -141,19 +143,19 @@ pub struct VideoConfig {
 impl Default for VideoConfig {
     fn default() -> Self {
         Self {
-            max_frames:        25,  // up from 10: better temporal coverage
-            target_fps:        2,   // up from 1: captures motion at 0.5s granularity
+            max_frames: 25,         // up from 10: better temporal coverage
+            target_fps: 2,          // up from 1: captures motion at 0.5s granularity
             max_duration_secs: 120, // up from 60: handles longer clips
-            ffmpeg_path:       "ffmpeg".into(),
-            ffprobe_path:      "ffprobe".into(),
-            timeout_secs:      300, // up from 120: 5 min for long videos
+            ffmpeg_path: "ffmpeg".into(),
+            ffprobe_path: "ffprobe".into(),
+            timeout_secs: 300, // up from 120: 5 min for long videos
         }
     }
 }
 
 /// Video analysis pipeline.
 pub struct VideoPipeline {
-    config:   VideoConfig,
+    config: VideoConfig,
     provider: Arc<dyn MultimodalProvider>,
 }
 
@@ -181,7 +183,7 @@ impl VideoPipeline {
     pub async fn analyze(
         &self,
         video_bytes: Vec<u8>,
-        prompt:      Option<&str>,
+        prompt: Option<&str>,
     ) -> Result<VideoAnalysis> {
         // Security: size and duration are already validated upstream by MediaValidator.
         // Here we validate that FFmpeg is available before writing temp files.
@@ -189,19 +191,24 @@ impl VideoPipeline {
 
         // Write to temp file (FFmpeg needs seekable input).
         // Use a UUID-derived subdirectory of the system temp dir.
-        let tmp_id = format!("halcon_video_{}", std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0));
+        let tmp_id = format!(
+            "halcon_video_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_nanos())
+                .unwrap_or(0)
+        );
         let temp_dir_path = std::env::temp_dir().join(&tmp_id);
-        tokio::fs::create_dir_all(&temp_dir_path).await
-            .map_err(|e| MultimodalError::Io(e))?;
+        tokio::fs::create_dir_all(&temp_dir_path)
+            .await
+            .map_err(MultimodalError::Io)?;
 
         // Cleanup guard (best-effort remove on drop via explicit call at end).
         let temp_dir = temp_dir_path.clone();
         let input_path = temp_dir.join("input.mp4");
-        tokio::fs::write(&input_path, &video_bytes).await
-            .map_err(|e| MultimodalError::Io(e))?;
+        tokio::fs::write(&input_path, &video_bytes)
+            .await
+            .map_err(MultimodalError::Io)?;
 
         // Probe video metadata.
         let meta = self.probe_video(&input_path).await?;
@@ -216,20 +223,25 @@ impl VideoPipeline {
         // Calculate adaptive frame rate to hit max_frames target.
         let target_fps = self.adaptive_fps(meta.duration_secs);
         let frame_dir = temp_dir.join("frames");
-        tokio::fs::create_dir_all(&frame_dir).await
-            .map_err(|e| MultimodalError::Io(e))?;
+        tokio::fs::create_dir_all(&frame_dir)
+            .await
+            .map_err(MultimodalError::Io)?;
 
         // Extract frames.
-        let frame_paths = self.extract_frames(&input_path, &frame_dir, target_fps).await?;
+        let frame_paths = self
+            .extract_frames(&input_path, &frame_dir, target_fps)
+            .await?;
 
         if frame_paths.is_empty() {
             return Err(MultimodalError::FfmpegError(
-                "FFmpeg extracted no frames — video may be empty or codec unsupported".into()
+                "FFmpeg extracted no frames — video may be empty or codec unsupported".into(),
             ));
         }
 
         // Analyze frames in parallel (bounded concurrency: max 4 at a time).
-        let frame_analyses = self.analyze_frames(frame_paths, &meta, target_fps, prompt).await?;
+        let frame_analyses = self
+            .analyze_frames(frame_paths, &meta, target_fps, prompt)
+            .await?;
 
         // Synthesize summary from all frames.
         let summary = synthesize_summary(&frame_analyses, prompt);
@@ -238,10 +250,10 @@ impl VideoPipeline {
         let _ = tokio::fs::remove_dir_all(&temp_dir_path).await;
 
         Ok(VideoAnalysis {
-            frame_count:   frame_analyses.len(),
+            frame_count: frame_analyses.len(),
             duration_secs: meta.duration_secs,
             provider_name: self.provider.name().to_string(),
-            transcript:    None, // Audio transcription wired separately.
+            transcript: None, // Audio transcription wired separately.
             summary,
             frames: frame_analyses,
         })
@@ -258,10 +270,10 @@ impl VideoPipeline {
             .await;
         match status {
             Ok(s) if s.success() => Ok(()),
-            _ => Err(MultimodalError::FfmpegError(
-                format!("FFmpeg not found at '{}'. Install FFmpeg to enable video analysis.",
-                        self.config.ffmpeg_path)
-            )),
+            _ => Err(MultimodalError::FfmpegError(format!(
+                "FFmpeg not found at '{}'. Install FFmpeg to enable video analysis.",
+                self.config.ffmpeg_path
+            ))),
         }
     }
 
@@ -270,8 +282,10 @@ impl VideoPipeline {
             Duration::from_secs(15),
             Command::new(&self.config.ffprobe_path)
                 .args([
-                    "-v", "quiet",
-                    "-print_format", "json",
+                    "-v",
+                    "quiet",
+                    "-print_format",
+                    "json",
                     "-show_streams",
                     "-show_format",
                     path.to_str().unwrap_or(""),
@@ -284,11 +298,13 @@ impl VideoPipeline {
 
         if !output.status.success() {
             let err = String::from_utf8_lossy(&output.stderr);
-            return Err(MultimodalError::FfmpegError(format!("ffprobe error: {err}")));
+            return Err(MultimodalError::FfmpegError(format!(
+                "ffprobe error: {err}"
+            )));
         }
 
-        let json: serde_json::Value = serde_json::from_slice(&output.stdout)
-            .map_err(|e| MultimodalError::Json(e))?;
+        let json: serde_json::Value =
+            serde_json::from_slice(&output.stdout).map_err(MultimodalError::Json)?;
 
         let duration_secs = json["format"]["duration"]
             .as_str()
@@ -297,15 +313,27 @@ impl VideoPipeline {
 
         let has_video = json["streams"]
             .as_array()
-            .map(|streams| streams.iter().any(|s| s["codec_type"].as_str() == Some("video")))
+            .map(|streams| {
+                streams
+                    .iter()
+                    .any(|s| s["codec_type"].as_str() == Some("video"))
+            })
             .unwrap_or(false);
 
         let has_audio = json["streams"]
             .as_array()
-            .map(|streams| streams.iter().any(|s| s["codec_type"].as_str() == Some("audio")))
+            .map(|streams| {
+                streams
+                    .iter()
+                    .any(|s| s["codec_type"].as_str() == Some("audio"))
+            })
             .unwrap_or(false);
 
-        Ok(VideoMeta { duration_secs, has_video, has_audio })
+        Ok(VideoMeta {
+            duration_secs,
+            _has_video: has_video,
+            _has_audio: has_audio,
+        })
     }
 
     fn adaptive_fps(&self, duration_secs: f64) -> f64 {
@@ -315,27 +343,35 @@ impl VideoPipeline {
             return 1.0;
         }
         let ideal = self.config.max_frames as f64 / duration_secs;
-        ideal.max(0.1).min(2.0)
+        ideal.clamp(0.1, 2.0)
     }
 
     async fn extract_frames(
         &self,
         input_path: &std::path::Path,
-        frame_dir:  &std::path::Path,
-        fps:        f64,
+        frame_dir: &std::path::Path,
+        fps: f64,
     ) -> Result<Vec<PathBuf>> {
-        let fps_str    = format!("{:.3}", fps);
-        let output_pat = frame_dir.join("frame_%04d.jpg").to_string_lossy().to_string();
+        let fps_str = format!("{:.3}", fps);
+        let output_pat = frame_dir
+            .join("frame_%04d.jpg")
+            .to_string_lossy()
+            .to_string();
 
         let status = tokio::time::timeout(
             Duration::from_secs(self.config.timeout_secs),
             Command::new(&self.config.ffmpeg_path)
                 .args([
-                    "-i",  input_path.to_str().unwrap_or(""),
-                    "-vf", &format!("fps={fps_str},scale=512:-1"),
-                    "-f",  "image2",
-                    "-q:v", "3",
-                    "-frames:v", &self.config.max_frames.to_string(),
+                    "-i",
+                    input_path.to_str().unwrap_or(""),
+                    "-vf",
+                    &format!("fps={fps_str},scale=512:-1"),
+                    "-f",
+                    "image2",
+                    "-q:v",
+                    "3",
+                    "-frames:v",
+                    &self.config.max_frames.to_string(),
                     &output_pat,
                     "-y",
                 ])
@@ -345,20 +381,23 @@ impl VideoPipeline {
                 .status(),
         )
         .await
-        .map_err(|_| MultimodalError::Timeout { ms: self.config.timeout_secs * 1000 })?
+        .map_err(|_| MultimodalError::Timeout {
+            ms: self.config.timeout_secs * 1000,
+        })?
         .map_err(|e| MultimodalError::FfmpegError(format!("ffmpeg frame extraction: {e}")))?;
 
         if !status.success() {
             return Err(MultimodalError::FfmpegError(
-                "ffmpeg returned non-zero exit code during frame extraction".into()
+                "ffmpeg returned non-zero exit code during frame extraction".into(),
             ));
         }
 
         // Collect extracted frames in sorted order.
-        let mut entries = tokio::fs::read_dir(frame_dir).await
-            .map_err(|e| MultimodalError::Io(e))?;
+        let mut entries = tokio::fs::read_dir(frame_dir)
+            .await
+            .map_err(MultimodalError::Io)?;
         let mut paths: Vec<PathBuf> = Vec::new();
-        while let Some(entry) = entries.next_entry().await.map_err(|e| MultimodalError::Io(e))? {
+        while let Some(entry) = entries.next_entry().await.map_err(MultimodalError::Io)? {
             let p = entry.path();
             if p.extension().and_then(|e| e.to_str()) == Some("jpg") {
                 paths.push(p);
@@ -371,9 +410,9 @@ impl VideoPipeline {
     async fn analyze_frames(
         &self,
         frame_paths: Vec<PathBuf>,
-        meta:        &VideoMeta,
-        fps:         f64,
-        prompt:      Option<&str>,
+        meta: &VideoMeta,
+        fps: f64,
+        prompt: Option<&str>,
     ) -> Result<Vec<FrameAnalysis>> {
         let _ = meta; // Used in future for audio sync.
 
@@ -383,7 +422,7 @@ impl VideoPipeline {
             .map(|(i, path)| {
                 let provider = Arc::clone(&self.provider);
                 let timestamp_secs = i as f64 / fps;
-                let frame_prompt   = prompt.map(|p| p.to_string());
+                let frame_prompt = prompt.map(|p| p.to_string());
 
                 async move {
                     let bytes = match tokio::fs::read(&path).await {
@@ -407,7 +446,7 @@ impl VideoPipeline {
                     Some(FrameAnalysis {
                         timestamp_secs,
                         description: analysis.description,
-                        entities:    analysis.entities,
+                        entities: analysis.entities,
                     })
                 }
             })
@@ -421,8 +460,8 @@ impl VideoPipeline {
 
 struct VideoMeta {
     duration_secs: f64,
-    has_video:     bool,
-    has_audio:     bool,
+    _has_video: bool,
+    _has_audio: bool,
 }
 
 /// Synthesize a single-paragraph summary from per-frame analyses.
@@ -437,7 +476,7 @@ fn synthesize_summary(frames: &[FrameAnalysis], prompt: Option<&str>) -> String 
 
     let key_descriptions: Vec<String> = frames
         .iter()
-        .step_by((frames.len().max(1) + 2) / 3) // sample ≤3 key frames for summary
+        .step_by(frames.len().max(1).div_ceil(3)) // sample ≤3 key frames for summary
         .take(3)
         .map(|f| format!("[{:.1}s] {}", f.timestamp_secs, f.description))
         .collect();
@@ -446,8 +485,8 @@ fn synthesize_summary(frames: &[FrameAnalysis], prompt: Option<&str>) -> String 
         "Video analysis{prompt_context}: {frame_count} frames analyzed over {total:.1}s.\n\
          Key moments:\n{moments}",
         frame_count = frames.len(),
-        total       = frames.last().map(|f| f.timestamp_secs).unwrap_or(0.0),
-        moments     = key_descriptions.join("\n"),
+        total = frames.last().map(|f| f.timestamp_secs).unwrap_or(0.0),
+        moments = key_descriptions.join("\n"),
     )
 }
 
@@ -461,7 +500,7 @@ mod tests {
     fn adaptive_fps_bounds() {
         let cfg = VideoConfig::default();
         let pipeline = VideoPipeline {
-            config:   cfg,
+            config: cfg,
             provider: Arc::new(crate::provider::api::ApiMultimodalProvider::new("test")),
         };
         // Very short video: hits min 0.1 fps.
@@ -486,8 +525,16 @@ mod tests {
     #[test]
     fn synthesize_summary_with_frames() {
         let frames = vec![
-            FrameAnalysis { timestamp_secs: 0.0, description: "A cat".into(), entities: vec![] },
-            FrameAnalysis { timestamp_secs: 1.0, description: "The cat walks".into(), entities: vec![] },
+            FrameAnalysis {
+                timestamp_secs: 0.0,
+                description: "A cat".into(),
+                entities: vec![],
+            },
+            FrameAnalysis {
+                timestamp_secs: 1.0,
+                description: "The cat walks".into(),
+                entities: vec![],
+            },
         ];
         let s = synthesize_summary(&frames, Some("describe the scene"));
         assert!(s.contains("context"));
@@ -497,10 +544,22 @@ mod tests {
     #[test]
     fn video_config_defaults() {
         let cfg = VideoConfig::default();
-        assert_eq!(cfg.max_frames, 25,        "Phase 85: bumped from 10 for better temporal coverage");
-        assert_eq!(cfg.target_fps, 2,         "Phase 85: bumped from 1 for 0.5s granularity");
-        assert_eq!(cfg.max_duration_secs, 120,"Phase 85: bumped from 60 to handle longer clips");
-        assert_eq!(cfg.timeout_secs, 300,     "Phase 85: bumped from 120 for 5-min video budget");
+        assert_eq!(
+            cfg.max_frames, 25,
+            "Phase 85: bumped from 10 for better temporal coverage"
+        );
+        assert_eq!(
+            cfg.target_fps, 2,
+            "Phase 85: bumped from 1 for 0.5s granularity"
+        );
+        assert_eq!(
+            cfg.max_duration_secs, 120,
+            "Phase 85: bumped from 60 to handle longer clips"
+        );
+        assert_eq!(
+            cfg.timeout_secs, 300,
+            "Phase 85: bumped from 120 for 5-min video budget"
+        );
         assert_eq!(cfg.ffmpeg_path, "ffmpeg");
     }
 
@@ -529,8 +588,8 @@ mod tests {
     fn frame_analysis_is_serializable() {
         let f = FrameAnalysis {
             timestamp_secs: 3.14,
-            description:    "A sunset over the ocean".into(),
-            entities:       vec!["sun".into(), "ocean".into()],
+            description: "A sunset over the ocean".into(),
+            entities: vec!["sun".into(), "ocean".into()],
         };
         let json = serde_json::to_string(&f).unwrap();
         assert!(json.contains("sunset"));

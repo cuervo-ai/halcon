@@ -70,10 +70,9 @@ pub enum StoreOutcome {
 /// callback, exchanges it for tokens, stores them in the credential store, and
 /// prints the list of AI models available to this account.
 pub async fn login() -> Result<()> {
-    let sso_url = std::env::var("ZUCLUBIT_SSO_URL")
-        .unwrap_or_else(|_| DEFAULT_SSO_URL.to_string());
-    let cenzontle_url = std::env::var("CENZONTLE_BASE_URL")
-        .unwrap_or_else(|_| DEFAULT_CENZONTLE_URL.to_string());
+    let sso_url = std::env::var("ZUCLUBIT_SSO_URL").unwrap_or_else(|_| DEFAULT_SSO_URL.to_string());
+    let cenzontle_url =
+        std::env::var("CENZONTLE_BASE_URL").unwrap_or_else(|_| DEFAULT_CENZONTLE_URL.to_string());
 
     // CI bypass: client_credentials grant when a non-empty secret is available.
     if let Ok(secret) = std::env::var("HALCON_SSO_CLIENT_SECRET") {
@@ -207,12 +206,12 @@ pub async fn refresh_if_needed() -> bool {
         }
     };
 
-    let sso_url = std::env::var("ZUCLUBIT_SSO_URL")
-        .unwrap_or_else(|_| DEFAULT_SSO_URL.to_string());
+    let sso_url = std::env::var("ZUCLUBIT_SSO_URL").unwrap_or_else(|_| DEFAULT_SSO_URL.to_string());
 
     match do_refresh(&sso_url, &refresh_token).await {
         Ok((access_token, new_refresh, expires_in)) => {
-            let (outcome, _backend_info) = store_tokens(&access_token, new_refresh.as_deref(), expires_in);
+            let (outcome, _backend_info) =
+                store_tokens(&access_token, new_refresh.as_deref(), expires_in);
             match outcome {
                 StoreOutcome::Persisted => {
                     tracing::info!("Cenzontle: access token refreshed and persisted");
@@ -252,7 +251,10 @@ async fn login_pkce(sso_url: &str, cenzontle_url: &str) -> Result<()> {
 
     // 4. Open browser.
     println!("Opening browser for Cenzontle SSO login...");
-    println!("  URL: {}", &auth_url[..auth_url.find('?').unwrap_or(auth_url.len())]);
+    println!(
+        "  URL: {}",
+        &auth_url[..auth_url.find('?').unwrap_or(auth_url.len())]
+    );
     if let Err(e) = open::that(&auth_url) {
         tracing::debug!(error = %e, "Browser open failed");
         println!();
@@ -265,13 +267,14 @@ async fn login_pkce(sso_url: &str, cenzontle_url: &str) -> Result<()> {
     println!("Waiting for authorization callback on http://localhost:{port}/callback ...");
 
     // 5. Accept one connection and extract the authorization code (120s timeout).
-    let code = tokio::time::timeout(
-        Duration::from_secs(120),
-        accept_callback(&listener, &state),
-    )
-    .await
-    .map_err(|_| anyhow!("Authorization timed out (120s). Please try `halcon auth login cenzontle` again."))?
-    .context("OAuth callback error")?;
+    let code = tokio::time::timeout(Duration::from_secs(120), accept_callback(&listener, &state))
+        .await
+        .map_err(|_| {
+            anyhow!(
+                "Authorization timed out (120s). Please try `halcon auth login cenzontle` again."
+            )
+        })?
+        .context("OAuth callback error")?;
 
     // 6. Exchange code for tokens.
     println!("Exchanging authorization code for tokens...");
@@ -319,7 +322,9 @@ async fn login_client_credentials(
     if !resp.status().is_success() {
         let status = resp.status().as_u16();
         let body = resp.text().await.unwrap_or_default();
-        return Err(anyhow!("Client credentials grant failed (HTTP {status}): {body}"));
+        return Err(anyhow!(
+            "Client credentials grant failed (HTTP {status}): {body}"
+        ));
     }
 
     let token_resp: serde_json::Value = resp
@@ -392,10 +397,7 @@ async fn exchange_code(
 
 // ── Token refresh ─────────────────────────────────────────────────────────────
 
-async fn do_refresh(
-    sso_url: &str,
-    refresh_token: &str,
-) -> Result<(String, Option<String>, u64)> {
+async fn do_refresh(sso_url: &str, refresh_token: &str) -> Result<(String, Option<String>, u64)> {
     let token_url = format!("{sso_url}/oauth/token");
     let http = reqwest::Client::builder()
         .timeout(Duration::from_secs(20))
@@ -452,7 +454,11 @@ async fn do_refresh(
             .unwrap_or(0);
 
         let body_text = resp.text().await.unwrap_or_default();
-        last_err = format!("Token refresh failed (HTTP {}): {}", status.as_u16(), body_text);
+        last_err = format!(
+            "Token refresh failed (HTTP {}): {}",
+            status.as_u16(),
+            body_text
+        );
 
         if !is_retryable || attempt + 1 == MAX_ATTEMPTS {
             break;
@@ -574,23 +580,27 @@ pub(crate) fn activate_cenzontle_in_config() {
         }
 
         // Patch default_provider inside [general]
-        if in_general && !default_provider_patched {
-            if trimmed.starts_with("default_provider") && trimmed.contains('=') {
-                *line = "default_provider = \"cenzontle\"".to_string();
-                default_provider_patched = true;
-                tracing::debug!("activate_cenzontle_in_config: patched default_provider");
-                continue;
-            }
+        if in_general
+            && !default_provider_patched
+            && trimmed.starts_with("default_provider")
+            && trimmed.contains('=')
+        {
+            *line = "default_provider = \"cenzontle\"".to_string();
+            default_provider_patched = true;
+            tracing::debug!("activate_cenzontle_in_config: patched default_provider");
+            continue;
         }
 
         // Patch enabled inside [models.providers.cenzontle]
-        if in_cenzontle && !cenzontle_enabled_patched {
-            if trimmed.starts_with("enabled") && trimmed.contains('=') {
-                *line = "enabled       = true".to_string();
-                cenzontle_enabled_patched = true;
-                tracing::debug!("activate_cenzontle_in_config: patched cenzontle.enabled");
-                continue;
-            }
+        if in_cenzontle
+            && !cenzontle_enabled_patched
+            && trimmed.starts_with("enabled")
+            && trimmed.contains('=')
+        {
+            *line = "enabled       = true".to_string();
+            cenzontle_enabled_patched = true;
+            tracing::debug!("activate_cenzontle_in_config: patched cenzontle.enabled");
+            continue;
         }
     }
 
@@ -782,7 +792,7 @@ async fn accept_callback(listener: &TcpListener, expected_state: &str) -> Result
     stream.write_all(response.as_bytes()).await.ok();
 
     // Drain query string parameters.
-    let query = path.splitn(2, '?').nth(1).unwrap_or("");
+    let query = path.split_once('?').map(|x| x.1).unwrap_or("");
     let params: HashMap<&str, &str> = query
         .split('&')
         .filter_map(|kv| {
@@ -795,7 +805,11 @@ async fn accept_callback(listener: &TcpListener, expected_state: &str) -> Result
         let desc = params.get("error_description").copied().unwrap_or("");
         return Err(anyhow!(
             "SSO authorization error: {error}{}",
-            if desc.is_empty() { String::new() } else { format!(" — {desc}") }
+            if desc.is_empty() {
+                String::new()
+            } else {
+                format!(" — {desc}")
+            }
         ));
     }
 
@@ -971,7 +985,9 @@ mod tests {
         let verifier = generate_code_verifier();
         // base64url of 32 bytes = ceil(32*4/3) = 43 chars (no padding)
         assert_eq!(verifier.len(), 43);
-        assert!(verifier.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_'));
+        assert!(verifier
+            .chars()
+            .all(|c| c.is_alphanumeric() || c == '-' || c == '_'));
     }
 
     #[test]
@@ -1023,12 +1039,18 @@ mod tests {
         );
         assert!(url.contains("client_id=halcon-cli"), "missing client_id");
         assert!(url.contains("response_type=code"), "missing response_type");
-        assert!(url.contains("code_challenge=CHALLENGE_HASH"), "missing code_challenge");
+        assert!(
+            url.contains("code_challenge=CHALLENGE_HASH"),
+            "missing code_challenge"
+        );
         assert!(url.contains("code_challenge_method=S256"), "missing method");
         assert!(url.contains("state=STATE_VALUE"), "missing state");
         // Scope spaces must be %20 (RFC 3986), not + (form-encoding).
         assert!(url.contains("openid%20profile"), "scope must use %20 not +");
-        assert!(!url.contains("openid+profile"), "scope must not use form-encoding +");
+        assert!(
+            !url.contains("openid+profile"),
+            "scope must not use form-encoding +"
+        );
     }
 
     #[tokio::test]

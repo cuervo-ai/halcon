@@ -12,9 +12,9 @@
 
 use async_trait::async_trait;
 
+use super::{MediaAnalysis, MultimodalProvider};
 use crate::error::{MultimodalError, Result};
 use crate::security::ValidatedMedia;
-use super::{MediaAnalysis, MultimodalProvider};
 
 /// Local ONNX/Whisper provider — zero API calls, full local execution.
 #[derive(Debug, Clone)]
@@ -49,11 +49,11 @@ impl NativeMultimodalProvider {
 /// Image metadata decoded from raw bytes.
 #[derive(Debug, Clone)]
 pub struct ImageMeta {
-    pub width:       u32,
-    pub height:      u32,
-    pub format:      &'static str,
-    pub color_type:  &'static str,
-    pub bit_depth:   u8,
+    pub width: u32,
+    pub height: u32,
+    pub format: &'static str,
+    pub color_type: &'static str,
+    pub bit_depth: u8,
 }
 
 impl ImageMeta {
@@ -64,18 +64,24 @@ impl ImageMeta {
 
     /// Common aspect ratio label: "16:9", "4:3", "1:1", or "{w}:{h}".
     pub fn aspect_ratio(&self) -> String {
-        fn gcd(a: u32, b: u32) -> u32 { if b == 0 { a } else { gcd(b, a % b) } }
+        fn gcd(a: u32, b: u32) -> u32 {
+            if b == 0 {
+                a
+            } else {
+                gcd(b, a % b)
+            }
+        }
         let g = gcd(self.width, self.height);
         let wr = self.width / g;
         let hr = self.height / g;
         // Map common ratios to friendly labels.
         match (wr, hr) {
             (16, 9) | (32, 18) => "16:9".into(),
-            (4, 3)  | (8, 6)   => "4:3".into(),
-            (1, 1)             => "1:1".into(),
-            (3, 2)             => "3:2".into(),
-            (21, 9)            => "21:9 ultrawide".into(),
-            _                  => format!("{wr}:{hr}"),
+            (4, 3) | (8, 6) => "4:3".into(),
+            (1, 1) => "1:1".into(),
+            (3, 2) => "3:2".into(),
+            (21, 9) => "21:9 ultrawide".into(),
+            _ => format!("{wr}:{hr}"),
         }
     }
 
@@ -84,7 +90,8 @@ impl ImageMeta {
         format!(
             "Native image analysis: {}×{} {} image, {} color ({}bpp), {:.1}MP, aspect {}. \
              Semantic content analysis requires ONNX CLIP model (models_dir/clip.onnx).",
-            self.width, self.height,
+            self.width,
+            self.height,
             self.format,
             self.color_type,
             self.bit_depth,
@@ -109,13 +116,17 @@ impl ImageMeta {
 /// PNG structure: 8-byte magic + IHDR chunk (4-len + 4-type + 13-data + 4-crc)
 /// IHDR data layout: width(4) + height(4) + bit_depth(1) + color_type(1) + ...
 pub fn parse_png_meta(data: &[u8]) -> Option<ImageMeta> {
-    if data.len() < 33 { return None; }
+    if data.len() < 33 {
+        return None;
+    }
     // Skip: 8-byte magic + 4-byte IHDR len + 4-byte "IHDR" tag = offset 16
-    let width  = u32::from_be_bytes(data[16..20].try_into().ok()?);
+    let width = u32::from_be_bytes(data[16..20].try_into().ok()?);
     let height = u32::from_be_bytes(data[20..24].try_into().ok()?);
-    let bit_depth  = data[24];
+    let bit_depth = data[24];
     let color_type = data[25];
-    if width == 0 || height == 0 { return None; }
+    if width == 0 || height == 0 {
+        return None;
+    }
 
     let color_str = match color_type {
         0 => "grayscale",
@@ -131,10 +142,16 @@ pub fn parse_png_meta(data: &[u8]) -> Option<ImageMeta> {
         (3, b) => b,
         (4, b) => b * 2,
         (6, b) => b * 4,
-        _      => bit_depth,
+        _ => bit_depth,
     };
 
-    Some(ImageMeta { width, height, format: "PNG", color_type: color_str, bit_depth: bpp })
+    Some(ImageMeta {
+        width,
+        height,
+        format: "PNG",
+        color_type: color_str,
+        bit_depth: bpp,
+    })
 }
 
 /// Parse JPEG dimensions from SOF0/SOF2 markers.
@@ -143,20 +160,29 @@ pub fn parse_png_meta(data: &[u8]) -> Option<ImageMeta> {
 /// 0xFF 0xC0 (SOF0/baseline), 0xFF 0xC2 (SOF2/progressive)
 /// Frame header: 2-len + 1-precision + 2-height + 2-width + 1-components
 pub fn parse_jpeg_meta(data: &[u8]) -> Option<ImageMeta> {
-    if data.len() < 4 { return None; }
+    if data.len() < 4 {
+        return None;
+    }
     // Scan for SOF markers.
     let mut i = 2; // Skip SOI marker.
     while i + 9 < data.len() {
-        if data[i] != 0xFF { i += 1; continue; }
+        if data[i] != 0xFF {
+            i += 1;
+            continue;
+        }
         let marker = data[i + 1];
         // SOF0, SOF1, SOF2, SOF3 (Baseline + Progressive)
-        if matches!(marker, 0xC0 | 0xC1 | 0xC2 | 0xC3) {
-            if i + 9 > data.len() { break; }
-            let precision  = data[i + 4];
-            let height     = u16::from_be_bytes(data[i + 5..i + 7].try_into().ok()?) as u32;
-            let width      = u16::from_be_bytes(data[i + 7..i + 9].try_into().ok()?) as u32;
+        if matches!(marker, 0xC0..=0xC3) {
+            if i + 9 > data.len() {
+                break;
+            }
+            let precision = data[i + 4];
+            let height = u16::from_be_bytes(data[i + 5..i + 7].try_into().ok()?) as u32;
+            let width = u16::from_be_bytes(data[i + 7..i + 9].try_into().ok()?) as u32;
             let components = data[i + 9];
-            if width == 0 || height == 0 { break; }
+            if width == 0 || height == 0 {
+                break;
+            }
             let color_type = match components {
                 1 => "grayscale",
                 3 => "YCbCr (color)",
@@ -164,7 +190,13 @@ pub fn parse_jpeg_meta(data: &[u8]) -> Option<ImageMeta> {
                 _ => "unknown",
             };
             let bpp = components * precision;
-            return Some(ImageMeta { width, height, format: "JPEG", color_type, bit_depth: bpp });
+            return Some(ImageMeta {
+                width,
+                height,
+                format: "JPEG",
+                color_type,
+                bit_depth: bpp,
+            });
         }
         // Skip over this segment.
         if i + 3 < data.len() {
@@ -175,40 +207,72 @@ pub fn parse_jpeg_meta(data: &[u8]) -> Option<ImageMeta> {
         }
     }
     // Couldn't find SOF — return minimal info.
-    Some(ImageMeta { width: 0, height: 0, format: "JPEG", color_type: "unknown", bit_depth: 0 })
+    Some(ImageMeta {
+        width: 0,
+        height: 0,
+        format: "JPEG",
+        color_type: "unknown",
+        bit_depth: 0,
+    })
 }
 
 /// Parse WebP metadata (VP8 lossy, VP8L lossless, VP8X extended).
 pub fn parse_webp_meta(data: &[u8]) -> Option<ImageMeta> {
     // RIFF(4) + size(4) + WEBP(4) + chunk_tag(4) = 12 bytes header
-    if data.len() < 30 { return None; }
+    if data.len() < 30 {
+        return None;
+    }
     let chunk_tag = &data[12..16];
     match chunk_tag {
         b"VP8 " => {
             // VP8 bitstream: skip 3-byte frame tag + 3-byte magic → 10-byte header
             // Offset 26: width (14 bits) + horizontal scale (2 bits) | height (14 bits) + vertical scale (2 bits)
-            if data.len() < 30 { return None; }
+            if data.len() < 30 {
+                return None;
+            }
             let w_raw = u16::from_le_bytes(data[26..28].try_into().ok()?);
             let h_raw = u16::from_le_bytes(data[28..30].try_into().ok()?);
-            let width  = (w_raw & 0x3FFF) as u32;
+            let width = (w_raw & 0x3FFF) as u32;
             let height = (h_raw & 0x3FFF) as u32;
-            Some(ImageMeta { width, height, format: "WebP (lossy)", color_type: "YCbCr", bit_depth: 24 })
+            Some(ImageMeta {
+                width,
+                height,
+                format: "WebP (lossy)",
+                color_type: "YCbCr",
+                bit_depth: 24,
+            })
         }
         b"VP8L" => {
             // VP8L: signature byte (0x2F) at offset 21, then packed 28-bit width/height
-            if data.len() < 25 { return None; }
+            if data.len() < 25 {
+                return None;
+            }
             // Bits 0-13 = width-1, bits 14-27 = height-1
             let bits = u32::from_le_bytes(data[21..25].try_into().ok()?);
-            let width  = (bits & 0x3FFF) + 1;
+            let width = (bits & 0x3FFF) + 1;
             let height = ((bits >> 14) & 0x3FFF) + 1;
-            Some(ImageMeta { width, height, format: "WebP (lossless)", color_type: "RGBA", bit_depth: 32 })
+            Some(ImageMeta {
+                width,
+                height,
+                format: "WebP (lossless)",
+                color_type: "RGBA",
+                bit_depth: 32,
+            })
         }
         b"VP8X" => {
             // VP8X extended: canvas width-1 (24 LE bits) + canvas height-1 (24 LE bits)
-            if data.len() < 30 { return None; }
-            let width  = (u32::from_le_bytes([data[24], data[25], data[26], 0]) & 0xFFFFFF) + 1;
+            if data.len() < 30 {
+                return None;
+            }
+            let width = (u32::from_le_bytes([data[24], data[25], data[26], 0]) & 0xFFFFFF) + 1;
             let height = (u32::from_le_bytes([data[27], data[28], data[29], 0]) & 0xFFFFFF) + 1;
-            Some(ImageMeta { width, height, format: "WebP (extended)", color_type: "RGBA", bit_depth: 32 })
+            Some(ImageMeta {
+                width,
+                height,
+                format: "WebP (extended)",
+                color_type: "RGBA",
+                bit_depth: 32,
+            })
         }
         _ => None,
     }
@@ -218,11 +282,21 @@ pub fn parse_webp_meta(data: &[u8]) -> Option<ImageMeta> {
 ///
 /// Header: 6-byte signature ("GIF87a"/"GIF89a") + 2-byte LE width + 2-byte LE height
 pub fn parse_gif_meta(data: &[u8]) -> Option<ImageMeta> {
-    if data.len() < 10 { return None; }
-    let width  = u16::from_le_bytes(data[6..8].try_into().ok()?) as u32;
+    if data.len() < 10 {
+        return None;
+    }
+    let width = u16::from_le_bytes(data[6..8].try_into().ok()?) as u32;
     let height = u16::from_le_bytes(data[8..10].try_into().ok()?) as u32;
-    if width == 0 || height == 0 { return None; }
-    Some(ImageMeta { width, height, format: "GIF", color_type: "indexed", bit_depth: 8 })
+    if width == 0 || height == 0 {
+        return None;
+    }
+    Some(ImageMeta {
+        width,
+        height,
+        format: "GIF",
+        color_type: "indexed",
+        bit_depth: 8,
+    })
 }
 
 /// Extract image metadata from validated bytes.
@@ -293,13 +367,15 @@ pub fn describe_audio_metadata(data: &[u8]) -> Option<String> {
 #[derive(Debug)]
 struct Mp3Meta {
     bitrate_kbps: u32,
-    sample_rate:  u32,
-    channels:     u32, // 1 = mono, 2 = stereo/joint-stereo
+    sample_rate: u32,
+    channels: u32, // 1 = mono, 2 = stereo/joint-stereo
 }
 
 /// MP3 MPEG-1/2 bitrate table (kbps) indexed by [version][layer][index].
 /// Layer values: 1=LayerI, 2=LayerII, 3=LayerIII (MP3 = MPEG Layer 3).
-static MP3_BITRATE_V1_L3: &[u32] = &[0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0];
+static MP3_BITRATE_V1_L3: &[u32] = &[
+    0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320, 0,
+];
 static MP3_SAMPLERATE_V1: &[u32] = &[44100, 48000, 32000, 0];
 
 /// Parse the first valid MPEG audio frame header in `data`.
@@ -323,54 +399,82 @@ fn parse_mp3_meta(data: &[u8]) -> Option<Mp3Meta> {
     // Scan for MP3 sync word: 0xFF followed by 0xE0-0xFF.
     let search = data.get(start..).unwrap_or(&[]);
     let (_, after) = search.split_at(
-        search.windows(2).position(|w| w[0] == 0xFF && (w[1] & 0xE0) == 0xE0)?,
+        search
+            .windows(2)
+            .position(|w| w[0] == 0xFF && (w[1] & 0xE0) == 0xE0)?,
     );
-    if after.len() < 4 { return None; }
+    if after.len() < 4 {
+        return None;
+    }
 
     let h = u32::from_be_bytes(after[0..4].try_into().ok()?);
 
     // MPEG version: bits 20-19: 11=MPEG1, 10=MPEG2, 01=reserved, 00=MPEG2.5
     let version_bits = (h >> 19) & 0x3;
-    if version_bits != 0b11 { return None; } // Only MPEG-1 for now
+    if version_bits != 0b11 {
+        return None;
+    } // Only MPEG-1 for now
 
     // Layer: bits 18-17: 01=LayerIII(MP3)
     let layer_bits = (h >> 17) & 0x3;
-    if layer_bits != 0b01 { return None; } // Only Layer III
+    if layer_bits != 0b01 {
+        return None;
+    } // Only Layer III
 
     // Bitrate index: bits 15-12
     let bitrate_idx = ((h >> 12) & 0xF) as usize;
     let bitrate_kbps = *MP3_BITRATE_V1_L3.get(bitrate_idx)?;
-    if bitrate_kbps == 0 { return None; }
+    if bitrate_kbps == 0 {
+        return None;
+    }
 
     // Sample rate index: bits 11-10
     let sr_idx = ((h >> 10) & 0x3) as usize;
     let sample_rate = *MP3_SAMPLERATE_V1.get(sr_idx)?;
-    if sample_rate == 0 { return None; }
+    if sample_rate == 0 {
+        return None;
+    }
 
     // Channel mode: bits 7-6: 11=mono, else stereo-variant
     let channel_mode = (h >> 6) & 0x3;
     let channels = if channel_mode == 0b11 { 1 } else { 2 };
 
-    Some(Mp3Meta { bitrate_kbps, sample_rate, channels })
+    Some(Mp3Meta {
+        bitrate_kbps,
+        sample_rate,
+        channels,
+    })
 }
 
 /// Detect audio container format from magic bytes.
 ///
 /// Returns a short format name (e.g., "OGG", "FLAC") or `None` if not recognized.
 fn detect_audio_format(data: &[u8]) -> Option<&'static str> {
-    if data.len() < 4 { return None; }
-    if data.starts_with(b"OggS")            { return Some("OGG"); }
-    if data.starts_with(b"fLaC")            { return Some("FLAC"); }
-    if data.starts_with(b"\xFF\xF1")        { return Some("AAC (ADTS)"); }
-    if data.starts_with(b"\xFF\xF9")        { return Some("AAC (ADTS)"); }
-    if data.len() >= 8 && &data[4..8] == b"ftyp" { return Some("M4A/AAC"); }
+    if data.len() < 4 {
+        return None;
+    }
+    if data.starts_with(b"OggS") {
+        return Some("OGG");
+    }
+    if data.starts_with(b"fLaC") {
+        return Some("FLAC");
+    }
+    if data.starts_with(b"\xFF\xF1") {
+        return Some("AAC (ADTS)");
+    }
+    if data.starts_with(b"\xFF\xF9") {
+        return Some("AAC (ADTS)");
+    }
+    if data.len() >= 8 && &data[4..8] == b"ftyp" {
+        return Some("M4A/AAC");
+    }
     None
 }
 
 /// Basic WAV metadata.
 #[derive(Debug)]
 struct WavMeta {
-    channels:    u16,
+    channels: u16,
     sample_rate: u32,
     duration_ms: u32,
 }
@@ -378,15 +482,25 @@ struct WavMeta {
 /// Parse WAV RIFF header.
 fn parse_wav_meta(data: &[u8]) -> Option<WavMeta> {
     // RIFF(4) + size(4) + WAVE(4) + "fmt "(4) + fmt_size(4) = 20 bytes minimum
-    if data.len() < 44 { return None; }
-    if &data[0..4] != b"RIFF" { return None; }
-    if &data[8..12] != b"WAVE" { return None; }
-    if &data[12..16] != b"fmt " { return None; }
+    if data.len() < 44 {
+        return None;
+    }
+    if &data[0..4] != b"RIFF" {
+        return None;
+    }
+    if &data[8..12] != b"WAVE" {
+        return None;
+    }
+    if &data[12..16] != b"fmt " {
+        return None;
+    }
     let audio_format = u16::from_le_bytes(data[20..22].try_into().ok()?);
-    if audio_format != 1 { return None; } // PCM only
-    let channels    = u16::from_le_bytes(data[22..24].try_into().ok()?);
+    if audio_format != 1 {
+        return None;
+    } // PCM only
+    let channels = u16::from_le_bytes(data[22..24].try_into().ok()?);
     let sample_rate = u32::from_le_bytes(data[24..28].try_into().ok()?);
-    let byte_rate   = u32::from_le_bytes(data[28..32].try_into().ok()?);
+    let byte_rate = u32::from_le_bytes(data[28..32].try_into().ok()?);
     // Find "data" chunk.
     let mut offset = 36_usize;
     while offset + 8 <= data.len() {
@@ -397,36 +511,52 @@ fn parse_wav_meta(data: &[u8]) -> Option<WavMeta> {
             } else {
                 0
             };
-            return Some(WavMeta { channels, sample_rate, duration_ms });
+            return Some(WavMeta {
+                channels,
+                sample_rate,
+                duration_ms,
+            });
         }
         let chunk_size = u32::from_le_bytes(data[offset + 4..offset + 8].try_into().ok()?);
         offset += 8 + chunk_size as usize;
     }
-    Some(WavMeta { channels, sample_rate, duration_ms: 0 })
+    Some(WavMeta {
+        channels,
+        sample_rate,
+        duration_ms: 0,
+    })
 }
 
 // ── MultimodalProvider implementation ───────────────────────────────────────
 
 #[async_trait]
 impl MultimodalProvider for NativeMultimodalProvider {
-    fn name(&self) -> &str { "native" }
+    fn name(&self) -> &str {
+        "native"
+    }
 
     fn supports_modality(&self, modality: &str) -> bool {
         match modality {
             "image" => self.clip_available(),
             "audio" => self.whisper_available(),
-            _       => false,
+            _ => false,
         }
     }
 
-    async fn analyze(&self, media: &ValidatedMedia, _prompt: Option<&str>) -> Result<MediaAnalysis> {
-        let modality = if media.is_image() { "image" }
-                       else if media.is_audio() { "audio" }
-                       else {
-                           return Err(MultimodalError::NoCapableProvider(
-                               media.mime.as_mime_str().to_string()
-                           ));
-                       };
+    async fn analyze(
+        &self,
+        media: &ValidatedMedia,
+        _prompt: Option<&str>,
+    ) -> Result<MediaAnalysis> {
+        let modality = if media.is_image() {
+            "image"
+        } else if media.is_audio() {
+            "audio"
+        } else {
+            return Err(MultimodalError::NoCapableProvider(
+                media.mime.as_mime_str().to_string(),
+            ));
+        };
 
         // Phase 6 Remediation: Explicit failure instead of silent metadata-only fallback.
         // ONNX inference is not yet implemented (Q2 2026). Returning Ok with metadata-only
@@ -443,7 +573,8 @@ impl MultimodalProvider for NativeMultimodalProvider {
             // Model file present but ONNX inference not yet implemented.
             return Err(MultimodalError::NativeModelNotAvailable(
                 "CLIP ONNX inference not yet implemented (Q2 2026). \
-                 Set ANTHROPIC_API_KEY or OPENAI_API_KEY to use a vision API provider.".into()
+                 Set ANTHROPIC_API_KEY or OPENAI_API_KEY to use a vision API provider."
+                    .into(),
             ));
         }
 
@@ -458,7 +589,8 @@ impl MultimodalProvider for NativeMultimodalProvider {
             // Model file present but ONNX inference not yet implemented.
             return Err(MultimodalError::NativeModelNotAvailable(
                 "Whisper ONNX inference not yet implemented (Q2 2026). \
-                 Set OPENAI_API_KEY to use the Whisper transcription API.".into()
+                 Set OPENAI_API_KEY to use the Whisper transcription API."
+                    .into(),
             ));
         }
 
@@ -471,8 +603,8 @@ impl MultimodalProvider for NativeMultimodalProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::security::ValidatedMedia;
     use crate::security::mime::DetectedMime;
+    use crate::security::ValidatedMedia;
 
     // ── NativeMultimodalProvider availability tests ───────────────────────────
 
@@ -574,16 +706,18 @@ mod tests {
     /// Minimal JPEG with a valid SOF0 marker.
     fn minimal_jpeg_sof() -> Vec<u8> {
         let mut bytes = vec![
-            0xFF, 0xD8,             // SOI
-            0xFF, 0xE0,             // APP0 marker
-            0x00, 0x10,             // APP0 length = 16
+            0xFF, 0xD8, // SOI
+            0xFF, 0xE0, // APP0 marker
+            0x00, 0x10, // APP0 length = 16
         ];
         // APP0 data (14 bytes = len 16 - 2 for the length field itself)
-        bytes.extend_from_slice(&[0x4A, 0x46, 0x49, 0x46, 0x00, // JFIF\0
-                                   0x01, 0x01, 0x00,             // version + units
-                                   0x00, 0x01, 0x00, 0x01,       // X/Y density
-                                   0x00, 0x00]);                  // thumbnail
-        // SOF0 marker
+        bytes.extend_from_slice(&[
+            0x4A, 0x46, 0x49, 0x46, 0x00, // JFIF\0
+            0x01, 0x01, 0x00, // version + units
+            0x00, 0x01, 0x00, 0x01, // X/Y density
+            0x00, 0x00,
+        ]); // thumbnail
+            // SOF0 marker
         bytes.push(0xFF);
         bytes.push(0xC0); // SOF0 baseline
         bytes.extend_from_slice(&[0x00, 0x0B]); // length = 11
@@ -641,31 +775,61 @@ mod tests {
 
     #[test]
     fn aspect_ratio_16x9() {
-        let meta = ImageMeta { width: 1920, height: 1080, format: "PNG", color_type: "RGB", bit_depth: 24 };
+        let meta = ImageMeta {
+            width: 1920,
+            height: 1080,
+            format: "PNG",
+            color_type: "RGB",
+            bit_depth: 24,
+        };
         assert_eq!(meta.aspect_ratio(), "16:9");
     }
 
     #[test]
     fn aspect_ratio_4x3() {
-        let meta = ImageMeta { width: 1024, height: 768, format: "PNG", color_type: "RGB", bit_depth: 24 };
+        let meta = ImageMeta {
+            width: 1024,
+            height: 768,
+            format: "PNG",
+            color_type: "RGB",
+            bit_depth: 24,
+        };
         assert_eq!(meta.aspect_ratio(), "4:3");
     }
 
     #[test]
     fn aspect_ratio_1x1() {
-        let meta = ImageMeta { width: 512, height: 512, format: "PNG", color_type: "RGBA", bit_depth: 32 };
+        let meta = ImageMeta {
+            width: 512,
+            height: 512,
+            format: "PNG",
+            color_type: "RGBA",
+            bit_depth: 32,
+        };
         assert_eq!(meta.aspect_ratio(), "1:1");
     }
 
     #[test]
     fn megapixels_calculation() {
-        let meta = ImageMeta { width: 1000, height: 1000, format: "JPEG", color_type: "RGB", bit_depth: 24 };
+        let meta = ImageMeta {
+            width: 1000,
+            height: 1000,
+            format: "JPEG",
+            color_type: "RGB",
+            bit_depth: 24,
+        };
         assert!((meta.megapixels() - 1.0).abs() < 0.01);
     }
 
     #[test]
     fn description_contains_dimensions() {
-        let meta = ImageMeta { width: 1920, height: 1080, format: "JPEG", color_type: "YCbCr (color)", bit_depth: 24 };
+        let meta = ImageMeta {
+            width: 1920,
+            height: 1080,
+            format: "JPEG",
+            color_type: "YCbCr (color)",
+            bit_depth: 24,
+        };
         let desc = meta.to_description();
         assert!(desc.contains("1920×1080"), "description: {desc}");
         assert!(desc.contains("JPEG"), "description: {desc}");
@@ -673,7 +837,13 @@ mod tests {
 
     #[test]
     fn entities_contain_resolution() {
-        let meta = ImageMeta { width: 800, height: 600, format: "PNG", color_type: "RGB", bit_depth: 24 };
+        let meta = ImageMeta {
+            width: 800,
+            height: 600,
+            format: "PNG",
+            color_type: "RGB",
+            bit_depth: 24,
+        };
         let ents = meta.to_entities();
         assert!(ents.contains(&"800x600".to_string()));
         assert!(ents.contains(&"PNG".to_string()));
@@ -683,7 +853,7 @@ mod tests {
 
     fn minimal_wav() -> Vec<u8> {
         let data_size: u32 = 44100 * 2; // 1 second of 16-bit mono at 44100Hz
-        let byte_rate:  u32 = 44100 * 2;
+        let byte_rate: u32 = 44100 * 2;
         let total_size: u32 = 36 + data_size;
         let mut bytes = vec![];
         bytes.extend_from_slice(b"RIFF");
@@ -691,11 +861,11 @@ mod tests {
         bytes.extend_from_slice(b"WAVE");
         bytes.extend_from_slice(b"fmt ");
         bytes.extend_from_slice(&16u32.to_le_bytes()); // chunk size
-        bytes.extend_from_slice(&1u16.to_le_bytes());  // PCM
-        bytes.extend_from_slice(&1u16.to_le_bytes());  // 1 channel (mono)
+        bytes.extend_from_slice(&1u16.to_le_bytes()); // PCM
+        bytes.extend_from_slice(&1u16.to_le_bytes()); // 1 channel (mono)
         bytes.extend_from_slice(&44100u32.to_le_bytes()); // sample rate
         bytes.extend_from_slice(&byte_rate.to_le_bytes());
-        bytes.extend_from_slice(&2u16.to_le_bytes());  // block align
+        bytes.extend_from_slice(&2u16.to_le_bytes()); // block align
         bytes.extend_from_slice(&16u16.to_le_bytes()); // bits per sample
         bytes.extend_from_slice(b"data");
         bytes.extend_from_slice(&data_size.to_le_bytes());
@@ -731,9 +901,18 @@ mod tests {
     fn describe_audio_metadata_wav_mono() {
         let data = minimal_wav();
         let desc = describe_audio_metadata(&data).expect("should produce description");
-        assert!(desc.contains("1.0s"), "should include duration; got: {desc}");
-        assert!(desc.contains("44100"), "should include sample rate; got: {desc}");
-        assert!(desc.contains("mono"), "should include channel label; got: {desc}");
+        assert!(
+            desc.contains("1.0s"),
+            "should include duration; got: {desc}"
+        );
+        assert!(
+            desc.contains("44100"),
+            "should include sample rate; got: {desc}"
+        );
+        assert!(
+            desc.contains("mono"),
+            "should include channel label; got: {desc}"
+        );
     }
 
     #[test]
@@ -751,7 +930,7 @@ mod tests {
         bytes.extend_from_slice(b"WAVE");
         bytes.extend_from_slice(b"fmt ");
         bytes.extend_from_slice(&16u32.to_le_bytes());
-        bytes.extend_from_slice(&1u16.to_le_bytes());      // PCM
+        bytes.extend_from_slice(&1u16.to_le_bytes()); // PCM
         bytes.extend_from_slice(&channels.to_le_bytes());
         bytes.extend_from_slice(&sample_rate.to_le_bytes());
         bytes.extend_from_slice(&byte_rate.to_le_bytes());
@@ -761,7 +940,10 @@ mod tests {
         bytes.extend_from_slice(&data_size.to_le_bytes());
 
         let desc = describe_audio_metadata(&bytes).expect("should parse stereo WAV");
-        assert!(desc.contains("stereo"), "should label 2-channel as stereo; got: {desc}");
+        assert!(
+            desc.contains("stereo"),
+            "should label 2-channel as stereo; got: {desc}"
+        );
         assert!(desc.contains("2.0s"), "2 seconds duration; got: {desc}");
     }
 
@@ -804,22 +986,34 @@ mod tests {
         let desc = describe_audio_metadata(&data).expect("should produce description for MP3");
         assert!(desc.contains("MP3"), "should identify format; got: {desc}");
         assert!(desc.contains("128"), "should include bitrate; got: {desc}");
-        assert!(desc.contains("44100"), "should include sample rate; got: {desc}");
-        assert!(desc.contains("stereo"), "should include channel; got: {desc}");
+        assert!(
+            desc.contains("44100"),
+            "should include sample rate; got: {desc}"
+        );
+        assert!(
+            desc.contains("stereo"),
+            "should include channel; got: {desc}"
+        );
     }
 
     #[test]
     fn ogg_format_detected() {
         let ogg_magic = b"OggS\x00\x02\x00\x00\x00\x00";
         let desc = describe_audio_metadata(ogg_magic).expect("OGG should get description");
-        assert!(desc.contains("OGG"), "should identify OGG format; got: {desc}");
+        assert!(
+            desc.contains("OGG"),
+            "should identify OGG format; got: {desc}"
+        );
     }
 
     #[test]
     fn flac_format_detected() {
         let flac_magic = b"fLaC\x00\x00\x00\x22";
         let desc = describe_audio_metadata(flac_magic).expect("FLAC should get description");
-        assert!(desc.contains("FLAC"), "should identify FLAC format; got: {desc}");
+        assert!(
+            desc.contains("FLAC"),
+            "should identify FLAC format; got: {desc}"
+        );
     }
 
     #[test]
@@ -838,12 +1032,18 @@ mod tests {
     #[test]
     fn video_config_default_max_frames_is_25() {
         let cfg = super::super::super::video::VideoConfig::default();
-        assert_eq!(cfg.max_frames, 25, "max_frames should be 25 for good temporal coverage");
+        assert_eq!(
+            cfg.max_frames, 25,
+            "max_frames should be 25 for good temporal coverage"
+        );
     }
 
     #[test]
     fn video_config_default_timeout_is_300s() {
         let cfg = super::super::super::video::VideoConfig::default();
-        assert_eq!(cfg.timeout_secs, 300, "timeout should be 300s for long videos");
+        assert_eq!(
+            cfg.timeout_secs, 300,
+            "timeout should be 300s for long videos"
+        );
     }
 }

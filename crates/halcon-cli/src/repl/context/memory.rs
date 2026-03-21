@@ -85,10 +85,10 @@ impl ContextSource for MemorySource {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Arc;
     use chrono::Utc;
     use halcon_storage::{Database, MemoryEntry, MemoryEntryType};
     use sha2::{Digest, Sha256};
+    use std::sync::Arc;
     use uuid::Uuid;
 
     fn make_entry(content: &str, entry_type: MemoryEntryType) -> MemoryEntry {
@@ -147,16 +147,18 @@ mod tests {
     async fn finds_relevant_memories() {
         let db = AsyncDatabase::new(Arc::new(Database::open_in_memory().unwrap()));
 
-        db.inner().insert_memory(&make_entry(
-            "Rust workspace with nine crates for the CLI tool",
-            MemoryEntryType::Fact,
-        ))
-        .unwrap();
-        db.inner().insert_memory(&make_entry(
-            "Decision to use tokio async runtime for concurrency",
-            MemoryEntryType::Decision,
-        ))
-        .unwrap();
+        db.inner()
+            .insert_memory(&make_entry(
+                "Rust workspace with nine crates for the CLI tool",
+                MemoryEntryType::Fact,
+            ))
+            .unwrap();
+        db.inner()
+            .insert_memory(&make_entry(
+                "Decision to use tokio async runtime for concurrency",
+                MemoryEntryType::Decision,
+            ))
+            .unwrap();
 
         let source = MemorySource::new(db, 5, 2000);
         let chunks = source.gather(&query_with_message("tokio")).await.unwrap();
@@ -192,11 +194,12 @@ mod tests {
     #[tokio::test]
     async fn no_matches_returns_empty() {
         let db = AsyncDatabase::new(Arc::new(Database::open_in_memory().unwrap()));
-        db.inner().insert_memory(&make_entry(
-            "Python script for data analysis",
-            MemoryEntryType::CodeSnippet,
-        ))
-        .unwrap();
+        db.inner()
+            .insert_memory(&make_entry(
+                "Python script for data analysis",
+                MemoryEntryType::CodeSnippet,
+            ))
+            .unwrap();
 
         let source = MemorySource::new(db, 5, 2000);
         let chunks = source

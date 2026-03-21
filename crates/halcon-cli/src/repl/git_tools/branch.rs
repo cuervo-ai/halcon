@@ -54,10 +54,15 @@ impl DivergenceReport {
 
     /// Human-readable risk label from a score.
     pub fn risk_label_for(score: f32) -> &'static str {
-        if score >= 0.75 { "critical" }
-        else if score >= 0.50 { "high" }
-        else if score >= 0.25 { "medium" }
-        else { "low" }
+        if score >= 0.75 {
+            "critical"
+        } else if score >= 0.50 {
+            "high"
+        } else if score >= 0.25 {
+            "medium"
+        } else {
+            "low"
+        }
     }
 
     /// True when immediate attention is recommended.
@@ -76,10 +81,7 @@ impl BranchDivergenceAnalyzer {
     ///
     /// `target_ref` is typically `"refs/remotes/origin/main"` or similar.
     /// Returns `None` when the repository or target ref cannot be resolved.
-    pub fn analyze(
-        repo: &git2::Repository,
-        target_ref: &str,
-    ) -> Option<DivergenceReport> {
+    pub fn analyze(repo: &git2::Repository, target_ref: &str) -> Option<DivergenceReport> {
         let head = repo.head().ok()?;
         let local_branch = head.shorthand()?.to_string();
         let local_oid = head.peel_to_commit().ok()?.id();
@@ -91,14 +93,14 @@ impl BranchDivergenceAnalyzer {
             .ok()?
             .id();
 
-        let (commits_ahead, commits_behind) = repo
-            .graph_ahead_behind(local_oid, target_oid)
-            .ok()?;
+        let (commits_ahead, commits_behind) =
+            repo.graph_ahead_behind(local_oid, target_oid).ok()?;
 
         let conflict_files = Self::scan_conflict_files(repo);
         let total_conflicts: usize = conflict_files.iter().map(|f| f.conflict_count).sum();
 
-        let risk_score = DivergenceReport::compute_risk(commits_ahead, commits_behind, total_conflicts);
+        let risk_score =
+            DivergenceReport::compute_risk(commits_ahead, commits_behind, total_conflicts);
         let risk_label = DivergenceReport::risk_label_for(risk_score);
 
         Some(DivergenceReport {
@@ -255,9 +257,10 @@ mod tests {
             target_ref: "refs/remotes/origin/main".into(),
             commits_ahead: 0,
             commits_behind: 0,
-            conflict_files: vec![
-                ConflictFile { path: "src/lib.rs".into(), conflict_count: 2 },
-            ],
+            conflict_files: vec![ConflictFile {
+                path: "src/lib.rs".into(),
+                conflict_count: 2,
+            }],
             risk_score: 0.1,
             risk_label: "low",
         };

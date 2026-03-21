@@ -45,7 +45,13 @@ pub struct InvocationRecord {
 
 impl InvocationRecord {
     /// Finalize the record once post-confidence is known.
-    pub fn finalize(&mut self, post_confidence: f32, latency_ms: u64, is_error: bool, token_cost: u32) {
+    pub fn finalize(
+        &mut self,
+        post_confidence: f32,
+        latency_ms: u64,
+        is_error: bool,
+        token_cost: u32,
+    ) {
         self.post_confidence = Some(post_confidence);
         self.success_delta = Some(post_confidence - self.pre_confidence);
         self.latency_ms = latency_ms;
@@ -55,7 +61,7 @@ impl InvocationRecord {
 
     /// Returns `true` if the invocation moved goal confidence up by at least `min_delta`.
     pub fn made_progress(&self, min_delta: f32) -> bool {
-        self.success_delta.map_or(false, |d| d >= min_delta)
+        self.success_delta.is_some_and(|d| d >= min_delta)
     }
 
     /// Latency as a [`Duration`].
@@ -75,7 +81,10 @@ pub struct ToolTelemetry {
 
 impl ToolTelemetry {
     pub fn new(session_id: Uuid) -> Self {
-        Self { session_id, records: Arc::new(Mutex::new(Vec::new())) }
+        Self {
+            session_id,
+            records: Arc::new(Mutex::new(Vec::new())),
+        }
     }
 
     /// Record the **start** of a tool invocation.
@@ -170,7 +179,12 @@ impl ToolTelemetry {
 
     /// Total token spend in this session.
     pub fn total_tokens(&self) -> u64 {
-        self.records.lock().unwrap().iter().map(|r| r.token_cost as u64).sum()
+        self.records
+            .lock()
+            .unwrap()
+            .iter()
+            .map(|r| r.token_cost as u64)
+            .sum()
     }
 }
 
@@ -189,15 +203,27 @@ pub struct ToolStats {
 
 impl ToolStats {
     pub fn avg_latency_ms(&self) -> u64 {
-        if self.calls == 0 { 0 } else { self.total_latency_ms / self.calls as u64 }
+        if self.calls == 0 {
+            0
+        } else {
+            self.total_latency_ms / self.calls as u64
+        }
     }
 
     pub fn error_rate(&self) -> f32 {
-        if self.calls == 0 { 0.0 } else { self.errors as f32 / self.calls as f32 }
+        if self.calls == 0 {
+            0.0
+        } else {
+            self.errors as f32 / self.calls as f32
+        }
     }
 
     pub fn avg_delta(&self) -> f32 {
-        if self.delta_samples == 0 { 0.0 } else { self.total_delta / self.delta_samples as f32 }
+        if self.delta_samples == 0 {
+            0.0
+        } else {
+            self.total_delta / self.delta_samples as f32
+        }
     }
 }
 

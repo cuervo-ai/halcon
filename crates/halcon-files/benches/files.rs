@@ -42,14 +42,20 @@ fn setup_temp_files() -> tempfile::TempDir {
     // CSV
     let mut csv_content = String::from("id,name,score,grade\n");
     for i in 0..500 {
-        csv_content.push_str(&format!("{i},student_{i},{:.1},{}\n", i as f64 * 0.2, if i % 2 == 0 { "A" } else { "B" }));
+        csv_content.push_str(&format!(
+            "{i},student_{i},{:.1},{}\n",
+            i as f64 * 0.2,
+            if i % 2 == 0 { "A" } else { "B" }
+        ));
     }
     std::fs::write(dir.path().join("grades.csv"), &csv_content).unwrap();
 
     // Markdown
     let mut md = String::new();
     for i in 0..20 {
-        md.push_str(&format!("## Section {i}\n\nSome content for section {i}.\n\n"));
+        md.push_str(&format!(
+            "## Section {i}\n\nSome content for section {i}.\n\n"
+        ));
         md.push_str(&format!("[Link {i}](https://example.com/{i})\n\n"));
         md.push_str(&format!("```rust\nfn section_{i}() {{}}\n```\n\n"));
     }
@@ -88,7 +94,9 @@ fn bench_detect(c: &mut Criterion) {
         group.bench_function(name, |b| {
             b.iter(|| {
                 rt.block_on(async {
-                    halcon_files::detect::detect(black_box(&path)).await.unwrap()
+                    halcon_files::detect::detect(black_box(&path))
+                        .await
+                        .unwrap()
                 })
             })
         });
@@ -131,7 +139,10 @@ fn bench_inspect(c: &mut Criterion) {
         group.bench_function("csv_2k", |b| {
             b.iter(|| {
                 rt.block_on(async {
-                    inspector.inspect(black_box(&path), black_box(2000)).await.unwrap()
+                    inspector
+                        .inspect(black_box(&path), black_box(2000))
+                        .await
+                        .unwrap()
                 })
             })
         });
@@ -143,7 +154,10 @@ fn bench_inspect(c: &mut Criterion) {
         group.bench_function("markdown_2k", |b| {
             b.iter(|| {
                 rt.block_on(async {
-                    inspector.inspect(black_box(&path), black_box(2000)).await.unwrap()
+                    inspector
+                        .inspect(black_box(&path), black_box(2000))
+                        .await
+                        .unwrap()
                 })
             })
         });
@@ -155,7 +169,10 @@ fn bench_inspect(c: &mut Criterion) {
         group.bench_function("xml_2k", |b| {
             b.iter(|| {
                 rt.block_on(async {
-                    inspector.inspect(black_box(&path), black_box(2000)).await.unwrap()
+                    inspector
+                        .inspect(black_box(&path), black_box(2000))
+                        .await
+                        .unwrap()
                 })
             })
         });
@@ -179,9 +196,7 @@ fn bench_estimate_tokens(c: &mut Criterion) {
         let path = dir.path().join(file);
         group.bench_function(name, |b| {
             b.iter(|| {
-                rt.block_on(async {
-                    inspector.estimate_tokens(black_box(&path)).await.unwrap()
-                })
+                rt.block_on(async { inspector.estimate_tokens(black_box(&path)).await.unwrap() })
             })
         });
     }

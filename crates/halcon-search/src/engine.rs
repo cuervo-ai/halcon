@@ -6,8 +6,8 @@ use crate::index::{IndexEngine, InvertedIndex};
 use crate::query::QueryEngine;
 use crate::types::SearchResults;
 
-use std::sync::Arc;
 use halcon_storage::Database;
+use std::sync::Arc;
 
 /// Unified search engine facade.
 pub struct SearchEngine {
@@ -72,17 +72,13 @@ impl SearchEngine {
         use crate::types::ParsedDocument;
 
         // Fetch HTML content
-        let response = reqwest::get(url.clone())
-            .await
-            .map_err(|e| crate::error::SearchError::ConfigError(
-                format!("Failed to fetch URL: {}", e)
-            ))?;
+        let response = reqwest::get(url.clone()).await.map_err(|e| {
+            crate::error::SearchError::ConfigError(format!("Failed to fetch URL: {}", e))
+        })?;
 
-        let html = response.text()
-            .await
-            .map_err(|e| crate::error::SearchError::ConfigError(
-                format!("Failed to read response body: {}", e)
-            ))?;
+        let html = response.text().await.map_err(|e| {
+            crate::error::SearchError::ConfigError(format!("Failed to read response body: {}", e))
+        })?;
 
         // Parse HTML using the real HTMLParser (scraper-based, excludes script/style)
         let parser = crate::parse::HTMLParser::new();
@@ -92,7 +88,12 @@ impl SearchEngine {
                 // Fallback: simple tag stripping for robustness
                 let text = html_to_text(&html);
                 let title = extract_title(&html).unwrap_or_else(|| url.to_string());
-                (text, title, Vec::new(), crate::types::DocumentMetadata::default())
+                (
+                    text,
+                    title,
+                    Vec::new(),
+                    crate::types::DocumentMetadata::default(),
+                )
             }
         };
 
@@ -138,5 +139,9 @@ fn extract_title(html: &str) -> Option<String> {
     // Slice from the *original* html at the same byte offsets
     let title = &html[start + 7..start + end];
     let trimmed = title.trim().to_string();
-    if trimmed.is_empty() { None } else { Some(trimmed) }
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed)
+    }
 }

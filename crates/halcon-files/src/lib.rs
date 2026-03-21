@@ -20,18 +20,18 @@ pub mod detect;
 pub mod handler;
 
 // Always-on handlers.
-pub mod text;
 pub mod json;
+pub mod text;
 
 // Feature-gated handlers.
+pub mod archive;
 pub mod csv_handler;
-pub mod xml_handler;
-pub mod yaml_handler;
+pub mod excel;
+pub mod image;
 pub mod markdown;
 pub mod pdf;
-pub mod image;
-pub mod excel;
-pub mod archive;
+pub mod xml_handler;
+pub mod yaml_handler;
 
 use std::collections::HashMap;
 use std::path::Path;
@@ -270,7 +270,9 @@ mod tests {
     async fn inspect_json_file() {
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join("data.json");
-        tokio::fs::write(&path, r#"{"key": "value"}"#).await.unwrap();
+        tokio::fs::write(&path, r#"{"key": "value"}"#)
+            .await
+            .unwrap();
 
         let inspector = FileInspector::new();
         let result = inspector.inspect(&path, 1000).await.unwrap();
@@ -348,7 +350,9 @@ mod tests {
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join("data.bin");
         // Write actual binary content (null bytes)
-        tokio::fs::write(&path, &[0x00, 0x01, 0xFF, 0xFE, 0x00, 0x89, 0x50]).await.unwrap();
+        tokio::fs::write(&path, &[0x00, 0x01, 0xFF, 0xFE, 0x00, 0x89, 0x50])
+            .await
+            .unwrap();
 
         let inspector = FileInspector::new();
         let result = inspector.inspect(&path, 1000).await.unwrap();
@@ -376,7 +380,9 @@ mod tests {
     async fn inspect_toml_routes_to_text() {
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join("config.toml");
-        tokio::fs::write(&path, "[package]\nname = \"test\"\n").await.unwrap();
+        tokio::fs::write(&path, "[package]\nname = \"test\"\n")
+            .await
+            .unwrap();
 
         let inspector = FileInspector::new();
         let result = inspector.inspect(&path, 1000).await.unwrap();
@@ -392,26 +398,40 @@ mod tests {
     async fn inspect_markdown_falls_back_to_text_handler() {
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join("README.md");
-        tokio::fs::write(&path, "# Hello\nThis is markdown.").await.unwrap();
+        tokio::fs::write(&path, "# Hello\nThis is markdown.")
+            .await
+            .unwrap();
 
         let inspector = FileInspector::new();
         let result = inspector.inspect(&path, 1000).await;
         // Must succeed regardless of whether the markdown feature is compiled in.
-        assert!(result.is_ok(), "file_inspect must not fail on .md files: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "file_inspect must not fail on .md files: {:?}",
+            result.err()
+        );
         let content = result.unwrap();
-        assert!(content.text.contains("Hello") || content.text.contains("markdown"),
-            "text fallback must include file content");
+        assert!(
+            content.text.contains("Hello") || content.text.contains("markdown"),
+            "text fallback must include file content"
+        );
     }
 
     #[tokio::test]
     async fn inspect_yaml_falls_back_to_text_handler() {
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join("config.yaml");
-        tokio::fs::write(&path, "key: value\nlist:\n  - item1\n").await.unwrap();
+        tokio::fs::write(&path, "key: value\nlist:\n  - item1\n")
+            .await
+            .unwrap();
 
         let inspector = FileInspector::new();
         let result = inspector.inspect(&path, 1000).await;
-        assert!(result.is_ok(), "file_inspect must not fail on .yaml files: {:?}", result.err());
+        assert!(
+            result.is_ok(),
+            "file_inspect must not fail on .yaml files: {:?}",
+            result.err()
+        );
         // Content must be readable (yaml handler or text fallback).
         let content = result.unwrap();
         assert!(content.estimated_tokens > 0 || content.text.is_empty()); // Either way, no error.
@@ -433,7 +453,9 @@ mod tests {
     async fn inspect_large_budget_no_truncate() {
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join("small.json");
-        tokio::fs::write(&path, r#"{"key": "value"}"#).await.unwrap();
+        tokio::fs::write(&path, r#"{"key": "value"}"#)
+            .await
+            .unwrap();
 
         let inspector = FileInspector::new();
         let result = inspector.inspect(&path, 1_000_000).await.unwrap();

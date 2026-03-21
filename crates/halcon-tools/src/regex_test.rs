@@ -28,10 +28,18 @@ impl RegexTestTool {
         let mut builder = regex::RegexBuilder::new(pattern);
         for c in flags.chars() {
             match c {
-                'i' => { builder.case_insensitive(true); }
-                'm' => { builder.multi_line(true); }
-                's' => { builder.dot_matches_new_line(true); }
-                'x' => { builder.ignore_whitespace(true); }
+                'i' => {
+                    builder.case_insensitive(true);
+                }
+                'm' => {
+                    builder.multi_line(true);
+                }
+                's' => {
+                    builder.dot_matches_new_line(true);
+                }
+                'x' => {
+                    builder.ignore_whitespace(true);
+                }
                 ' ' | '\t' => {}
                 other => return Err(format!("Unknown flag: '{}'", other)),
             }
@@ -73,7 +81,7 @@ impl RegexTestTool {
             .collect()
     }
 
-    fn format_matches(matches: &[MatchResult], input: &str) -> String {
+    fn format_matches(matches: &[MatchResult], _input: &str) -> String {
         if matches.is_empty() {
             return "No matches found.".to_string();
         }
@@ -83,14 +91,26 @@ impl RegexTestTool {
             if let Some(ref span) = m.full_match {
                 out.push_str(&format!(
                     "Match {}: {:?}  (pos {}..{})\n",
-                    i + 1, span.text, span.start, span.end
+                    i + 1,
+                    span.text,
+                    span.start,
+                    span.end
                 ));
             }
             for group in &m.groups {
-                let name_hint = group.name.as_deref().map(|n| format!(" ({})", n)).unwrap_or_default();
+                let name_hint = group
+                    .name
+                    .as_deref()
+                    .map(|n| format!(" ({})", n))
+                    .unwrap_or_default();
                 match &group.value {
-                    Some(v) => out.push_str(&format!("  Group {}{}: {:?}\n", group.index, name_hint, v)),
-                    None => out.push_str(&format!("  Group {}{}: <no match>\n", group.index, name_hint)),
+                    Some(v) => {
+                        out.push_str(&format!("  Group {}{}: {:?}\n", group.index, name_hint, v))
+                    }
+                    None => out.push_str(&format!(
+                        "  Group {}{}: <no match>\n",
+                        group.index, name_hint
+                    )),
                 }
             }
         }
@@ -112,7 +132,11 @@ impl RegexTestTool {
             // Build annotation line
             let mut ann = String::from("    | ");
             let mut pos = 0;
-            let line_start = input.lines().take(line_no).map(|l| l.len() + 1).sum::<usize>();
+            let line_start = input
+                .lines()
+                .take(line_no)
+                .map(|l| l.len() + 1)
+                .sum::<usize>();
             for m in re.find_iter(line) {
                 let local_start = m.start();
                 let local_end = m.end();
@@ -216,7 +240,10 @@ impl Tool for RegexTestTool {
         PermissionLevel::ReadOnly
     }
 
-    async fn execute(&self, input: ToolInput) -> Result<ToolOutput, halcon_core::error::HalconError> {
+    async fn execute(
+        &self,
+        input: ToolInput,
+    ) -> Result<ToolOutput, halcon_core::error::HalconError> {
         let args = &input.arguments;
 
         let pattern = match args["pattern"].as_str() {
@@ -256,7 +283,9 @@ impl Tool for RegexTestTool {
                     re.captures_len().saturating_sub(1)
                 ),
                 is_error: false,
-                metadata: Some(json!({ "valid": true, "capture_groups": re.captures_len().saturating_sub(1) })),
+                metadata: Some(
+                    json!({ "valid": true, "capture_groups": re.captures_len().saturating_sub(1) }),
+                ),
             });
         }
 
@@ -278,12 +307,20 @@ impl Tool for RegexTestTool {
                 let result = re.replace_all(text, replacement);
                 format!(
                     "Pattern: {}\nInput:   {:?}\nResult:  {:?}\n\nReplacement: {:?}",
-                    pattern, text, result.as_ref(), replacement
+                    pattern,
+                    text,
+                    result.as_ref(),
+                    replacement
                 )
             }
             "split" => {
                 let parts: Vec<&str> = re.split(text).collect();
-                let mut out = format!("Pattern: {}\nInput:   {:?}\n\n{} part(s):\n", pattern, text, parts.len());
+                let mut out = format!(
+                    "Pattern: {}\nInput:   {:?}\n\n{} part(s):\n",
+                    pattern,
+                    text,
+                    parts.len()
+                );
                 for (i, part) in parts.iter().enumerate() {
                     out.push_str(&format!("  [{}] {:?}\n", i, part));
                 }
@@ -375,10 +412,13 @@ mod tests {
     #[tokio::test]
     async fn execute_test_action_finds_matches() {
         let tool = RegexTestTool::new();
-        let out = tool.execute(make_input(json!({
-            "pattern": r"\b\w{4}\b",
-            "input": "hello from the code"
-        }))).await.unwrap();
+        let out = tool
+            .execute(make_input(json!({
+                "pattern": r"\b\w{4}\b",
+                "input": "hello from the code"
+            })))
+            .await
+            .unwrap();
         assert!(!out.is_error, "error: {}", out.content);
         assert!(out.content.contains("match"), "content: {}", out.content);
     }
@@ -386,10 +426,13 @@ mod tests {
     #[tokio::test]
     async fn execute_no_matches() {
         let tool = RegexTestTool::new();
-        let out = tool.execute(make_input(json!({
-            "pattern": r"\d{10}",
-            "input": "no digits here"
-        }))).await.unwrap();
+        let out = tool
+            .execute(make_input(json!({
+                "pattern": r"\d{10}",
+                "input": "no digits here"
+            })))
+            .await
+            .unwrap();
         assert!(!out.is_error);
         assert!(out.content.contains("No matches") || out.content.contains("0 match"));
     }
@@ -397,12 +440,15 @@ mod tests {
     #[tokio::test]
     async fn execute_replace_action() {
         let tool = RegexTestTool::new();
-        let out = tool.execute(make_input(json!({
-            "pattern": r"\d+",
-            "input": "foo 123 bar 456",
-            "action": "replace",
-            "replacement": "NUM"
-        }))).await.unwrap();
+        let out = tool
+            .execute(make_input(json!({
+                "pattern": r"\d+",
+                "input": "foo 123 bar 456",
+                "action": "replace",
+                "replacement": "NUM"
+            })))
+            .await
+            .unwrap();
         assert!(!out.is_error);
         assert!(out.content.contains("NUM"), "content: {}", out.content);
     }
@@ -410,45 +456,73 @@ mod tests {
     #[tokio::test]
     async fn execute_split_action() {
         let tool = RegexTestTool::new();
-        let out = tool.execute(make_input(json!({
-            "pattern": r"\s+",
-            "input": "hello   world   foo",
-            "action": "split"
-        }))).await.unwrap();
+        let out = tool
+            .execute(make_input(json!({
+                "pattern": r"\s+",
+                "input": "hello   world   foo",
+                "action": "split"
+            })))
+            .await
+            .unwrap();
         assert!(!out.is_error);
-        assert!(out.content.contains("3 part") || out.content.contains("[0]"), "content: {}", out.content);
+        assert!(
+            out.content.contains("3 part") || out.content.contains("[0]"),
+            "content: {}",
+            out.content
+        );
     }
 
     #[tokio::test]
     async fn execute_validate_valid_pattern() {
         let tool = RegexTestTool::new();
-        let out = tool.execute(make_input(json!({
-            "pattern": r"(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})",
-            "action": "validate"
-        }))).await.unwrap();
+        let out = tool
+            .execute(make_input(json!({
+                "pattern": r"(?P<year>\d{4})-(?P<month>\d{2})-(?P<day>\d{2})",
+                "action": "validate"
+            })))
+            .await
+            .unwrap();
         assert!(!out.is_error);
-        assert!(out.content.contains("Valid") || out.content.contains("valid"), "content: {}", out.content);
+        assert!(
+            out.content.contains("Valid") || out.content.contains("valid"),
+            "content: {}",
+            out.content
+        );
     }
 
     #[tokio::test]
     async fn execute_invalid_pattern_returns_error() {
         let tool = RegexTestTool::new();
-        let out = tool.execute(make_input(json!({
-            "pattern": "(unclosed group",
-            "input": "test"
-        }))).await.unwrap();
+        let out = tool
+            .execute(make_input(json!({
+                "pattern": "(unclosed group",
+                "input": "test"
+            })))
+            .await
+            .unwrap();
         assert!(out.is_error);
-        assert!(out.content.contains("Invalid") || out.content.contains("regex"), "content: {}", out.content);
+        assert!(
+            out.content.contains("Invalid") || out.content.contains("regex"),
+            "content: {}",
+            out.content
+        );
     }
 
     #[tokio::test]
     async fn execute_no_input_returns_hint() {
         let tool = RegexTestTool::new();
-        let out = tool.execute(make_input(json!({
-            "pattern": r"\d+"
-        }))).await.unwrap();
+        let out = tool
+            .execute(make_input(json!({
+                "pattern": r"\d+"
+            })))
+            .await
+            .unwrap();
         assert!(!out.is_error);
-        assert!(out.content.contains("valid") || out.content.contains("input"), "content: {}", out.content);
+        assert!(
+            out.content.contains("valid") || out.content.contains("input"),
+            "content: {}",
+            out.content
+        );
     }
 
     #[test]
@@ -459,6 +533,9 @@ mod tests {
         assert_eq!(t.permission_level(), PermissionLevel::ReadOnly);
         let schema = t.input_schema();
         assert_eq!(schema["type"], "object");
-        assert!(schema["required"].as_array().unwrap().contains(&json!("pattern")));
+        assert!(schema["required"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("pattern")));
     }
 }

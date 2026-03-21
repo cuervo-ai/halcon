@@ -18,7 +18,7 @@
 
 use std::collections::VecDeque;
 use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use tokio::sync::{broadcast, Mutex};
 
@@ -220,7 +220,8 @@ impl SignalBuffer {
         let p99_ms = percentile(&durations, 0.99);
 
         // Counter totals.
-        let mut counter_map: std::collections::HashMap<String, f64> = std::collections::HashMap::new();
+        let mut counter_map: std::collections::HashMap<String, f64> =
+            std::collections::HashMap::new();
         for sig in &self.signals {
             if sig.kind == SignalKind::Counter {
                 *counter_map.entry(sig.name.clone()).or_default() += sig.value;
@@ -373,7 +374,10 @@ pub fn metrics_to_markdown(m: &RuntimeMetrics) -> String {
             m.p50_ms, m.p95_ms, m.p99_ms
         ));
     }
-    out.push_str(&format!("- Throughput: {:.1} sig/s\n", m.throughput_per_sec));
+    out.push_str(&format!(
+        "- Throughput: {:.1} sig/s\n",
+        m.throughput_per_sec
+    ));
     for (name, total) in &m.counter_totals {
         out.push_str(&format!("- Counter `{name}`: {total:.0}\n"));
     }
@@ -502,9 +506,22 @@ mod tests {
     #[test]
     fn reward_is_in_unit_interval() {
         let cases = [
-            RuntimeMetrics { sample_count: 5, error_rate: 0.4, p95_ms: 200.0, ..Default::default() },
-            RuntimeMetrics { sample_count: 0, ..Default::default() },
-            RuntimeMetrics { sample_count: 1, error_rate: 0.0, p95_ms: 0.0, ..Default::default() },
+            RuntimeMetrics {
+                sample_count: 5,
+                error_rate: 0.4,
+                p95_ms: 200.0,
+                ..Default::default()
+            },
+            RuntimeMetrics {
+                sample_count: 0,
+                ..Default::default()
+            },
+            RuntimeMetrics {
+                sample_count: 1,
+                error_rate: 0.0,
+                p95_ms: 0.0,
+                ..Default::default()
+            },
         ];
         for m in &cases {
             let r = m.as_reward();
@@ -518,7 +535,9 @@ mod tests {
     async fn ingest_increments_buffer() {
         let ingestor = RuntimeSignalIngestor::new(64);
         assert_eq!(ingestor.buffered_count().await, 0);
-        ingestor.ingest(RuntimeSignal::span("op", 100.0, false)).await;
+        ingestor
+            .ingest(RuntimeSignal::span("op", 100.0, false))
+            .await;
         assert_eq!(ingestor.buffered_count().await, 1);
     }
 
@@ -538,21 +557,27 @@ mod tests {
     #[tokio::test]
     async fn error_rate_computed_correctly() {
         let ingestor = RuntimeSignalIngestor::new(64);
-        ingestor.ingest(RuntimeSignal::span("ok", 50.0, false)).await;
-        ingestor.ingest(RuntimeSignal::span("err", 50.0, true)).await;
+        ingestor
+            .ingest(RuntimeSignal::span("ok", 50.0, false))
+            .await;
+        ingestor
+            .ingest(RuntimeSignal::span("err", 50.0, true))
+            .await;
         ingestor.ingest(RuntimeSignal::error("boom")).await;
         let m = ingestor.metrics().await;
         // 2/3 signals are errors
-        assert!((m.error_rate - 2.0 / 3.0).abs() < 1e-6, "error_rate={}", m.error_rate);
+        assert!(
+            (m.error_rate - 2.0 / 3.0).abs() < 1e-6,
+            "error_rate={}",
+            m.error_rate
+        );
     }
 
     #[tokio::test]
     async fn buffer_evicts_oldest_when_full() {
         let ingestor = RuntimeSignalIngestor::new(3);
         for i in 0..5u64 {
-            ingestor
-                .ingest(RuntimeSignal::gauge("g", i as f64))
-                .await;
+            ingestor.ingest(RuntimeSignal::gauge("g", i as f64)).await;
         }
         // Buffer holds max 3 — should contain the 3 newest.
         assert_eq!(ingestor.buffered_count().await, 3);
@@ -576,7 +601,9 @@ mod tests {
     #[tokio::test]
     async fn drain_where_removes_errors() {
         let ingestor = RuntimeSignalIngestor::new(64);
-        ingestor.ingest(RuntimeSignal::span("ok", 10.0, false)).await;
+        ingestor
+            .ingest(RuntimeSignal::span("ok", 10.0, false))
+            .await;
         ingestor.ingest(RuntimeSignal::error("e1")).await;
         ingestor.ingest(RuntimeSignal::error("e2")).await;
         let removed = ingestor.drain_where(|s| s.is_error).await;
@@ -588,7 +615,9 @@ mod tests {
     async fn subscribe_receives_ingested_signals() {
         let ingestor = RuntimeSignalIngestor::new(64);
         let mut rx = ingestor.subscribe();
-        ingestor.ingest(RuntimeSignal::span("ping", 1.0, false)).await;
+        ingestor
+            .ingest(RuntimeSignal::span("ping", 1.0, false))
+            .await;
         let sig = rx.try_recv().expect("should have received a signal");
         assert_eq!(sig.name, "ping");
     }
@@ -605,7 +634,9 @@ mod tests {
     #[tokio::test]
     async fn metrics_to_markdown_includes_stats() {
         let ingestor = RuntimeSignalIngestor::new(64);
-        ingestor.ingest(RuntimeSignal::span("op", 150.0, false)).await;
+        ingestor
+            .ingest(RuntimeSignal::span("op", 150.0, false))
+            .await;
         ingestor.ingest(RuntimeSignal::counter("hits", 5.0)).await;
         let m = ingestor.metrics().await;
         let md = metrics_to_markdown(&m);

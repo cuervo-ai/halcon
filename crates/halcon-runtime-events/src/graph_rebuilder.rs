@@ -81,11 +81,13 @@ pub struct ToolRoundSummary {
 
 impl ToolRoundSummary {
     /// Whether every tool call in this round succeeded.
+    #[must_use]
     pub fn all_succeeded(&self) -> bool {
         self.tool_calls.iter().all(|t| t.success == Some(true))
     }
 
     /// Whether any tool call in this round failed.
+    #[must_use]
     pub fn any_failed(&self) -> bool {
         self.tool_calls.iter().any(|t| t.success == Some(false))
     }
@@ -106,34 +108,34 @@ pub struct RebuiltToolCall {
 impl RebuiltGraph {
     /// Return the currently active plan, i.e. the last plan that has not been
     /// superseded.
+    #[must_use]
     pub fn active_plan(&self) -> Option<&RebuiltPlan> {
         self.plans.iter().rev().find(|p| p.superseded_by.is_none())
     }
 
     /// Total number of nodes across all plans.
+    #[must_use]
     pub fn total_node_count(&self) -> usize {
         self.plans.iter().map(|p| p.nodes.len()).sum()
     }
 
     /// Number of nodes in the active plan.
+    #[must_use]
     pub fn active_node_count(&self) -> usize {
         self.active_plan().map_or(0, |p| p.nodes.len())
     }
 
     /// All nodes in the active plan that have reached a terminal state.
+    #[must_use]
     pub fn terminal_nodes(&self) -> Vec<&RebuiltNode> {
         self.active_plan()
-            .map(|p| {
-                p.nodes
-                    .iter()
-                    .filter(|n| n.state.is_terminal())
-                    .collect()
-            })
+            .map(|p| p.nodes.iter().filter(|n| n.state.is_terminal()).collect())
             .unwrap_or_default()
     }
 
     /// Returns `true` if every node in the active plan has reached a terminal state
     /// (`Completed`, `Failed`, or `Skipped`).
+    #[must_use]
     pub fn is_complete(&self) -> bool {
         match self.active_plan() {
             None => false,
@@ -142,6 +144,7 @@ impl RebuiltGraph {
     }
 
     /// Verify that no node appears in more than one plan (identity uniqueness).
+    #[must_use]
     pub fn has_duplicate_step_ids(&self) -> bool {
         let mut seen = std::collections::HashSet::new();
         for plan in &self.plans {
@@ -155,6 +158,7 @@ impl RebuiltGraph {
     }
 
     /// Find a node by `step_id` across all plans.
+    #[must_use]
     pub fn find_node(&self, step_id: Uuid) -> Option<(&RebuiltPlan, &RebuiltNode)> {
         for plan in &self.plans {
             if let Some(node) = plan.nodes.iter().find(|n| n.step_id == step_id) {
@@ -165,11 +169,13 @@ impl RebuiltGraph {
     }
 
     /// Total number of tool calls across all rounds.
+    #[must_use]
     pub fn total_tool_call_count(&self) -> usize {
         self.tool_rounds.iter().map(|r| r.tool_calls.len()).sum()
     }
 
     /// Find the `ToolRoundSummary` for a specific round.
+    #[must_use]
     pub fn tool_round(&self, round: usize) -> Option<&ToolRoundSummary> {
         self.tool_rounds.iter().find(|r| r.round == round)
     }
@@ -194,11 +200,13 @@ pub struct RebuiltPlan {
 
 impl RebuiltPlan {
     /// Find a node by step_id within this plan.
+    #[must_use]
     pub fn node_by_id(&self, step_id: Uuid) -> Option<&RebuiltNode> {
         self.nodes.iter().find(|n| n.step_id == step_id)
     }
 
     /// Find a node by step_index within this plan.
+    #[must_use]
     pub fn node_by_index(&self, step_index: usize) -> Option<&RebuiltNode> {
         self.nodes.iter().find(|n| n.step_index == step_index)
     }
@@ -232,16 +240,19 @@ pub struct RebuiltNode {
 
 impl RebuiltNode {
     /// Whether the node has been observed starting (running or later).
+    #[must_use]
     pub fn has_started(&self) -> bool {
         self.execution_order.is_some()
     }
 
     /// Whether the node is in a terminal state.
+    #[must_use]
     pub fn is_terminal(&self) -> bool {
         self.state.is_terminal()
     }
 
     /// Number of state transitions recorded.
+    #[must_use]
     pub fn transition_count(&self) -> usize {
         self.state_history.len()
     }
@@ -311,6 +322,7 @@ pub struct ReplayStep {
 ///     assert!(!graph.has_duplicate_step_ids());
 /// }
 /// ```
+#[must_use]
 pub fn rebuild_execution_graph(events: &[RuntimeEvent]) -> RebuiltGraph {
     let mut builder = GraphBuilder::new();
     for (idx, event) in events.iter().enumerate() {
@@ -398,8 +410,7 @@ impl GraphBuilder {
                 }
                 // Record the "replaces" link — will be applied when PlanCreated
                 // fires for new_plan_id.
-                self.pending_replaces
-                    .insert(*new_plan_id, *old_plan_id);
+                self.pending_replaces.insert(*new_plan_id, *old_plan_id);
             }
 
             RuntimeEventKind::PlanNodeStateChanged {
@@ -518,17 +529,24 @@ impl GraphBuilder {
             }
 
             // ── Tool execution events ─────────────────────────────────────────
-            RuntimeEventKind::ToolBatchStarted { round, tool_names, batch_kind } => {
+            RuntimeEventKind::ToolBatchStarted {
+                round,
+                tool_names,
+                batch_kind,
+            } => {
                 let is_parallel = matches!(batch_kind, crate::event::ToolBatchKind::Parallel);
                 if !self.tool_rounds.contains_key(round) {
                     self.tool_round_order.push(*round);
-                    self.tool_rounds.insert(*round, ToolRoundSummary {
-                        round: *round,
-                        tool_calls: Vec::new(),
-                        batch_success_count: None,
-                        batch_failure_count: None,
-                        batch_duration_ms: None,
-                    });
+                    self.tool_rounds.insert(
+                        *round,
+                        ToolRoundSummary {
+                            round: *round,
+                            tool_calls: Vec::new(),
+                            batch_success_count: None,
+                            batch_failure_count: None,
+                            batch_duration_ms: None,
+                        },
+                    );
                 }
                 // Pre-populate tool call slots from the batch started event.
                 if let Some(tr) = self.tool_rounds.get_mut(round) {
@@ -545,7 +563,13 @@ impl GraphBuilder {
                 }
             }
 
-            RuntimeEventKind::ToolCallStarted { round, tool_use_id, tool_name, is_parallel, .. } => {
+            RuntimeEventKind::ToolCallStarted {
+                round,
+                tool_use_id,
+                tool_name,
+                is_parallel,
+                ..
+            } => {
                 let tr = self.tool_rounds.entry(*round).or_insert_with(|| {
                     if !self.tool_round_order.contains(round) {
                         self.tool_round_order.push(*round);
@@ -559,7 +583,11 @@ impl GraphBuilder {
                     }
                 });
                 // Update or add the slot for this tool_use_id.
-                if let Some(slot) = tr.tool_calls.iter_mut().find(|t| t.tool_name == *tool_name && t.tool_use_id.is_empty()) {
+                if let Some(slot) = tr
+                    .tool_calls
+                    .iter_mut()
+                    .find(|t| t.tool_name == *tool_name && t.tool_use_id.is_empty())
+                {
                     slot.tool_use_id = tool_use_id.clone();
                     slot.is_parallel = *is_parallel;
                 } else {
@@ -574,7 +602,15 @@ impl GraphBuilder {
                 }
             }
 
-            RuntimeEventKind::ToolCallCompleted { round, tool_use_id, tool_name, success, duration_ms, output_preview, .. } => {
+            RuntimeEventKind::ToolCallCompleted {
+                round,
+                tool_use_id,
+                tool_name,
+                success,
+                duration_ms,
+                output_preview,
+                ..
+            } => {
                 let tr = self.tool_rounds.entry(*round).or_insert_with(|| {
                     if !self.tool_round_order.contains(round) {
                         self.tool_round_order.push(*round);
@@ -588,11 +624,19 @@ impl GraphBuilder {
                     }
                 });
                 // Update existing slot or create new entry.
-                if let Some(slot) = tr.tool_calls.iter_mut().find(|t| t.tool_use_id == *tool_use_id) {
+                if let Some(slot) = tr
+                    .tool_calls
+                    .iter_mut()
+                    .find(|t| t.tool_use_id == *tool_use_id)
+                {
                     slot.success = Some(*success);
                     slot.duration_ms = Some(*duration_ms);
                     slot.output_preview = Some(output_preview.clone());
-                } else if let Some(slot) = tr.tool_calls.iter_mut().find(|t| t.tool_name == *tool_name && t.success.is_none()) {
+                } else if let Some(slot) = tr
+                    .tool_calls
+                    .iter_mut()
+                    .find(|t| t.tool_name == *tool_name && t.success.is_none())
+                {
                     // Match by name if id wasn't captured (e.g. ToolCallStarted missed).
                     slot.tool_use_id = tool_use_id.clone();
                     slot.success = Some(*success);
@@ -610,7 +654,13 @@ impl GraphBuilder {
                 }
             }
 
-            RuntimeEventKind::ToolBatchCompleted { round, success_count, failure_count, total_duration_ms, .. } => {
+            RuntimeEventKind::ToolBatchCompleted {
+                round,
+                success_count,
+                failure_count,
+                total_duration_ms,
+                ..
+            } => {
                 if let Some(tr) = self.tool_rounds.get_mut(round) {
                     tr.batch_success_count = Some(*success_count);
                     tr.batch_failure_count = Some(*failure_count);
@@ -670,6 +720,7 @@ impl GraphBuilder {
         );
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn handle_state_change(
         &mut self,
         event_index: usize,
@@ -784,8 +835,7 @@ impl GraphBuilder {
 mod tests {
     use super::*;
     use crate::event::{
-        PlanMode, PlanNodeState, PlanStepMeta, RuntimeEvent,
-        RuntimeEventKind, StepOutcome,
+        PlanMode, PlanNodeState, PlanStepMeta, RuntimeEvent, RuntimeEventKind, StepOutcome,
     };
     use uuid::Uuid;
 
@@ -909,10 +959,22 @@ mod tests {
         let events = vec![
             session_started(session),
             plan_created(session, plan_id, steps),
-            node_state_changed(session, plan_id, step_id, 0,
-                PlanNodeState::Pending, PlanNodeState::Running),
-            node_state_changed(session, plan_id, step_id, 0,
-                PlanNodeState::Running, PlanNodeState::Completed),
+            node_state_changed(
+                session,
+                plan_id,
+                step_id,
+                0,
+                PlanNodeState::Pending,
+                PlanNodeState::Running,
+            ),
+            node_state_changed(
+                session,
+                plan_id,
+                step_id,
+                0,
+                PlanNodeState::Running,
+                PlanNodeState::Completed,
+            ),
         ];
 
         let graph = rebuild_execution_graph(&events);
@@ -936,10 +998,22 @@ mod tests {
         let events = vec![
             session_started(session),
             plan_created(session, plan_id, steps),
-            node_state_changed(session, plan_id, step_ids[0], 0,
-                PlanNodeState::Pending, PlanNodeState::Completed),
-            node_state_changed(session, plan_id, step_ids[1], 1,
-                PlanNodeState::Pending, PlanNodeState::Failed),
+            node_state_changed(
+                session,
+                plan_id,
+                step_ids[0],
+                0,
+                PlanNodeState::Pending,
+                PlanNodeState::Completed,
+            ),
+            node_state_changed(
+                session,
+                plan_id,
+                step_ids[1],
+                1,
+                PlanNodeState::Pending,
+                PlanNodeState::Failed,
+            ),
         ];
 
         let graph = rebuild_execution_graph(&events);
@@ -956,8 +1030,14 @@ mod tests {
         let events = vec![
             session_started(session),
             plan_created(session, plan_id, steps),
-            node_state_changed(session, plan_id, step_ids[0], 0,
-                PlanNodeState::Pending, PlanNodeState::Completed),
+            node_state_changed(
+                session,
+                plan_id,
+                step_ids[0],
+                0,
+                PlanNodeState::Pending,
+                PlanNodeState::Completed,
+            ),
             // step 1 and 2 still pending
         ];
 
@@ -995,10 +1075,18 @@ mod tests {
         assert_eq!(graph.plans.len(), 2);
         assert_eq!(graph.plan_lineage, vec![old_plan_id, new_plan_id]);
 
-        let old = graph.plans.iter().find(|p| p.plan_id == old_plan_id).unwrap();
+        let old = graph
+            .plans
+            .iter()
+            .find(|p| p.plan_id == old_plan_id)
+            .unwrap();
         assert_eq!(old.superseded_by, Some(new_plan_id));
 
-        let new_plan = graph.plans.iter().find(|p| p.plan_id == new_plan_id).unwrap();
+        let new_plan = graph
+            .plans
+            .iter()
+            .find(|p| p.plan_id == new_plan_id)
+            .unwrap();
         assert_eq!(new_plan.replaces, Some(old_plan_id));
         assert_eq!(new_plan.nodes.len(), 3);
 
@@ -1018,24 +1106,33 @@ mod tests {
         let events = vec![
             session_started(session),
             plan_created(session, plan_id, steps),
-            RuntimeEvent::new(session, RuntimeEventKind::PlanStepStarted {
-                plan_id,
-                step_id: step_ids[2], // out of order — step 2 starts first
-                step_index: 2,
-                description: "step 2".into(),
-            }),
-            RuntimeEvent::new(session, RuntimeEventKind::PlanStepStarted {
-                plan_id,
-                step_id: step_ids[0],
-                step_index: 0,
-                description: "step 0".into(),
-            }),
-            RuntimeEvent::new(session, RuntimeEventKind::PlanStepStarted {
-                plan_id,
-                step_id: step_ids[1],
-                step_index: 1,
-                description: "step 1".into(),
-            }),
+            RuntimeEvent::new(
+                session,
+                RuntimeEventKind::PlanStepStarted {
+                    plan_id,
+                    step_id: step_ids[2], // out of order — step 2 starts first
+                    step_index: 2,
+                    description: "step 2".into(),
+                },
+            ),
+            RuntimeEvent::new(
+                session,
+                RuntimeEventKind::PlanStepStarted {
+                    plan_id,
+                    step_id: step_ids[0],
+                    step_index: 0,
+                    description: "step 0".into(),
+                },
+            ),
+            RuntimeEvent::new(
+                session,
+                RuntimeEventKind::PlanStepStarted {
+                    plan_id,
+                    step_id: step_ids[1],
+                    step_index: 1,
+                    description: "step 1".into(),
+                },
+            ),
         ];
 
         let graph = rebuild_execution_graph(&events);
@@ -1061,13 +1158,16 @@ mod tests {
         let events = vec![
             session_started(session),
             plan_created(session, plan_id, steps),
-            RuntimeEvent::new(session, RuntimeEventKind::PlanStepCompleted {
-                plan_id,
-                step_id: step_ids[0],
-                step_index: 0,
-                outcome: StepOutcome::Success,
-                duration_ms: 120,
-            }),
+            RuntimeEvent::new(
+                session,
+                RuntimeEventKind::PlanStepCompleted {
+                    plan_id,
+                    step_id: step_ids[0],
+                    step_index: 0,
+                    outcome: StepOutcome::Success,
+                    duration_ms: 120,
+                },
+            ),
         ];
 
         let graph = rebuild_execution_graph(&events);
@@ -1085,23 +1185,29 @@ mod tests {
 
         let events = vec![
             session_started(session),
-            RuntimeEvent::new(session, RuntimeEventKind::SubAgentSpawned {
-                orchestrator_id: orch_id,
-                task_id,
-                instruction_preview: "run tests".into(),
-                is_dynamic: false,
-                parent_task_id: None,
-                budget_fraction: 0.25,
-            }),
-            RuntimeEvent::new(session, RuntimeEventKind::SubAgentCompleted {
-                orchestrator_id: orch_id,
-                task_id,
-                success: true,
-                duration_ms: 5000,
-                rounds_used: 4,
-                tokens_used: 2048,
-                cost_usd: 0.001,
-            }),
+            RuntimeEvent::new(
+                session,
+                RuntimeEventKind::SubAgentSpawned {
+                    orchestrator_id: orch_id,
+                    task_id,
+                    instruction_preview: "run tests".into(),
+                    is_dynamic: false,
+                    parent_task_id: None,
+                    budget_fraction: 0.25,
+                },
+            ),
+            RuntimeEvent::new(
+                session,
+                RuntimeEventKind::SubAgentCompleted {
+                    orchestrator_id: orch_id,
+                    task_id,
+                    success: true,
+                    duration_ms: 5000,
+                    rounds_used: 4,
+                    tokens_used: 2048,
+                    cost_usd: 0.001,
+                },
+            ),
         ];
 
         let graph = rebuild_execution_graph(&events);
@@ -1124,15 +1230,21 @@ mod tests {
 
         let events = vec![
             session_started(session),
-            RuntimeEvent::new(session, RuntimeEventKind::PlanReplayStarted {
-                original_plan_id: orig_plan_id,
-                replay_plan_id,
-            }),
-            RuntimeEvent::new(session, RuntimeEventKind::PlanReplayStepCompleted {
-                plan_id: replay_plan_id,
-                step_id,
-                step_index: 0,
-            }),
+            RuntimeEvent::new(
+                session,
+                RuntimeEventKind::PlanReplayStarted {
+                    original_plan_id: orig_plan_id,
+                    replay_plan_id,
+                },
+            ),
+            RuntimeEvent::new(
+                session,
+                RuntimeEventKind::PlanReplayStepCompleted {
+                    plan_id: replay_plan_id,
+                    step_id,
+                    step_index: 0,
+                },
+            ),
         ];
 
         let graph = rebuild_execution_graph(&events);
@@ -1192,12 +1304,15 @@ mod tests {
         let events = vec![
             session_started(session),
             plan_created(session, plan_id, steps),
-            RuntimeEvent::new(session, RuntimeEventKind::RoundStarted {
-                round: 1,
-                model: "claude-sonnet-4-6".into(),
-                tools_allowed: true,
-                token_budget_remaining: 8192,
-            }),
+            RuntimeEvent::new(
+                session,
+                RuntimeEventKind::RoundStarted {
+                    round: 1,
+                    model: "claude-sonnet-4-6".into(),
+                    tools_allowed: true,
+                    token_budget_remaining: 8192,
+                },
+            ),
         ];
 
         let graph = rebuild_execution_graph(&events);
@@ -1216,8 +1331,14 @@ mod tests {
         let events: Vec<RuntimeEvent> = vec![
             session_started(session),
             plan_created(session, plan_id, steps),
-            node_state_changed(session, plan_id, step_ids[0], 0,
-                PlanNodeState::Pending, PlanNodeState::Running),
+            node_state_changed(
+                session,
+                plan_id,
+                step_ids[0],
+                0,
+                PlanNodeState::Pending,
+                PlanNodeState::Running,
+            ),
         ];
         let events2 = events
             .iter()
@@ -1246,11 +1367,14 @@ mod tests {
 
         let events = vec![
             session_started(session),
-            RuntimeEvent::new(session, RuntimeEventKind::ToolBatchStarted {
-                round: 1,
-                tool_names: vec!["read_file".into(), "list_dir".into()],
-                batch_kind: crate::event::ToolBatchKind::Parallel,
-            }),
+            RuntimeEvent::new(
+                session,
+                RuntimeEventKind::ToolBatchStarted {
+                    round: 1,
+                    tool_names: vec!["read_file".into(), "list_dir".into()],
+                    batch_kind: crate::event::ToolBatchKind::Parallel,
+                },
+            ),
         ];
 
         let graph = rebuild_execution_graph(&events);
@@ -1271,28 +1395,37 @@ mod tests {
 
         let events = vec![
             session_started(session),
-            RuntimeEvent::new(session, RuntimeEventKind::ToolBatchStarted {
-                round: 2,
-                tool_names: vec!["bash".into()],
-                batch_kind: crate::event::ToolBatchKind::Sequential,
-            }),
-            RuntimeEvent::new(session, RuntimeEventKind::ToolCallStarted {
-                round: 2,
-                tool_use_id: tool_use_id.clone(),
-                tool_name: "bash".into(),
-                input_preview: r#"{"command":"ls"}"#.into(),
-                permission_level: crate::event::PermissionLevel::ReadWrite,
-                is_parallel: false,
-            }),
-            RuntimeEvent::new(session, RuntimeEventKind::ToolCallCompleted {
-                round: 2,
-                tool_use_id: tool_use_id.clone(),
-                tool_name: "bash".into(),
-                success: true,
-                duration_ms: 42,
-                output_preview: "file1.txt\nfile2.txt".into(),
-                output_tokens: 8,
-            }),
+            RuntimeEvent::new(
+                session,
+                RuntimeEventKind::ToolBatchStarted {
+                    round: 2,
+                    tool_names: vec!["bash".into()],
+                    batch_kind: crate::event::ToolBatchKind::Sequential,
+                },
+            ),
+            RuntimeEvent::new(
+                session,
+                RuntimeEventKind::ToolCallStarted {
+                    round: 2,
+                    tool_use_id: tool_use_id.clone(),
+                    tool_name: "bash".into(),
+                    input_preview: r#"{"command":"ls"}"#.into(),
+                    permission_level: crate::event::PermissionLevel::ReadWrite,
+                    is_parallel: false,
+                },
+            ),
+            RuntimeEvent::new(
+                session,
+                RuntimeEventKind::ToolCallCompleted {
+                    round: 2,
+                    tool_use_id: tool_use_id.clone(),
+                    tool_name: "bash".into(),
+                    success: true,
+                    duration_ms: 42,
+                    output_preview: "file1.txt\nfile2.txt".into(),
+                    output_tokens: 8,
+                },
+            ),
         ];
 
         let graph = rebuild_execution_graph(&events);
@@ -1311,18 +1444,24 @@ mod tests {
 
         let events = vec![
             session_started(session),
-            RuntimeEvent::new(session, RuntimeEventKind::ToolBatchStarted {
-                round: 3,
-                tool_names: vec!["read_file".into()],
-                batch_kind: crate::event::ToolBatchKind::Sequential,
-            }),
-            RuntimeEvent::new(session, RuntimeEventKind::ToolBatchCompleted {
-                round: 3,
-                batch_kind: crate::event::ToolBatchKind::Sequential,
-                success_count: 1,
-                failure_count: 0,
-                total_duration_ms: 88,
-            }),
+            RuntimeEvent::new(
+                session,
+                RuntimeEventKind::ToolBatchStarted {
+                    round: 3,
+                    tool_names: vec!["read_file".into()],
+                    batch_kind: crate::event::ToolBatchKind::Sequential,
+                },
+            ),
+            RuntimeEvent::new(
+                session,
+                RuntimeEventKind::ToolBatchCompleted {
+                    round: 3,
+                    batch_kind: crate::event::ToolBatchKind::Sequential,
+                    success_count: 1,
+                    failure_count: 0,
+                    total_duration_ms: 88,
+                },
+            ),
         ];
 
         let graph = rebuild_execution_graph(&events);
@@ -1338,18 +1477,24 @@ mod tests {
 
         let mk_batch = |round: usize| {
             vec![
-                RuntimeEvent::new(session, RuntimeEventKind::ToolBatchStarted {
-                    round,
-                    tool_names: vec!["tool".into()],
-                    batch_kind: crate::event::ToolBatchKind::Sequential,
-                }),
-                RuntimeEvent::new(session, RuntimeEventKind::ToolBatchCompleted {
-                    round,
-                    batch_kind: crate::event::ToolBatchKind::Sequential,
-                    success_count: 1,
-                    failure_count: 0,
-                    total_duration_ms: 10 * round as u64,
-                }),
+                RuntimeEvent::new(
+                    session,
+                    RuntimeEventKind::ToolBatchStarted {
+                        round,
+                        tool_names: vec!["tool".into()],
+                        batch_kind: crate::event::ToolBatchKind::Sequential,
+                    },
+                ),
+                RuntimeEvent::new(
+                    session,
+                    RuntimeEventKind::ToolBatchCompleted {
+                        round,
+                        batch_kind: crate::event::ToolBatchKind::Sequential,
+                        success_count: 1,
+                        failure_count: 0,
+                        total_duration_ms: 10 * round as u64,
+                    },
+                ),
             ]
         };
 
@@ -1412,10 +1557,22 @@ mod tests {
         let events = vec![
             session_started(session),
             plan_created(session, plan_id, steps),
-            node_state_changed(session, plan_id, step_ids[0], 0,
-                PlanNodeState::Pending, PlanNodeState::Running),
-            node_state_changed(session, plan_id, step_ids[0], 0,
-                PlanNodeState::Running, PlanNodeState::Completed),
+            node_state_changed(
+                session,
+                plan_id,
+                step_ids[0],
+                0,
+                PlanNodeState::Pending,
+                PlanNodeState::Running,
+            ),
+            node_state_changed(
+                session,
+                plan_id,
+                step_ids[0],
+                0,
+                PlanNodeState::Running,
+                PlanNodeState::Completed,
+            ),
         ];
 
         let graph = rebuild_execution_graph(&events);
@@ -1437,17 +1594,23 @@ mod tests {
         let events = vec![
             session_started(session),
             plan_created(session, plan_id, steps),
-            RuntimeEvent::new(session, RuntimeEventKind::RoundStarted {
-                round: 1,
-                model: "claude-sonnet-4-6".into(),
-                tools_allowed: true,
-                token_budget_remaining: 4096,
-            }),
-            RuntimeEvent::new(session, RuntimeEventKind::ModelToken {
-                round: 1,
-                text: "hello".into(),
-                is_thinking: false,
-            }),
+            RuntimeEvent::new(
+                session,
+                RuntimeEventKind::RoundStarted {
+                    round: 1,
+                    model: "claude-sonnet-4-6".into(),
+                    tools_allowed: true,
+                    token_budget_remaining: 4096,
+                },
+            ),
+            RuntimeEvent::new(
+                session,
+                RuntimeEventKind::ModelToken {
+                    round: 1,
+                    text: "hello".into(),
+                    is_thinking: false,
+                },
+            ),
         ];
 
         let graph = rebuild_execution_graph(&events);
@@ -1467,38 +1630,55 @@ mod tests {
 
         let events = vec![
             session_started(session),
-            RuntimeEvent::new(session, RuntimeEventKind::SubAgentSpawned {
-                orchestrator_id: orch_id,
-                task_id: task1,
-                instruction_preview: "task one".into(),
-                is_dynamic: false,
-                parent_task_id: None,
-                budget_fraction: 0.5,
-            }),
-            RuntimeEvent::new(session, RuntimeEventKind::SubAgentSpawned {
-                orchestrator_id: orch_id,
-                task_id: task2,
-                instruction_preview: "task two".into(),
-                is_dynamic: true,
-                parent_task_id: Some(task1),
-                budget_fraction: 0.5,
-            }),
-            RuntimeEvent::new(session, RuntimeEventKind::SubAgentCompleted {
-                orchestrator_id: orch_id,
-                task_id: task1,
-                success: true,
-                duration_ms: 1000,
-                rounds_used: 2,
-                tokens_used: 512,
-                cost_usd: 0.0005,
-            }),
+            RuntimeEvent::new(
+                session,
+                RuntimeEventKind::SubAgentSpawned {
+                    orchestrator_id: orch_id,
+                    task_id: task1,
+                    instruction_preview: "task one".into(),
+                    is_dynamic: false,
+                    parent_task_id: None,
+                    budget_fraction: 0.5,
+                },
+            ),
+            RuntimeEvent::new(
+                session,
+                RuntimeEventKind::SubAgentSpawned {
+                    orchestrator_id: orch_id,
+                    task_id: task2,
+                    instruction_preview: "task two".into(),
+                    is_dynamic: true,
+                    parent_task_id: Some(task1),
+                    budget_fraction: 0.5,
+                },
+            ),
+            RuntimeEvent::new(
+                session,
+                RuntimeEventKind::SubAgentCompleted {
+                    orchestrator_id: orch_id,
+                    task_id: task1,
+                    success: true,
+                    duration_ms: 1000,
+                    rounds_used: 2,
+                    tokens_used: 512,
+                    cost_usd: 0.0005,
+                },
+            ),
         ];
 
         let graph = rebuild_execution_graph(&events);
         assert_eq!(graph.sub_agents.len(), 2);
 
-        let sa1 = graph.sub_agents.iter().find(|s| s.task_id == task1).unwrap();
-        let sa2 = graph.sub_agents.iter().find(|s| s.task_id == task2).unwrap();
+        let sa1 = graph
+            .sub_agents
+            .iter()
+            .find(|s| s.task_id == task1)
+            .unwrap();
+        let sa2 = graph
+            .sub_agents
+            .iter()
+            .find(|s| s.task_id == task2)
+            .unwrap();
 
         assert!(sa1.completed);
         assert_eq!(sa1.success, Some(true));
@@ -1516,23 +1696,29 @@ mod tests {
 
         let events = vec![
             session_started(session),
-            RuntimeEvent::new(session, RuntimeEventKind::SubAgentSpawned {
-                orchestrator_id: orch_id,
-                task_id,
-                instruction_preview: "doomed task".into(),
-                is_dynamic: false,
-                parent_task_id: None,
-                budget_fraction: 1.0,
-            }),
-            RuntimeEvent::new(session, RuntimeEventKind::SubAgentCompleted {
-                orchestrator_id: orch_id,
-                task_id,
-                success: false,
-                duration_ms: 300,
-                rounds_used: 1,
-                tokens_used: 128,
-                cost_usd: 0.0001,
-            }),
+            RuntimeEvent::new(
+                session,
+                RuntimeEventKind::SubAgentSpawned {
+                    orchestrator_id: orch_id,
+                    task_id,
+                    instruction_preview: "doomed task".into(),
+                    is_dynamic: false,
+                    parent_task_id: None,
+                    budget_fraction: 1.0,
+                },
+            ),
+            RuntimeEvent::new(
+                session,
+                RuntimeEventKind::SubAgentCompleted {
+                    orchestrator_id: orch_id,
+                    task_id,
+                    success: false,
+                    duration_ms: 300,
+                    rounds_used: 1,
+                    tokens_used: 128,
+                    cost_usd: 0.0001,
+                },
+            ),
         ];
 
         let graph = rebuild_execution_graph(&events);
@@ -1558,30 +1744,51 @@ mod tests {
             vec![
                 session_started(sid),
                 plan_created(sid, plan_id, {
-                    pids.iter().enumerate().map(|(i, &id)| PlanStepMeta {
-                        step_id: id,
-                        step_index: i,
-                        description: format!("step-{i}"),
-                        depends_on: if i == 0 { vec![] } else { vec![i - 1] },
-                        expected_tools: vec![],
-                    }).collect()
+                    pids.iter()
+                        .enumerate()
+                        .map(|(i, &id)| PlanStepMeta {
+                            step_id: id,
+                            step_index: i,
+                            description: format!("step-{i}"),
+                            depends_on: if i == 0 { vec![] } else { vec![i - 1] },
+                            expected_tools: vec![],
+                        })
+                        .collect()
                 }),
-                node_state_changed(sid, plan_id, pids[0], 0,
-                    PlanNodeState::Pending, PlanNodeState::Running),
-                node_state_changed(sid, plan_id, pids[0], 0,
-                    PlanNodeState::Running, PlanNodeState::Completed),
-                RuntimeEvent::new(sid, RuntimeEventKind::SubAgentSpawned {
-                    orchestrator_id: orch,
-                    task_id: task,
-                    instruction_preview: "sub".into(),
-                    is_dynamic: false,
-                    parent_task_id: None,
-                    budget_fraction: 0.25,
-                }),
-                RuntimeEvent::new(sid, RuntimeEventKind::PlanReplayStarted {
-                    original_plan_id: plan_id,
-                    replay_plan_id: replay_plan,
-                }),
+                node_state_changed(
+                    sid,
+                    plan_id,
+                    pids[0],
+                    0,
+                    PlanNodeState::Pending,
+                    PlanNodeState::Running,
+                ),
+                node_state_changed(
+                    sid,
+                    plan_id,
+                    pids[0],
+                    0,
+                    PlanNodeState::Running,
+                    PlanNodeState::Completed,
+                ),
+                RuntimeEvent::new(
+                    sid,
+                    RuntimeEventKind::SubAgentSpawned {
+                        orchestrator_id: orch,
+                        task_id: task,
+                        instruction_preview: "sub".into(),
+                        is_dynamic: false,
+                        parent_task_id: None,
+                        budget_fraction: 0.25,
+                    },
+                ),
+                RuntimeEvent::new(
+                    sid,
+                    RuntimeEventKind::PlanReplayStarted {
+                        original_plan_id: plan_id,
+                        replay_plan_id: replay_plan,
+                    },
+                ),
             ]
         };
 

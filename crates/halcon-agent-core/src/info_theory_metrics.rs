@@ -48,7 +48,8 @@ pub fn compute_entropy_bits(counts: &[u64]) -> f64 {
         return 0.0;
     }
     let n = total as f64;
-    counts.iter()
+    counts
+        .iter()
         .filter(|&&c| c > 0)
         .map(|&c| {
             let p = c as f64 / n;
@@ -61,7 +62,11 @@ pub fn compute_entropy_bits(counts: &[u64]) -> f64 {
 ///
 /// `H_max = log₂(n)` bits.
 pub fn max_entropy_bits(n: usize) -> f64 {
-    if n <= 1 { 0.0 } else { (n as f64).log2() }
+    if n <= 1 {
+        0.0
+    } else {
+        (n as f64).log2()
+    }
 }
 
 /// Normalised entropy ∈ [0, 1].
@@ -70,7 +75,11 @@ pub fn max_entropy_bits(n: usize) -> f64 {
 pub fn compute_normalised_entropy(counts: &[u64]) -> f64 {
     let h = compute_entropy_bits(counts);
     let h_max = max_entropy_bits(counts.len());
-    if h_max < 1e-12 { 0.0 } else { (h / h_max).clamp(0.0, 1.0) }
+    if h_max < 1e-12 {
+        0.0
+    } else {
+        (h / h_max).clamp(0.0, 1.0)
+    }
 }
 
 // ─── StateEntropyTracker ──────────────────────────────────────────────────────
@@ -85,7 +94,10 @@ pub struct StateEntropyTracker {
 
 impl StateEntropyTracker {
     pub fn new() -> Self {
-        Self { counts: HashMap::new(), total: 0 }
+        Self {
+            counts: HashMap::new(),
+            total: 0,
+        }
     }
 
     /// Record a state visit.
@@ -107,24 +119,31 @@ impl StateEntropyTracker {
     }
 
     /// Total visits.
-    pub fn total(&self) -> u64 { self.total }
+    pub fn total(&self) -> u64 {
+        self.total
+    }
 
     /// Number of distinct states observed.
-    pub fn distinct_states(&self) -> usize { self.counts.len() }
+    pub fn distinct_states(&self) -> usize {
+        self.counts.len()
+    }
 
     /// Per-state probability distribution.
     pub fn distribution(&self) -> HashMap<&&'static str, f64> {
         if self.total == 0 {
             return HashMap::new();
         }
-        self.counts.iter()
+        self.counts
+            .iter()
             .map(|(k, &c)| (k, c as f64 / self.total as f64))
             .collect()
     }
 }
 
 impl Default for StateEntropyTracker {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 // ─── StrategyEntropyTracker ───────────────────────────────────────────────────
@@ -183,7 +202,9 @@ impl StrategyEntropyTracker {
     }
 
     /// Entropy captured at the early snapshot.
-    pub fn early_entropy(&self) -> Option<f64> { self.early_entropy }
+    pub fn early_entropy(&self) -> Option<f64> {
+        self.early_entropy
+    }
 
     /// Entropy reduction ratio: `(H_early - H_late) / H_early`.
     ///
@@ -200,10 +221,12 @@ impl StrategyEntropyTracker {
 
     /// True if entropy has decreased since the early snapshot (I-7.4).
     pub fn has_converged(&self) -> bool {
-        self.entropy_reduction_ratio().map_or(false, |r| r > 0.0)
+        self.entropy_reduction_ratio().is_some_and(|r| r > 0.0)
     }
 
-    pub fn total_pulls(&self) -> u64 { self.total }
+    pub fn total_pulls(&self) -> u64 {
+        self.total
+    }
 }
 
 // ─── Mutual information I(S;A) ────────────────────────────────────────────────
@@ -233,21 +256,33 @@ pub fn compute_mutual_information(joint_counts: &HashMap<(&'static str, String),
     }
 
     // H(S)
-    let hs: f64 = state_counts.values()
+    let hs: f64 = state_counts
+        .values()
         .filter(|&&c| c > 0)
-        .map(|&c| { let p = c as f64 / n; -p * p.log2() })
+        .map(|&c| {
+            let p = c as f64 / n;
+            -p * p.log2()
+        })
         .sum();
 
     // H(A)
-    let ha: f64 = strategy_counts.values()
+    let ha: f64 = strategy_counts
+        .values()
         .filter(|&&c| c > 0)
-        .map(|&c| { let p = c as f64 / n; -p * p.log2() })
+        .map(|&c| {
+            let p = c as f64 / n;
+            -p * p.log2()
+        })
         .sum();
 
     // H(S,A)
-    let hsa: f64 = joint_counts.values()
+    let hsa: f64 = joint_counts
+        .values()
         .filter(|&&c| c > 0)
-        .map(|&c| { let p = c as f64 / n; -p * p.log2() })
+        .map(|&c| {
+            let p = c as f64 / n;
+            -p * p.log2()
+        })
         .sum();
 
     // I(S;A) = H(S) + H(A) - H(S,A) ≥ 0
@@ -270,19 +305,25 @@ pub fn simulate_entropy_convergence(total_rounds: u64) -> StrategyEntropyTracker
     // Set early snapshot after k*2 pulls
     let mut pulls = vec![0u64; k];
     let mut sum_reward = vec![0.0f64; k];
-    let mut total_pulls = 0u64;
-
-    for _ in 0..total_rounds {
+    for total_pulls in 0u64..total_rounds {
         let chosen = if total_pulls < k as u64 {
             total_pulls as usize
         } else {
             let n = total_pulls;
             (0..k)
                 .max_by(|&i, &j| {
-                    let si = if pulls[i] == 0 { f64::INFINITY }
-                        else { sum_reward[i] / pulls[i] as f64 + c * ((n as f64).ln() / pulls[i] as f64).sqrt() };
-                    let sj = if pulls[j] == 0 { f64::INFINITY }
-                        else { sum_reward[j] / pulls[j] as f64 + c * ((n as f64).ln() / pulls[j] as f64).sqrt() };
+                    let si = if pulls[i] == 0 {
+                        f64::INFINITY
+                    } else {
+                        sum_reward[i] / pulls[i] as f64
+                            + c * ((n as f64).ln() / pulls[i] as f64).sqrt()
+                    };
+                    let sj = if pulls[j] == 0 {
+                        f64::INFINITY
+                    } else {
+                        sum_reward[j] / pulls[j] as f64
+                            + c * ((n as f64).ln() / pulls[j] as f64).sqrt()
+                    };
                     si.partial_cmp(&sj).unwrap_or(std::cmp::Ordering::Equal)
                 })
                 .unwrap_or(0)
@@ -291,7 +332,6 @@ pub fn simulate_entropy_convergence(total_rounds: u64) -> StrategyEntropyTracker
         tracker.record_pull(arm_names[chosen]);
         pulls[chosen] += 1;
         sum_reward[chosen] += arm_rewards[chosen];
-        total_pulls += 1;
     }
 
     tracker
@@ -318,7 +358,12 @@ mod tests {
         let counts = vec![25u64; n];
         let h = compute_entropy_bits(&counts);
         let h_max = max_entropy_bits(n);
-        assert!((h - h_max).abs() < 1e-9, "H should be max for uniform, got {}, max={}", h, h_max);
+        assert!(
+            (h - h_max).abs() < 1e-9,
+            "H should be max for uniform, got {}, max={}",
+            h,
+            h_max
+        );
     }
 
     #[test]
@@ -349,14 +394,22 @@ mod tests {
     fn normalised_entropy_uniform_is_one() {
         let counts = vec![25u64, 25, 25, 25];
         let h_norm = compute_normalised_entropy(&counts);
-        assert!((h_norm - 1.0).abs() < 1e-9, "H_norm should be 1.0 for uniform, got {}", h_norm);
+        assert!(
+            (h_norm - 1.0).abs() < 1e-9,
+            "H_norm should be 1.0 for uniform, got {}",
+            h_norm
+        );
     }
 
     #[test]
     fn normalised_entropy_in_unit_interval() {
         let counts = vec![90u64, 5, 3, 2];
         let h_norm = compute_normalised_entropy(&counts);
-        assert!(h_norm >= 0.0 && h_norm <= 1.0, "H_norm={} out of [0,1]", h_norm);
+        assert!(
+            h_norm >= 0.0 && h_norm <= 1.0,
+            "H_norm={} out of [0,1]",
+            h_norm
+        );
     }
 
     // ── StrategyEntropyTracker tests ──────────────────────────────────────────
@@ -365,10 +418,16 @@ mod tests {
     fn strategy_entropy_decreases_after_convergence() {
         // I-7.4 main invariant: late entropy < early entropy
         let tracker = simulate_entropy_convergence(10_000);
-        assert!(tracker.early_entropy().is_some(), "early snapshot should be taken");
+        assert!(
+            tracker.early_entropy().is_some(),
+            "early snapshot should be taken"
+        );
         let ratio = tracker.entropy_reduction_ratio().unwrap();
-        assert!(ratio > 0.0,
-            "entropy reduction ratio should be > 0, got {:.4}", ratio);
+        assert!(
+            ratio > 0.0,
+            "entropy reduction ratio should be > 0, got {:.4}",
+            ratio
+        );
     }
 
     #[test]
@@ -376,17 +435,26 @@ mod tests {
         let tracker = simulate_entropy_convergence(5_000);
         if let Some(ratio) = tracker.entropy_reduction_ratio() {
             // After 5k rounds with a dominant arm, entropy should have dropped
-            assert!(ratio >= 0.0,
-                "entropy reduction ratio should be ≥ 0, got {:.4}", ratio);
+            assert!(
+                ratio >= 0.0,
+                "entropy reduction ratio should be ≥ 0, got {:.4}",
+                ratio
+            );
         }
     }
 
     #[test]
     fn state_entropy_tracker_records_correctly() {
         let mut tracker = StateEntropyTracker::new();
-        for _ in 0..50 { tracker.record_state("executing"); }
-        for _ in 0..30 { tracker.record_state("verifying"); }
-        for _ in 0..20 { tracker.record_state("planning"); }
+        for _ in 0..50 {
+            tracker.record_state("executing");
+        }
+        for _ in 0..30 {
+            tracker.record_state("verifying");
+        }
+        for _ in 0..20 {
+            tracker.record_state("planning");
+        }
         assert_eq!(tracker.total(), 100);
         assert_eq!(tracker.distinct_states(), 3);
         let h = tracker.entropy_bits();
@@ -398,7 +466,7 @@ mod tests {
         let mut joint: HashMap<(&'static str, String), u64> = HashMap::new();
         joint.insert(("executing", "goal_driven".into()), 50);
         joint.insert(("verifying", "goal_driven".into()), 30);
-        joint.insert(("planning",  "plan_first".into()), 20);
+        joint.insert(("planning", "plan_first".into()), 20);
         let mi = compute_mutual_information(&joint);
         assert!(mi >= 0.0, "I(S;A) should be ≥ 0, got {}", mi);
     }
@@ -415,11 +483,17 @@ mod tests {
         let arms = ["a", "b", "c", "d", "e"];
         let mut tracker = StrategyEntropyTracker::new(&arms);
         // snapshot_after = 5 * 2 = 10
-        assert!(tracker.early_entropy().is_none(), "no snapshot before threshold");
+        assert!(
+            tracker.early_entropy().is_none(),
+            "no snapshot before threshold"
+        );
         // Record exactly 10 pulls (snapshot threshold)
         for i in 0..10usize {
             tracker.record_pull(arms[i % arms.len()]);
         }
-        assert!(tracker.early_entropy().is_some(), "snapshot should be taken at 10 pulls");
+        assert!(
+            tracker.early_entropy().is_some(),
+            "snapshot should be taken at 10 pulls"
+        );
     }
 }

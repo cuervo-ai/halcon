@@ -163,11 +163,8 @@ async fn handle_post_mcp(
     let value: Value = match serde_json::from_slice(&body) {
         Ok(v) => v,
         Err(e) => {
-            let resp = make_error_response(
-                None,
-                error_codes::PARSE_ERROR,
-                &format!("Parse error: {e}"),
-            );
+            let resp =
+                make_error_response(None, error_codes::PARSE_ERROR, &format!("Parse error: {e}"));
             return json_response_with_session(resp, &session_id);
         }
     };
@@ -191,10 +188,7 @@ async fn handle_post_mcp(
     json_response_with_session(response, &session_id)
 }
 
-async fn handle_get_mcp_sse(
-    State(server): State<McpHttpServer>,
-    headers: HeaderMap,
-) -> Response {
+async fn handle_get_mcp_sse(State(server): State<McpHttpServer>, headers: HeaderMap) -> Response {
     // Auth check.
     if let Err(status) = check_auth(&server, &headers) {
         return (status, "Unauthorized").into_response();
@@ -242,7 +236,9 @@ fn handle_initialize(server: &McpHttpServer, id: u64) -> JsonRpcResponse {
     let result = InitializeResult {
         protocol_version: PROTOCOL_VERSION.to_string(),
         capabilities: ServerCapabilities {
-            tools: Some(ToolsCapability { list_changed: false }),
+            tools: Some(ToolsCapability {
+                list_changed: false,
+            }),
         },
         server_info: ServerInfo {
             name: "halcon-mcp-server".to_string(),
@@ -275,7 +271,9 @@ async fn handle_tools_call(
 ) -> JsonRpcResponse {
     let params = match params {
         Some(p) => p,
-        None => return make_error_response(Some(id), error_codes::INVALID_PARAMS, "Missing params"),
+        None => {
+            return make_error_response(Some(id), error_codes::INVALID_PARAMS, "Missing params")
+        }
     };
 
     let tool_name = match params.get("name").and_then(|n| n.as_str()) {
@@ -445,18 +443,14 @@ mod tests {
         let s = make_server();
         let resp = dispatch_request(&s, 3, "unknown/method", None, "test-session").await;
         assert!(resp.error.is_some());
-        assert_eq!(
-            resp.error.unwrap().code,
-            error_codes::METHOD_NOT_FOUND
-        );
+        assert_eq!(resp.error.unwrap().code, error_codes::METHOD_NOT_FOUND);
     }
 
     #[tokio::test]
     async fn tools_call_unknown_tool() {
         let s = make_server();
         let params = serde_json::json!({"name": "unknown", "arguments": {}});
-        let resp =
-            dispatch_request(&s, 4, "tools/call", Some(params), "test-session").await;
+        let resp = dispatch_request(&s, 4, "tools/call", Some(params), "test-session").await;
         assert!(resp.error.is_some());
     }
 

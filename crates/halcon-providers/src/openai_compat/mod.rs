@@ -23,9 +23,9 @@ use halcon_core::types::{
 
 use crate::http;
 use types::{
-    OpenAIChatMessage, OpenAIChatRequest, OpenAIContentPart, OpenAIFunctionDef,
-    OpenAIImageUrl, OpenAIMessageContent, OpenAISseChunk,
-    OpenAITool, OpenAIToolCall, OpenAIFunctionCall, StreamOptions,
+    OpenAIChatMessage, OpenAIChatRequest, OpenAIContentPart, OpenAIFunctionCall, OpenAIFunctionDef,
+    OpenAIImageUrl, OpenAIMessageContent, OpenAISseChunk, OpenAITool, OpenAIToolCall,
+    StreamOptions,
 };
 
 /// Normalize a JSON Schema for OpenAI compatibility.
@@ -60,33 +60,28 @@ fn normalize_schema_node(schema: serde_json::Value) -> serde_json::Value {
     // ── 1. Union "type" array → anyOf ─────────────────────────────────────────
     // e.g. "type": ["object","array","string"]  becomes
     //   "anyOf": [{"type":"object","properties":{}},{"type":"array","items":{}},{"type":"string"}]
-    if let Some(type_val) = obj.get("type").cloned() {
-        if let serde_json::Value::Array(type_arr) = type_val {
-            let any_of: Vec<serde_json::Value> = type_arr
-                .iter()
-                .filter_map(|t| t.as_str())
-                .map(|t| match t {
-                    "array" => serde_json::json!({"type": "array", "items": {}}),
-                    "object" => serde_json::json!({"type": "object", "properties": {}}),
-                    other => serde_json::json!({"type": other}),
-                })
-                .collect();
-            obj.remove("type");
-            // Preserve any sibling keys (description, default, …) alongside anyOf.
-            obj.insert("anyOf".to_string(), serde_json::Value::Array(any_of));
-        }
+    if let Some(serde_json::Value::Array(type_arr)) = obj.get("type").cloned() {
+        let any_of: Vec<serde_json::Value> = type_arr
+            .iter()
+            .filter_map(|t| t.as_str())
+            .map(|t| match t {
+                "array" => serde_json::json!({"type": "array", "items": {}}),
+                "object" => serde_json::json!({"type": "object", "properties": {}}),
+                other => serde_json::json!({"type": other}),
+            })
+            .collect();
+        obj.remove("type");
+        // Preserve any sibling keys (description, default, …) alongside anyOf.
+        obj.insert("anyOf".to_string(), serde_json::Value::Array(any_of));
     }
 
     // ── 2. Bare "type":"array" without "items" ─────────────────────────────────
-    if obj.get("type").and_then(|t| t.as_str()) == Some("array")
-        && !obj.contains_key("items")
-    {
+    if obj.get("type").and_then(|t| t.as_str()) == Some("array") && !obj.contains_key("items") {
         obj.insert("items".to_string(), serde_json::json!({}));
     }
 
     // ── 3. "type":"object" without "properties" ────────────────────────────────
-    if obj.get("type").and_then(|t| t.as_str()) == Some("object")
-        && !obj.contains_key("properties")
+    if obj.get("type").and_then(|t| t.as_str()) == Some("object") && !obj.contains_key("properties")
     {
         obj.insert("properties".to_string(), serde_json::json!({}));
     }
@@ -216,8 +211,7 @@ impl OpenAICompatibleProvider {
                                     call_type: "function".into(),
                                     function: OpenAIFunctionCall {
                                         name: name.clone(),
-                                        arguments: serde_json::to_string(input)
-                                            .unwrap_or_default(),
+                                        arguments: serde_json::to_string(input).unwrap_or_default(),
                                     },
                                 });
                             }
@@ -387,9 +381,7 @@ impl OpenAICompatibleProvider {
                 // and to prevent thinking tokens from entering episodic memory.
                 // Guard: only emit when `content` is absent to avoid double-emission.
                 if let Some(ref reasoning) = delta.reasoning_content {
-                    if !reasoning.is_empty()
-                        && delta.content.as_deref().unwrap_or("").is_empty()
-                    {
+                    if !reasoning.is_empty() && delta.content.as_deref().unwrap_or("").is_empty() {
                         results.push(ModelChunk::ThinkingDelta(reasoning.clone()));
                     }
                 }
@@ -513,42 +505,40 @@ impl OpenAICompatibleProvider {
             ))
         };
 
-        let chunk_stream = timed_stream.flat_map(move |outer| {
-            match outer {
-                Err(timeout_msg) => {
-                    warn!(provider = %provider_name, msg = %timeout_msg, "SSE per-chunk timeout");
-                    stream::iter(vec![Err(HalconError::StreamError(format!(
-                        "{provider_name}: {timeout_msg}"
-                    )))])
+        let chunk_stream = timed_stream.flat_map(move |outer| match outer {
+            Err(timeout_msg) => {
+                warn!(provider = %provider_name, msg = %timeout_msg, "SSE per-chunk timeout");
+                stream::iter(vec![Err(HalconError::StreamError(format!(
+                    "{provider_name}: {timeout_msg}"
+                )))])
+            }
+            Ok(Ok(event)) => {
+                let data = event.data;
+                if data.trim() == "[DONE]" {
+                    return stream::iter(vec![]);
                 }
-                Ok(Ok(event)) => {
-                    let data = event.data;
-                    if data.trim() == "[DONE]" {
-                        return stream::iter(vec![]);
+                match serde_json::from_str::<OpenAISseChunk>(&data) {
+                    Ok(chunk) => {
+                        let mapped: Vec<Result<ModelChunk>> =
+                            Self::map_sse_chunk(&chunk).into_iter().map(Ok).collect();
+                        stream::iter(mapped)
                     }
-                    match serde_json::from_str::<OpenAISseChunk>(&data) {
-                        Ok(chunk) => {
-                            let mapped: Vec<Result<ModelChunk>> =
-                                Self::map_sse_chunk(&chunk).into_iter().map(Ok).collect();
-                            stream::iter(mapped)
-                        }
-                        Err(e) => {
-                            warn!(
-                                provider = %provider_name,
-                                error = %e,
-                                data = %data,
-                                "Failed to parse SSE chunk"
-                            );
-                            stream::iter(vec![])
-                        }
+                    Err(e) => {
+                        warn!(
+                            provider = %provider_name,
+                            error = %e,
+                            data = %data,
+                            "Failed to parse SSE chunk"
+                        );
+                        stream::iter(vec![])
                     }
                 }
-                Ok(Err(e)) => {
-                    warn!(provider = %provider_name, error = %e, "SSE stream error");
-                    stream::iter(vec![Err(HalconError::StreamError(format!(
-                        "{provider_name} SSE error: {e}"
-                    )))])
-                }
+            }
+            Ok(Err(e)) => {
+                warn!(provider = %provider_name, error = %e, "SSE stream error");
+                stream::iter(vec![Err(HalconError::StreamError(format!(
+                    "{provider_name} SSE error: {e}"
+                )))])
             }
         });
 
@@ -582,12 +572,22 @@ impl OpenAICompatibleProvider {
 pub(crate) fn estimate_value_size(value: &serde_json::Value) -> usize {
     match value {
         serde_json::Value::Null => 4,
-        serde_json::Value::Bool(b) => if *b { 4 } else { 5 },
+        serde_json::Value::Bool(b) => {
+            if *b {
+                4
+            } else {
+                5
+            }
+        }
         serde_json::Value::Number(n) => {
             // itoa is typically 1-20 digits; use display len as approximation.
             // Avoid allocation — estimate based on magnitude.
             let n64 = n.as_f64().unwrap_or(0.0);
-            if n64 == 0.0 { 1 } else { (n64.abs().log10() as usize).saturating_add(2) }
+            if n64 == 0.0 {
+                1
+            } else {
+                (n64.abs().log10() as usize).saturating_add(2)
+            }
         }
         serde_json::Value::String(s) => s.len() + 2, // quotes
         serde_json::Value::Array(arr) => {
@@ -1045,7 +1045,9 @@ mod tests {
         let mapped = OpenAICompatibleProvider::map_sse_chunk(&chunk);
         assert_eq!(mapped.len(), 2); // ToolUseStart + ToolUseDelta
         assert!(matches!(&mapped[0], ModelChunk::ToolUseStart { name, .. } if name == "bash"));
-        assert!(matches!(&mapped[1], ModelChunk::ToolUseDelta { partial_json, .. } if partial_json == "{\"cmd\":"));
+        assert!(
+            matches!(&mapped[1], ModelChunk::ToolUseDelta { partial_json, .. } if partial_json == "{\"cmd\":")
+        );
     }
 
     #[test]
@@ -1090,7 +1092,11 @@ mod tests {
         };
         let mapped = OpenAICompatibleProvider::map_sse_chunk(&chunk);
         // Must emit ThinkingDelta so TUI can render thinking tokens with visual distinction.
-        assert_eq!(mapped.len(), 1, "reasoning_content should produce one ThinkingDelta");
+        assert_eq!(
+            mapped.len(),
+            1,
+            "reasoning_content should produce one ThinkingDelta"
+        );
         assert!(
             matches!(&mapped[0], ModelChunk::ThinkingDelta(t) if t == "Thinking: hola is a greeting."),
             "reasoning_content should be emitted as ThinkingDelta (not TextDelta)"
@@ -1117,7 +1123,11 @@ mod tests {
         };
         let mapped = OpenAICompatibleProvider::map_sse_chunk(&chunk);
         // Only content emitted — no double TextDelta
-        assert_eq!(mapped.len(), 1, "only content should be emitted when both fields present");
+        assert_eq!(
+            mapped.len(),
+            1,
+            "only content should be emitted when both fields present"
+        );
         assert!(
             matches!(&mapped[0], ModelChunk::TextDelta(t) if t == "Final answer."),
             "content takes priority over reasoning_content"
@@ -1157,7 +1167,9 @@ mod tests {
         };
         let mapped = OpenAICompatibleProvider::map_sse_chunk(&chunk);
         assert_eq!(mapped.len(), 1);
-        assert!(matches!(&mapped[0], ModelChunk::Usage(u) if u.input_tokens == 50 && u.output_tokens == 100));
+        assert!(
+            matches!(&mapped[0], ModelChunk::Usage(u) if u.input_tokens == 50 && u.output_tokens == 100)
+        );
     }
 
     #[test]

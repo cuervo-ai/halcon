@@ -93,6 +93,7 @@ pub struct CompletionTrace {
 
 impl CompletionTrace {
     /// Construct a trace from the minimal set of fields available in result_assembly.
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         rounds: u32,
         termination_source: TerminationSource,
@@ -146,7 +147,11 @@ mod tests {
             5,
             TerminationSource::ModelEndTurn,
             Some(ConvergenceDecision::NaturalEnd),
-            Some(TracedCriticVerdict { achieved: true, confidence: 0.9, gap_count: 0 }),
+            Some(TracedCriticVerdict {
+                achieved: true,
+                confidence: 0.9,
+                gap_count: 0,
+            }),
             0.85,
             3,
             1,
@@ -184,7 +189,9 @@ mod tests {
 
     #[test]
     fn convergence_decision_debug() {
-        let dec = ConvergenceDecision::Stagnated { consecutive_rounds: 3 };
+        let dec = ConvergenceDecision::Stagnated {
+            consecutive_rounds: 3,
+        };
         let dbg = format!("{:?}", dec);
         assert!(dbg.contains("Stagnated"));
     }

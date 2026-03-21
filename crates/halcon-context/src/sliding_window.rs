@@ -43,8 +43,7 @@ impl SlidingWindow {
     pub fn merge_adjacent(&mut self, max_merged_tokens: u32) {
         let mut i = 0;
         while i + 1 < self.segments.len() {
-            let combined =
-                self.segments[i].token_estimate + self.segments[i + 1].token_estimate;
+            let combined = self.segments[i].token_estimate + self.segments[i + 1].token_estimate;
             if combined <= max_merged_tokens {
                 let next = self.segments.remove(i + 1);
                 let merged = ContextSegment::merge(&self.segments[i], &next);

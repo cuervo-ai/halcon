@@ -16,8 +16,8 @@
 //! it over-classifies rather than under-classifies.  False positives (extra rounds)
 //! cost time; false negatives (missed vulnerabilities) cost correctness.
 
-use super::domain_detector::TechnicalDomain;
 use super::complexity_estimator::ComplexityLevel;
+use super::domain_detector::TechnicalDomain;
 
 // ── Risk tier ────────────────────────────────────────────────────────────────
 
@@ -57,38 +57,88 @@ impl ExecutionRisk {
 /// Patterns that independently raise risk to High.
 const HIGH_RISK_PATTERNS: &[&str] = &[
     // Security intent
-    "security audit", "auditoría de seguridad",
-    "vulnerability assessment", "evaluación de vulnerabilidades",
-    "penetration test", "pentest", "security review", "revisión de seguridad",
-    "find vulnerabilities", "busca vulnerabilidades", "find security issues",
-    "owasp", "cve", "exploit", "attack surface", "threat model",
-    "security analysis", "análisis de seguridad",
+    "security audit",
+    "auditoría de seguridad",
+    "vulnerability assessment",
+    "evaluación de vulnerabilidades",
+    "penetration test",
+    "pentest",
+    "security review",
+    "revisión de seguridad",
+    "find vulnerabilities",
+    "busca vulnerabilidades",
+    "find security issues",
+    "owasp",
+    "cve",
+    "exploit",
+    "attack surface",
+    "threat model",
+    "security analysis",
+    "análisis de seguridad",
     // Architecture intent
-    "architecture review", "revisión de arquitectura",
-    "architecture analysis", "análisis de arquitectura",
-    "design review", "system design review", "review the architecture",
-    "revisar la arquitectura", "analizar la arquitectura",
+    "architecture review",
+    "revisión de arquitectura",
+    "architecture analysis",
+    "análisis de arquitectura",
+    "design review",
+    "system design review",
+    "review the architecture",
+    "revisar la arquitectura",
+    "analizar la arquitectura",
     // Repository scope
-    "repository review", "repo review", "codebase review", "codebase audit",
-    "review the codebase", "review the entire codebase",
-    "revisar el repositorio", "revisar el código fuente",
-    "revisar todo el proyecto", "review the whole project",
-    "audit the codebase", "auditoría del código",
+    "repository review",
+    "repo review",
+    "codebase review",
+    "codebase audit",
+    "review the codebase",
+    "review the entire codebase",
+    "revisar el repositorio",
+    "revisar el código fuente",
+    "revisar todo el proyecto",
+    "review the whole project",
+    "audit the codebase",
+    "auditoría del código",
     // Compliance / governance
-    "compliance", "cumplimiento", "regulatory", "regulatorio",
-    "gdpr", "hipaa", "pci", "soc 2", "iso 27001",
+    "compliance",
+    "cumplimiento",
+    "regulatory",
+    "regulatorio",
+    "gdpr",
+    "hipaa",
+    "pci",
+    "soc 2",
+    "iso 27001",
 ];
 
 /// Patterns that raise risk to Elevated.
 const ELEVATED_RISK_PATTERNS: &[&str] = &[
-    "code review", "revisión de código", "review the code", "revisar el código",
-    "analyze the code", "analizar el código", "code quality", "calidad del código",
-    "technical debt", "deuda técnica",
-    "data migration", "migración de datos", "database migration",
-    "breaking change", "cambio disruptivo", "api change",
-    "production", "producción", "deploy to prod", "desplegar a producción",
-    "critical path", "ruta crítica", "critical system", "sistema crítico",
-    "large refactor", "gran refactorización", "full refactor",
+    "code review",
+    "revisión de código",
+    "review the code",
+    "revisar el código",
+    "analyze the code",
+    "analizar el código",
+    "code quality",
+    "calidad del código",
+    "technical debt",
+    "deuda técnica",
+    "data migration",
+    "migración de datos",
+    "database migration",
+    "breaking change",
+    "cambio disruptivo",
+    "api change",
+    "production",
+    "producción",
+    "deploy to prod",
+    "desplegar a producción",
+    "critical path",
+    "ruta crítica",
+    "critical system",
+    "sistema crítico",
+    "large refactor",
+    "gran refactorización",
+    "full refactor",
 ];
 
 // ── Risk assessment result ────────────────────────────────────────────────────
@@ -274,7 +324,11 @@ mod tests {
             TechnicalDomain::SecurityAnalysis,
             ComplexityLevel::Low,
         );
-        assert_eq!(a.risk, ExecutionRisk::High, "domain:SecurityAnalysis must floor at High");
+        assert_eq!(
+            a.risk,
+            ExecutionRisk::High,
+            "domain:SecurityAnalysis must floor at High"
+        );
     }
 
     #[test]

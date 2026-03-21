@@ -37,12 +37,22 @@ impl PatchApplyTool {
                     }
                     file_patches.push(fp);
                 }
-                let path = line.trim_start_matches("--- ").trim_start_matches("a/").to_string();
+                let path = line
+                    .trim_start_matches("--- ")
+                    .trim_start_matches("a/")
+                    .to_string();
                 let path = path.split('\t').next().unwrap_or(&path).to_string();
-                current = Some(FilePatch { from: path, to: String::new(), hunks: vec![] });
+                current = Some(FilePatch {
+                    from: path,
+                    to: String::new(),
+                    hunks: vec![],
+                });
             } else if line.starts_with("+++ ") {
                 if let Some(ref mut fp) = current {
-                    let path = line.trim_start_matches("+++ ").trim_start_matches("b/").to_string();
+                    let path = line
+                        .trim_start_matches("+++ ")
+                        .trim_start_matches("b/")
+                        .to_string();
                     fp.to = path.split('\t').next().unwrap_or(&path).to_string();
                 }
             } else if line.starts_with("@@ ") {
@@ -52,7 +62,8 @@ impl PatchApplyTool {
                         fp.hunks.push(h);
                     }
                     // Parse @@ -old_start,old_count +new_start,new_count @@
-                    let (old_start, old_count, new_start, new_count) = Self::parse_hunk_header(line);
+                    let (old_start, old_count, new_start, new_count) =
+                        Self::parse_hunk_header(line);
                     current_hunk = Some(Hunk {
                         old_start,
                         old_count,
@@ -62,12 +73,13 @@ impl PatchApplyTool {
                     });
                 }
             } else if let Some(ref mut hunk) = current_hunk {
-                if line.starts_with('-') {
-                    hunk.lines.push(HunkLine::Remove(line[1..].to_string()));
-                } else if line.starts_with('+') {
-                    hunk.lines.push(HunkLine::Add(line[1..].to_string()));
+                if let Some(stripped) = line.strip_prefix('-') {
+                    hunk.lines.push(HunkLine::Remove(stripped.to_string()));
+                } else if let Some(stripped) = line.strip_prefix('+') {
+                    hunk.lines.push(HunkLine::Add(stripped.to_string()));
                 } else if line.starts_with(' ') || line.is_empty() {
-                    hunk.lines.push(HunkLine::Context(line.get(1..).unwrap_or("").to_string()));
+                    hunk.lines
+                        .push(HunkLine::Context(line.get(1..).unwrap_or("").to_string()));
                 }
             }
         }
@@ -103,13 +115,21 @@ impl PatchApplyTool {
     }
 
     /// Apply a single file patch to file content.
-    fn apply_hunk(content_lines: &[String], hunk: &Hunk, reverse: bool) -> Result<Vec<String>, String> {
+    fn apply_hunk(
+        content_lines: &[String],
+        hunk: &Hunk,
+        reverse: bool,
+    ) -> Result<Vec<String>, String> {
         let mut result = vec![];
-        let start = if hunk.old_start > 0 { hunk.old_start - 1 } else { 0 };
+        let start = if hunk.old_start > 0 {
+            hunk.old_start - 1
+        } else {
+            0
+        };
 
         // Lines before the hunk
-        for i in 0..start.min(content_lines.len()) {
-            result.push(content_lines[i].clone());
+        for line in content_lines.iter().take(start.min(content_lines.len())) {
+            result.push(line.clone());
         }
 
         let mut content_idx = start;
@@ -121,7 +141,9 @@ impl PatchApplyTool {
                         if existing != l {
                             return Err(format!(
                                 "Context mismatch at line {}: expected {:?}, found {:?}",
-                                content_idx + 1, l, existing
+                                content_idx + 1,
+                                l,
+                                existing
                             ));
                         }
                         result.push(existing.clone());
@@ -138,7 +160,9 @@ impl PatchApplyTool {
                             if existing != l {
                                 return Err(format!(
                                     "Remove mismatch at line {}: expected {:?}, found {:?}",
-                                    content_idx + 1, l, existing
+                                    content_idx + 1,
+                                    l,
+                                    existing
                                 ));
                             }
                             content_idx += 1; // skip/consume the line
@@ -152,7 +176,9 @@ impl PatchApplyTool {
                             if existing != l {
                                 return Err(format!(
                                     "Reverse add mismatch at line {}: expected {:?}, found {:?}",
-                                    content_idx + 1, l, existing
+                                    content_idx + 1,
+                                    l,
+                                    existing
                                 ));
                             }
                             content_idx += 1;
@@ -166,8 +192,8 @@ impl PatchApplyTool {
         }
 
         // Lines after the hunk
-        for i in content_idx..content_lines.len() {
-            result.push(content_lines[i].clone());
+        for line in content_lines.iter().skip(content_idx) {
+            result.push(line.clone());
         }
 
         Ok(result)
@@ -210,6 +236,7 @@ struct FilePatch {
     hunks: Vec<Hunk>,
 }
 
+#[allow(dead_code)]
 struct Hunk {
     old_start: usize,
     old_count: usize,
@@ -283,11 +310,16 @@ impl Tool for PatchApplyTool {
         !input.arguments["dry_run"].as_bool().unwrap_or(false)
     }
 
-    async fn execute(&self, input: ToolInput) -> Result<ToolOutput, halcon_core::error::HalconError> {
+    async fn execute(
+        &self,
+        input: ToolInput,
+    ) -> Result<ToolOutput, halcon_core::error::HalconError> {
         let args = &input.arguments;
         let dry_run = args["dry_run"].as_bool().unwrap_or(false);
         let reverse = args["reverse"].as_bool().unwrap_or(false);
-        let base_path = args["base_path"].as_str().unwrap_or(&input.working_directory);
+        let base_path = args["base_path"]
+            .as_str()
+            .unwrap_or(&input.working_directory);
         let strip = args["strip"].as_u64().unwrap_or(1) as usize;
 
         // Get patch content
@@ -308,7 +340,8 @@ impl Tool for PatchApplyTool {
         } else {
             return Ok(ToolOutput {
                 tool_use_id: input.tool_use_id,
-                content: "Provide 'patch' (inline content) or 'patch_file' (path to .patch file).".into(),
+                content: "Provide 'patch' (inline content) or 'patch_file' (path to .patch file)."
+                    .into(),
                 is_error: true,
                 metadata: None,
             });
@@ -334,7 +367,10 @@ impl Tool for PatchApplyTool {
             // Determine target file path
             let target_name = if reverse { &fp.from } else { &fp.to };
             let stripped = if strip > 0 {
-                target_name.splitn(strip + 1, '/').last().unwrap_or(target_name)
+                target_name
+                    .splitn(strip + 1, '/')
+                    .last()
+                    .unwrap_or(target_name)
             } else {
                 target_name
             };
@@ -342,7 +378,12 @@ impl Tool for PatchApplyTool {
 
             let (adds, removes) = Self::diff_stats(fp);
             report.push_str(&format!("## {}\n", stripped));
-            report.push_str(&format!("  {} hunks, +{} -{} lines\n", fp.hunks.len(), adds, removes));
+            report.push_str(&format!(
+                "  {} hunks, +{} -{} lines\n",
+                fp.hunks.len(),
+                adds,
+                removes
+            ));
 
             // Read source file
             let content = match tokio::fs::read_to_string(&full_path).await {
@@ -365,7 +406,10 @@ impl Tool for PatchApplyTool {
                         let orig_lines = content.lines().count();
                         let new_lines = new_content.lines().count();
                         let diff = new_lines as i64 - orig_lines as i64;
-                        report.push_str(&format!("  Lines: {} → {} ({:+})\n", orig_lines, new_lines, diff));
+                        report.push_str(&format!(
+                            "  Lines: {} → {} ({:+})\n",
+                            orig_lines, new_lines, diff
+                        ));
                     } else {
                         // Write new content
                         match tokio::fs::write(&full_path, &new_content).await {
@@ -379,8 +423,13 @@ impl Tool for PatchApplyTool {
                             }
                         }
                     }
-                    if dry_run { applied_count += 1; }
-                    results.insert(stripped.to_string(), json!({ "status": "ok", "adds": adds, "removes": removes }));
+                    if dry_run {
+                        applied_count += 1;
+                    }
+                    results.insert(
+                        stripped.to_string(),
+                        json!({ "status": "ok", "adds": adds, "removes": removes }),
+                    );
                 }
                 Err(e) => {
                     report.push_str(&format!("  ❌ Patch failed: {}\n", e));
@@ -395,7 +444,11 @@ impl Tool for PatchApplyTool {
         let reverse_note = if reverse { " [reverse]" } else { "" };
         let header = format!(
             "# Patch Application{}{}\n\nFiles: {} total, {} applied, {} failed\n\n",
-            mode, reverse_note, file_patches.len(), applied_count, error_count
+            mode,
+            reverse_note,
+            file_patches.len(),
+            applied_count,
+            error_count
         );
 
         Ok(ToolOutput {
@@ -481,7 +534,11 @@ mod tests {
 
     #[test]
     fn apply_hunk_remove_line() {
-        let content = vec!["line1".to_string(), "line_to_remove".to_string(), "line3".to_string()];
+        let content = vec![
+            "line1".to_string(),
+            "line_to_remove".to_string(),
+            "line3".to_string(),
+        ];
         let hunk = Hunk {
             old_start: 1,
             old_count: 2,
@@ -500,7 +557,10 @@ mod tests {
     fn apply_hunk_context_mismatch_error() {
         let content = vec!["actual_line".to_string()];
         let hunk = Hunk {
-            old_start: 1, old_count: 1, new_start: 1, new_count: 1,
+            old_start: 1,
+            old_count: 1,
+            new_start: 1,
+            new_count: 1,
             lines: vec![HunkLine::Context("expected_different".to_string())],
         };
         let result = PatchApplyTool::apply_hunk(&content, &hunk, false);
@@ -524,11 +584,14 @@ mod tests {
     #[tokio::test]
     async fn execute_no_patch_returns_error() {
         let tool = PatchApplyTool::new();
-        let out = tool.execute(ToolInput {
-            tool_use_id: "t".into(),
-            arguments: json!({}),
-            working_directory: "/tmp".into(),
-        }).await.unwrap();
+        let out = tool
+            .execute(ToolInput {
+                tool_use_id: "t".into(),
+                arguments: json!({}),
+                working_directory: "/tmp".into(),
+            })
+            .await
+            .unwrap();
         assert!(out.is_error);
     }
 
@@ -536,12 +599,19 @@ mod tests {
     async fn execute_dry_run_nonexistent_file() {
         let patch = "--- a/nonexistent_file_test_9999.txt\n+++ b/nonexistent_file_test_9999.txt\n@@ -1 +1,2 @@\n line1\n+line2\n";
         let tool = PatchApplyTool::new();
-        let out = tool.execute(ToolInput {
-            tool_use_id: "t".into(),
-            arguments: json!({ "patch": patch, "dry_run": true }),
-            working_directory: "/tmp".into(),
-        }).await.unwrap();
+        let out = tool
+            .execute(ToolInput {
+                tool_use_id: "t".into(),
+                arguments: json!({ "patch": patch, "dry_run": true }),
+                working_directory: "/tmp".into(),
+            })
+            .await
+            .unwrap();
         // Should report an error for the file but not crash
-        assert!(out.content.contains("Cannot read") || out.content.contains("failed") || out.content.contains("error"));
+        assert!(
+            out.content.contains("Cannot read")
+                || out.content.contains("failed")
+                || out.content.contains("error")
+        );
     }
 }

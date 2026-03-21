@@ -144,7 +144,7 @@ impl FailureInjectionHarness {
         for mode in &modes {
             match mode {
                 FailureMode::ToolTimeout { probability } => {
-                    if self.rng.gen::<f64>() < *probability {
+                    if self.rng.random::<f64>() < *probability {
                         self.stats.total_injections += 1;
                         self.stats.timeouts_injected += 1;
                         return InjectedToolResult {
@@ -157,13 +157,17 @@ impl FailureInjectionHarness {
                     }
                 }
                 FailureMode::OutputCorruption { probability } => {
-                    if self.rng.gen::<f64>() < *probability {
+                    if self.rng.random::<f64>() < *probability {
                         self.stats.total_injections += 1;
                         self.stats.corruptions_injected += 1;
-                        let corrupt_id: u32 = self.rng.gen();
+                        let corrupt_id: u32 = self.rng.random();
                         let half = output.len() / 2;
                         let head = &output[..half.min(output.len())];
-                        let tail = if half < output.len() { &output[half..] } else { "" };
+                        let tail = if half < output.len() {
+                            &output[half..]
+                        } else {
+                            ""
+                        };
                         let corrupted = format!("{}\0[CORRUPT:{}]\0{}", head, corrupt_id, tail);
                         return InjectedToolResult {
                             output: corrupted,
@@ -175,7 +179,7 @@ impl FailureInjectionHarness {
                     }
                 }
                 FailureMode::FalsePositiveToolSuccess { probability } => {
-                    if is_error && self.rng.gen::<f64>() < *probability {
+                    if is_error && self.rng.random::<f64>() < *probability {
                         self.stats.total_injections += 1;
                         self.stats.false_positives_injected += 1;
                         return InjectedToolResult {
@@ -218,15 +222,19 @@ impl FailureInjectionHarness {
     /// Returns a cloned, potentially perturbed vector; original is unchanged.
     pub fn inject_embedding(&mut self, embedding: &[f32]) -> Vec<f32> {
         for mode in &self.modes.clone() {
-            if let FailureMode::EmbeddingNoise { probability, magnitude } = mode {
-                if self.rng.gen::<f64>() < *probability {
+            if let FailureMode::EmbeddingNoise {
+                probability,
+                magnitude,
+            } = mode
+            {
+                if self.rng.random::<f64>() < *probability {
                     self.stats.total_injections += 1;
                     self.stats.embedding_noise_injected += 1;
                     let mag = *magnitude;
                     return embedding
                         .iter()
                         .map(|&v| {
-                            let noise: f32 = self.rng.gen_range(-mag..=mag);
+                            let noise: f32 = self.rng.random_range(-mag..=mag);
                             (v + noise).clamp(-1.0, 1.0)
                         })
                         .collect();
@@ -277,7 +285,7 @@ impl FailureInjectionHarness {
                 let kept: Vec<T> = episodes
                     .into_iter()
                     .filter(|_| {
-                        let drop = self.rng.gen::<f64>() < p;
+                        let drop = self.rng.random::<f64>() < p;
                         if drop {
                             self.stats.memory_drift_applied += 1;
                         }
@@ -327,7 +335,8 @@ mod tests {
 
     #[test]
     fn timeout_probability_1_always_fires() {
-        let mut h = FailureInjectionHarness::single(0, FailureMode::ToolTimeout { probability: 1.0 });
+        let mut h =
+            FailureInjectionHarness::single(0, FailureMode::ToolTimeout { probability: 1.0 });
         let result = h.inject_tool_result("output", false);
         assert!(result.was_injected);
         assert!(result.timed_out);
@@ -336,7 +345,8 @@ mod tests {
 
     #[test]
     fn timeout_probability_0_never_fires() {
-        let mut h = FailureInjectionHarness::single(0, FailureMode::ToolTimeout { probability: 0.0 });
+        let mut h =
+            FailureInjectionHarness::single(0, FailureMode::ToolTimeout { probability: 0.0 });
         for _ in 0..100 {
             let result = h.inject_tool_result("output", false);
             assert!(!result.was_injected);
@@ -361,10 +371,8 @@ mod tests {
 
     #[test]
     fn output_corruption_changes_content() {
-        let mut h = FailureInjectionHarness::single(
-            99,
-            FailureMode::OutputCorruption { probability: 1.0 },
-        );
+        let mut h =
+            FailureInjectionHarness::single(99, FailureMode::OutputCorruption { probability: 1.0 });
         let result = h.inject_tool_result("hello world", false);
         assert!(result.was_injected);
         assert!(result.output.contains("CORRUPT"));
@@ -374,7 +382,10 @@ mod tests {
     fn embedding_noise_changes_values() {
         let mut h = FailureInjectionHarness::single(
             7,
-            FailureMode::EmbeddingNoise { probability: 1.0, magnitude: 0.1 },
+            FailureMode::EmbeddingNoise {
+                probability: 1.0,
+                magnitude: 0.1,
+            },
         );
         let orig = vec![0.5f32, 0.5, 0.5];
         let noisy = h.inject_embedding(&orig);
@@ -401,7 +412,9 @@ mod tests {
     #[test]
     fn critic_bias_never_suppresses_terminal() {
         let mut h = FailureInjectionHarness::single(0, FailureMode::CriticBias { delta: 1.0 });
-        let terminate = CriticSignal::Terminate { reason: "budget exhausted".into() };
+        let terminate = CriticSignal::Terminate {
+            reason: "budget exhausted".into(),
+        };
         let out = h.inject_critic_signal(terminate.clone(), 0.0);
         // Terminal is always passed through unchanged
         assert!(out.is_terminal());
@@ -409,17 +422,22 @@ mod tests {
 
     #[test]
     fn memory_drift_reduces_episode_count() {
-        let mut h = FailureInjectionHarness::single(1, FailureMode::MemoryDrift { probability: 0.5 });
+        let mut h =
+            FailureInjectionHarness::single(1, FailureMode::MemoryDrift { probability: 0.5 });
         let episodes: Vec<i32> = (0..100).collect();
         let kept = h.inject_memory_retrieval(episodes);
         // With p=0.5 and 100 items, expect roughly 50 kept (±20 for randomness)
         assert!(kept.len() < 100, "drift should remove some episodes");
-        assert!(kept.len() > 20, "drift should not remove nearly all episodes at p=0.5");
+        assert!(
+            kept.len() > 20,
+            "drift should not remove nearly all episodes at p=0.5"
+        );
     }
 
     #[test]
     fn memory_drift_p0_keeps_all() {
-        let mut h = FailureInjectionHarness::single(1, FailureMode::MemoryDrift { probability: 0.0 });
+        let mut h =
+            FailureInjectionHarness::single(1, FailureMode::MemoryDrift { probability: 0.0 });
         let episodes: Vec<i32> = (0..50).collect();
         let kept = h.inject_memory_retrieval(episodes.clone());
         assert_eq!(kept.len(), episodes.len());
@@ -429,12 +447,18 @@ mod tests {
     fn injection_rate_accurate() {
         let p = 0.5;
         let n = 10_000;
-        let mut h = FailureInjectionHarness::single(42, FailureMode::ToolTimeout { probability: p });
+        let mut h =
+            FailureInjectionHarness::single(42, FailureMode::ToolTimeout { probability: p });
         for _ in 0..n {
             h.inject_tool_result("cmd", false);
         }
         let rate = h.injection_rate();
-        assert!((rate - p).abs() < 0.03, "rate={:.3} expected≈{:.3}", rate, p);
+        assert!(
+            (rate - p).abs() < 0.03,
+            "rate={:.3} expected≈{:.3}",
+            rate,
+            p
+        );
     }
 
     #[test]
@@ -452,7 +476,10 @@ mod tests {
             FailureMode::ToolTimeout { probability: 0.1 },
             FailureMode::OutputCorruption { probability: 0.1 },
             FailureMode::FalsePositiveToolSuccess { probability: 0.1 },
-            FailureMode::EmbeddingNoise { probability: 0.1, magnitude: 0.05 },
+            FailureMode::EmbeddingNoise {
+                probability: 0.1,
+                magnitude: 0.05,
+            },
             FailureMode::CriticBias { delta: 0.1 },
             FailureMode::MemoryDrift { probability: 0.1 },
         ];

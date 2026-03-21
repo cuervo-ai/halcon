@@ -20,17 +20,19 @@ fn levenshtein(a: &str, b: &str) -> usize {
     let a: Vec<char> = a.chars().collect();
     let b: Vec<char> = b.chars().collect();
     let (la, lb) = (a.len(), b.len());
-    if la == 0 { return lb; }
-    if lb == 0 { return la; }
+    if la == 0 {
+        return lb;
+    }
+    if lb == 0 {
+        return la;
+    }
     let mut prev: Vec<usize> = (0..=lb).collect();
     let mut curr = vec![0usize; lb + 1];
     for i in 1..=la {
         curr[0] = i;
         for j in 1..=lb {
             let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
-            curr[j] = (curr[j - 1] + 1)
-                .min(prev[j] + 1)
-                .min(prev[j - 1] + cost);
+            curr[j] = (curr[j - 1] + 1).min(prev[j] + 1).min(prev[j - 1] + cost);
         }
         std::mem::swap(&mut prev, &mut curr);
     }
@@ -359,7 +361,9 @@ const CENZONTLE_MODEL_CACHE_TTL_SECS: u64 = 3600;
 /// Returns `Some(models)` when a valid, non-expired cache exists.
 /// Returns `None` on any error (cache miss, expired, parse error) — caller fetches from API.
 fn load_cenzontle_model_cache() -> Option<Vec<halcon_core::types::ModelInfo>> {
-    let cache_path = dirs::home_dir()?.join(".halcon").join("cenzontle-models.json");
+    let cache_path = dirs::home_dir()?
+        .join(".halcon")
+        .join("cenzontle-models.json");
 
     let meta = std::fs::metadata(&cache_path).ok()?;
     let age = meta.modified().ok()?.elapsed().unwrap_or_default();
@@ -374,13 +378,18 @@ fn load_cenzontle_model_cache() -> Option<Vec<halcon_core::types::ModelInfo>> {
         return None;
     }
 
-    tracing::debug!(count = models.len(), "Cenzontle: model list loaded from disk cache");
+    tracing::debug!(
+        count = models.len(),
+        "Cenzontle: model list loaded from disk cache"
+    );
     Some(models)
 }
 
 /// Save the Cenzontle model list to the disk cache.
 fn save_cenzontle_model_cache(models: &[halcon_core::types::ModelInfo]) {
-    let Some(cache_path) = dirs::home_dir().map(|h| h.join(".halcon").join("cenzontle-models.json")) else {
+    let Some(cache_path) =
+        dirs::home_dir().map(|h| h.join(".halcon").join("cenzontle-models.json"))
+    else {
         return;
     };
     match serde_json::to_string(models) {
@@ -388,7 +397,10 @@ fn save_cenzontle_model_cache(models: &[halcon_core::types::ModelInfo]) {
             if let Err(e) = std::fs::write(&cache_path, json) {
                 tracing::debug!(error = %e, "Cenzontle: failed to write model cache");
             } else {
-                tracing::debug!(count = models.len(), "Cenzontle: model list saved to disk cache");
+                tracing::debug!(
+                    count = models.len(),
+                    "Cenzontle: model list saved to disk cache"
+                );
             }
         }
         Err(e) => {
@@ -511,7 +523,9 @@ pub async fn ensure_startup_providers(registry: &mut ProviderRegistry) {
     };
 
     let cenzontle_fut = async {
-        let Some(token) = cenzontle_token else { return None };
+        let Some(token) = cenzontle_token else {
+            return None;
+        };
 
         // Fast path: use the disk cache if still fresh.
         if let Some(cached_models) = load_cenzontle_model_cache() {
@@ -637,11 +651,15 @@ async fn precheck_providers_with_explicit(
         );
     } else {
         // Check for typos before falling back silently.
-        let registered = registry.list().into_iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let registered = registry
+            .list()
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>();
         let suggestion = suggest_provider(primary, &registered);
         let hint = match &suggestion {
             Some(s) => format!("Did you mean: \"{s}\"? (use -p {s})"),
-            None    => "Checking fallback providers...".to_string(),
+            None => "Checking fallback providers...".to_string(),
         };
         feedback::user_warning(
             &format!("provider '{primary}' is not registered (missing API key?)"),
@@ -963,7 +981,7 @@ pub fn load_dynamic_providers(dir: &std::path::Path, registry: &mut ProviderRegi
 /// points to a different default_provider (e.g. users who logged in before v0.3.8).
 pub fn activate_cenzontle_in_config_once() {
     static ONCE: std::sync::Once = std::sync::Once::new();
-    ONCE.call_once(|| crate::commands::sso::activate_cenzontle_in_config());
+    ONCE.call_once(crate::commands::sso::activate_cenzontle_in_config);
 }
 
 #[cfg(test)]

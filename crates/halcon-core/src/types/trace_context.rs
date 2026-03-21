@@ -111,11 +111,7 @@ impl ObservabilitySpan {
     /// End the span, recording duration and status.
     pub fn end(&mut self, now: DateTime<Utc>, status: impl Into<String>) {
         self.end_time = Some(now);
-        self.duration_ms = Some(
-            (now - self.start_time)
-                .num_milliseconds()
-                .max(0) as u64,
-        );
+        self.duration_ms = Some((now - self.start_time).num_milliseconds().max(0) as u64);
         self.status = status.into();
     }
 }

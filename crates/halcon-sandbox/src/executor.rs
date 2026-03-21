@@ -91,7 +91,10 @@ impl ExecutionResult {
     /// A timeout result.
     pub fn timed_out_result(timeout_secs: u64) -> Self {
         Self {
-            output: format!("[TIMEOUT] Command exceeded {}s limit and was killed", timeout_secs),
+            output: format!(
+                "[TIMEOUT] Command exceeded {}s limit and was killed",
+                timeout_secs
+            ),
             exit_code: None,
             timed_out: true,
             policy_violation: None,
@@ -153,7 +156,7 @@ impl SandboxedExecutor {
 
                 let truncated = self.truncate_output(combined);
                 let exit_code = output.status.code();
-                let is_error = exit_code.map_or(true, |c| c != 0);
+                let is_error = exit_code != Some(0);
 
                 ExecutionResult {
                     output: truncated,
@@ -300,7 +303,11 @@ mod tests {
     #[tokio::test]
     async fn safe_echo_executes() {
         let result = exec().execute("echo hello").await;
-        assert!(!result.is_error, "exit_code={:?} output={}", result.exit_code, result.output);
+        assert!(
+            !result.is_error,
+            "exit_code={:?} output={}",
+            result.exit_code, result.output
+        );
         assert!(result.output.contains("hello"));
     }
 

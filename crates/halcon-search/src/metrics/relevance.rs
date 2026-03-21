@@ -36,7 +36,7 @@ impl RelevanceStore {
 
         self.judgments
             .entry(query.to_string())
-            .or_insert_with(Vec::new)
+            .or_default()
             .push((document_url.to_string(), relevance));
     }
 
@@ -61,9 +61,21 @@ impl RelevanceStore {
         let mut store = Self::new();
 
         // Query 1: "async programming rust"
-        store.add_judgment("async programming rust", "https://tokio.rs/tokio/tutorial", 3);
-        store.add_judgment("async programming rust", "https://doc.rust-lang.org/book/ch16-00-concurrency.html", 2);
-        store.add_judgment("async programming rust", "https://doc.rust-lang.org/book/ch01-00-getting-started.html", 0);
+        store.add_judgment(
+            "async programming rust",
+            "https://tokio.rs/tokio/tutorial",
+            3,
+        );
+        store.add_judgment(
+            "async programming rust",
+            "https://doc.rust-lang.org/book/ch16-00-concurrency.html",
+            2,
+        );
+        store.add_judgment(
+            "async programming rust",
+            "https://doc.rust-lang.org/book/ch01-00-getting-started.html",
+            0,
+        );
         store.add_judgment("async programming rust", "https://blog.rust-lang.org/", 0);
 
         // Query 2: "rust web framework"
@@ -73,9 +85,21 @@ impl RelevanceStore {
         store.add_judgment("rust web framework", "https://cheats.rs/", 0);
 
         // Query 3: "rust getting started"
-        store.add_judgment("rust getting started", "https://doc.rust-lang.org/book/ch01-00-getting-started.html", 3);
-        store.add_judgment("rust getting started", "https://doc.rust-lang.org/book/ch03-00-common-programming-concepts.html", 2);
-        store.add_judgment("rust getting started", "https://www.rust-lang.org/what/cli", 1);
+        store.add_judgment(
+            "rust getting started",
+            "https://doc.rust-lang.org/book/ch01-00-getting-started.html",
+            3,
+        );
+        store.add_judgment(
+            "rust getting started",
+            "https://doc.rust-lang.org/book/ch03-00-common-programming-concepts.html",
+            2,
+        );
+        store.add_judgment(
+            "rust getting started",
+            "https://www.rust-lang.org/what/cli",
+            1,
+        );
         store.add_judgment("rust getting started", "https://actix.rs/", 0);
 
         store

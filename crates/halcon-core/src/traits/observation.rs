@@ -66,10 +66,7 @@ pub enum PhaseEvent {
 
     // ── post_batch ─────────────────────────────────────────────────────────
     /// A tool batch is about to be executed.
-    ToolBatchStart {
-        tool_count: usize,
-        round: u32,
-    },
+    ToolBatchStart { tool_count: usize, round: u32 },
     /// A tool batch finished execution.
     ToolBatchEnd {
         successes: usize,
@@ -77,10 +74,7 @@ pub enum PhaseEvent {
         round: u32,
     },
     /// A tool was deduplicated (suppressed as duplicate).
-    ToolDeduplicated {
-        tool_name: String,
-        round: u32,
-    },
+    ToolDeduplicated { tool_name: String, round: u32 },
 
     // ── response_cache ─────────────────────────────────────────────────────
     /// Message serialization failed during cache key computation.
@@ -166,11 +160,14 @@ mod tests {
     #[test]
     fn emit_with_noop_probe_is_noop() {
         let probe = NoopProbe;
-        emit(Some(&probe), PhaseEvent::TerminationDecision {
-            source: "end_turn".into(),
-            condition: "EndTurn".into(),
-            round: 3,
-        });
+        emit(
+            Some(&probe),
+            PhaseEvent::TerminationDecision {
+                source: "end_turn".into(),
+                condition: "EndTurn".into(),
+                round: 3,
+            },
+        );
     }
 
     #[test]

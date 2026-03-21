@@ -14,9 +14,9 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 use std::time::Instant;
 
+use futures::StreamExt;
 use halcon_core::traits::ModelProvider;
 use halcon_core::types::{ChatMessage, HttpConfig, MessageContent, ModelChunk, ModelRequest, Role};
-use futures::StreamExt;
 
 // ========================================================
 // Helper functions
@@ -207,7 +207,8 @@ async fn cenzontle_usage_tokens() {
         }
     };
 
-    let provider = CenzontleProvider::new(token, std::env::var("CENZONTLE_BASE_URL").ok(), Vec::new());
+    let provider =
+        CenzontleProvider::new(token, std::env::var("CENZONTLE_BASE_URL").ok(), Vec::new());
 
     if !provider.is_available().await {
         eprintln!("SKIP: Cenzontle not reachable");
@@ -216,7 +217,9 @@ async fn cenzontle_usage_tokens() {
 
     eprintln!("\n=== Cenzontle Usage Tokens Test ===");
     let request = simple_request("deepseek-v3-2-coding", "Di solo: ok");
-    let result = collect_stream(&provider, &request).await.expect("invoke failed");
+    let result = collect_stream(&provider, &request)
+        .await
+        .expect("invoke failed");
     print_result("cenzontle", "deepseek-v3-2-coding", &result);
 
     assert_eq!(result.error_count, 0);
@@ -246,7 +249,8 @@ async fn cenzontle_context_header_accepted() {
     };
 
     // Set a CWD so context header is populated
-    let provider = CenzontleProvider::new(token, std::env::var("CENZONTLE_BASE_URL").ok(), Vec::new());
+    let provider =
+        CenzontleProvider::new(token, std::env::var("CENZONTLE_BASE_URL").ok(), Vec::new());
 
     if !provider.is_available().await {
         eprintln!("SKIP: Cenzontle not reachable");
@@ -267,8 +271,13 @@ async fn cenzontle_context_header_accepted() {
         stream: true,
     };
 
-    let result = collect_stream(&provider, &request).await.expect("invoke failed");
-    assert_eq!(result.error_count, 0, "backend rejected x-halcon-context header");
+    let result = collect_stream(&provider, &request)
+        .await
+        .expect("invoke failed");
+    assert_eq!(
+        result.error_count, 0,
+        "backend rejected x-halcon-context header"
+    );
     assert!(result.has_done);
     eprintln!("  PASS: x-halcon-context accepted by backend");
 }
@@ -294,7 +303,10 @@ async fn ollama_connectivity() {
     let models = provider.supported_models();
     eprintln!("  Supported models: {}", models.len());
     for m in models {
-        eprintln!("    - {} (ctx: {}, tools: {})", m.id, m.context_window, m.supports_tools);
+        eprintln!(
+            "    - {} (ctx: {}, tools: {})",
+            m.id, m.context_window, m.supports_tools
+        );
     }
 
     // Query Ollama API for actually installed models
@@ -377,7 +389,10 @@ async fn openai_gpt4o_mini_connectivity() {
     eprintln!("\n=== OpenAI gpt-4o-mini Connectivity Test ===");
 
     let provider = OpenAIProvider::new(api_key, None, HttpConfig::default());
-    assert!(provider.is_available().await, "OpenAI should be available with key");
+    assert!(
+        provider.is_available().await,
+        "OpenAI should be available with key"
+    );
 
     let request = simple_request("gpt-4o-mini", "What is 2+2? Answer with just the number.");
     let result = collect_stream(&provider, &request).await;
@@ -451,10 +466,7 @@ async fn deepseek_chat_connectivity() {
         "DeepSeek should be available with key"
     );
 
-    let request = simple_request(
-        "deepseek-chat",
-        "What is 2+2? Answer with just the number.",
-    );
+    let request = simple_request("deepseek-chat", "What is 2+2? Answer with just the number.");
     let result = collect_stream(&provider, &request).await;
 
     match result {

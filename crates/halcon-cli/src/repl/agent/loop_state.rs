@@ -16,10 +16,10 @@ pub(crate) use super::super::domain::ExecutionIntentPhase;
 
 // ── Phase 2 re-exports (synthesis governance gate) ───────────────────────────
 // Re-exported so all `agent/` phase files can import via `super::loop_state::{...}`.
-pub(super) use super::super::domain::synthesis_gate::{
-    SynthesisContext, SynthesisKind, SynthesisTrigger, SynthesisVerdict,
-};
 use super::super::domain::synthesis_gate as synthesis_gate_mod;
+pub(super) use super::super::domain::synthesis_gate::{
+    SynthesisContext, SynthesisKind, SynthesisTrigger,
+};
 
 // ── Phase 3 re-exports (goal progress) ───────────────────────────────────────
 pub(super) use super::super::domain::goal_progress::GoalProgressSnapshot;
@@ -457,7 +457,8 @@ pub(super) struct ConvergenceState {
 pub(super) struct LoopGuardState {
     pub loop_guard: super::super::loop_guard::ToolLoopGuard,
     pub failure_tracker: super::super::failure_tracker::ToolFailureTracker,
-    pub capability_orchestrator: super::super::plugins::capability_orchestrator::CapabilityOrchestrationLayer,
+    pub capability_orchestrator:
+        super::super::plugins::capability_orchestrator::CapabilityOrchestrationLayer,
     // Phase 3: Semantic cycle detection (P3.3)
     pub semantic_cycle_detector: super::super::domain::semantic_cycle::SemanticCycleDetector,
 }
@@ -582,12 +583,14 @@ impl LoopState {
     /// Sets `forced_synthesis_detected = true`, records the origin, and pushes
     /// to the `synthesis_requests` queue so convergence_phase can detect the request.
     /// Higher-priority requests override the recorded origin.
-    pub(super) fn request_synthesis(&mut self, origin: SynthesisOrigin, priority: SynthesisPriority) {
+    pub(super) fn request_synthesis(
+        &mut self,
+        origin: SynthesisOrigin,
+        priority: SynthesisPriority,
+    ) {
         self.synthesis.forced_synthesis_detected = true;
         // Keep the highest-priority origin recorded.
-        if self.synthesis.synthesis_origin.is_none()
-            || priority == SynthesisPriority::Critical
-        {
+        if self.synthesis.synthesis_origin.is_none() || priority == SynthesisPriority::Critical {
             self.synthesis.synthesis_origin = Some(origin);
         }
         self.synthesis.synthesis_requests.push((origin, priority));
@@ -633,14 +636,14 @@ impl LoopState {
     /// `SynthesisContext` that can be passed to the pure `evaluate()` function.
     pub(super) fn build_synthesis_context(&self) -> SynthesisContext {
         SynthesisContext {
-            rounds_executed:   self.rounds,
-            max_rounds:        0, // not carried on LoopState; 0 = unknown/uncapped
+            rounds_executed: self.rounds,
+            max_rounds: 0, // not carried on LoopState; 0 = unknown/uncapped
             parallel_failures: self.convergence.replan_attempts as usize,
-            reflection_score:  self.convergence.last_convergence_ratio,
-            fsm_error_count:   self.synthesis.fsm_error_count,
+            reflection_score: self.convergence.last_convergence_ratio,
+            fsm_error_count: self.synthesis.fsm_error_count,
             has_pending_tools: !self.synthesis.tool_decision.is_active(),
-            stagnation_score:  1.0 - self.convergence.last_convergence_ratio.clamp(0.0, 1.0),
-            forced_flag:       self.synthesis.is_synthesis_forced(),
+            stagnation_score: 1.0 - self.convergence.last_convergence_ratio.clamp(0.0, 1.0),
+            forced_flag: self.synthesis.is_synthesis_forced(),
         }
     }
 
@@ -719,9 +722,9 @@ impl LoopState {
         };
 
         GoalProgressSnapshot {
-            iteration:                 self.rounds as u64,
-            tools_executed_total:      self.tools_executed.len() as u64,
-            distinct_tools_used:       distinct,
+            iteration: self.rounds as u64,
+            tools_executed_total: self.tools_executed.len() as u64,
+            distinct_tools_used: distinct,
             accumulated_evidence_score: self.evidence.graph.synthesis_coverage() as f32,
             oracle_confidence,
         }
@@ -743,15 +746,18 @@ impl LoopState {
         let current = self.build_progress_snapshot();
 
         // Use the stored previous snapshot, or a zero baseline for the first round.
-        let baseline = self.last_progress_snapshot.clone().unwrap_or(GoalProgressSnapshot {
-            iteration:                 0,
-            tools_executed_total:      0,
-            distinct_tools_used:       0,
-            accumulated_evidence_score: 0.0,
-            oracle_confidence:         None,
-        });
+        let baseline = self
+            .last_progress_snapshot
+            .clone()
+            .unwrap_or(GoalProgressSnapshot {
+                iteration: 0,
+                tools_executed_total: 0,
+                distinct_tools_used: 0,
+                accumulated_evidence_score: 0.0,
+                oracle_confidence: None,
+            });
 
-        let delta   = compute_progress_delta(&baseline, &current);
+        let delta = compute_progress_delta(&baseline, &current);
         let verdict = evaluate_progress(&delta);
 
         tracing::trace!(
@@ -770,7 +776,7 @@ impl LoopState {
         match verdict {
             ProgressVerdict::Progressing => {
                 // Progress resets both counters — system is advancing.
-                self.consecutive_stalls      = 0;
+                self.consecutive_stalls = 0;
                 self.consecutive_regressions = 0;
             }
             ProgressVerdict::Stalled => {
@@ -812,13 +818,17 @@ impl LoopState {
             //   working through the plan, not stuck. Let the plan guard in convergence_phase
             //   handle incomplete plans; rescue synthesis here would be premature.
             let already_forced = self.synthesis.is_synthesis_forced();
-            let synthesizing   = self.synthesis.phase() == AgentPhase::Synthesizing;
-            let pending_steps  = self.execution_tracker.as_ref().map(|t| {
-                t.tracked_steps()
-                    .iter()
-                    .filter(|s| s.status == TaskStatus::Pending)
-                    .count()
-            }).unwrap_or(0);
+            let synthesizing = self.synthesis.phase() == AgentPhase::Synthesizing;
+            let pending_steps = self
+                .execution_tracker
+                .as_ref()
+                .map(|t| {
+                    t.tracked_steps()
+                        .iter()
+                        .filter(|s| s.status == TaskStatus::Pending)
+                        .count()
+                })
+                .unwrap_or(0);
 
             if !already_forced && !synthesizing && pending_steps == 0 {
                 tracing::info!(
@@ -831,7 +841,7 @@ impl LoopState {
 
                 // Invariant 3: reset counters BEFORE triggering to prevent
                 // repeat fires if synthesis detection is delayed a round.
-                self.consecutive_stalls      = 0;
+                self.consecutive_stalls = 0;
                 self.consecutive_regressions = 0;
 
                 // Always route through SynthesisGate — no bare request_synthesis calls.
@@ -860,8 +870,8 @@ impl LoopState {
 #[cfg(test)]
 mod tests {
     use super::{
-        AgentEvent, AgentPhase, ExecutionIntentPhase, SynthesisOrigin, ToolDecisionSignal,
-        transition,
+        transition, AgentEvent, AgentPhase, ExecutionIntentPhase, SynthesisOrigin,
+        ToolDecisionSignal,
     };
 
     #[test]
@@ -883,7 +893,11 @@ mod tests {
     fn consume_active_returns_true_and_resets_to_allow() {
         let mut sig = ToolDecisionSignal::ForceNoNext;
         assert!(sig.consume(), "consume must return true when active");
-        assert_eq!(sig, ToolDecisionSignal::Allow, "must reset to Allow after consume");
+        assert_eq!(
+            sig,
+            ToolDecisionSignal::Allow,
+            "must reset to Allow after consume"
+        );
     }
 
     #[test]
@@ -941,9 +955,16 @@ mod tests {
         let mut bias: Option<String> = Some("fast".to_string());
         // First take() consumes and returns the value.
         let consumed = bias.take();
-        assert_eq!(consumed.as_deref(), Some("fast"), "must yield 'fast' on first take");
+        assert_eq!(
+            consumed.as_deref(),
+            Some("fast"),
+            "must yield 'fast' on first take"
+        );
         // Second take() returns None — single-round activation.
-        assert!(bias.take().is_none(), "second take must yield None (cleared after first use)");
+        assert!(
+            bias.take().is_none(),
+            "second take must yield None (cleared after first use)"
+        );
     }
 
     #[test]
@@ -958,7 +979,11 @@ mod tests {
         let strategy_bias: Option<&str> = Some("quality");
         // When forced is None, strategy_bias should win.
         let result: Option<&str> = forced.as_deref().or(strategy_bias);
-        assert_eq!(result, Some("quality"), "strategy bias must win when forced is absent");
+        assert_eq!(
+            result,
+            Some("quality"),
+            "strategy bias must win when forced is absent"
+        );
     }
 
     #[test]
@@ -967,7 +992,11 @@ mod tests {
         let strategy_bias: Option<&str> = Some("quality");
         // When forced is Some("fast"), it must override strategy_bias.
         let result: Option<&str> = forced.as_deref().or(strategy_bias);
-        assert_eq!(result, Some("fast"), "forced bias must override strategy bias");
+        assert_eq!(
+            result,
+            Some("fast"),
+            "forced bias must override strategy bias"
+        );
     }
 
     #[test]
@@ -988,22 +1017,40 @@ mod tests {
 
     #[test]
     fn execution_intent_execution_ne_investigation() {
-        assert_ne!(ExecutionIntentPhase::Execution, ExecutionIntentPhase::Investigation);
-        assert_ne!(ExecutionIntentPhase::Execution, ExecutionIntentPhase::Complete);
+        assert_ne!(
+            ExecutionIntentPhase::Execution,
+            ExecutionIntentPhase::Investigation
+        );
+        assert_ne!(
+            ExecutionIntentPhase::Execution,
+            ExecutionIntentPhase::Complete
+        );
     }
 
     #[test]
     fn execution_intent_complete_ne_execution() {
         // Complete allows synthesis; Execution does not.
-        assert_ne!(ExecutionIntentPhase::Complete, ExecutionIntentPhase::Execution);
+        assert_ne!(
+            ExecutionIntentPhase::Complete,
+            ExecutionIntentPhase::Execution
+        );
     }
 
     #[test]
     fn synthesis_origin_distinct_variants() {
         // All variants are distinct — no accidental aliasing.
-        assert_ne!(SynthesisOrigin::OracleConvergence, SynthesisOrigin::SupervisorFailure);
-        assert_ne!(SynthesisOrigin::ReplanTimeout, SynthesisOrigin::CacheCorruption);
-        assert_ne!(SynthesisOrigin::OscillationDetected, SynthesisOrigin::OracleConvergence);
+        assert_ne!(
+            SynthesisOrigin::OracleConvergence,
+            SynthesisOrigin::SupervisorFailure
+        );
+        assert_ne!(
+            SynthesisOrigin::ReplanTimeout,
+            SynthesisOrigin::CacheCorruption
+        );
+        assert_ne!(
+            SynthesisOrigin::OscillationDetected,
+            SynthesisOrigin::OracleConvergence
+        );
     }
 
     // ── AgentPhase FSM tests ────────────────────────────────────────────────
@@ -1192,7 +1239,10 @@ mod tests {
             violations += 1;
         }
         assert_eq!(violations, 1);
-        assert!(violations < growth_trigger, "single violation should not trigger compaction");
+        assert!(
+            violations < growth_trigger,
+            "single violation should not trigger compaction"
+        );
     }
 
     #[test]
@@ -1217,7 +1267,10 @@ mod tests {
                 violations = 0;
             }
         }
-        assert!(compaction_needed, "2 consecutive violations should trigger compaction");
+        assert!(
+            compaction_needed,
+            "2 consecutive violations should trigger compaction"
+        );
     }
 
     #[test]
@@ -1245,8 +1298,14 @@ mod tests {
                 violations = 0; // reset on linear round
             }
         }
-        assert!(!compaction_needed, "interleaved linear round should prevent compaction trigger");
-        assert_eq!(violations, 1, "counter should be 1 after reset + 1 violation");
+        assert!(
+            !compaction_needed,
+            "interleaved linear round should prevent compaction trigger"
+        );
+        assert_eq!(
+            violations, 1,
+            "counter should be 1 after reset + 1 violation"
+        );
     }
 
     #[test]
@@ -1276,8 +1335,8 @@ mod tests {
         } else {
             recent_scores.iter().sum::<f32>() / recent_scores.len() as f32
         };
-        let declining = recent_scores.len() >= 2
-            && recent_scores[0] < recent_scores[recent_scores.len() - 1];
+        let declining =
+            recent_scores.len() >= 2 && recent_scores[0] < recent_scores[recent_scores.len() - 1];
 
         if budget_fraction > 0.80 && progress < 0.80 {
             return Some("ForceSynthesis");
@@ -1295,21 +1354,32 @@ mod tests {
     fn mini_critic_no_intervention_early() {
         // Round 2 with interval 3 — too early for mini-critic.
         let action = simulate_mini_critic(2, 10.0, 0.0, &[], 3, 0.50);
-        assert!(action.is_none(), "Mini-critic should not fire before interval");
+        assert!(
+            action.is_none(),
+            "Mini-critic should not fire before interval"
+        );
     }
 
     #[test]
     fn mini_critic_force_replan_on_stall() {
         // Round 6 out of 10 (60% budget), 10% progress, low scores → ForceReplan.
         let action = simulate_mini_critic(6, 10.0, 0.10, &[0.3, 0.2, 0.25], 3, 0.50);
-        assert_eq!(action, Some("ForceReplan"), "Stalled session should trigger replan");
+        assert_eq!(
+            action,
+            Some("ForceReplan"),
+            "Stalled session should trigger replan"
+        );
     }
 
     #[test]
     fn mini_critic_force_synthesis_late() {
         // Round 9 out of 10 (90% budget), 50% progress → ForceSynthesis.
         let action = simulate_mini_critic(9, 10.0, 0.50, &[0.6, 0.5, 0.4], 3, 0.50);
-        assert_eq!(action, Some("ForceSynthesis"), ">80% budget + <80% progress should force synthesis");
+        assert_eq!(
+            action,
+            Some("ForceSynthesis"),
+            ">80% budget + <80% progress should force synthesis"
+        );
     }
 
     #[test]
@@ -1317,7 +1387,10 @@ mod tests {
         // Round 6 out of 10 (60% budget), 70% progress, rising scores → no action.
         // Scores: latest=0.9 > oldest=0.8 → not declining.
         let action = simulate_mini_critic(6, 10.0, 0.70, &[0.9, 0.85, 0.8], 3, 0.50);
-        assert!(action.is_none(), "Good progress with rising scores should not trigger intervention");
+        assert!(
+            action.is_none(),
+            "Good progress with rising scores should not trigger intervention"
+        );
     }
 
     #[test]

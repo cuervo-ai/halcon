@@ -91,7 +91,10 @@ pub enum SafeEditDecision {
     /// Risk tier is High/Critical — supervisor / user approval is required
     /// before committing.  The transaction has been staged but NOT committed;
     /// call [`SafeEditManager::approve_pending`] after user consent.
-    AwaitingApproval { preview: PatchPreview, reason: String },
+    AwaitingApproval {
+        preview: PatchPreview,
+        reason: String,
+    },
     /// The edit was explicitly blocked.
     SupervisorDenied { reason: String },
     /// The edit would exceed the configured [`EditBudget`].
@@ -174,8 +177,7 @@ impl SafeEditManager {
             return Ok(SafeEditDecision::BudgetExceeded {
                 reason: format!(
                     "Max total lines changed exceeded ({}/{}) in transaction",
-                    total_lines,
-                    self.budget.max_total_lines_changed,
+                    total_lines, self.budget.max_total_lines_changed,
                 ),
             });
         }
@@ -209,7 +211,9 @@ impl SafeEditManager {
             });
         }
 
-        let preview = txn.stage_edit(path, old_string, new_string, replace_all).await?;
+        let preview = txn
+            .stage_edit(path, old_string, new_string, replace_all)
+            .await?;
 
         if !preview.has_changes() {
             return Ok(SafeEditDecision::NoOp);
@@ -220,8 +224,7 @@ impl SafeEditManager {
             return Ok(SafeEditDecision::BudgetExceeded {
                 reason: format!(
                     "Max total lines changed exceeded ({}/{})",
-                    total_lines,
-                    self.budget.max_total_lines_changed,
+                    total_lines, self.budget.max_total_lines_changed,
                 ),
             });
         }
@@ -334,16 +337,11 @@ impl SafeEditManager {
                     render_sink.warning(&reason, Some("Review the diff and approve or deny."));
                     // Display the diff if available.
                     if preview.has_changes() {
-                        render_sink.info(&format!(
-                            "Diff preview:\n{}", preview.unified_diff
-                        ));
+                        render_sink.info(&format!("Diff preview:\n{}", preview.unified_diff));
                     }
                     // Do NOT commit — return awaiting approval so the caller
                     // can prompt the user.
-                    return Ok(SafeEditDecision::AwaitingApproval {
-                        preview,
-                        reason,
-                    });
+                    return Ok(SafeEditDecision::AwaitingApproval { preview, reason });
                 }
                 // Budget does not require approval for High → commit.
                 txn.commit().await?;
@@ -355,7 +353,10 @@ impl SafeEditManager {
                 if tier >= self.budget.preview_above {
                     render_sink.info(&format!(
                         "Medium-risk edit: {} (+{}/−{} lines) [{}]",
-                        preview.path, preview.added, preview.removed, tier.label()
+                        preview.path,
+                        preview.added,
+                        preview.removed,
+                        tier.label()
                     ));
                 }
                 txn.commit().await?;
@@ -487,7 +488,9 @@ mod tests {
             for i in 0..1 {
                 let fake_f = dir.path().join(format!("fake{i}.txt"));
                 std::fs::write(&fake_f, "x").unwrap();
-                txn.stage_write(fake_f.to_str().unwrap(), b"y").await.unwrap();
+                txn.stage_write(fake_f.to_str().unwrap(), b"y")
+                    .await
+                    .unwrap();
             }
         }
 
@@ -523,7 +526,8 @@ mod tests {
         assert!(
             matches!(
                 decision,
-                SafeEditDecision::SupervisorDenied { .. } | SafeEditDecision::AwaitingApproval { .. }
+                SafeEditDecision::SupervisorDenied { .. }
+                    | SafeEditDecision::AwaitingApproval { .. }
             ),
             "autonomous mode must block medium+ risk"
         );

@@ -8,9 +8,7 @@ use crate::server::state::{AppState, ToolState};
 use crate::types::tool::*;
 
 /// GET /api/v1/tools — list all registered tools.
-pub async fn list_tools(
-    State(state): State<AppState>,
-) -> Result<Json<Vec<ToolInfo>>, ApiError> {
+pub async fn list_tools(State(state): State<AppState>) -> Result<Json<Vec<ToolInfo>>, ApiError> {
     let tool_states = state.tool_states.read().await;
 
     // Get tools from the runtime's tool registry via core trait.
@@ -62,7 +60,9 @@ pub async fn tool_history(
     }
 
     if let Some(ref db) = state.db {
-        let rows = db.inner().recent_tool_executions(&name, 50)
+        let rows = db
+            .inner()
+            .recent_tool_executions(&name, 50)
             .map_err(|e| ApiError::internal(format!("tool history query: {e}")))?;
         let records: Vec<ToolExecutionRecord> = rows
             .into_iter()

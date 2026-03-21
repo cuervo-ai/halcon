@@ -73,7 +73,10 @@ pub enum AgentStreamEvent {
     /// A thinking/reasoning token.
     ThinkingToken { token: String },
     /// Periodic thinking progress update (throttled to 500ms).
-    ThinkingProgressUpdate { chars_so_far: usize, elapsed_secs: f32 },
+    ThinkingProgressUpdate {
+        chars_so_far: usize,
+        elapsed_secs: f32,
+    },
     /// A tool invocation has started.
     ToolStarted {
         name: String,

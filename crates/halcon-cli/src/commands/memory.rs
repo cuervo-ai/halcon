@@ -46,7 +46,10 @@ pub fn list(config: &AppConfig, entry_type: Option<&str>, limit: u32) -> Result<
         let created = entry.created_at.format("%Y-%m-%d %H:%M");
         let content: String = entry.content.chars().take(50).collect();
         let content = content.replace('\n', " ");
-        println!("{:<36}  {:<16}  {:<20}  {}", id, entry_type, created, content);
+        println!(
+            "{:<36}  {:<16}  {:<20}  {}",
+            id, entry_type, created, content
+        );
     }
 
     println!("\n{} entries shown.", entries.len());
@@ -90,10 +93,7 @@ pub fn prune(config: &AppConfig, force: bool) -> Result<()> {
     let max = config.memory.max_entries;
 
     if !force {
-        println!(
-            "Memory: {} entries (max: {})",
-            stats.total_entries, max
-        );
+        println!("Memory: {} entries (max: {})", stats.total_entries, max);
         if stats.total_entries <= max {
             println!("Nothing to prune — within limits.");
             return Ok(());

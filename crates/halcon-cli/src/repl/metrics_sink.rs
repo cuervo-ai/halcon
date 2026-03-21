@@ -30,9 +30,10 @@ impl AgentMetricsSink {
         let name = name.to_string();
         let labels_str = labels.to_string();
         tokio::spawn(async move {
-            if let Err(e) = db.insert_runtime_metric(
-                &name, "gauge", value, Some(labels_str), Some("agent_loop"),
-            ).await {
+            if let Err(e) = db
+                .insert_runtime_metric(&name, "gauge", value, Some(labels_str), Some("agent_loop"))
+                .await
+            {
                 tracing::warn!(error = %e, metric = %name, "metrics_sink: persist failed");
             }
         });

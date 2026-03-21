@@ -45,7 +45,9 @@ impl ModelPerformanceStats {
     /// Average reward over all recorded outcomes (0.0 when no data).
     fn avg_reward(&self) -> f64 {
         let total = (self.success_count + self.failure_count) as f64;
-        if total == 0.0 { return 0.5; } // Prior: neutral quality before any data
+        if total == 0.0 {
+            return 0.5;
+        } // Prior: neutral quality before any data
         self.total_reward / total
     }
 
@@ -152,7 +154,9 @@ impl ModelSelector {
     /// in `AgentContext` can be updated without requiring `&mut`.
     pub fn record_observed_latency(&self, model_id: &str, latency_ms: u64) {
         if let Ok(mut overrides) = self.live_latency_overrides.lock() {
-            let current = overrides.get(model_id).copied()
+            let current = overrides
+                .get(model_id)
+                .copied()
                 .or_else(|| self.latency_hints.get(model_id).copied());
             let updated = if let Some(prev) = current {
                 // EMA: new = 0.3 * observed + 0.7 * previous
@@ -234,7 +238,10 @@ impl ModelSelector {
             Some(format!(
                 "Provider quality degradation detected: best avg_reward={:.2} (threshold={:.2}), \
                  mean={:.2} across {} model(s). Consider switching providers.",
-                best, quality_gate_threshold, avg, assessed.len()
+                best,
+                quality_gate_threshold,
+                avg,
+                assessed.len()
             ))
         } else {
             None
@@ -251,9 +258,15 @@ impl ModelSelector {
     /// Tuple layout: `(success_count, failure_count, total_reward)` — matches `ModelPerformanceStats`.
     pub fn snapshot_quality_stats(&self) -> HashMap<String, (u32, u32, f64)> {
         if let Ok(stats) = self.quality_stats.lock() {
-            stats.iter().map(|(k, v)| {
-                (k.clone(), (v.success_count, v.failure_count, v.total_reward))
-            }).collect()
+            stats
+                .iter()
+                .map(|(k, v)| {
+                    (
+                        k.clone(),
+                        (v.success_count, v.failure_count, v.total_reward),
+                    )
+                })
+                .collect()
         } else {
             HashMap::new()
         }
@@ -405,7 +418,10 @@ impl ModelSelector {
                 return live;
             }
         }
-        self.latency_hints.get(model_id).copied().unwrap_or(DEFAULT_LATENCY_MS)
+        self.latency_hints
+            .get(model_id)
+            .copied()
+            .unwrap_or(DEFAULT_LATENCY_MS)
     }
 
     /// Select the best model for a given request context.
@@ -426,8 +442,7 @@ impl ModelSelector {
         }
 
         // Budget gate: if spending >= 90% of cap, force cheapest (budget always wins).
-        if self.config.budget_cap_usd > 0.0
-            && session_spend_usd >= self.config.budget_cap_usd * 0.9
+        if self.config.budget_cap_usd > 0.0 && session_spend_usd >= self.config.budget_cap_usd * 0.9
         {
             return self.cheapest_model(request);
         }
@@ -465,7 +480,9 @@ impl ModelSelector {
                 }
                 self.select_by_strategy(request, "cheap", vision_required)
             }
-            TaskComplexity::Standard => self.select_by_strategy(request, "balanced", vision_required),
+            TaskComplexity::Standard => {
+                self.select_by_strategy(request, "balanced", vision_required)
+            }
             TaskComplexity::Complex => {
                 if let Some(ref model_id) = self.config.complex_model {
                     return self.find_model(model_id, "config override (complex)");
@@ -569,9 +586,19 @@ impl ModelSelector {
 
         // 4. Semantic keywords (0-25)
         let keyword_patterns = [
-            "explain", "analyze", "reason", "think step", "complex",
-            "architecture", "design", "implement", "refactor", "debug",
-            "optimize", "investigate", "compare",
+            "explain",
+            "analyze",
+            "reason",
+            "think step",
+            "complex",
+            "architecture",
+            "design",
+            "implement",
+            "refactor",
+            "debug",
+            "optimize",
+            "investigate",
+            "compare",
         ];
         let keyword_hits: u32 = keyword_patterns
             .iter()
@@ -581,8 +608,15 @@ impl ModelSelector {
 
         // 5. Multi-step indicators (0-10)
         let multistep_patterns = [
-            "then ", "after that", "step ", "first ", "next ",
-            "finally ", "1.", "2.", "3.",
+            "then ",
+            "after that",
+            "step ",
+            "first ",
+            "next ",
+            "finally ",
+            "1.",
+            "2.",
+            "3.",
         ];
         let multistep_hits: u32 = multistep_patterns
             .iter()
@@ -600,12 +634,10 @@ impl ModelSelector {
     /// Get models eligible for selection, respecting provider scope.
     fn eligible_models(&self) -> impl Iterator<Item = &ModelInfo> {
         let scope = self.scoped_provider.clone();
-        self.available_models
-            .iter()
-            .filter(move |m| match &scope {
-                Some(p) => m.provider == *p,
-                None => true,
-            })
+        self.available_models.iter().filter(move |m| match &scope {
+            Some(p) => m.provider == *p,
+            None => true,
+        })
     }
 
     fn cheapest_model(&self, request: &ModelRequest) -> Option<ModelSelection> {
@@ -982,7 +1014,10 @@ mod tests {
 
     #[test]
     fn disabled_returns_none() {
-        let config = ModelSelectionConfig { enabled: false, ..Default::default() };
+        let config = ModelSelectionConfig {
+            enabled: false,
+            ..Default::default()
+        };
         let selector = make_selector(config);
         let req = make_request("hello");
         assert!(selector.select_model(&req, 0.0, None).is_none());
@@ -1098,10 +1133,13 @@ mod tests {
     #[test]
     fn multi_question_complex() {
         let req = make_request(
-            "What is the architecture? How does routing work? Can you explain the fallback?"
+            "What is the architecture? How does routing work? Can you explain the fallback?",
         );
         let score = ModelSelector::complexity_score(&req, 2000);
-        assert!(score >= 25, "3 questions + keywords should be complex, got {score}");
+        assert!(
+            score >= 25,
+            "3 questions + keywords should be complex, got {score}"
+        );
     }
 
     #[test]
@@ -1110,7 +1148,10 @@ mod tests {
             "Implement a new parser module. Then add unit tests. After that, refactor the existing code to use it."
         );
         let score = ModelSelector::complexity_score(&req, 2000);
-        assert!(score >= 25, "implement+refactor+multi-step should be complex, got {score}");
+        assert!(
+            score >= 25,
+            "implement+refactor+multi-step should be complex, got {score}"
+        );
     }
 
     #[test]
@@ -1145,7 +1186,10 @@ mod tests {
             score_complex > score_simple,
             "complex request ({score_complex}) should score higher than simple ({score_simple})"
         );
-        assert!(score_complex >= 25, "multi-signal request should be complex, got {score_complex}");
+        assert!(
+            score_complex >= 25,
+            "multi-signal request should be complex, got {score_complex}"
+        );
     }
 
     // --- Provider scoping tests ---
@@ -1290,7 +1334,10 @@ mod tests {
         assert_ne!(selection.model_id, "cheap-model");
         assert_ne!(selection.model_id, "no-tools-model");
         // Must be a vision-capable model
-        let selected = test_models().into_iter().find(|m| m.id == selection.model_id).unwrap();
+        let selected = test_models()
+            .into_iter()
+            .find(|m| m.id == selection.model_id)
+            .unwrap();
         assert!(selected.supports_vision);
     }
 
@@ -1304,7 +1351,9 @@ mod tests {
             ("cheap-model".to_string(), 20u64),
             ("mid-model".to_string(), 80u64),
             ("expensive-model".to_string(), 500u64),
-        ].into_iter().collect();
+        ]
+        .into_iter()
+        .collect();
 
         let selector = ModelSelector {
             config: enabled_config(),
@@ -1319,8 +1368,10 @@ mod tests {
         // Complex task → "fast" strategy → should pick fastest model (cheap-model at 20ms)
         let req = make_long_request();
         let selection = selector.select_model(&req, 0.0, None).unwrap();
-        assert_eq!(selection.model_id, "cheap-model",
-            "fast strategy with latency hints should pick the lowest-latency model");
+        assert_eq!(
+            selection.model_id, "cheap-model",
+            "fast strategy with latency hints should pick the lowest-latency model"
+        );
     }
 
     #[test]
@@ -1358,7 +1409,10 @@ mod tests {
         selector.record_outcome("my-model", 0.85, true);
         // avg_reward ≈ 0.9 → multiplier = 2.0 - 2*0.9 = 0.2 → clamped to 0.5
         let mult = selector.quality_cost_multiplier("my-model");
-        assert!(mult < 1.0, "high-quality model should get routing bonus (mult < 1.0), got {mult}");
+        assert!(
+            mult < 1.0,
+            "high-quality model should get routing bonus (mult < 1.0), got {mult}"
+        );
     }
 
     #[test]
@@ -1370,7 +1424,10 @@ mod tests {
         selector.record_outcome("bad-model", 0.0, false);
         // avg_reward = 0.0 → multiplier = 2.0 - 0 = 2.0
         let mult = selector.quality_cost_multiplier("bad-model");
-        assert!(mult > 1.0, "low-quality model should get routing penalty (mult > 1.0), got {mult}");
+        assert!(
+            mult > 1.0,
+            "low-quality model should get routing penalty (mult > 1.0), got {mult}"
+        );
         assert_eq!(mult, 2.0);
     }
 
@@ -1423,15 +1480,25 @@ mod tests {
         // "balanced" strategy (default for simple requests) should prefer good-model
         let req = make_request("hi");
         let selection = selector.select_model(&req, 0.0, None).unwrap();
-        assert_eq!(selection.model_id, "good-model",
-            "balanced strategy should prefer high-quality model over identical-cost failing model");
+        assert_eq!(
+            selection.model_id, "good-model",
+            "balanced strategy should prefer high-quality model over identical-cost failing model"
+        );
     }
 
     #[test]
     fn performance_stats_avg_reward_neutral_prior() {
         let stats = ModelPerformanceStats::default();
-        assert_eq!(stats.avg_reward(), 0.5, "no-data prior should be 0.5 (neutral)");
-        assert_eq!(stats.cost_multiplier(), 1.0, "neutral avg_reward → neutral multiplier");
+        assert_eq!(
+            stats.avg_reward(),
+            0.5,
+            "no-data prior should be 0.5 (neutral)"
+        );
+        assert_eq!(
+            stats.cost_multiplier(),
+            1.0,
+            "neutral avg_reward → neutral multiplier"
+        );
     }
 
     // ── Phase 2: routing_bias causal wiring tests ──────────────────────────
@@ -1450,7 +1517,10 @@ mod tests {
             "routing_bias=fast should route to the widest-context (fastest) model, got {}",
             selection.model_id
         );
-        assert!(selection.reason.contains("fast"), "reason should reflect fast strategy");
+        assert!(
+            selection.reason.contains("fast"),
+            "reason should reflect fast strategy"
+        );
     }
 
     #[test]
@@ -1499,7 +1569,10 @@ mod tests {
     fn snapshot_quality_stats_empty_when_no_outcomes() {
         let selector = make_selector(enabled_config());
         let snapshot = selector.snapshot_quality_stats();
-        assert!(snapshot.is_empty(), "fresh selector should have empty quality snapshot");
+        assert!(
+            snapshot.is_empty(),
+            "fresh selector should have empty quality snapshot"
+        );
     }
 
     #[test]
@@ -1513,7 +1586,10 @@ mod tests {
         let (succ_a, fail_a, reward_a) = snapshot["model-a"];
         assert_eq!(succ_a, 2);
         assert_eq!(fail_a, 0);
-        assert!((reward_a - 1.7).abs() < 0.01, "total reward should be 0.9+0.8=1.7, got {reward_a}");
+        assert!(
+            (reward_a - 1.7).abs() < 0.01,
+            "total reward should be 0.9+0.8=1.7, got {reward_a}"
+        );
         let (succ_b, fail_b, _) = snapshot["model-b"];
         assert_eq!(succ_b, 0);
         assert_eq!(fail_b, 1);
@@ -1531,7 +1607,10 @@ mod tests {
         let sel2 = make_selector(enabled_config()).with_quality_seeds(snapshot);
         // quality_cost_multiplier should reflect the seeded high quality (< 1.0 = bonus)
         let mult = sel2.quality_cost_multiplier("model-x");
-        assert!(mult < 1.0, "seeded high-quality model should have routing bonus, got {mult}");
+        assert!(
+            mult < 1.0,
+            "seeded high-quality model should have routing bonus, got {mult}"
+        );
     }
 
     #[test]
@@ -1546,7 +1625,7 @@ mod tests {
         // Simulate: message 1 records outcomes → snapshot → message 2 inherits quality.
         let msg1_sel = make_selector(enabled_config());
         msg1_sel.record_outcome("fast-model", 0.1, false); // bad model
-        msg1_sel.record_outcome("slow-model", 0.9, true);  // good model
+        msg1_sel.record_outcome("slow-model", 0.9, true); // good model
         let cache = msg1_sel.snapshot_quality_stats();
 
         // Message 2: fresh selector seeded from cache.
@@ -1599,7 +1678,10 @@ mod tests {
         let selector = make_selector(enabled_config());
         let req = make_request("hi");
         let selection = selector.select_model(&req, 0.0, Some("quality"));
-        assert!(selection.is_some(), "quality strategy with no data should still select a model");
+        assert!(
+            selection.is_some(),
+            "quality strategy with no data should still select a model"
+        );
     }
 
     #[test]
@@ -1711,7 +1793,10 @@ mod tests {
         // First 2 selections should be cheap-model (Simple → cheap strategy).
         let s1 = selector.select_model(&req, 0.0, None).unwrap();
         let s2 = selector.select_model(&req, 0.0, None).unwrap();
-        assert_eq!(s1.model_id, s2.model_id, "first two selections must stay consistent");
+        assert_eq!(
+            s1.model_id, s2.model_id,
+            "first two selections must stay consistent"
+        );
         // No diversity guard — both should be cheap-model still.
         assert_eq!(s1.model_id, "cheap-model");
     }

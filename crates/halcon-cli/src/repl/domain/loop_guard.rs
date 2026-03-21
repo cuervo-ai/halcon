@@ -553,9 +553,9 @@ impl ToolLoopGuard {
                         super::super::anomaly_detector::AgentAnomaly::ToolCycle { .. } => {
                             LoopAction::Break
                         }
-                        super::super::anomaly_detector::AgentAnomaly::PlanOscillation { .. } => {
-                            LoopAction::Break
-                        }
+                        super::super::anomaly_detector::AgentAnomaly::PlanOscillation {
+                            ..
+                        } => LoopAction::Break,
                         super::super::anomaly_detector::AgentAnomaly::TokenExplosion { .. } => {
                             LoopAction::ForceNoTools
                         }
@@ -574,7 +574,7 @@ impl ToolLoopGuard {
                     return Some(AnomalyResult {
                         action,
                         anomaly: result.anomaly.clone(),
-                        severity: result.severity.clone(),
+                        severity: result.severity,
                     });
                 }
                 super::super::anomaly_detector::AnomalySeverity::High => {
@@ -589,7 +589,7 @@ impl ToolLoopGuard {
                     return Some(AnomalyResult {
                         action: LoopAction::InjectSynthesis,
                         anomaly: result.anomaly.clone(),
-                        severity: result.severity.clone(),
+                        severity: result.severity,
                     });
                 }
                 super::super::anomaly_detector::AnomalySeverity::Medium => {
@@ -780,7 +780,11 @@ mod tests {
         // Rounds 9-11: Still InjectSynthesis (>= 8 synth, < 12 force)
         for i in 9..=11 {
             let action = guard.record_round(&[(format!("tool{i}"), i as u64)]);
-            assert_eq!(action, LoopAction::InjectSynthesis, "Round {i} should inject synthesis");
+            assert_eq!(
+                action,
+                LoopAction::InjectSynthesis,
+                "Round {i} should inject synthesis"
+            );
         }
 
         // Round 12: ForceNoTools (force threshold 12)
@@ -808,7 +812,11 @@ mod tests {
         // Rounds 9-12: Still InjectSynthesis (>= 8 synth, < 13 force)
         for i in 9..=12 {
             let action = guard.record_round(&[(format!("tool{i}"), i as u64)]);
-            assert_eq!(action, LoopAction::InjectSynthesis, "Round {i} should inject synthesis");
+            assert_eq!(
+                action,
+                LoopAction::InjectSynthesis,
+                "Round {i} should inject synthesis"
+            );
         }
 
         // Round 13: ForceNoTools (force threshold 13)
@@ -839,7 +847,11 @@ mod tests {
         // Rounds 6-8: Still InjectSynthesis (>= 5 synth, < 9 force)
         for i in 6..=8 {
             let action = guard.record_round(&[(format!("read{i}"), i as u64)]);
-            assert_eq!(action, LoopAction::InjectSynthesis, "Round {i} should inject synthesis");
+            assert_eq!(
+                action,
+                LoopAction::InjectSynthesis,
+                "Round {i} should inject synthesis"
+            );
         }
 
         // Round 9: ForceNoTools (force threshold = 9)

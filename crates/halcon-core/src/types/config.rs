@@ -116,9 +116,7 @@ pub fn validate_config(config: &AppConfig) -> Vec<ConfigIssue> {
             level: IssueLevel::Warning,
             field: "resilience + agent.routing.fallback_models".into(),
             message: "resilience is enabled but no fallback models are configured".into(),
-            suggestion: Some(
-                "Add fallback_models to [agent.routing] for failover support".into(),
-            ),
+            suggestion: Some("Add fallback_models to [agent.routing] for failover support".into()),
         });
     }
 
@@ -156,7 +154,9 @@ pub fn validate_config(config: &AppConfig) -> Vec<ConfigIssue> {
                 "provider timeout {}s is very low — requests may time out prematurely",
                 config.agent.limits.provider_timeout_secs
             ),
-            suggestion: Some("Set provider_timeout_secs to at least 30 for reliable inference".into()),
+            suggestion: Some(
+                "Set provider_timeout_secs to at least 30 for reliable inference".into(),
+            ),
         });
     }
 
@@ -176,9 +176,7 @@ pub fn validate_config(config: &AppConfig) -> Vec<ConfigIssue> {
             level: IssueLevel::Warning,
             field: "agent.limits".into(),
             message: "no token or duration budget set — API spend is unbounded".into(),
-            suggestion: Some(
-                "Set max_total_tokens or max_duration_secs for cost control".into(),
-            ),
+            suggestion: Some("Set max_total_tokens or max_duration_secs for cost control".into()),
         });
     }
 
@@ -208,7 +206,9 @@ pub fn validate_config(config: &AppConfig) -> Vec<ConfigIssue> {
                 level: IssueLevel::Warning,
                 field: "display.terminal_background".into(),
                 message: format!("invalid hex color '{hex}' — expected #RGB or #RRGGBB format"),
-                suggestion: Some("Use a hex color like \"#1a1a1a\" for dark or \"#ffffff\" for light".into()),
+                suggestion: Some(
+                    "Use a hex color like \"#1a1a1a\" for dark or \"#ffffff\" for light".into(),
+                ),
             });
         }
     }
@@ -234,8 +234,7 @@ pub fn validate_config(config: &AppConfig) -> Vec<ConfigIssue> {
             field: "orchestrator.sub_agent_timeout_secs".into(),
             message: format!(
                 "sub-agent timeout {}s exceeds parent max_duration_secs {}s",
-                config.orchestrator.sub_agent_timeout_secs,
-                config.agent.limits.max_duration_secs,
+                config.orchestrator.sub_agent_timeout_secs, config.agent.limits.max_duration_secs,
             ),
             suggestion: Some("Sub-agent timeout should be less than parent duration budget".into()),
         });
@@ -247,7 +246,9 @@ pub fn validate_config(config: &AppConfig) -> Vec<ConfigIssue> {
             level: IssueLevel::Warning,
             field: "orchestrator.enable_communication".into(),
             message: "inter-agent communication is enabled but orchestrator is disabled".into(),
-            suggestion: Some("Set orchestrator.enabled = true or disable enable_communication".into()),
+            suggestion: Some(
+                "Set orchestrator.enabled = true or disable enable_communication".into(),
+            ),
         });
     }
 
@@ -314,26 +315,28 @@ pub struct MultimodalConfig {
     pub max_concurrent_analyses: u32,
 }
 
-fn default_max_concurrent_analyses() -> u32 { 4 }
+fn default_max_concurrent_analyses() -> u32 {
+    4
+}
 
 impl Default for MultimodalConfig {
     fn default() -> Self {
         Self {
-            enabled:                  false,
-            mode:                     "hybrid".to_string(),
-            max_file_size_bytes:      20 * 1024 * 1024,
-            local_threshold_bytes:    2 * 1024 * 1024,
-            strip_exif:               true,
-            privacy_strict:           false,
-            max_audio_duration_secs:  300,
-            max_video_duration_secs:  60,
-            video_sample_fps:         1,
-            max_video_frames:         10,
-            cache_enabled:            true,
-            cache_ttl_secs:           3600,
-            models_dir:               None,
-            api_timeout_ms:           30_000,
-            max_concurrent_analyses:  4,
+            enabled: false,
+            mode: "hybrid".to_string(),
+            max_file_size_bytes: 20 * 1024 * 1024,
+            local_threshold_bytes: 2 * 1024 * 1024,
+            strip_exif: true,
+            privacy_strict: false,
+            max_audio_duration_secs: 300,
+            max_video_duration_secs: 60,
+            video_sample_fps: 1,
+            max_video_frames: 10,
+            cache_enabled: true,
+            cache_ttl_secs: 3600,
+            models_dir: None,
+            api_timeout_ms: 30_000,
+            max_concurrent_analyses: 4,
         }
     }
 }
@@ -506,7 +509,6 @@ pub struct ReasoningConfig {
     pub critic_provider: Option<String>,
 
     // ── Phase 3: AgentModelConfig — role-specific model/provider separation ──
-
     /// Optional model for the LlmPlanner role (plan generation / replan).
     /// None = use the session's primary execution model.
     ///
@@ -534,10 +536,18 @@ pub struct ReasoningConfig {
     pub reflector_provider: Option<String>,
 }
 
-fn reasoning_threshold_default() -> f64 { 0.6 }
-fn reasoning_max_retries_default() -> u32 { 1 }
-fn reasoning_exploration_default() -> f64 { 1.4 }
-fn reasoning_learning_default() -> bool { true }
+fn reasoning_threshold_default() -> f64 {
+    0.6
+}
+fn reasoning_max_retries_default() -> u32 {
+    1
+}
+fn reasoning_exploration_default() -> f64 {
+    1.4
+}
+fn reasoning_learning_default() -> bool {
+    true
+}
 
 impl Default for ReasoningConfig {
     fn default() -> Self {
@@ -576,19 +586,19 @@ pub struct SearchConfig {
 }
 
 fn search_enabled_default() -> bool {
-    true  // Enabled by default
+    true // Enabled by default
 }
 
 fn search_cache_default() -> bool {
-    true  // Cache enabled by default
+    true // Cache enabled by default
 }
 
 impl Default for SearchConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            max_documents: 0,  // Unlimited
-            enable_semantic: false,  // Disabled (requires model download)
+            max_documents: 0,       // Unlimited
+            enable_semantic: false, // Disabled (requires model download)
             enable_cache: true,
         }
     }
@@ -995,16 +1005,33 @@ pub struct AnalysisModeConfig {
     pub analysis_tool_whitelist: Vec<String>,
 }
 
-fn analysis_mode_default_allow() -> bool { true }
+fn analysis_mode_default_allow() -> bool {
+    true
+}
 
 fn default_analysis_tool_whitelist() -> Vec<String> {
     vec![
-        "grep ".into(), "grep -".into(), "rg ".into(),
-        "find . ".into(), "find src".into(), "find crates".into(),
-        "cat ".into(), "head ".into(), "tail ".into(), "wc ".into(), "ls ".into(),
-        "cargo audit".into(), "cargo check".into(), "cargo test --".into(),
-        "npm audit".into(), "npm ls".into(), "yarn audit".into(),
-        "git log ".into(), "git diff ".into(), "git status".into(), "git show ".into(),
+        "grep ".into(),
+        "grep -".into(),
+        "rg ".into(),
+        "find . ".into(),
+        "find src".into(),
+        "find crates".into(),
+        "cat ".into(),
+        "head ".into(),
+        "tail ".into(),
+        "wc ".into(),
+        "ls ".into(),
+        "cargo audit".into(),
+        "cargo check".into(),
+        "cargo test --".into(),
+        "npm audit".into(),
+        "npm ls".into(),
+        "yarn audit".into(),
+        "git log ".into(),
+        "git diff ".into(),
+        "git status".into(),
+        "git show ".into(),
     ]
 }
 
@@ -1029,7 +1056,10 @@ pub fn is_analysis_whitelisted(config: &AnalysisModeConfig, command: &str) -> bo
         return false;
     }
     let cmd = command.trim_start();
-    config.analysis_tool_whitelist.iter().any(|prefix| cmd.starts_with(prefix.as_str()))
+    config
+        .analysis_tool_whitelist
+        .iter()
+        .any(|prefix| cmd.starts_with(prefix.as_str()))
 }
 
 /// Guardrails configuration (delegated from halcon-security for serde compat).
@@ -1751,14 +1781,54 @@ impl Default for ContextServersConfig {
             // ✅ ENABLED: Los 8 servidores SDLC activos por defecto para Context Servers modal
             enabled: true,
             // Prioridades específicas por fase SDLC (mayor = más importante)
-            requirements: ContextServerDef { enabled: true, priority: 100, token_budget: 2000, cache_ttl_secs: 3600 },
-            architecture: ContextServerDef { enabled: true, priority: 90, token_budget: 2000, cache_ttl_secs: 3600 },
-            codebase: ContextServerDef { enabled: true, priority: 80, token_budget: 2000, cache_ttl_secs: 3600 },
-            workflow: ContextServerDef { enabled: true, priority: 70, token_budget: 1500, cache_ttl_secs: 3600 },
-            testing: ContextServerDef { enabled: true, priority: 60, token_budget: 1500, cache_ttl_secs: 3600 },
-            runtime: ContextServerDef { enabled: true, priority: 50, token_budget: 1000, cache_ttl_secs: 3600 },
-            security: ContextServerDef { enabled: true, priority: 40, token_budget: 1000, cache_ttl_secs: 3600 },
-            support: ContextServerDef { enabled: true, priority: 30, token_budget: 1000, cache_ttl_secs: 3600 },
+            requirements: ContextServerDef {
+                enabled: true,
+                priority: 100,
+                token_budget: 2000,
+                cache_ttl_secs: 3600,
+            },
+            architecture: ContextServerDef {
+                enabled: true,
+                priority: 90,
+                token_budget: 2000,
+                cache_ttl_secs: 3600,
+            },
+            codebase: ContextServerDef {
+                enabled: true,
+                priority: 80,
+                token_budget: 2000,
+                cache_ttl_secs: 3600,
+            },
+            workflow: ContextServerDef {
+                enabled: true,
+                priority: 70,
+                token_budget: 1500,
+                cache_ttl_secs: 3600,
+            },
+            testing: ContextServerDef {
+                enabled: true,
+                priority: 60,
+                token_budget: 1500,
+                cache_ttl_secs: 3600,
+            },
+            runtime: ContextServerDef {
+                enabled: true,
+                priority: 50,
+                token_budget: 1000,
+                cache_ttl_secs: 3600,
+            },
+            security: ContextServerDef {
+                enabled: true,
+                priority: 40,
+                token_budget: 1000,
+                cache_ttl_secs: 3600,
+            },
+            support: ContextServerDef {
+                enabled: true,
+                priority: 30,
+                token_budget: 1000,
+                cache_ttl_secs: 3600,
+            },
         }
     }
 }
@@ -1853,7 +1923,9 @@ mod tests {
         config.display.terminal_background = "invalid".to_string();
         let issues = validate_config(&config);
         assert!(
-            issues.iter().any(|i| i.field.contains("terminal_background")),
+            issues
+                .iter()
+                .any(|i| i.field.contains("terminal_background")),
             "should warn on invalid terminal_background hex"
         );
     }
@@ -1865,8 +1937,9 @@ mod tests {
 
         let issues = validate_config(&config);
         assert!(
-            issues.iter().any(|i| i.level == IssueLevel::Error
-                && i.field.contains("temperature")),
+            issues
+                .iter()
+                .any(|i| i.level == IssueLevel::Error && i.field.contains("temperature")),
             "should produce error for temperature=5.0"
         );
     }
@@ -1879,8 +1952,9 @@ mod tests {
 
         let issues = validate_config(&config);
         assert!(
-            issues.iter().any(|i| i.level == IssueLevel::Warning
-                && i.field.contains("fallback")),
+            issues
+                .iter()
+                .any(|i| i.level == IssueLevel::Warning && i.field.contains("fallback")),
             "should warn when resilience enabled with no fallback models"
         );
     }
@@ -1922,9 +1996,7 @@ mod tests {
 
         let issues = validate_config(&config);
         assert!(
-            !issues
-                .iter()
-                .any(|i| i.field == "agent.limits"),
+            !issues.iter().any(|i| i.field == "agent.limits"),
             "should not warn when token budget is set"
         );
     }
@@ -1943,8 +2015,9 @@ mod tests {
 
         let issues = validate_config(&config);
         assert!(
-            issues.iter().any(|i| i.level == IssueLevel::Warning
-                && i.field.contains("provider_timeout")),
+            issues
+                .iter()
+                .any(|i| i.level == IssueLevel::Warning && i.field.contains("provider_timeout")),
             "should warn when provider timeout < 30"
         );
     }
@@ -1956,8 +2029,9 @@ mod tests {
 
         let issues = validate_config(&config);
         assert!(
-            issues.iter().any(|i| i.level == IssueLevel::Warning
-                && i.field.contains("max_parallel")),
+            issues
+                .iter()
+                .any(|i| i.level == IssueLevel::Warning && i.field.contains("max_parallel")),
             "should warn when max_parallel_tools is 0"
         );
     }
@@ -1995,8 +2069,9 @@ mod tests {
 
         let issues = validate_config(&config);
         assert!(
-            issues.iter().any(|i| i.level == IssueLevel::Warning
-                && i.field.contains("max_concurrent_agents")),
+            issues.iter().any(
+                |i| i.level == IssueLevel::Warning && i.field.contains("max_concurrent_agents")
+            ),
             "should warn when max_concurrent_agents is 0"
         );
     }
@@ -2023,8 +2098,9 @@ mod tests {
 
         let issues = validate_config(&config);
         assert!(
-            issues.iter().any(|i| i.level == IssueLevel::Warning
-                && i.field.contains("dry_run")),
+            issues
+                .iter()
+                .any(|i| i.level == IssueLevel::Warning && i.field.contains("dry_run")),
             "should warn when dry_run enabled with confirm_destructive off"
         );
     }
@@ -2036,8 +2112,10 @@ mod tests {
 
         let issues = validate_config(&config);
         assert!(
-            issues.iter().any(|i| i.level == IssueLevel::Warning
-                && i.field.contains("max_reconnect_attempts")),
+            issues
+                .iter()
+                .any(|i| i.level == IssueLevel::Warning
+                    && i.field.contains("max_reconnect_attempts")),
             "should warn when max_reconnect_attempts > 10"
         );
     }
@@ -2051,8 +2129,9 @@ mod tests {
 
         let issues = validate_config(&config);
         assert!(
-            issues.iter().any(|i| i.level == IssueLevel::Warning
-                && i.field.contains("sub_agent_timeout")),
+            issues
+                .iter()
+                .any(|i| i.level == IssueLevel::Warning && i.field.contains("sub_agent_timeout")),
             "should warn when sub-agent timeout exceeds parent duration"
         );
     }
@@ -2087,8 +2166,15 @@ mod tests {
     fn validate_config_default_still_no_errors() {
         let config = AppConfig::default();
         let issues = validate_config(&config);
-        let errors: Vec<_> = issues.iter().filter(|i| i.level == IssueLevel::Error).collect();
-        assert!(errors.is_empty(), "default config should have no errors: {:?}", errors);
+        let errors: Vec<_> = issues
+            .iter()
+            .filter(|i| i.level == IssueLevel::Error)
+            .collect();
+        assert!(
+            errors.is_empty(),
+            "default config should have no errors: {:?}",
+            errors
+        );
     }
 
     #[test]
@@ -2279,5 +2365,4 @@ mod tests {
         assert!(cfg.reflector_model.is_none());
         assert!(cfg.reflector_provider.is_none());
     }
-
 }

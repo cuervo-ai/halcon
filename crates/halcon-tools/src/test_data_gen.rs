@@ -24,7 +24,8 @@ impl TestDataGenTool {
 
     /// Simple deterministic pseudo-random from a seed (LCG).
     fn lcg(seed: u64) -> u64 {
-        seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407)
+        seed.wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407)
     }
 
     fn rand_range(seed: &mut u64, min: u64, max: u64) -> u64 {
@@ -47,22 +48,36 @@ impl TestDataGenTool {
 
     // Realistic data pools
     fn first_names() -> &'static [&'static str] {
-        &["Alice", "Bob", "Carol", "Dave", "Eve", "Frank", "Grace", "Henry", "Isabel", "Jack",
-          "Karen", "Liam", "Maria", "Nathan", "Olivia", "Peter", "Quinn", "Rachel", "Sam", "Tina"]
+        &[
+            "Alice", "Bob", "Carol", "Dave", "Eve", "Frank", "Grace", "Henry", "Isabel", "Jack",
+            "Karen", "Liam", "Maria", "Nathan", "Olivia", "Peter", "Quinn", "Rachel", "Sam",
+            "Tina",
+        ]
     }
 
     fn last_names() -> &'static [&'static str] {
-        &["Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis",
-          "Wilson", "Anderson", "Taylor", "Thomas", "Jackson", "White", "Harris", "Martin"]
+        &[
+            "Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis",
+            "Wilson", "Anderson", "Taylor", "Thomas", "Jackson", "White", "Harris", "Martin",
+        ]
     }
 
     fn domains() -> &'static [&'static str] {
-        &["example.com", "test.org", "mock.io", "sample.net", "demo.dev", "fake.co"]
+        &[
+            "example.com",
+            "test.org",
+            "mock.io",
+            "sample.net",
+            "demo.dev",
+            "fake.co",
+        ]
     }
 
     fn words() -> &'static [&'static str] {
-        &["apple", "bravo", "cloud", "delta", "echo", "foxtrot", "golf", "hotel",
-          "india", "juliet", "kilo", "lima", "mike", "november", "oscar", "papa"]
+        &[
+            "apple", "bravo", "cloud", "delta", "echo", "foxtrot", "golf", "hotel", "india",
+            "juliet", "kilo", "lima", "mike", "november", "oscar", "papa",
+        ]
     }
 
     fn gen_uuid(seed: &mut u64) -> String {
@@ -77,7 +92,7 @@ impl TestDataGenTool {
     fn gen_timestamp(seed: &mut u64) -> String {
         // Dates between 2020-01-01 and 2024-12-31
         let start = 1577836800u64; // 2020-01-01
-        let end   = 1735689600u64; // 2025-01-01
+        let end = 1735689600u64; // 2025-01-01
         let ts = Self::rand_range(seed, start, end);
         // Simple format: convert to YYYY-MM-DD HH:MM:SS (approximate, no timezone)
         let secs = ts;
@@ -91,7 +106,15 @@ impl TestDataGenTool {
         let day_of_year = days % 365;
         let month = day_of_year / 30 + 1;
         let day = day_of_year % 30 + 1;
-        format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", year.min(2024), month.min(12), day.min(28), h, m, s)
+        format!(
+            "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
+            year.min(2024),
+            month.min(12),
+            day.min(28),
+            h,
+            m,
+            s
+        )
     }
 
     fn gen_email(seed: &mut u64) -> String {
@@ -135,8 +158,14 @@ impl TestDataGenTool {
             "uuid" => json!(Self::gen_uuid(seed)),
             "id" => json!(idx + 1),
             "integer" | "int" => {
-                let min = parts.get(1).and_then(|v| v.parse::<u64>().ok()).unwrap_or(1);
-                let max = parts.get(2).and_then(|v| v.parse::<u64>().ok()).unwrap_or(1000);
+                let min = parts
+                    .get(1)
+                    .and_then(|v| v.parse::<u64>().ok())
+                    .unwrap_or(1);
+                let max = parts
+                    .get(2)
+                    .and_then(|v| v.parse::<u64>().ok())
+                    .unwrap_or(1000);
                 json!(Self::rand_range(seed, min, max))
             }
             "float" | "number" => {
@@ -217,7 +246,12 @@ impl TestDataGenTool {
         out
     }
 
-    fn generate_sql(table: &str, schema: &[(String, String)], count: usize, seed_base: u64) -> String {
+    fn generate_sql(
+        table: &str,
+        schema: &[(String, String)],
+        count: usize,
+        seed_base: u64,
+    ) -> String {
         let mut out = String::new();
         let cols: Vec<&str> = schema.iter().map(|(k, _)| k.as_str()).collect();
         let cols_str = cols.join(", ");
@@ -231,14 +265,23 @@ impl TestDataGenTool {
                     match &v {
                         Value::String(s) => format!("'{}'", s.replace('\'', "''")),
                         Value::Number(n) => n.to_string(),
-                        Value::Bool(b) => if *b { "TRUE".to_string() } else { "FALSE".to_string() },
+                        Value::Bool(b) => {
+                            if *b {
+                                "TRUE".to_string()
+                            } else {
+                                "FALSE".to_string()
+                            }
+                        }
                         Value::Null => "NULL".to_string(),
                         _ => format!("'{}'", v.to_string().replace('\'', "''")),
                     }
                 })
                 .collect();
             let vals_str = values.join(", ");
-            out.push_str(&format!("INSERT INTO {} ({}) VALUES ({});\n", table, cols_str, vals_str));
+            out.push_str(&format!(
+                "INSERT INTO {} ({}) VALUES ({});\n",
+                table, cols_str, vals_str
+            ));
         }
         out
     }
@@ -308,7 +351,10 @@ impl Tool for TestDataGenTool {
         PermissionLevel::ReadOnly
     }
 
-    async fn execute(&self, input: ToolInput) -> Result<ToolOutput, halcon_core::error::HalconError> {
+    async fn execute(
+        &self,
+        input: ToolInput,
+    ) -> Result<ToolOutput, halcon_core::error::HalconError> {
         let args = &input.arguments;
         let format = args["format"].as_str().unwrap_or("json");
         let count = args["count"].as_u64().unwrap_or(10).clamp(1, 1000) as usize;
@@ -422,7 +468,10 @@ mod tests {
 
     #[test]
     fn deterministic_with_same_seed() {
-        let schema = [("name".to_string(), "name".to_string()), ("email".to_string(), "email".to_string())];
+        let schema = [
+            ("name".to_string(), "name".to_string()),
+            ("email".to_string(), "email".to_string()),
+        ];
         let r1 = TestDataGenTool::generate_csv(&schema, 3, 42);
         let r2 = TestDataGenTool::generate_csv(&schema, 3, 42);
         assert_eq!(r1, r2);
@@ -438,7 +487,10 @@ mod tests {
 
     #[test]
     fn csv_has_correct_row_count() {
-        let schema = [("id".to_string(), "id".to_string()), ("name".to_string(), "name".to_string())];
+        let schema = [
+            ("id".to_string(), "id".to_string()),
+            ("name".to_string(), "name".to_string()),
+        ];
         let csv = TestDataGenTool::generate_csv(&schema, 5, 42);
         let lines: Vec<&str> = csv.lines().collect();
         assert_eq!(lines.len(), 6); // 1 header + 5 rows
@@ -448,7 +500,10 @@ mod tests {
 
     #[test]
     fn sql_output_has_inserts() {
-        let schema = [("id".to_string(), "id".to_string()), ("email".to_string(), "email".to_string())];
+        let schema = [
+            ("id".to_string(), "id".to_string()),
+            ("email".to_string(), "email".to_string()),
+        ];
         let sql = TestDataGenTool::generate_sql("users", &schema, 3, 42);
         assert_eq!(sql.lines().count(), 3);
         assert!(sql.contains("INSERT INTO users"));
@@ -457,7 +512,10 @@ mod tests {
     #[tokio::test]
     async fn execute_default_json() {
         let tool = TestDataGenTool::new();
-        let out = tool.execute(make_input(json!({ "count": 5 }))).await.unwrap();
+        let out = tool
+            .execute(make_input(json!({ "count": 5 })))
+            .await
+            .unwrap();
         assert!(!out.is_error);
         let v: Value = serde_json::from_str(&out.content).expect("valid JSON");
         assert_eq!(v.as_array().unwrap().len(), 5);
@@ -466,11 +524,14 @@ mod tests {
     #[tokio::test]
     async fn execute_csv_format() {
         let tool = TestDataGenTool::new();
-        let out = tool.execute(make_input(json!({
-            "format": "csv",
-            "count": 3,
-            "schema": { "id": "id", "name": "name", "email": "email" }
-        }))).await.unwrap();
+        let out = tool
+            .execute(make_input(json!({
+                "format": "csv",
+                "count": 3,
+                "schema": { "id": "id", "name": "name", "email": "email" }
+            })))
+            .await
+            .unwrap();
         assert!(!out.is_error);
         let lines: Vec<&str> = out.content.lines().collect();
         assert_eq!(lines.len(), 4); // header + 3 rows
@@ -479,12 +540,15 @@ mod tests {
     #[tokio::test]
     async fn execute_sql_format() {
         let tool = TestDataGenTool::new();
-        let out = tool.execute(make_input(json!({
-            "format": "sql",
-            "count": 2,
-            "table": "items",
-            "schema": { "id": "id", "name": "word" }
-        }))).await.unwrap();
+        let out = tool
+            .execute(make_input(json!({
+                "format": "sql",
+                "count": 2,
+                "table": "items",
+                "schema": { "id": "id", "name": "word" }
+            })))
+            .await
+            .unwrap();
         assert!(!out.is_error);
         assert!(out.content.contains("INSERT INTO items"));
         assert_eq!(out.content.lines().count(), 2);
@@ -493,18 +557,21 @@ mod tests {
     #[tokio::test]
     async fn execute_custom_schema_types() {
         let tool = TestDataGenTool::new();
-        let out = tool.execute(make_input(json!({
-            "count": 1,
-            "schema": {
-                "uuid": "uuid",
-                "age": "integer:18:65",
-                "score": "float:0:100",
-                "active": "bool",
-                "status": "status",
-                "ip": "ip",
-                "url": "url"
-            }
-        }))).await.unwrap();
+        let out = tool
+            .execute(make_input(json!({
+                "count": 1,
+                "schema": {
+                    "uuid": "uuid",
+                    "age": "integer:18:65",
+                    "score": "float:0:100",
+                    "active": "bool",
+                    "status": "status",
+                    "ip": "ip",
+                    "url": "url"
+                }
+            })))
+            .await
+            .unwrap();
         assert!(!out.is_error);
         let v: Value = serde_json::from_str(&out.content).unwrap();
         let rec = &v[0];

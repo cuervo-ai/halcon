@@ -37,6 +37,13 @@ pub mod router;
 
 pub use anthropic::AnthropicProvider;
 pub use azure_foundry::AzureFoundryProvider;
+#[cfg(feature = "cenzontle-agents")]
+pub use cenzontle::agent_client::CenzontleAgentClient;
+#[cfg(feature = "cenzontle-agents")]
+pub use cenzontle::agent_types;
+pub use cenzontle::CenzontleProvider;
+#[allow(deprecated)]
+pub use cenzontle::CenzonzleProvider; // backward-compat alias — use CenzontleProvider
 pub use claude_code::ClaudeCodeProvider;
 pub use deepseek::DeepSeekProvider;
 pub use echo::EchoProvider;
@@ -44,16 +51,9 @@ pub use gemini::GeminiProvider;
 pub use ollama::OllamaProvider;
 pub use openai::OpenAIProvider;
 pub use openai_compat::OpenAICompatibleProvider;
-pub use cenzontle::CenzontleProvider;
-#[cfg(feature = "cenzontle-agents")]
-pub use cenzontle::agent_client::CenzontleAgentClient;
-#[cfg(feature = "cenzontle-agents")]
-pub use cenzontle::agent_types;
-#[allow(deprecated)]
-pub use cenzontle::CenzonzleProvider; // backward-compat alias — use CenzontleProvider
 pub use registry::ProviderRegistry;
-pub use router::{IntentClassifier, IntelligentRouter, RoutingDecision, TaskIntent};
 pub use replay::ReplayProvider;
+pub use router::{IntelligentRouter, IntentClassifier, RoutingDecision, TaskIntent};
 
 #[cfg(feature = "bedrock")]
 pub use bedrock::BedrockProvider;

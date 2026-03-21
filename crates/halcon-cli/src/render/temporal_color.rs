@@ -156,7 +156,12 @@ mod tests {
         // Hue should differ between t=0 and t=750ms
         let h0 = c0.to_oklch().h;
         let h750 = c750.to_oklch().h;
-        assert!((h0 - h750).abs() > 1.0, "ThinFilm should change hue: {:.1}° vs {:.1}°", h0, h750);
+        assert!(
+            (h0 - h750).abs() > 1.0,
+            "ThinFilm should change hue: {:.1}° vs {:.1}°",
+            h0,
+            h750
+        );
     }
 
     #[test]
@@ -164,7 +169,12 @@ mod tests {
         let spinner = TemporalSpinner::new(base_color(), SpinnerPhysics::DryingPaint);
         let c0 = spinner.color_at_ms(0).to_oklch().c;
         let c5000 = spinner.color_at_ms(5000).to_oklch().c;
-        assert!(c5000 > c0, "DryingPaint chroma should grow: {:.3} → {:.3}", c0, c5000);
+        assert!(
+            c5000 > c0,
+            "DryingPaint chroma should grow: {:.3} → {:.3}",
+            c0,
+            c5000
+        );
     }
 
     #[test]
@@ -173,21 +183,33 @@ mod tests {
         let h0 = spinner.color_at_ms(0).to_oklch().h;
         let h2000 = spinner.color_at_ms(2000).to_oklch().h;
         // Heated converges toward 60° (25+35)
-        assert!(h2000 > h0 || (h0 - h2000).abs() < 5.0,
-            "Heated hue should progress: {:.1}° → {:.1}°", h0, h2000);
+        assert!(
+            h2000 > h0 || (h0 - h2000).abs() < 5.0,
+            "Heated hue should progress: {:.1}° → {:.1}°",
+            h0,
+            h2000
+        );
     }
 
     #[test]
     fn breathe_lightness_oscillates() {
         let spinner = TemporalSpinner::new(base_color(), SpinnerPhysics::Breathe);
-        let l0    = spinner.color_at_ms(0).to_oklch().l;
-        let l500  = spinner.color_at_ms(500).to_oklch().l;
+        let l0 = spinner.color_at_ms(0).to_oklch().l;
+        let l500 = spinner.color_at_ms(500).to_oklch().l;
         let l1000 = spinner.color_at_ms(1000).to_oklch().l;
         // 500ms is quarter-period peak, 1000ms full period back near start
-        assert!((l0 - l1000).abs() < 0.02,
-            "Breathe should return near start at full period: {:.3} vs {:.3}", l0, l1000);
-        assert!(l500 > l0 || l500 < l0,
-            "Breathe should differ at half-period: {:.3} vs {:.3}", l500, l0);
+        assert!(
+            (l0 - l1000).abs() < 0.02,
+            "Breathe should return near start at full period: {:.3} vs {:.3}",
+            l0,
+            l1000
+        );
+        assert!(
+            l500 > l0 || l500 < l0,
+            "Breathe should differ at half-period: {:.3} vs {:.3}",
+            l500,
+            l0
+        );
     }
 
     #[test]
@@ -199,14 +221,21 @@ mod tests {
 
     #[test]
     fn all_colors_in_valid_range() {
-        for physics in [SpinnerPhysics::ThinFilm, SpinnerPhysics::DryingPaint,
-                        SpinnerPhysics::Heated, SpinnerPhysics::Breathe] {
+        for physics in [
+            SpinnerPhysics::ThinFilm,
+            SpinnerPhysics::DryingPaint,
+            SpinnerPhysics::Heated,
+            SpinnerPhysics::Breathe,
+        ] {
             let spinner = TemporalSpinner::new(base_color(), physics);
             for ms in [0, 100, 500, 1000, 2000, 5000, 10000] {
                 let color = spinner.color_at_ms(ms);
                 let oklch = color.to_oklch();
-                assert!(oklch.l >= 0.0 && oklch.l <= 1.0,
-                    "{physics:?} at {ms}ms: L={:.3} out of range", oklch.l);
+                assert!(
+                    oklch.l >= 0.0 && oklch.l <= 1.0,
+                    "{physics:?} at {ms}ms: L={:.3} out of range",
+                    oklch.l
+                );
             }
         }
     }

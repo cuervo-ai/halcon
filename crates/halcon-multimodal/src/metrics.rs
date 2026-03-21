@@ -101,7 +101,11 @@ impl MultimodalMetrics {
             requests_total: req,
             cache_hits: hits,
             cache_misses: self.cache_misses.load(Ordering::Relaxed),
-            cache_hit_rate: if req > 0 { hits as f64 / req as f64 } else { 0.0 },
+            cache_hit_rate: if req > 0 {
+                hits as f64 / req as f64
+            } else {
+                0.0
+            },
             api_requests: api,
             local_requests: local,
             errors_total: self.errors_total.load(Ordering::Relaxed),
@@ -178,7 +182,9 @@ mod tests {
     #[test]
     fn snapshot_cache_hit_rate_correct() {
         let m = MultimodalMetrics::new();
-        for _ in 0..4 { m.inc_requests(); }
+        for _ in 0..4 {
+            m.inc_requests();
+        }
         m.inc_cache_hit();
         m.inc_cache_hit();
         let s = m.snapshot();
@@ -212,7 +218,9 @@ mod tests {
                 }
             }));
         }
-        for h in handles { h.join().unwrap(); }
+        for h in handles {
+            h.join().unwrap();
+        }
         assert_eq!(m.requests_total.load(Ordering::SeqCst), 1000);
         assert_eq!(m.cache_hits.load(Ordering::SeqCst), 1000);
     }

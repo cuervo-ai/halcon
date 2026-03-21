@@ -1,13 +1,17 @@
 /// Phase 94: Project Onboarding — Fast startup check.
 ///
 /// Does this project have a HALCON.md? Sync, file-existence-only, <1ms.
-
 use super::super::project_inspector::ProjectInspector;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OnboardingStatus {
-    Configured { path: std::path::PathBuf },
-    NotConfigured { root: std::path::PathBuf, project_type: String },
+    Configured {
+        path: std::path::PathBuf,
+    },
+    NotConfigured {
+        root: std::path::PathBuf,
+        project_type: String,
+    },
     Unknown,
 }
 

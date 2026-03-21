@@ -19,9 +19,9 @@
 //! each round's feedback may invalidate the initial routing decision,
 //! triggering session-level escalation (Shinn et al., 2023).
 
+use super::policy_store::PolicyStore;
 use super::sla_router::RoutingMode;
 use crate::repl::domain::round_feedback::RoundFeedback;
-use super::policy_store::PolicyStore;
 
 // ── RoutingEscalation ─────────────────────────────────────────────────────────
 
@@ -94,8 +94,11 @@ impl RoutingAdaptor {
             return Some(RoutingEscalation {
                 from: current_mode,
                 to: RoutingMode::DeepAnalysis,
-                rationale: "security signals discovered in tool results — escalating to DeepAnalysis",
-                round_budget_increase: store.sla_params(RoutingMode::DeepAnalysis).max_rounds
+                rationale:
+                    "security signals discovered in tool results — escalating to DeepAnalysis",
+                round_budget_increase: store
+                    .sla_params(RoutingMode::DeepAnalysis)
+                    .max_rounds
                     .saturating_sub(store.sla_params(current_mode).max_rounds),
                 trigger: EscalationTrigger::SecuritySignalsDiscovered,
             });
@@ -112,7 +115,9 @@ impl RoutingAdaptor {
                 from: current_mode,
                 to: RoutingMode::Extended,
                 rationale: "high tool failure rate — escalating from Quick to Extended",
-                round_budget_increase: store.sla_params(RoutingMode::Extended).max_rounds
+                round_budget_increase: store
+                    .sla_params(RoutingMode::Extended)
+                    .max_rounds
                     .saturating_sub(store.sla_params(RoutingMode::Quick).max_rounds),
                 trigger: EscalationTrigger::ToolFailureCluster,
             });
@@ -129,7 +134,9 @@ impl RoutingAdaptor {
                 from: current_mode,
                 to: target,
                 rationale: "evidence coverage below 25% after 4 rounds — escalating routing mode",
-                round_budget_increase: store.sla_params(target).max_rounds
+                round_budget_increase: store
+                    .sla_params(target)
+                    .max_rounds
                     .saturating_sub(store.sla_params(current_mode).max_rounds),
                 trigger: EscalationTrigger::LowEvidenceCoverage,
             });
@@ -141,7 +148,9 @@ impl RoutingAdaptor {
                 from: RoutingMode::Extended,
                 to: RoutingMode::DeepAnalysis,
                 rationale: "high combined score after 3 rounds — escalating to DeepAnalysis",
-                round_budget_increase: store.sla_params(RoutingMode::DeepAnalysis).max_rounds
+                round_budget_increase: store
+                    .sla_params(RoutingMode::DeepAnalysis)
+                    .max_rounds
                     .saturating_sub(store.sla_params(RoutingMode::Extended).max_rounds),
                 trigger: EscalationTrigger::ComplexityEscalation,
             });
@@ -155,8 +164,8 @@ impl RoutingAdaptor {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::policy_store::PolicyStore;
+    use super::*;
 
     fn base_feedback() -> RoundFeedback {
         RoundFeedback {
@@ -172,7 +181,10 @@ mod tests {
     #[test]
     fn deep_analysis_never_escalates() {
         let result = RoutingAdaptor::check(
-            RoutingMode::DeepAnalysis, 5, &base_feedback(), &PolicyStore::default_store()
+            RoutingMode::DeepAnalysis,
+            5,
+            &base_feedback(),
+            &PolicyStore::default_store(),
         );
         assert!(result.is_none(), "DeepAnalysis cannot escalate further");
     }
@@ -181,9 +193,8 @@ mod tests {
     fn security_signals_escalate_quick_to_deep() {
         let mut fb = base_feedback();
         fb.security_signals_detected = true;
-        let result = RoutingAdaptor::check(
-            RoutingMode::Quick, 2, &fb, &PolicyStore::default_store()
-        );
+        let result =
+            RoutingAdaptor::check(RoutingMode::Quick, 2, &fb, &PolicyStore::default_store());
         assert!(result.is_some());
         let e = result.unwrap();
         assert_eq!(e.to, RoutingMode::DeepAnalysis);
@@ -194,9 +205,8 @@ mod tests {
     fn security_signals_escalate_extended_to_deep() {
         let mut fb = base_feedback();
         fb.security_signals_detected = true;
-        let result = RoutingAdaptor::check(
-            RoutingMode::Extended, 3, &fb, &PolicyStore::default_store()
-        );
+        let result =
+            RoutingAdaptor::check(RoutingMode::Extended, 3, &fb, &PolicyStore::default_store());
         assert_eq!(result.unwrap().to, RoutingMode::DeepAnalysis);
     }
 
@@ -204,30 +214,39 @@ mod tests {
     fn low_evidence_escalates_after_4_rounds() {
         let mut fb = base_feedback();
         fb.evidence_coverage = 0.15; // below 0.25 threshold
-        let result = RoutingAdaptor::check(
-            RoutingMode::Quick, 4, &fb, &PolicyStore::default_store()
-        );
+        let result =
+            RoutingAdaptor::check(RoutingMode::Quick, 4, &fb, &PolicyStore::default_store());
         assert!(result.is_some());
-        assert_eq!(result.unwrap().trigger, EscalationTrigger::LowEvidenceCoverage);
+        assert_eq!(
+            result.unwrap().trigger,
+            EscalationTrigger::LowEvidenceCoverage
+        );
     }
 
     #[test]
     fn low_evidence_before_round_4_does_not_escalate() {
         let mut fb = base_feedback();
         fb.evidence_coverage = 0.10;
-        let result = RoutingAdaptor::check(
-            RoutingMode::Quick, 3, &fb, &PolicyStore::default_store()
-        );
+        let result =
+            RoutingAdaptor::check(RoutingMode::Quick, 3, &fb, &PolicyStore::default_store());
         // Round 3, not yet 4 — should not trigger evidence escalation.
-        assert!(result.is_none() || result.unwrap().trigger != EscalationTrigger::LowEvidenceCoverage);
+        assert!(
+            result.is_none() || result.unwrap().trigger != EscalationTrigger::LowEvidenceCoverage
+        );
     }
 
     #[test]
     fn normal_session_does_not_escalate() {
         let result = RoutingAdaptor::check(
-            RoutingMode::Quick, 2, &base_feedback(), &PolicyStore::default_store()
+            RoutingMode::Quick,
+            2,
+            &base_feedback(),
+            &PolicyStore::default_store(),
         );
-        assert!(result.is_none(), "Normal session with good metrics should not escalate");
+        assert!(
+            result.is_none(),
+            "Normal session with good metrics should not escalate"
+        );
     }
 
     #[test]
@@ -235,21 +254,25 @@ mod tests {
         let mut fb = base_feedback();
         fb.tool_call_count = 5;
         fb.tool_failure_count = 4; // 80% failure rate
-        let result = RoutingAdaptor::check(
-            RoutingMode::Quick, 3, &fb, &PolicyStore::default_store()
-        );
+        let result =
+            RoutingAdaptor::check(RoutingMode::Quick, 3, &fb, &PolicyStore::default_store());
         assert!(result.is_some());
-        assert_eq!(result.unwrap().trigger, EscalationTrigger::ToolFailureCluster);
+        assert_eq!(
+            result.unwrap().trigger,
+            EscalationTrigger::ToolFailureCluster
+        );
     }
 
     #[test]
     fn round_budget_increase_is_positive() {
         let mut fb = base_feedback();
         fb.security_signals_detected = true;
-        let result = RoutingAdaptor::check(
-            RoutingMode::Quick, 1, &fb, &PolicyStore::default_store()
-        ).unwrap();
-        assert!(result.round_budget_increase > 0,
-            "Escalation must increase round budget");
+        let result =
+            RoutingAdaptor::check(RoutingMode::Quick, 1, &fb, &PolicyStore::default_store())
+                .unwrap();
+        assert!(
+            result.round_budget_increase > 0,
+            "Escalation must increase round budget"
+        );
     }
 }

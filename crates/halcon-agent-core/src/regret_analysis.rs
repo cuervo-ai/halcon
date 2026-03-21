@@ -93,7 +93,8 @@ impl RegretSimulation {
 
     /// Optimal arm index and mean reward μ*.
     pub fn optimal(&self) -> (usize, f64) {
-        self.arm_rewards.iter()
+        self.arm_rewards
+            .iter()
             .enumerate()
             .max_by(|(_, a), (_, b)| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
             .map(|(i, &r)| (i, r))
@@ -103,7 +104,10 @@ impl RegretSimulation {
     /// Sub-optimality gaps Δ_i = μ* - μ_i for each arm (0 for optimal).
     pub fn deltas(&self) -> Vec<f64> {
         let (_, mu_star) = self.optimal();
-        self.arm_rewards.iter().map(|&r| (mu_star - r).max(0.0)).collect()
+        self.arm_rewards
+            .iter()
+            .map(|&r| (mu_star - r).max(0.0))
+            .collect()
     }
 
     /// Run `total_rounds` of UCB1 (deterministic — ties broken by arm index).
@@ -116,10 +120,9 @@ impl RegretSimulation {
 
         let mut pulls = vec![0u64; k];
         let mut sum_reward = vec![0.0f64; k];
-        let mut total_pulls = 0u64;
         let mut empirical_regret = 0.0f64;
 
-        for _ in 0..total_rounds {
+        for total_pulls in 0u64..total_rounds {
             // Select arm: first pull each arm once, then UCB1
             let chosen = if total_pulls < k as u64 {
                 total_pulls as usize
@@ -141,7 +144,6 @@ impl RegretSimulation {
             empirical_regret += mu_star - reward;
             pulls[chosen] += 1;
             sum_reward[chosen] += reward;
-            total_pulls += 1;
         }
 
         empirical_regret
@@ -150,16 +152,19 @@ impl RegretSimulation {
     /// Compare empirical regret vs theoretical bound at checkpoints T.
     pub fn regret_growth_curve(&self, checkpoints: &[u64]) -> Vec<RegretGrowthPoint> {
         let deltas = self.deltas();
-        checkpoints.iter().map(|&t| {
-            let empirical = self.run(t);
-            let bound = compute_theoretical_regret_bound(t, &deltas);
-            RegretGrowthPoint {
-                rounds: t,
-                empirical_regret: empirical,
-                theoretical_bound: bound,
-                bound_holds: empirical <= bound + 1e-9,
-            }
-        }).collect()
+        checkpoints
+            .iter()
+            .map(|&t| {
+                let empirical = self.run(t);
+                let bound = compute_theoretical_regret_bound(t, &deltas);
+                RegretGrowthPoint {
+                    rounds: t,
+                    empirical_regret: empirical,
+                    theoretical_bound: bound,
+                    bound_holds: empirical <= bound + 1e-9,
+                }
+            })
+            .collect()
     }
 }
 
@@ -182,10 +187,9 @@ pub fn arm_pull_distribution(arm_rewards: &[f64], total_rounds: u64) -> HashMap<
     let c = std::f64::consts::SQRT_2;
     let mut pulls = vec![0u64; k];
     let mut sum_reward = vec![0.0f64; k];
-    let mut total_pulls = 0u64;
     let mut dist = HashMap::new();
 
-    for _ in 0..total_rounds {
+    for total_pulls in 0u64..total_rounds {
         let chosen = if total_pulls < k as u64 {
             total_pulls as usize
         } else {
@@ -202,7 +206,6 @@ pub fn arm_pull_distribution(arm_rewards: &[f64], total_rounds: u64) -> HashMap<
         };
         pulls[chosen] += 1;
         sum_reward[chosen] += arm_rewards[chosen];
-        total_pulls += 1;
     }
 
     for (i, &p) in pulls.iter().enumerate() {
@@ -217,7 +220,7 @@ pub fn arm_pull_distribution(arm_rewards: &[f64], total_rounds: u64) -> HashMap<
 mod tests {
     use super::*;
 
-    const ARMS_2: &[f64] = &[0.9, 0.3];         // Δ = [0, 0.6]
+    const ARMS_2: &[f64] = &[0.9, 0.3]; // Δ = [0, 0.6]
     const ARMS_5: &[f64] = &[0.9, 0.7, 0.5, 0.3, 0.1]; // Δ = [0, 0.2, 0.4, 0.6, 0.8]
 
     // ── Theoretical bound tests ───────────────────────────────────────────────
@@ -227,16 +230,20 @@ mod tests {
         // Single arm or all arms at same reward → Δ_i = 0 for all → R(T) = 0
         let deltas = &[0.0f64, 0.0];
         let bound = compute_theoretical_regret_bound(1000, deltas);
-        assert!(bound < 1e-9, "bound should be 0 for equal arms, got {}", bound);
+        assert!(
+            bound < 1e-9,
+            "bound should be 0 for equal arms, got {}",
+            bound
+        );
     }
 
     #[test]
     fn bound_grows_with_horizon_t() {
         let deltas = &[0.3f64, 0.5];
-        let b1k  = compute_theoretical_regret_bound(1_000,  deltas);
+        let b1k = compute_theoretical_regret_bound(1_000, deltas);
         let b10k = compute_theoretical_regret_bound(10_000, deltas);
         let b50k = compute_theoretical_regret_bound(50_000, deltas);
-        assert!(b10k > b1k,  "bound at 10k should > 1k");
+        assert!(b10k > b1k, "bound at 10k should > 1k");
         assert!(b50k > b10k, "bound at 50k should > 10k");
     }
 
@@ -266,13 +273,21 @@ mod tests {
     #[test]
     fn empirical_regret_le_theoretical_at_t10000() {
         let (emp, bound, holds) = compare_regret(10_000, ARMS_5);
-        assert!(holds, "empirical={:.2} > bound={:.2} at T=10000", emp, bound);
+        assert!(
+            holds,
+            "empirical={:.2} > bound={:.2} at T=10000",
+            emp, bound
+        );
     }
 
     #[test]
     fn empirical_regret_le_theoretical_at_t50000() {
         let (emp, bound, holds) = compare_regret(50_000, ARMS_5);
-        assert!(holds, "empirical={:.2} > bound={:.2} at T=50000", emp, bound);
+        assert!(
+            holds,
+            "empirical={:.2} > bound={:.2} at T=50000",
+            emp, bound
+        );
     }
 
     #[test]
@@ -301,7 +316,10 @@ mod tests {
         let sim = RegretSimulation::new(ARMS_2.to_vec());
         let deltas = sim.deltas();
         assert!((deltas[0]).abs() < 1e-9, "optimal arm delta should be 0");
-        assert!((deltas[1] - 0.6).abs() < 1e-9, "suboptimal delta should be 0.6");
+        assert!(
+            (deltas[1] - 0.6).abs() < 1e-9,
+            "suboptimal delta should be 0.6"
+        );
     }
 
     #[test]
@@ -318,7 +336,10 @@ mod tests {
         let optimal_pulls = dist[&0];
         let total: u64 = dist.values().sum();
         let fraction = optimal_pulls as f64 / total as f64;
-        assert!(fraction > 0.6,
-            "optimal arm should have > 60% of pulls after 5k rounds, got {:.2}%", fraction * 100.0);
+        assert!(
+            fraction > 0.6,
+            "optimal arm should have > 60% of pulls after 5k rounds, got {:.2}%",
+            fraction * 100.0
+        );
     }
 }

@@ -26,11 +26,7 @@ impl DockerTool {
         Self { timeout_secs }
     }
 
-    async fn run_docker(
-        &self,
-        args: &[&str],
-        working_dir: &Path,
-    ) -> Result<String, String> {
+    async fn run_docker(&self, args: &[&str], working_dir: &Path) -> Result<String, String> {
         let timeout = Duration::from_secs(self.timeout_secs);
 
         let result = tokio::time::timeout(
@@ -44,14 +40,24 @@ impl DockerTool {
         .await;
 
         match result {
-            Err(_) => Err(format!("docker command timed out after {}s", self.timeout_secs)),
-            Ok(Err(e)) => Err(format!("Failed to run docker: {} (is Docker installed and running?)", e)),
+            Err(_) => Err(format!(
+                "docker command timed out after {}s",
+                self.timeout_secs
+            )),
+            Ok(Err(e)) => Err(format!(
+                "Failed to run docker: {} (is Docker installed and running?)",
+                e
+            )),
             Ok(Ok(out)) => {
                 let stdout = String::from_utf8_lossy(&out.stdout);
                 let stderr = String::from_utf8_lossy(&out.stderr);
 
                 if !out.status.success() {
-                    let msg = if stderr.is_empty() { stdout.as_ref() } else { stderr.as_ref() };
+                    let msg = if stderr.is_empty() {
+                        stdout.as_ref()
+                    } else {
+                        stderr.as_ref()
+                    };
                     Err(truncate(msg, 2000))
                 } else {
                     Ok(truncate(&stdout, MAX_OUTPUT))
@@ -60,11 +66,7 @@ impl DockerTool {
         }
     }
 
-    async fn run_compose(
-        &self,
-        args: &[&str],
-        working_dir: &Path,
-    ) -> Result<String, String> {
+    async fn run_compose(&self, args: &[&str], working_dir: &Path) -> Result<String, String> {
         let timeout = Duration::from_secs(self.timeout_secs);
 
         // Try `docker compose` (v2) first, then `docker-compose` (v1)
@@ -120,7 +122,11 @@ fn truncate(s: &str, max: usize) -> String {
     if s.len() <= max {
         s.to_string()
     } else {
-        format!("{}\n... [output truncated, {} chars total]", &s[..max], s.len())
+        format!(
+            "{}\n... [output truncated, {} chars total]",
+            &s[..max],
+            s.len()
+        )
     }
 }
 
@@ -180,13 +186,20 @@ impl Tool for DockerTool {
         matches!(action, "rm" | "rmi" | "prune" | "compose_down")
     }
 
-    async fn execute(&self, input: ToolInput) -> Result<ToolOutput, halcon_core::error::HalconError> {
+    async fn execute(
+        &self,
+        input: ToolInput,
+    ) -> Result<ToolOutput, halcon_core::error::HalconError> {
         let args = &input.arguments;
         let working_dir = args["working_directory"]
             .as_str()
             .map(|p| {
                 let p = Path::new(p);
-                if p.is_absolute() { p.to_path_buf() } else { PathBuf::from(&input.working_directory).join(p) }
+                if p.is_absolute() {
+                    p.to_path_buf()
+                } else {
+                    PathBuf::from(&input.working_directory).join(p)
+                }
             })
             .unwrap_or_else(|| PathBuf::from(&input.working_directory));
 
@@ -271,20 +284,13 @@ impl Tool for DockerTool {
                 }
             }
             "prune" => {
-                self.run_docker(&["system", "prune", "--force"], &working_dir).await
+                self.run_docker(&["system", "prune", "--force"], &working_dir)
+                    .await
             }
-            "network_ls" => {
-                self.run_docker(&["network", "ls"], &working_dir).await
-            }
-            "volume_ls" => {
-                self.run_docker(&["volume", "ls"], &working_dir).await
-            }
-            "info" => {
-                self.run_docker(&["info"], &working_dir).await
-            }
-            "version" => {
-                self.run_docker(&["version"], &working_dir).await
-            }
+            "network_ls" => self.run_docker(&["network", "ls"], &working_dir).await,
+            "volume_ls" => self.run_docker(&["volume", "ls"], &working_dir).await,
+            "info" => self.run_docker(&["info"], &working_dir).await,
+            "version" => self.run_docker(&["version"], &working_dir).await,
             "compose_ps" => {
                 let mut compose_args = vec!["ps"];
                 compose_args.extend(extra_args.iter().copied());
@@ -311,9 +317,7 @@ impl Tool for DockerTool {
                 compose_args.extend(extra_args.iter().copied());
                 self.run_compose(&compose_args, &working_dir).await
             }
-            "compose_config" => {
-                self.run_compose(&["config"], &working_dir).await
-            }
+            "compose_config" => self.run_compose(&["config"], &working_dir).await,
             other => Err(format!("Unknown docker action: {}", other)),
         };
 
@@ -360,7 +364,10 @@ mod tests {
         assert_eq!(t.permission_level(), PermissionLevel::ReadWrite);
         let schema = t.input_schema();
         assert_eq!(schema["type"], "object");
-        assert!(schema["required"].as_array().unwrap().contains(&json!("action")));
+        assert!(schema["required"]
+            .as_array()
+            .unwrap()
+            .contains(&json!("action")));
     }
 
     #[test]
@@ -383,11 +390,14 @@ mod tests {
     #[tokio::test]
     async fn execute_missing_target_for_logs() {
         let t = DockerTool::new(10);
-        let out = t.execute(ToolInput {
-            tool_use_id: "t1".into(),
-            arguments: json!({ "action": "logs" }),
-            working_directory: "/tmp".into(),
-        }).await.unwrap();
+        let out = t
+            .execute(ToolInput {
+                tool_use_id: "t1".into(),
+                arguments: json!({ "action": "logs" }),
+                working_directory: "/tmp".into(),
+            })
+            .await
+            .unwrap();
         assert!(out.is_error);
         assert!(out.content.contains("required") || out.content.contains("target"));
     }
@@ -396,11 +406,14 @@ mod tests {
     async fn execute_version_attempts_docker() {
         // This test verifies the call flow — docker may or may not be installed
         let t = DockerTool::new(5);
-        let out = t.execute(ToolInput {
-            tool_use_id: "t1".into(),
-            arguments: json!({ "action": "version" }),
-            working_directory: "/tmp".into(),
-        }).await.unwrap();
+        let out = t
+            .execute(ToolInput {
+                tool_use_id: "t1".into(),
+                arguments: json!({ "action": "version" }),
+                working_directory: "/tmp".into(),
+            })
+            .await
+            .unwrap();
         // Either succeeds (docker installed) or fails with "not found" — neither panics
         let _ = out;
     }
@@ -408,11 +421,14 @@ mod tests {
     #[tokio::test]
     async fn execute_unknown_action_returns_error() {
         let t = DockerTool::new(5);
-        let out = t.execute(ToolInput {
-            tool_use_id: "t1".into(),
-            arguments: json!({ "action": "unknown_action" }),
-            working_directory: "/tmp".into(),
-        }).await.unwrap();
+        let out = t
+            .execute(ToolInput {
+                tool_use_id: "t1".into(),
+                arguments: json!({ "action": "unknown_action" }),
+                working_directory: "/tmp".into(),
+            })
+            .await
+            .unwrap();
         assert!(out.is_error);
         assert!(out.content.contains("Unknown"));
     }

@@ -31,7 +31,10 @@ pub fn render(ui: &mut Ui, state: &mut AppState, cmd_tx: &mpsc::Sender<UiCommand
 
         ui.horizontal(|ui| {
             let can_submit = !state.ops.submit_task_input.trim().is_empty();
-            if (ui.add_enabled(can_submit, egui::Button::new("Submit")).clicked() || enter)
+            if (ui
+                .add_enabled(can_submit, egui::Button::new("Submit"))
+                .clicked()
+                || enter)
                 && can_submit
             {
                 let _ = cmd_tx.try_send(UiCommand::SubmitTask {
@@ -89,14 +92,11 @@ pub fn render(ui: &mut Ui, state: &mut AppState, cmd_tx: &mpsc::Sender<UiCommand
                     ui.label(task.submitted_at.format("%H:%M:%S").to_string());
 
                     ui.horizontal(|ui| {
-                        let is_active = task.status
-                            == halcon_api::types::task::TaskStatus::Running
+                        let is_active = task.status == halcon_api::types::task::TaskStatus::Running
                             || task.status == halcon_api::types::task::TaskStatus::Pending;
                         if is_active
                             && ui
-                                .small_button(
-                                    RichText::new("Cancel").color(HalconTheme::WARNING),
-                                )
+                                .small_button(RichText::new("Cancel").color(HalconTheme::WARNING))
                                 .clicked()
                         {
                             let _ = cmd_tx.try_send(UiCommand::CancelTask(task.id));

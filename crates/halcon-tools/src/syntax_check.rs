@@ -27,7 +27,11 @@ impl fmt::Display for SyntaxWarning {
             Severity::Warning => "warning",
             Severity::Error => "error",
         };
-        write!(f, "  L{}:{}: [{}] {}", self.line, self.column, sev, self.message)
+        write!(
+            f,
+            "  L{}:{}: [{}] {}",
+            self.line, self.column, sev, self.message
+        )
     }
 }
 
@@ -40,9 +44,7 @@ pub fn check_syntax(content: &str, path: &str) -> Vec<SyntaxWarning> {
         "rs" | "c" | "cpp" | "h" | "hpp" | "java" | "go" | "swift" => {
             check_c_family_delimiters(content)
         }
-        "js" | "ts" | "jsx" | "tsx" | "mjs" | "mts" => {
-            check_c_family_delimiters(content)
-        }
+        "js" | "ts" | "jsx" | "tsx" | "mjs" | "mts" => check_c_family_delimiters(content),
         "py" => check_python_syntax(content),
         "json" => check_json_syntax(content),
         "toml" => check_toml_syntax(content),
@@ -57,7 +59,10 @@ pub fn format_warnings(warnings: &[SyntaxWarning]) -> String {
         return String::new();
     }
 
-    let errors = warnings.iter().filter(|w| w.severity == Severity::Error).count();
+    let errors = warnings
+        .iter()
+        .filter(|w| w.severity == Severity::Error)
+        .count();
     let warns = warnings.len() - errors;
 
     let mut out = String::from("\n\n⚠ Syntax check:");
@@ -384,11 +389,7 @@ fn check_python_syntax(content: &str) -> Vec<SyntaxWarning> {
         }
 
         // Triple-quoted strings.
-        if (ch == '"' || ch == '\'')
-            && i + 2 < len
-            && chars[i + 1] == ch
-            && chars[i + 2] == ch
-        {
+        if (ch == '"' || ch == '\'') && i + 2 < len && chars[i + 1] == ch && chars[i + 2] == ch {
             let quote = ch;
             let str_line = line;
             let str_col = col;
@@ -494,10 +495,7 @@ fn check_python_syntax(content: &str) -> Vec<SyntaxWarning> {
                         warnings.push(SyntaxWarning {
                             line,
                             column: col,
-                            message: format!(
-                                "unexpected closing `{}` with no matching opener",
-                                ch
-                            ),
+                            message: format!("unexpected closing `{}` with no matching opener", ch),
                             severity: Severity::Error,
                         });
                     }
@@ -626,7 +624,8 @@ mod tests {
 
     #[test]
     fn nested_delimiters_ok() {
-        let code = "fn f() {\n    let x = vec![(1, 2), (3, 4)];\n    if x.is_empty() { return; }\n}\n";
+        let code =
+            "fn f() {\n    let x = vec![(1, 2), (3, 4)];\n    if x.is_empty() { return; }\n}\n";
         let warnings = check_syntax(code, "main.rs");
         assert!(warnings.is_empty(), "expected no warnings: {:?}", warnings);
     }
@@ -637,7 +636,11 @@ mod tests {
     fn string_with_braces_inside() {
         let code = "fn f() {\n    let s = \"{hello}\";\n}\n";
         let warnings = check_syntax(code, "main.rs");
-        assert!(warnings.is_empty(), "braces inside strings should be ignored: {:?}", warnings);
+        assert!(
+            warnings.is_empty(),
+            "braces inside strings should be ignored: {:?}",
+            warnings
+        );
     }
 
     #[test]
@@ -647,7 +650,11 @@ mod tests {
 }
 "#;
         let warnings = check_syntax(code, "main.rs");
-        assert!(warnings.is_empty(), "escaped quotes should not confuse checker: {:?}", warnings);
+        assert!(
+            warnings.is_empty(),
+            "escaped quotes should not confuse checker: {:?}",
+            warnings
+        );
     }
 
     // --- Comments ---
@@ -656,14 +663,22 @@ mod tests {
     fn line_comment_with_braces() {
         let code = "fn f() {\n    // this { is a comment\n}\n";
         let warnings = check_syntax(code, "main.rs");
-        assert!(warnings.is_empty(), "braces in line comments should be ignored: {:?}", warnings);
+        assert!(
+            warnings.is_empty(),
+            "braces in line comments should be ignored: {:?}",
+            warnings
+        );
     }
 
     #[test]
     fn block_comment_with_braces() {
         let code = "fn f() {\n    /* { unmatched in comment */ \n}\n";
         let warnings = check_syntax(code, "main.rs");
-        assert!(warnings.is_empty(), "braces in block comments should be ignored: {:?}", warnings);
+        assert!(
+            warnings.is_empty(),
+            "braces in block comments should be ignored: {:?}",
+            warnings
+        );
     }
 
     #[test]
@@ -671,7 +686,9 @@ mod tests {
         let code = "fn f() {\n    /* unclosed comment\n}\n";
         let warnings = check_syntax(code, "main.rs");
         assert!(!warnings.is_empty());
-        assert!(warnings.iter().any(|w| w.message.contains("unclosed block comment")));
+        assert!(warnings
+            .iter()
+            .any(|w| w.message.contains("unclosed block comment")));
     }
 
     // --- Raw strings ---
@@ -680,7 +697,11 @@ mod tests {
     fn rust_raw_string_with_braces() {
         let code = "fn f() {\n    let s = r#\"{ not a brace }\"#;\n}\n";
         let warnings = check_syntax(code, "main.rs");
-        assert!(warnings.is_empty(), "braces in raw strings should be ignored: {:?}", warnings);
+        assert!(
+            warnings.is_empty(),
+            "braces in raw strings should be ignored: {:?}",
+            warnings
+        );
     }
 
     // --- JSON validation ---
@@ -728,7 +749,11 @@ mod tests {
     fn python_triple_quoted_string() {
         let code = "s = \"\"\"{\n    unmatched brace in triple string\n}\"\"\"\n";
         let warnings = check_syntax(code, "main.py");
-        assert!(warnings.is_empty(), "braces in triple-quoted strings should be ignored: {:?}", warnings);
+        assert!(
+            warnings.is_empty(),
+            "braces in triple-quoted strings should be ignored: {:?}",
+            warnings
+        );
     }
 
     // --- JS/TS ---
@@ -737,7 +762,11 @@ mod tests {
     fn js_template_literal() {
         let code = "const s = `hello ${name} { not a brace }`;\n";
         let warnings = check_syntax(code, "app.js");
-        assert!(warnings.is_empty(), "template literals should be handled: {:?}", warnings);
+        assert!(
+            warnings.is_empty(),
+            "template literals should be handled: {:?}",
+            warnings
+        );
     }
 
     #[test]
@@ -811,7 +840,11 @@ mod tests {
     fn deeply_nested_ok() {
         let code = "fn f() {\n    if true {\n        match x {\n            Some(v) => {\n                vec![(v, 1)]\n            }\n            None => vec![]\n        }\n    }\n}\n";
         let warnings = check_syntax(code, "main.rs");
-        assert!(warnings.is_empty(), "deeply nested should be fine: {:?}", warnings);
+        assert!(
+            warnings.is_empty(),
+            "deeply nested should be fine: {:?}",
+            warnings
+        );
     }
 
     #[test]
@@ -819,6 +852,10 @@ mod tests {
         let code = "fn f() {\n    let x = [1, 2;\n    let y = (3, 4;\n";
         let warnings = check_syntax(code, "main.rs");
         // Should report multiple issues.
-        assert!(warnings.len() >= 2, "expected multiple issues: {:?}", warnings);
+        assert!(
+            warnings.len() >= 2,
+            "expected multiple issues: {:?}",
+            warnings
+        );
     }
 }

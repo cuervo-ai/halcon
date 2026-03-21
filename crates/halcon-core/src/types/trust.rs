@@ -43,10 +43,10 @@ impl ResponseTrust {
     /// Short badge string for display in UI (TUI status line, classic render).
     pub fn badge(&self) -> &'static str {
         match self {
-            Self::ToolVerified { .. }       => "✓ VERIFIED",
-            Self::ToolDerived { .. }        => "◈ DERIVED",
+            Self::ToolVerified { .. } => "✓ VERIFIED",
+            Self::ToolDerived { .. } => "◈ DERIVED",
             Self::SynthesizedContext { .. } => "⚠ SYNTHESIZED",
-            Self::Unverified               => "○ UNVERIFIED",
+            Self::Unverified => "○ UNVERIFIED",
         }
     }
 
@@ -65,7 +65,7 @@ impl ResponseTrust {
     ) -> Self {
         if tools_executed_this_round > 0 && !tools_suppressed_this_round {
             return Self::ToolVerified {
-                tools_used: vec![],  // populated by caller if needed
+                tools_used: vec![], // populated by caller if needed
                 round_id: current_round,
             };
         }
@@ -104,7 +104,10 @@ mod tests {
     #[test]
     fn tool_verified_when_tools_executed() {
         let trust = ResponseTrust::compute(3, false, Some(2), 5, None);
-        assert!(matches!(trust, ResponseTrust::ToolVerified { round_id: 5, .. }));
+        assert!(matches!(
+            trust,
+            ResponseTrust::ToolVerified { round_id: 5, .. }
+        ));
         assert_eq!(trust.badge(), "✓ VERIFIED");
         assert!(trust.is_evidence_backed());
     }
@@ -112,7 +115,13 @@ mod tests {
     #[test]
     fn synthesized_context_when_suppressed() {
         let trust = ResponseTrust::compute(0, true, Some(3), 7, Some("compaction_timeout".into()));
-        assert!(matches!(trust, ResponseTrust::SynthesizedContext { stale_rounds_count: 4, .. }));
+        assert!(matches!(
+            trust,
+            ResponseTrust::SynthesizedContext {
+                stale_rounds_count: 4,
+                ..
+            }
+        ));
         assert_eq!(trust.badge(), "⚠ SYNTHESIZED");
         assert!(!trust.is_evidence_backed());
     }
@@ -120,7 +129,10 @@ mod tests {
     #[test]
     fn tool_derived_when_prior_rounds_had_tools() {
         let trust = ResponseTrust::compute(0, false, Some(2), 5, None);
-        assert!(matches!(trust, ResponseTrust::ToolDerived { rounds_ago: 3, .. }));
+        assert!(matches!(
+            trust,
+            ResponseTrust::ToolDerived { rounds_ago: 3, .. }
+        ));
         assert_eq!(trust.badge(), "◈ DERIVED");
         assert!(trust.is_evidence_backed());
     }
@@ -141,15 +153,22 @@ mod tests {
                 suppression_reason: "x".into(),
                 last_tool_round: None,
                 stale_rounds_count: 0,
-            }.badge(),
+            }
+            .badge(),
             "⚠ SYNTHESIZED"
         );
     }
 
     #[test]
     fn serializes_with_trust_level_tag() {
-        let t = ResponseTrust::ToolVerified { tools_used: vec!["bash".into()], round_id: 2 };
+        let t = ResponseTrust::ToolVerified {
+            tools_used: vec!["bash".into()],
+            round_id: 2,
+        };
         let json = serde_json::to_string(&t).unwrap();
-        assert!(json.contains("\"trust_level\":\"tool_verified\""), "json={json}");
+        assert!(
+            json.contains("\"trust_level\":\"tool_verified\""),
+            "json={json}"
+        );
     }
 }

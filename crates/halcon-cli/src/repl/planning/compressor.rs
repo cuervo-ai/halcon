@@ -78,11 +78,7 @@ const EXECUTION_PROTECTED: &[&str] = &[
 ];
 
 /// Safety-critical tool names patterns used by both Rule 2 and Rule 5.
-const SAFETY_CRITICAL_PATTERNS: &[&str] = &[
-    "file_delete",
-    "git_push",
-    "git_commit",
-];
+const SAFETY_CRITICAL_PATTERNS: &[&str] = &["file_delete", "git_push", "git_commit"];
 
 /// Trivial patterns — step descriptions matching these prefixes are candidates
 /// for elimination when BOTH adjacent steps have tools (AND condition).
@@ -255,16 +251,8 @@ fn shorten_desc(desc: &str) -> String {
     // Extract meaningful noun phrase: strip leading verb.
     let lower = desc.to_lowercase();
     for prefix in &[
-        "read ",
-        "analyse ",
-        "analyze ",
-        "search ",
-        "find ",
-        "look up ",
-        "inspect ",
-        "check ",
-        "scan ",
-        "list ",
+        "read ", "analyse ", "analyze ", "search ", "find ", "look up ", "inspect ", "check ",
+        "scan ", "list ",
     ] {
         if lower.starts_with(prefix) {
             // Preserve original casing of the remainder.
@@ -402,7 +390,7 @@ fn dedup_synthesis(steps: Vec<PlanStep>) -> (Vec<PlanStep>, usize) {
         .enumerate()
         .filter(|(_, s)| s.tool_name.is_none())
         .map(|(i, _)| i)
-        .last()
+        .next_back()
         .unwrap(); // safe: synthesis_count > 1
 
     let deduped_count = synthesis_count - 1;
@@ -483,7 +471,8 @@ fn enforce_cap(steps: &mut Vec<PlanStep>) -> usize {
 
         let is_step_protected = |i: usize, s: &PlanStep| -> bool {
             i == 0
-                || s.tool_name.as_deref()
+                || s.tool_name
+                    .as_deref()
                     .map(|t| {
                         EXECUTION_PROTECTED.contains(&t)
                             || SAFETY_CRITICAL_PATTERNS.iter().any(|p| t.contains(p))
@@ -602,8 +591,13 @@ mod tests {
         let (compressed, stats) = compress(plan);
         assert_eq!(stats.merged_reads, 1, "One step should be removed by merge");
         assert_eq!(compressed.steps.len(), 2, "Should have 2 steps after merge");
-        assert!(compressed.steps[0].parallel, "Merged reads should be parallel");
-        assert!(compressed.steps[0].description.starts_with("Read and analyse:"));
+        assert!(
+            compressed.steps[0].parallel,
+            "Merged reads should be parallel"
+        );
+        assert!(compressed.steps[0]
+            .description
+            .starts_with("Read and analyse:"));
         assert!(compressed.steps.last().unwrap().tool_name.is_none());
     }
 
@@ -660,7 +654,9 @@ mod tests {
         assert_eq!(stats.merged_reads, 1);
         let merged = &compressed.steps[0];
         // expected_args must document grouped_tools for ExecutionTracker.
-        let args_str = merged.expected_args.as_ref()
+        let args_str = merged
+            .expected_args
+            .as_ref()
             .map(|v| v.to_string())
             .unwrap_or_default();
         assert!(
@@ -671,10 +667,7 @@ mod tests {
             args_str.contains("file_read"),
             "grouped_tools must include file_read"
         );
-        assert!(
-            args_str.contains("grep"),
-            "grouped_tools must include grep"
-        );
+        assert!(args_str.contains("grep"), "grouped_tools must include grep");
     }
 
     // ── Rule 2: Trivial elimination ──────────────────────────────────────
@@ -691,8 +684,15 @@ mod tests {
         ]);
 
         let (compressed, stats) = compress(plan);
-        assert!(stats.eliminated_trivials > 0, "Trivial step should be eliminated");
-        let descs: Vec<_> = compressed.steps.iter().map(|s| s.description.as_str()).collect();
+        assert!(
+            stats.eliminated_trivials > 0,
+            "Trivial step should be eliminated"
+        );
+        let descs: Vec<_> = compressed
+            .steps
+            .iter()
+            .map(|s| s.description.as_str())
+            .collect();
         assert!(!descs.iter().any(|d| d.contains("Verify")));
     }
 
@@ -707,8 +707,14 @@ mod tests {
         ]);
 
         let (compressed, stats) = compress(plan);
-        assert_eq!(stats.eliminated_trivials, 0, "Trivial step at boundary must be kept");
-        assert!(compressed.steps.iter().any(|s| s.description.contains("Verify")));
+        assert_eq!(
+            stats.eliminated_trivials, 0,
+            "Trivial step at boundary must be kept"
+        );
+        assert!(compressed
+            .steps
+            .iter()
+            .any(|s| s.description.contains("Verify")));
     }
 
     /// BUG-C3 FIX: Safety-critical steps are never eliminated (I7).
@@ -724,8 +730,14 @@ mod tests {
 
         let (compressed, stats) = compress(plan);
         // "Verify backup" has keyword "backup" → safety_critical → not eliminated.
-        assert_eq!(stats.eliminated_trivials, 0, "Safety-critical step must not be eliminated");
-        assert!(compressed.steps.iter().any(|s| s.description.contains("backup")));
+        assert_eq!(
+            stats.eliminated_trivials, 0,
+            "Safety-critical step must not be eliminated"
+        );
+        assert!(compressed
+            .steps
+            .iter()
+            .any(|s| s.description.contains("backup")));
     }
 
     #[test]
@@ -834,7 +846,10 @@ mod tests {
             "Steps should be capped at {MAX_VISIBLE_STEPS}, got {}",
             compressed.steps.len()
         );
-        assert!(stats.cap_truncated > 0, "Some steps should have been truncated");
+        assert!(
+            stats.cap_truncated > 0,
+            "Some steps should have been truncated"
+        );
         // Synthesis must survive.
         assert!(compressed.steps.last().unwrap().tool_name.is_none());
     }
@@ -865,13 +880,13 @@ mod tests {
         // - Phase 3 (execution protection) doesn't block cap from removing one step
         let plan = make_plan(vec![
             make_step("Inspect initial config", Some("inspect"), 0.5), // index 0 — always kept (BUG-H2)
-            make_step("Inspect tests result", Some("inspect"), 0.9),   // index 1 — highest conf, kept
-            make_step("Inspect report A", Some("inspect"), 0.8),       // index 2 — kept
-            make_step("Inspect report B", Some("inspect"), 0.75),      // index 3 — kept
-            make_step("Inspect report C", Some("inspect"), 0.70),      // index 4 — kept
-            make_step("Inspect report D", Some("inspect"), 0.65),      // index 5 — kept
-            make_step("Inspect report E", Some("inspect"), 0.60),      // index 6 — kept
-            make_step("Inspect report F", Some("inspect"), 0.55),      // index 7 — dropped (lowest non-protected)
+            make_step("Inspect tests result", Some("inspect"), 0.9), // index 1 — highest conf, kept
+            make_step("Inspect report A", Some("inspect"), 0.8),     // index 2 — kept
+            make_step("Inspect report B", Some("inspect"), 0.75),    // index 3 — kept
+            make_step("Inspect report C", Some("inspect"), 0.70),    // index 4 — kept
+            make_step("Inspect report D", Some("inspect"), 0.65),    // index 5 — kept
+            make_step("Inspect report E", Some("inspect"), 0.60),    // index 6 — kept
+            make_step("Inspect report F", Some("inspect"), 0.55), // index 7 — dropped (lowest non-protected)
             make_step("Synthesize", None, 1.0),
         ]);
 
@@ -886,8 +901,14 @@ mod tests {
             "First step must be preserved by cap (BUG-H2)"
         );
         // Verify original order preserved: step0 before step1 (BUG-C1).
-        let pos_step0 = compressed.steps.iter().position(|s| s.description.contains("initial config"));
-        let pos_step1 = compressed.steps.iter().position(|s| s.description.contains("tests result"));
+        let pos_step0 = compressed
+            .steps
+            .iter()
+            .position(|s| s.description.contains("initial config"));
+        let pos_step1 = compressed
+            .steps
+            .iter()
+            .position(|s| s.description.contains("tests result"));
         assert!(
             pos_step0 < pos_step1,
             "Original step order must be preserved after cap (BUG-C1)"
@@ -929,7 +950,11 @@ mod tests {
         let plan = make_plan(vec![]);
         let (compressed, stats) = compress(plan);
         // Invariant I2: at least one step (synthesis).
-        assert_eq!(compressed.steps.len(), 1, "Empty plan must get synthesis appended");
+        assert_eq!(
+            compressed.steps.len(),
+            1,
+            "Empty plan must get synthesis appended"
+        );
         assert!(
             compressed.steps[0].tool_name.is_none(),
             "The appended step must be synthesis"
@@ -967,14 +992,24 @@ mod tests {
         ]);
 
         let (compressed, _) = compress(plan);
-        let synthesis_count = compressed.steps.iter().filter(|s| s.tool_name.is_none()).count();
+        let synthesis_count = compressed
+            .steps
+            .iter()
+            .filter(|s| s.tool_name.is_none())
+            .count();
         assert_eq!(synthesis_count, 1, "Exactly one synthesis step (I4)");
     }
 
     #[test]
     fn shortens_description_strips_verb() {
-        assert_eq!(shorten_desc("Read the configuration file"), "the configuration file");
-        assert_eq!(shorten_desc("Search for pattern in sources"), "for pattern in sources");
+        assert_eq!(
+            shorten_desc("Read the configuration file"),
+            "the configuration file"
+        );
+        assert_eq!(
+            shorten_desc("Search for pattern in sources"),
+            "for pattern in sources"
+        );
         assert_eq!(shorten_desc("Analyse dependencies"), "dependencies");
     }
 
@@ -992,25 +1027,40 @@ mod tests {
             .map(|i| make_step(&format!("Run bash step {i}"), Some("bash"), 0.5))
             .collect();
         steps.push(make_step("Read config A", Some("file_read"), 0.4));
-        steps.push(make_step("Read config B", Some("file_read"), 0.3));  // lowest conf
+        steps.push(make_step("Read config B", Some("file_read"), 0.3)); // lowest conf
         steps.push(make_step("Synthesize", None, 1.0));
 
         let plan = make_plan(steps);
-        assert!(plan.steps.len() > MAX_VISIBLE_STEPS, "test requires steps > cap");
+        assert!(
+            plan.steps.len() > MAX_VISIBLE_STEPS,
+            "test requires steps > cap"
+        );
 
         let (compressed, stats) = compress(plan);
-        assert!(stats.cap_truncated > 0, "cap must fire and remove read-only steps");
+        assert!(
+            stats.cap_truncated > 0,
+            "cap must fire and remove read-only steps"
+        );
 
         // All 7 bash execution steps must survive.
-        let bash_count = compressed.steps.iter()
+        let bash_count = compressed
+            .steps
+            .iter()
             .filter(|s| s.tool_name.as_deref() == Some("bash"))
             .count();
-        assert_eq!(bash_count, 7,
-            "all bash execution steps must be preserved by cap (got {bash_count})");
+        assert_eq!(
+            bash_count, 7,
+            "all bash execution steps must be preserved by cap (got {bash_count})"
+        );
 
         // file_read steps must be gone (they were the non-protected removable steps).
-        assert!(!compressed.steps.iter().any(|s| s.tool_name.as_deref() == Some("file_read")),
-            "read-only steps must be truncated before execution steps");
+        assert!(
+            !compressed
+                .steps
+                .iter()
+                .any(|s| s.tool_name.as_deref() == Some("file_read")),
+            "read-only steps must be truncated before execution steps"
+        );
 
         // Synthesis must survive.
         assert!(compressed.steps.last().unwrap().tool_name.is_none());
@@ -1025,7 +1075,11 @@ mod tests {
             .map(|i| make_step(&format!("Run bash {i}"), Some("bash"), 0.5))
             .collect();
         for i in 0..5 {
-            steps.push(make_step(&format!("Read file {i}"), Some("file_read"), 0.4 - i as f64 * 0.02));
+            steps.push(make_step(
+                &format!("Read file {i}"),
+                Some("file_read"),
+                0.4 - i as f64 * 0.02,
+            ));
         }
         steps.push(make_step("Synthesize", None, 1.0));
 
@@ -1034,10 +1088,15 @@ mod tests {
 
         // Some truncation should have happened (either by merge or cap).
         // All bash steps must be present.
-        let bash_count = compressed.steps.iter()
+        let bash_count = compressed
+            .steps
+            .iter()
             .filter(|s| s.tool_name.as_deref() == Some("bash"))
             .count();
-        assert_eq!(bash_count, 4, "all bash execution steps must survive compression");
+        assert_eq!(
+            bash_count, 4,
+            "all bash execution steps must survive compression"
+        );
 
         // Synthesis last.
         assert!(compressed.steps.last().unwrap().tool_name.is_none());

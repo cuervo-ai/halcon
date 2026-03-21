@@ -21,7 +21,8 @@ use crate::render::sink::PermissionAwaiter;
 pub struct BridgeSink {
     emitter: Arc<dyn StreamEmitter>,
     perm_awaiter: Option<PermissionAwaiter>,
-    perm_reply_tx: Option<tokio::sync::mpsc::UnboundedSender<halcon_core::types::PermissionDecision>>,
+    perm_reply_tx:
+        Option<tokio::sync::mpsc::UnboundedSender<halcon_core::types::PermissionDecision>>,
     /// Accumulated text for stream_full_text().
     text: Mutex<String>,
     /// Token sequence counter.
@@ -76,7 +77,10 @@ impl RenderSink for BridgeSink {
 
         // Initialize thinking start time on first thinking token.
         {
-            let mut start = self.thinking_start.lock().unwrap_or_else(|e| e.into_inner());
+            let mut start = self
+                .thinking_start
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             if start.is_none() {
                 *start = Some(Instant::now());
             }
@@ -88,7 +92,10 @@ impl RenderSink for BridgeSink {
 
         // Throttle progress updates to every 500ms.
         let should_emit_progress = {
-            let mut last = self.last_thinking_emit.lock().unwrap_or_else(|e| e.into_inner());
+            let mut last = self
+                .last_thinking_emit
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             let now = Instant::now();
             match *last {
                 None => {
@@ -177,10 +184,7 @@ impl RenderSink for BridgeSink {
     }
 
     fn stream_full_text(&self) -> String {
-        self.text
-            .lock()
-            .map(|t| t.clone())
-            .unwrap_or_default()
+        self.text.lock().map(|t| t.clone()).unwrap_or_default()
     }
 
     fn permission_awaiting(&self, tool: &str, args: &Value, risk_level: &str) {
@@ -197,7 +201,16 @@ impl RenderSink for BridgeSink {
                     .map(|(k, v)| {
                         let val = v.as_str().unwrap_or(&v.to_string()).to_string();
                         let val = if val.len() > 80 {
-                            format!("{}...", &val[..{ let mut _fcb = (77).min(val.len()); while _fcb > 0 && !val.is_char_boundary(_fcb) { _fcb -= 1; } _fcb }])
+                            format!(
+                                "{}...",
+                                &val[..{
+                                    let mut _fcb = (77).min(val.len());
+                                    while _fcb > 0 && !val.is_char_boundary(_fcb) {
+                                        _fcb -= 1;
+                                    }
+                                    _fcb
+                                }]
+                            )
                         } else {
                             val
                         };

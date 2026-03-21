@@ -24,6 +24,7 @@ pub mod types;
 pub use bridge::McpToolBridge;
 pub use error::{McpError, McpResult};
 pub use host::{extract_text, McpHost};
+pub use http_server::McpHttpServer;
 pub use http_transport::HttpTransport;
 pub use oauth::{McpToken, OAuthError, OAuthManager};
 pub use pool::{McpConnectionHealth, McpPool, McpServerDef};
@@ -31,7 +32,6 @@ pub use scope::{
     expand_env, expand_spec_env, remove_server, write_server, McpScope, McpServerSpec,
     McpTransport, MergedMcpConfig,
 };
-pub use http_server::McpHttpServer;
 pub use server::McpServer;
 pub use tool_search::{
     format_search_results, search_tools_definition, IndexedTool, ToolSearchIndex,

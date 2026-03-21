@@ -100,7 +100,11 @@ fn normalise(v: &mut [f32]) -> bool {
 
 /// Cosine similarity between two normalised (unit) vectors.
 fn cosine_sim(a: &[f32], b: &[f32]) -> f32 {
-    a.iter().zip(b.iter()).map(|(x, y)| x * y).sum::<f32>().clamp(-1.0, 1.0)
+    a.iter()
+        .zip(b.iter())
+        .map(|(x, y)| x * y)
+        .sum::<f32>()
+        .clamp(-1.0, 1.0)
 }
 
 // ─── SemanticToolRouter ───────────────────────────────────────────────────────
@@ -123,7 +127,8 @@ pub struct SemanticToolRouter {
 
 impl SemanticToolRouter {
     pub fn new(provider: Arc<dyn EmbeddingProvider>, config: RouterConfig) -> Self {
-        let cache_size = NonZeroUsize::new(config.cache_size).unwrap_or(NonZeroUsize::new(512).unwrap());
+        let cache_size =
+            NonZeroUsize::new(config.cache_size).unwrap_or(NonZeroUsize::new(512).unwrap());
         Self {
             config,
             provider,
@@ -145,7 +150,11 @@ impl SemanticToolRouter {
             existing.description = description.into();
             existing.embedding = None;
         } else {
-            tools.push(RegisteredTool { name, description: description.into(), embedding: None });
+            tools.push(RegisteredTool {
+                name,
+                description: description.into(),
+                embedding: None,
+            });
         }
         *self.index_dirty.lock().unwrap() = true;
     }
@@ -222,7 +231,12 @@ impl SemanticToolRouter {
 
     /// Query and return only tool names (convenience wrapper).
     pub async fn query_names(&self, intent: &str) -> Result<Vec<String>> {
-        Ok(self.query(intent).await?.into_iter().map(|c| c.name).collect())
+        Ok(self
+            .query(intent)
+            .await?
+            .into_iter()
+            .map(|c| c.name)
+            .collect())
     }
 
     // ─── Private helpers ────────────────────────────────────────────────────
@@ -266,7 +280,10 @@ impl SemanticToolRouter {
                 .collect();
         }
         *self.index_dirty.lock().unwrap() = false;
-        debug!(tool_count = self.tool_count(), "SemanticToolRouter index rebuilt");
+        debug!(
+            tool_count = self.tool_count(),
+            "SemanticToolRouter index rebuilt"
+        );
         Ok(())
     }
 
@@ -308,7 +325,9 @@ mod tests {
 
     impl MockEmbedder {
         fn new() -> Arc<Self> {
-            Arc::new(Self { call_count: AtomicUsize::new(0) })
+            Arc::new(Self {
+                call_count: AtomicUsize::new(0),
+            })
         }
     }
 
@@ -324,7 +343,9 @@ mod tests {
             Ok(v)
         }
 
-        fn dimension(&self) -> usize { 4 }
+        fn dimension(&self) -> usize {
+            4
+        }
     }
 
     fn router() -> (SemanticToolRouter, Arc<MockEmbedder>) {
@@ -343,7 +364,10 @@ mod tests {
     #[tokio::test]
     async fn registered_tools_are_queryable() {
         let (r, _) = router();
-        r.register("secret_scan", "Scan source code for exposed secrets, API keys, credentials");
+        r.register(
+            "secret_scan",
+            "Scan source code for exposed secrets, API keys, credentials",
+        );
         r.register("grep", "Search file contents with regular expressions");
         let candidates = r.query("find secrets in code").await.unwrap();
         assert!(!candidates.is_empty());
@@ -357,13 +381,23 @@ mod tests {
     async fn top_k_limit_respected() {
         let (r, _) = router();
         for i in 0..20 {
-            r.register(format!("tool_{}", i), format!("Tool number {} description", i));
+            r.register(
+                format!("tool_{}", i),
+                format!("Tool number {} description", i),
+            );
         }
-        let config = RouterConfig { top_k: 5, min_similarity: 0.0, ..Default::default() };
+        let config = RouterConfig {
+            top_k: 5,
+            min_similarity: 0.0,
+            ..Default::default()
+        };
         let emb = MockEmbedder::new();
         let r2 = SemanticToolRouter::new(emb, config);
         for i in 0..20 {
-            r2.register(format!("tool_{}", i), format!("Tool number {} description", i));
+            r2.register(
+                format!("tool_{}", i),
+                format!("Tool number {} description", i),
+            );
         }
         let candidates = r2.query("tool description").await.unwrap();
         assert!(candidates.len() <= 5);

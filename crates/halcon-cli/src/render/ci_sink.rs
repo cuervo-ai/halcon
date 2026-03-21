@@ -76,9 +76,7 @@ impl CiSink {
         let day_of_year = days % 365;
         let month = day_of_year / 30 + 1;
         let day = day_of_year % 30 + 1;
-        format!(
-            "{year:04}-{month:02}-{day:02}T{h:02}:{m:02}:{s:02}Z"
-        )
+        format!("{year:04}-{month:02}-{day:02}T{h:02}:{m:02}:{s:02}Z")
     }
 }
 
@@ -151,7 +149,11 @@ impl RenderSink for CiSink {
 
     fn tool_output(&self, block: &ContentBlock, duration_ms: u64) {
         let (success, output, tool_id) = match block {
-            ContentBlock::ToolResult { tool_use_id, content, is_error } => {
+            ContentBlock::ToolResult {
+                tool_use_id,
+                content,
+                is_error,
+            } => {
                 let ok = !is_error;
                 let text = content.clone();
                 // Truncate long tool output to 1024 chars.
@@ -239,9 +241,18 @@ impl RenderSink for CiSink {
         }));
     }
 
-    fn round_ended(&self, round: usize, input_tokens: u32, output_tokens: u32, cost: f64, duration_ms: u64) {
-        self.total_input_tokens.fetch_add(input_tokens as usize, Ordering::Relaxed);
-        self.total_output_tokens.fetch_add(output_tokens as usize, Ordering::Relaxed);
+    fn round_ended(
+        &self,
+        round: usize,
+        input_tokens: u32,
+        output_tokens: u32,
+        cost: f64,
+        duration_ms: u64,
+    ) {
+        self.total_input_tokens
+            .fetch_add(input_tokens as usize, Ordering::Relaxed);
+        self.total_output_tokens
+            .fetch_add(output_tokens as usize, Ordering::Relaxed);
         {
             let mut c = self.total_cost_usd.lock().unwrap();
             *c += cost;

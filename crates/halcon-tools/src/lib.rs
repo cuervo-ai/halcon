@@ -136,9 +136,13 @@ pub fn full_registry(
     // When available, replaces web_search as the sole search interface.
     // When unavailable, falls back to web_search (FTS5-only, no API dependencies).
     if let Some(engine) = search_engine {
-        reg.register(Arc::new(native_search::NativeSearchTool::new(engine.clone())));
+        reg.register(Arc::new(native_search::NativeSearchTool::new(
+            engine.clone(),
+        )));
         reg.register(Arc::new(native_crawl::NativeCrawlTool::new(engine.clone())));
-        reg.register(Arc::new(native_index_query::NativeIndexQueryTool::new(engine)));
+        reg.register(Arc::new(native_index_query::NativeIndexQueryTool::new(
+            engine,
+        )));
     } else {
         // Fallback: local FTS5 web_search when native search engine is not configured.
         reg.register(Arc::new(web_search::WebSearchTool::new(db.clone())));
@@ -153,8 +157,12 @@ pub fn full_registry(
 
     // Background tools (require a shared ProcessRegistry).
     if let Some(proc_reg) = process_registry {
-        reg.register(Arc::new(background::BackgroundStartTool::new(proc_reg.clone())));
-        reg.register(Arc::new(background::BackgroundOutputTool::new(proc_reg.clone())));
+        reg.register(Arc::new(background::BackgroundStartTool::new(
+            proc_reg.clone(),
+        )));
+        reg.register(Arc::new(background::BackgroundOutputTool::new(
+            proc_reg.clone(),
+        )));
         reg.register(Arc::new(background::BackgroundKillTool::new(proc_reg)));
     }
 
@@ -175,16 +183,24 @@ pub fn full_registry(
     reg.register(Arc::new(secret_scan::SecretScanTool::new()));
     // Testing & code quality
     reg.register(Arc::new(test_run::TestRunTool::new(config.timeout_secs)));
-    reg.register(Arc::new(code_coverage::CodeCoverageTool::new(config.timeout_secs)));
+    reg.register(Arc::new(code_coverage::CodeCoverageTool::new(
+        config.timeout_secs,
+    )));
     reg.register(Arc::new(code_metrics::CodeMetricsTool::new()));
-    reg.register(Arc::new(lint_check::LintCheckTool::new(config.timeout_secs)));
+    reg.register(Arc::new(lint_check::LintCheckTool::new(
+        config.timeout_secs,
+    )));
     // Code analysis
     reg.register(Arc::new(semantic_grep::SemanticGrepTool::new()));
-    reg.register(Arc::new(dependency_graph::DependencyGraphTool::new(config.timeout_secs)));
+    reg.register(Arc::new(dependency_graph::DependencyGraphTool::new(
+        config.timeout_secs,
+    )));
     reg.register(Arc::new(dep_check::DepCheckTool::new(config.timeout_secs)));
     // Infrastructure
     reg.register(Arc::new(docker_tool::DockerTool::new(config.timeout_secs)));
-    reg.register(Arc::new(process_monitor::ProcessMonitorTool::new(config.timeout_secs)));
+    reg.register(Arc::new(process_monitor::ProcessMonitorTool::new(
+        config.timeout_secs,
+    )));
     reg.register(Arc::new(make_tool::MakeTool::new(config.timeout_secs)));
     reg.register(Arc::new(http_probe::HttpProbeTool::new()));
     reg.register(Arc::new(ci_logs::CiLogsTool::new(config.timeout_secs)));
@@ -203,7 +219,9 @@ pub fn full_registry(
     reg.register(Arc::new(token_count::TokenCountTool::new()));
     reg.register(Arc::new(file_diff::FileDiffTool::new()));
     reg.register(Arc::new(patch_apply::PatchApplyTool::new()));
-    reg.register(Arc::new(perf_analyze::PerfAnalyzeTool::new(config.timeout_secs)));
+    reg.register(Arc::new(perf_analyze::PerfAnalyzeTool::new(
+        config.timeout_secs,
+    )));
 
     reg
 }
@@ -277,10 +295,14 @@ mod contract_tests {
             Arc::new(code_metrics::CodeMetricsTool::new()),
             Arc::new(lint_check::LintCheckTool::new(config.timeout_secs)),
             Arc::new(semantic_grep::SemanticGrepTool::new()),
-            Arc::new(dependency_graph::DependencyGraphTool::new(config.timeout_secs)),
+            Arc::new(dependency_graph::DependencyGraphTool::new(
+                config.timeout_secs,
+            )),
             Arc::new(dep_check::DepCheckTool::new(config.timeout_secs)),
             Arc::new(docker_tool::DockerTool::new(config.timeout_secs)),
-            Arc::new(process_monitor::ProcessMonitorTool::new(config.timeout_secs)),
+            Arc::new(process_monitor::ProcessMonitorTool::new(
+                config.timeout_secs,
+            )),
             Arc::new(make_tool::MakeTool::new(config.timeout_secs)),
             Arc::new(http_probe::HttpProbeTool::new()),
             Arc::new(ci_logs::CiLogsTool::new(config.timeout_secs)),
@@ -357,7 +379,11 @@ mod contract_tests {
         let config = ToolsConfig::default();
         let reg = default_registry(&config);
         let defs = reg.tool_definitions();
-        assert_eq!(defs.len(), 58, "expected 58 tools in default registry (no background, no search engine)");
+        assert_eq!(
+            defs.len(),
+            58,
+            "expected 58 tools in default registry (no background, no search engine)"
+        );
 
         assert!(reg.get("file_read").is_some());
         assert!(reg.get("file_write").is_some());
@@ -392,7 +418,11 @@ mod contract_tests {
         let proc_reg = Arc::new(background::ProcessRegistry::new(5));
         let reg = full_registry(&config, Some(proc_reg), None, None);
         let defs = reg.tool_definitions();
-        assert_eq!(defs.len(), 61, "expected 61 tools in full registry (with background, no search engine)");
+        assert_eq!(
+            defs.len(),
+            61,
+            "expected 61 tools in full registry (with background, no search engine)"
+        );
 
         assert!(reg.get("background_start").is_some());
         assert!(reg.get("background_output").is_some());

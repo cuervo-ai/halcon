@@ -159,12 +159,12 @@ impl McpPool {
     /// Called without holding any lock — safe to await freely.
     async fn spawn_and_init(name: &str, config: &McpServerDef) -> McpResult<McpHost> {
         let mut host = McpHost::new(name, &config.command, &config.args, &config.env)?;
-        host.initialize().await.map_err(|e| {
-            McpError::Protocol(format!("initialize failed for '{name}': {e}"))
-        })?;
-        host.list_tools().await.map_err(|e| {
-            McpError::Protocol(format!("list_tools failed for '{name}': {e}"))
-        })?;
+        host.initialize()
+            .await
+            .map_err(|e| McpError::Protocol(format!("initialize failed for '{name}': {e}")))?;
+        host.list_tools()
+            .await
+            .map_err(|e| McpError::Protocol(format!("list_tools failed for '{name}': {e}")))?;
         Ok(host)
     }
 
@@ -281,9 +281,7 @@ impl McpPool {
                     return Ok(result);
                 }
                 Err(e) => {
-                    tracing::warn!(
-                        "MCP call to '{server}/{tool}' failed (attempt {attempt}): {e}"
-                    );
+                    tracing::warn!("MCP call to '{server}/{tool}' failed (attempt {attempt}): {e}");
 
                     // Clear the broken host.
                     {
@@ -576,9 +574,7 @@ mod tests {
         let pool = McpPool::new(configs, 1);
         pool.shutdown_all().await;
 
-        let result = pool
-            .call_tool("srv", "tool", serde_json::json!({}))
-            .await;
+        let result = pool.call_tool("srv", "tool", serde_json::json!({})).await;
         // Must return an error (not hang forever or panic).
         assert!(result.is_err());
     }

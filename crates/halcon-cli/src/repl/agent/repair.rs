@@ -29,10 +29,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum RepairTrigger {
     /// Critic signaled Terminate due to stall.
-    CriticStall {
-        stall_rounds: usize,
-        avg_delta: f32,
-    },
+    CriticStall { stall_rounds: usize, avg_delta: f32 },
     /// Critic signaled Replan with a specific reason.
     CriticReplan {
         reason: String,
@@ -56,7 +53,10 @@ pub enum RepairOutcome {
 impl RepairOutcome {
     /// Whether the repair produced actionable recovery (hint or replan).
     pub fn is_actionable(&self) -> bool {
-        matches!(self, Self::HintInjected { .. } | Self::ReplanTriggered { .. })
+        matches!(
+            self,
+            Self::HintInjected { .. } | Self::ReplanTriggered { .. }
+        )
     }
 }
 
@@ -94,7 +94,11 @@ pub struct RepairState {
 
 impl RepairState {
     pub fn new(config: RepairConfig) -> Self {
-        Self { config, attempts_used: 0, last_trigger: None }
+        Self {
+            config,
+            attempts_used: 0,
+            last_trigger: None,
+        }
     }
 
     /// Whether a repair attempt can be made.
@@ -158,7 +162,10 @@ impl RepairEngine {
         state.record_attempt(trigger.clone());
 
         match trigger {
-            RepairTrigger::CriticStall { stall_rounds, avg_delta } => {
+            RepairTrigger::CriticStall {
+                stall_rounds,
+                avg_delta,
+            } => {
                 // Stall: inject a focused re-direction hint.
                 let hint = if tool_successes.is_empty() {
                     format!(
@@ -168,7 +175,10 @@ impl RepairEngine {
                          Do not describe what you will do — invoke the tool immediately."
                     )
                 } else {
-                    let last_tool = tool_successes.last().map(|s| s.as_str()).unwrap_or("unknown");
+                    let last_tool = tool_successes
+                        .last()
+                        .map(|s| s.as_str())
+                        .unwrap_or("unknown");
                     format!(
                         "[System — Repair] Round {round}: Progress has stalled \
                          (delta={avg_delta:.3}, {stall_rounds} consecutive low-delta rounds). \
@@ -188,7 +198,10 @@ impl RepairEngine {
                 RepairOutcome::HintInjected { hint }
             }
 
-            RepairTrigger::CriticReplan { reason, alignment_score } => {
+            RepairTrigger::CriticReplan {
+                reason,
+                alignment_score,
+            } => {
                 if state.config.allow_replan {
                     tracing::debug!(
                         round,
@@ -236,7 +249,10 @@ mod tests {
     fn repair_engine_injects_hint_on_stall() {
         let engine = RepairEngine::new();
         let mut state = default_state();
-        let trigger = RepairTrigger::CriticStall { stall_rounds: 3, avg_delta: 0.002 };
+        let trigger = RepairTrigger::CriticStall {
+            stall_rounds: 3,
+            avg_delta: 0.002,
+        };
         let outcome = engine.attempt_repair(&trigger, "create a file", 4, &[], &mut state);
         assert!(outcome.is_actionable());
         assert!(matches!(outcome, RepairOutcome::HintInjected { .. }));
@@ -246,7 +262,10 @@ mod tests {
     fn repair_engine_exhausted_after_max_attempts() {
         let engine = RepairEngine::new();
         let mut state = default_state(); // max_attempts = 1
-        let trigger = RepairTrigger::CriticStall { stall_rounds: 2, avg_delta: 0.001 };
+        let trigger = RepairTrigger::CriticStall {
+            stall_rounds: 2,
+            avg_delta: 0.001,
+        };
         // First attempt should succeed.
         let first = engine.attempt_repair(&trigger, "goal", 2, &[], &mut state);
         assert!(first.is_actionable());
@@ -278,7 +297,10 @@ mod tests {
     fn repair_hint_mentions_tool_when_available() {
         let engine = RepairEngine::new();
         let mut state = default_state();
-        let trigger = RepairTrigger::CriticStall { stall_rounds: 1, avg_delta: 0.0 };
+        let trigger = RepairTrigger::CriticStall {
+            stall_rounds: 1,
+            avg_delta: 0.0,
+        };
         let tools = vec!["file_read".to_string()];
         let outcome = engine.attempt_repair(&trigger, "analyze code", 3, &tools, &mut state);
         if let RepairOutcome::HintInjected { hint } = outcome {
@@ -291,8 +313,14 @@ mod tests {
     #[test]
     fn repair_replan_when_allowed() {
         let engine = RepairEngine::new();
-        let mut state = RepairState::new(RepairConfig { allow_replan: true, ..Default::default() });
-        let trigger = RepairTrigger::CriticReplan { reason: "model diverged".into(), alignment_score: 0.2 };
+        let mut state = RepairState::new(RepairConfig {
+            allow_replan: true,
+            ..Default::default()
+        });
+        let trigger = RepairTrigger::CriticReplan {
+            reason: "model diverged".into(),
+            alignment_score: 0.2,
+        };
         let outcome = engine.attempt_repair(&trigger, "goal", 5, &[], &mut state);
         assert!(outcome.is_actionable());
         assert!(matches!(outcome, RepairOutcome::ReplanTriggered { .. }));
@@ -301,8 +329,14 @@ mod tests {
     #[test]
     fn repair_replan_exhausted_when_disabled() {
         let engine = RepairEngine::new();
-        let mut state = RepairState::new(RepairConfig { allow_replan: false, ..Default::default() });
-        let trigger = RepairTrigger::CriticReplan { reason: "drift".into(), alignment_score: 0.1 };
+        let mut state = RepairState::new(RepairConfig {
+            allow_replan: false,
+            ..Default::default()
+        });
+        let trigger = RepairTrigger::CriticReplan {
+            reason: "drift".into(),
+            alignment_score: 0.1,
+        };
         let outcome = engine.attempt_repair(&trigger, "goal", 5, &[], &mut state);
         assert!(!outcome.is_actionable());
     }

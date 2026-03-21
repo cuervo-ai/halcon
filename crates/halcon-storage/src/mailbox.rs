@@ -87,8 +87,17 @@ impl Mailbox {
         tokio::task::spawn_blocking(move || {
             // Collect raw row data first so we don't hold the lock during parsing.
             #[allow(clippy::type_complexity)]
-            let rows: Vec<(String, String, String, String, String, String, Option<String>, bool)> =
-                db.with_connection(|conn| {
+            let rows: Vec<(
+                String,
+                String,
+                String,
+                String,
+                String,
+                String,
+                Option<String>,
+                bool,
+            )> = db
+                .with_connection(|conn| {
                     let mut stmt = conn.prepare(
                         "SELECT id, from_agent, to_agent, team_id, payload_json, \
                                 created_at, expires_at, consumed \
@@ -99,9 +108,8 @@ impl Mailbox {
                            AND (expires_at IS NULL OR expires_at > ?3) \
                          ORDER BY created_at ASC",
                     )?;
-                    let rows = stmt.query_map(
-                        rusqlite::params![team_id_str, agent_id, now],
-                        |row| {
+                    let rows =
+                        stmt.query_map(rusqlite::params![team_id_str, agent_id, now], |row| {
                             Ok((
                                 row.get::<_, String>(0)?,
                                 row.get::<_, String>(1)?,
@@ -112,16 +120,23 @@ impl Mailbox {
                                 row.get::<_, Option<String>>(6)?,
                                 row.get::<_, bool>(7)?,
                             ))
-                        },
-                    )?;
+                        })?;
                     rows.collect::<rusqlite::Result<Vec<_>>>()
                 })
                 .map_err(|e| HalconError::DatabaseError(format!("query receive: {e}")))?;
 
             // Parse outside the connection lock.
             let mut messages = Vec::with_capacity(rows.len());
-            for (id_str, from_agent, to_agent, team_id_str, payload_json,
-                 created_at_str, expires_at_str, consumed) in rows
+            for (
+                id_str,
+                from_agent,
+                to_agent,
+                team_id_str,
+                payload_json,
+                created_at_str,
+                expires_at_str,
+                consumed,
+            ) in rows
             {
                 let id = Uuid::parse_str(&id_str)
                     .map_err(|e| HalconError::DatabaseError(format!("parse id uuid: {e}")))?;
@@ -134,8 +149,9 @@ impl Mailbox {
                     .map_err(|e| HalconError::DatabaseError(format!("parse created_at: {e}")))?;
                 let expires_at = expires_at_str
                     .map(|s| {
-                        s.parse::<DateTime<Utc>>()
-                            .map_err(|e| HalconError::DatabaseError(format!("parse expires_at: {e}")))
+                        s.parse::<DateTime<Utc>>().map_err(|e| {
+                            HalconError::DatabaseError(format!("parse expires_at: {e}"))
+                        })
                     })
                     .transpose()?;
 
@@ -242,7 +258,11 @@ mod tests {
 
         // Lead broadcasts a task assignment.
         mailbox
-            .broadcast("agent-lead", team_id, serde_json::json!({"task": "review PR #42"}))
+            .broadcast(
+                "agent-lead",
+                team_id,
+                serde_json::json!({"task": "review PR #42"}),
+            )
             .await
             .expect("broadcast");
 
@@ -284,15 +304,24 @@ mod tests {
         mailbox.send(reply).await.expect("send reply");
 
         // Lead receives it.
-        let msgs = mailbox.receive("agent-lead", team_id).await.expect("receive lead");
+        let msgs = mailbox
+            .receive("agent-lead", team_id)
+            .await
+            .expect("receive lead");
         assert_eq!(msgs.len(), 1);
         assert_eq!(msgs[0].from_agent, "agent-tm-a");
         assert_eq!(msgs[0].payload["status"], "partial");
         assert_eq!(msgs[0].payload["lines_reviewed"], 47);
 
         // An unrelated agent gets nothing.
-        let other = mailbox.receive("agent-tm-b", team_id).await.expect("receive other");
-        assert!(other.is_empty(), "other agent should not see direct message");
+        let other = mailbox
+            .receive("agent-tm-b", team_id)
+            .await
+            .expect("receive other");
+        assert!(
+            other.is_empty(),
+            "other agent should not see direct message"
+        );
     }
 
     /// A message with an expired TTL is not delivered.
@@ -317,7 +346,10 @@ mod tests {
         mailbox.send(expired_msg).await.expect("send expired");
 
         // Should NOT be delivered.
-        let msgs = mailbox.receive("agent-tm-a", team_id).await.expect("receive");
+        let msgs = mailbox
+            .receive("agent-tm-a", team_id)
+            .await
+            .expect("receive");
         assert!(msgs.is_empty(), "expired message must not be delivered");
 
         // purge_expired should delete it.
@@ -341,10 +373,16 @@ mod tests {
         assert_eq!(msgs.len(), 1);
 
         // Mark consumed.
-        mailbox.mark_consumed(msgs[0].id).await.expect("mark consumed");
+        mailbox
+            .mark_consumed(msgs[0].id)
+            .await
+            .expect("mark consumed");
 
         // Second receive returns nothing.
         let msgs2 = mailbox.receive("tm", team_id).await.expect("receive 2");
-        assert!(msgs2.is_empty(), "consumed message must not be re-delivered");
+        assert!(
+            msgs2.is_empty(),
+            "consumed message must not be re-delivered"
+        );
     }
 }

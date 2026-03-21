@@ -2,25 +2,16 @@
 // MIGRATION-2026: archivos movidos desde repl/ raíz
 
 pub mod compaction;
-pub(crate) mod governance;
-pub(crate) mod manager;
-pub(crate) mod metrics;
-pub mod episodic;
-pub mod hybrid_retriever;
 pub mod consolidator;
+pub mod episodic;
+pub(crate) mod governance;
+pub mod hybrid_retriever;
+pub(crate) mod manager;
 pub mod memory;
+pub(crate) mod metrics;
 pub mod reflection;
 pub mod repo_map;
 pub mod vector_memory;
 
 // Re-exports — preserve API surface for callers in repl/
-pub(crate) use manager::{ContextManager, AssembledContext, SubAgentContext};
-pub(crate) use governance::{ContextGovernance, ContextProvenance};
-pub(crate) use metrics::ContextMetrics;
-pub use memory::MemorySource;
-pub use episodic::EpisodicSource;
-pub use vector_memory::{VectorMemorySource, SharedVectorStore};
-pub use hybrid_retriever::HybridRetriever;
-pub use reflection::ReflectionSource;
-pub use repo_map::RepoMapSource;
 // consolidator: free functions (consolidate, maybe_consolidate), no MemoryConsolidator struct

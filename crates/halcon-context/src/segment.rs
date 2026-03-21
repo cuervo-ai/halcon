@@ -137,7 +137,9 @@ pub fn extract_segment_from_message(
                             tool_names.push(name.clone());
                         }
                     }
-                    ContentBlock::ToolResult { content, is_error, .. } => {
+                    ContentBlock::ToolResult {
+                        content, is_error, ..
+                    } => {
                         let prefix = if *is_error { "ERROR" } else { "OK" };
                         let first_line = content.lines().next().unwrap_or("");
                         outcomes.push(format!("[{prefix}] {}", truncate_text(first_line, 100)));
@@ -166,7 +168,14 @@ pub fn extract_segment_from_message(
 
 /// Extract decision-like sentences from text.
 fn extract_decisions(text: &str) -> Vec<String> {
-    let decision_keywords = ["decided", "chose", "will use", "switched to", "selected", "using"];
+    let decision_keywords = [
+        "decided",
+        "chose",
+        "will use",
+        "switched to",
+        "selected",
+        "using",
+    ];
     text.lines()
         .filter(|line| {
             let lower = line.to_lowercase();
@@ -182,7 +191,9 @@ fn extract_file_paths(text: &str) -> Vec<String> {
     let mut files = Vec::new();
     // Split on whitespace and common delimiters
     for word in text.split(|c: char| c.is_whitespace() || c == ',' || c == ';') {
-        let trimmed = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '/' && c != '.' && c != '_' && c != '-');
+        let trimmed = word.trim_matches(|c: char| {
+            !c.is_alphanumeric() && c != '/' && c != '.' && c != '_' && c != '-'
+        });
         // Trim trailing period that's sentence punctuation (not part of extension)
         let trimmed = if trimmed.ends_with('.') && !has_code_extension(trimmed) {
             &trimmed[..trimmed.len() - 1]
@@ -202,9 +213,10 @@ fn extract_file_paths(text: &str) -> Vec<String> {
 
 /// Check if a string ends with a common code file extension.
 fn has_code_extension(s: &str) -> bool {
-    let exts = [".rs", ".py", ".ts", ".js", ".tsx", ".jsx", ".md", ".toml",
-                ".json", ".yaml", ".yml", ".go", ".c", ".h", ".cpp", ".java",
-                ".rb", ".sh", ".css", ".html", ".sql", ".txt", ".lock"];
+    let exts = [
+        ".rs", ".py", ".ts", ".js", ".tsx", ".jsx", ".md", ".toml", ".json", ".yaml", ".yml",
+        ".go", ".c", ".h", ".cpp", ".java", ".rb", ".sh", ".css", ".html", ".sql", ".txt", ".lock",
+    ];
     exts.iter().any(|ext| s.ends_with(ext))
 }
 
@@ -379,9 +391,7 @@ mod tests {
 
     #[test]
     fn decisions_capped_at_5() {
-        let lines: Vec<String> = (0..20)
-            .map(|i| format!("We decided item {i}"))
-            .collect();
+        let lines: Vec<String> = (0..20).map(|i| format!("We decided item {i}")).collect();
         let text = lines.join("\n");
         let decisions = extract_decisions(&text);
         assert_eq!(decisions.len(), 5);
@@ -389,9 +399,7 @@ mod tests {
 
     #[test]
     fn file_paths_capped_at_10() {
-        let paths: Vec<String> = (0..20)
-            .map(|i| format!("src/module_{i}.rs"))
-            .collect();
+        let paths: Vec<String> = (0..20).map(|i| format!("src/module_{i}.rs")).collect();
         let text = paths.join(" ");
         let files = extract_file_paths(&text);
         assert!(files.len() <= 10);
@@ -406,10 +414,14 @@ mod tests {
         // 3 bytes per char — naive byte slicing would panic mid-char
         let cjk = "这是一段中文文本，用于测试UTF-8安全截断功能，确保不会产生字节边界错误。";
         let result = truncate_text(cjk, 10);
-        assert!(std::str::from_utf8(result.as_bytes()).is_ok(),
-            "result must be valid UTF-8");
-        assert!(result.ends_with("...") || result == cjk,
-            "must truncate or return as-is");
+        assert!(
+            std::str::from_utf8(result.as_bytes()).is_ok(),
+            "result must be valid UTF-8"
+        );
+        assert!(
+            result.ends_with("...") || result == cjk,
+            "must truncate or return as-is"
+        );
     }
 
     /// 4-byte emoji must not cause panic.
@@ -428,17 +440,24 @@ mod tests {
         // "こんにちは" = 5 chars = 15 bytes
         // With max_chars=5 it must return as-is (not truncate at byte 5 = mid-char)
         let s = "こんにちは";
-        assert_eq!(truncate_text(s, 5), s,
-            "5-char string must not truncate at max_chars=5");
-        assert_eq!(truncate_text(s, 10), s,
-            "5-char string must not truncate at max_chars=10");
+        assert_eq!(
+            truncate_text(s, 5),
+            s,
+            "5-char string must not truncate at max_chars=5"
+        );
+        assert_eq!(
+            truncate_text(s, 10),
+            s,
+            "5-char string must not truncate at max_chars=10"
+        );
 
         // With max_chars=3, result must truncate and still be valid UTF-8
         let result = truncate_text(s, 3);
-        assert!(result.ends_with("..."),
-            "must add ellipsis when truncated");
-        assert!(std::str::from_utf8(result.as_bytes()).is_ok(),
-            "truncated result must be valid UTF-8");
+        assert!(result.ends_with("..."), "must add ellipsis when truncated");
+        assert!(
+            std::str::from_utf8(result.as_bytes()).is_ok(),
+            "truncated result must be valid UTF-8"
+        );
     }
 
     /// Combining marks and diacritics must not cause panic.
@@ -493,7 +512,10 @@ mod tests {
         let result = truncate_text("hello world", 0);
         // Either empty or "..." — must not contain original text and must not panic
         assert!(std::str::from_utf8(result.as_bytes()).is_ok());
-        assert!(!result.contains("hello"), "zero limit must not include content");
+        assert!(
+            !result.contains("hello"),
+            "zero limit must not include content"
+        );
     }
 
     /// Streaming partial-chunk simulation: text cut at arbitrary byte positions.

@@ -145,7 +145,8 @@ impl Database {
             .prepare(sql)
             .map_err(|e| HalconError::DatabaseError(format!("prepare: {e}")))?;
 
-        let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params.iter().map(|p| p.as_ref()).collect();
 
         let entries = stmt
             .query_map(param_refs.as_slice(), |row| {
@@ -712,7 +713,10 @@ mod tests {
 
         // These queries would previously break FTS5 — now they should work.
         let results = db.search_memory_fts("one-liner?", 10).unwrap();
-        assert!(!results.is_empty(), "search with '?' and '-' should find results");
+        assert!(
+            !results.is_empty(),
+            "search with '?' and '-' should find results"
+        );
 
         let results = db.search_memory_fts("Rust.", 10).unwrap();
         assert!(!results.is_empty(), "search with '.' should find results");

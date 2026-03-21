@@ -5,8 +5,8 @@ use std::path::PathBuf;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-use crate::state::DesktopAttachment;
 use super::{BackendMessage, RepaintFn};
+use crate::state::DesktopAttachment;
 
 /// Maximum attachment size: 20 MB (matches halcon-multimodal limit).
 const MAX_ATTACHMENT_BYTES: usize = 20 * 1024 * 1024;
@@ -23,10 +23,7 @@ pub async fn attach_file(
             let _ = msg_tx.try_send(BackendMessage::AttachmentReady(att));
         }
         Err(e) => {
-            let _ = msg_tx.try_send(BackendMessage::AttachmentError {
-                path,
-                error: e,
-            });
+            let _ = msg_tx.try_send(BackendMessage::AttachmentError { path, error: e });
         }
     }
     (repaint)();
@@ -88,7 +85,7 @@ async fn read_and_encode(path: &PathBuf) -> Result<DesktopAttachment, String> {
 }
 
 /// Detect MIME type by inspecting magic bytes, falling back to file extension.
-fn detect_mime(bytes: &[u8], path: &PathBuf) -> &'static str {
+fn detect_mime(bytes: &[u8], path: &std::path::Path) -> &'static str {
     // Magic bytes for common image formats.
     if bytes.starts_with(b"\xff\xd8\xff") {
         return "image/jpeg";
@@ -103,7 +100,9 @@ fn detect_mime(bytes: &[u8], path: &PathBuf) -> &'static str {
         return "image/webp";
     }
     // Audio magic bytes.
-    if bytes.starts_with(b"ID3") || (bytes.len() >= 2 && bytes[0] == 0xff && (bytes[1] & 0xe0) == 0xe0) {
+    if bytes.starts_with(b"ID3")
+        || (bytes.len() >= 2 && bytes[0] == 0xff && (bytes[1] & 0xe0) == 0xe0)
+    {
         return "audio/mpeg"; // MP3
     }
     if bytes.starts_with(b"RIFF") && bytes.get(8..12) == Some(b"WAVE") {
@@ -128,25 +127,23 @@ fn detect_mime(bytes: &[u8], path: &PathBuf) -> &'static str {
         .to_lowercase();
     match ext.as_str() {
         "jpg" | "jpeg" => "image/jpeg",
-        "png"          => "image/png",
-        "gif"          => "image/gif",
-        "webp"         => "image/webp",
-        "mp3"          => "audio/mpeg",
-        "wav"          => "audio/wav",
-        "ogg"          => "audio/ogg",
-        "m4a"          => "audio/mp4",
-        "flac"         => "audio/flac",
-        "mp4"          => "video/mp4",
-        "webm"         => "video/webm",
-        "mov"          => "video/quicktime",
-        "txt" | "md"   => "text/plain",
-        "json"         => "application/json",
-        "csv"          => "text/csv",
-        "rs" | "py" | "js" | "ts" | "go" | "java" | "cpp" | "c" | "rb" | "sh"
-                       => "text/plain",
-        "toml" | "yaml" | "yml" | "xml" | "html" | "htm" | "css"
-                       => "text/plain",
-        _              => "application/octet-stream",
+        "png" => "image/png",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "mp3" => "audio/mpeg",
+        "wav" => "audio/wav",
+        "ogg" => "audio/ogg",
+        "m4a" => "audio/mp4",
+        "flac" => "audio/flac",
+        "mp4" => "video/mp4",
+        "webm" => "video/webm",
+        "mov" => "video/quicktime",
+        "txt" | "md" => "text/plain",
+        "json" => "application/json",
+        "csv" => "text/csv",
+        "rs" | "py" | "js" | "ts" | "go" | "java" | "cpp" | "c" | "rb" | "sh" => "text/plain",
+        "toml" | "yaml" | "yml" | "xml" | "html" | "htm" | "css" => "text/plain",
+        _ => "application/octet-stream",
     }
 }
 

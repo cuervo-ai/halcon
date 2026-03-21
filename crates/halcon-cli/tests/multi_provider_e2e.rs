@@ -27,10 +27,7 @@ async fn openai_mock_single_shot() {
     Mock::given(method("POST"))
         .and(path("/chat/completions"))
         .and(header("authorization", "Bearer sk-test-openai"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_raw(body, "text/event-stream"),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_raw(body, "text/event-stream"))
         .expect(1)
         .mount(&server)
         .await;
@@ -41,7 +38,14 @@ async fn openai_mock_single_shot() {
 
     halcon_cmd(&tmp)
         .env("OPENAI_API_KEY", "sk-test-openai")
-        .args(["--config", &config_path, "-p", "openai", "chat", "Say hello"])
+        .args([
+            "--config",
+            &config_path,
+            "-p",
+            "openai",
+            "chat",
+            "Say hello",
+        ])
         .timeout(std::time::Duration::from_secs(30))
         .assert()
         .success()
@@ -55,21 +59,30 @@ async fn deepseek_mock_single_shot() {
 
     Mock::given(method("POST"))
         .and(path("/chat/completions"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_raw(body, "text/event-stream"),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_raw(body, "text/event-stream"))
         .expect(1)
         .mount(&server)
         .await;
 
     let tmp = TempDir::new().unwrap();
-    let config = single_provider_config("deepseek", &server.uri(), "DEEPSEEK_API_KEY", "deepseek-chat");
+    let config = single_provider_config(
+        "deepseek",
+        &server.uri(),
+        "DEEPSEEK_API_KEY",
+        "deepseek-chat",
+    );
     let config_path = write_config(&tmp, &config);
 
     halcon_cmd(&tmp)
         .env("DEEPSEEK_API_KEY", "sk-test-deepseek")
-        .args(["--config", &config_path, "-p", "deepseek", "chat", "Say hello"])
+        .args([
+            "--config",
+            &config_path,
+            "-p",
+            "deepseek",
+            "chat",
+            "Say hello",
+        ])
         .timeout(std::time::Duration::from_secs(30))
         .assert()
         .success()
@@ -89,10 +102,7 @@ async fn openai_mock_tool_call() {
 
     Mock::given(method("POST"))
         .and(path("/chat/completions"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_raw(body, "text/event-stream"),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_raw(body, "text/event-stream"))
         .mount(&server)
         .await;
 
@@ -102,7 +112,14 @@ async fn openai_mock_tool_call() {
 
     halcon_cmd(&tmp)
         .env("OPENAI_API_KEY", "sk-test-openai")
-        .args(["--config", &config_path, "-p", "openai", "chat", "Help me with something"])
+        .args([
+            "--config",
+            &config_path,
+            "-p",
+            "openai",
+            "chat",
+            "Help me with something",
+        ])
         .timeout(std::time::Duration::from_secs(30))
         .assert()
         .success()
@@ -114,25 +131,34 @@ async fn deepseek_reasoning_content() {
     let server = MockServer::start().await;
     let body = common::deepseek_reasoning_sse(
         "Let me think about this step by step...",
-        "The answer is 42."
+        "The answer is 42.",
     );
 
     Mock::given(method("POST"))
         .and(path("/chat/completions"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_raw(body, "text/event-stream"),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_raw(body, "text/event-stream"))
         .mount(&server)
         .await;
 
     let tmp = TempDir::new().unwrap();
-    let config = single_provider_config("deepseek", &server.uri(), "DEEPSEEK_API_KEY", "deepseek-chat");
+    let config = single_provider_config(
+        "deepseek",
+        &server.uri(),
+        "DEEPSEEK_API_KEY",
+        "deepseek-chat",
+    );
     let config_path = write_config(&tmp, &config);
 
     halcon_cmd(&tmp)
         .env("DEEPSEEK_API_KEY", "sk-test-ds")
-        .args(["--config", &config_path, "-p", "deepseek", "chat", "What is the meaning?"])
+        .args([
+            "--config",
+            &config_path,
+            "-p",
+            "deepseek",
+            "chat",
+            "What is the meaning?",
+        ])
         .timeout(std::time::Duration::from_secs(30))
         .assert()
         .success()
@@ -156,10 +182,7 @@ async fn provider_switch_on_failure() {
     let body = common::anthropic_sse("Hello from fallback Anthropic");
     Mock::given(method("POST"))
         .and(path("/v1/messages"))
-        .respond_with(
-            ResponseTemplate::new(200)
-                .set_body_raw(body, "text/event-stream"),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_raw(body, "text/event-stream"))
         .expect(1)
         .mount(&fallback)
         .await;
@@ -185,10 +208,9 @@ async fn openai_auth_error_reports_authentication() {
     // 401 auth error — non-retryable, should fail fast with auth error message.
     Mock::given(method("POST"))
         .and(path("/chat/completions"))
-        .respond_with(
-            ResponseTemplate::new(401)
-                .set_body_string(r#"{"error":{"message":"Invalid API key","type":"authentication_error"}}"#),
-        )
+        .respond_with(ResponseTemplate::new(401).set_body_string(
+            r#"{"error":{"message":"Invalid API key","type":"authentication_error"}}"#,
+        ))
         .expect(1..)
         .mount(&server)
         .await;
@@ -199,7 +221,14 @@ async fn openai_auth_error_reports_authentication() {
 
     halcon_cmd(&tmp)
         .env("OPENAI_API_KEY", "sk-bad-key")
-        .args(["--config", &config_path, "-p", "openai", "chat", "Test auth"])
+        .args([
+            "--config",
+            &config_path,
+            "-p",
+            "openai",
+            "chat",
+            "Test auth",
+        ])
         .timeout(std::time::Duration::from_secs(30))
         .assert()
         .success()

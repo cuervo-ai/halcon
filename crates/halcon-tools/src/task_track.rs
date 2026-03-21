@@ -81,12 +81,7 @@ impl TaskTrackTool {
 
         let mut out = String::new();
         for (i, task) in tasks.iter().enumerate() {
-            out.push_str(&format!(
-                "{} {} {}\n",
-                task.status.badge(),
-                i,
-                task.content
-            ));
+            out.push_str(&format!("{} {} {}\n", task.status.badge(), i, task.content));
             if let Some(ref af) = task.active_form {
                 if task.status == TaskStatus::InProgress {
                     out.push_str(&format!("    → {af}\n"));
@@ -97,7 +92,10 @@ impl TaskTrackTool {
     }
 
     fn task_counts(tasks: &[AgentTask]) -> serde_json::Value {
-        let pending = tasks.iter().filter(|t| t.status == TaskStatus::Pending).count();
+        let pending = tasks
+            .iter()
+            .filter(|t| t.status == TaskStatus::Pending)
+            .count();
         let in_progress = tasks
             .iter()
             .filter(|t| t.status == TaskStatus::InProgress)
@@ -134,21 +132,17 @@ impl Tool for TaskTrackTool {
     }
 
     async fn execute(&self, input: ToolInput) -> Result<ToolOutput> {
-        let action = input.arguments["action"]
-            .as_str()
-            .ok_or_else(|| HalconError::InvalidInput("task_track requires 'action' string".into()))?;
+        let action = input.arguments["action"].as_str().ok_or_else(|| {
+            HalconError::InvalidInput("task_track requires 'action' string".into())
+        })?;
 
         let mut tasks = self.tasks.lock().unwrap();
 
         match action {
             "add" => {
-                let content = input.arguments["content"]
-                    .as_str()
-                    .ok_or_else(|| {
-                        HalconError::InvalidInput(
-                            "task_track 'add' requires 'content' string".into(),
-                        )
-                    })?;
+                let content = input.arguments["content"].as_str().ok_or_else(|| {
+                    HalconError::InvalidInput("task_track 'add' requires 'content' string".into())
+                })?;
                 let active_form = input.arguments["active_form"]
                     .as_str()
                     .map(|s| s.to_string());
@@ -173,21 +167,15 @@ impl Tool for TaskTrackTool {
             }
 
             "update" => {
-                let task_index = input.arguments["task_index"]
-                    .as_u64()
-                    .ok_or_else(|| {
-                        HalconError::InvalidInput(
-                            "task_track 'update' requires 'task_index' integer".into(),
-                        )
-                    })? as usize;
+                let task_index = input.arguments["task_index"].as_u64().ok_or_else(|| {
+                    HalconError::InvalidInput(
+                        "task_track 'update' requires 'task_index' integer".into(),
+                    )
+                })? as usize;
 
-                let status_str = input.arguments["status"]
-                    .as_str()
-                    .ok_or_else(|| {
-                        HalconError::InvalidInput(
-                            "task_track 'update' requires 'status' string".into(),
-                        )
-                    })?;
+                let status_str = input.arguments["status"].as_str().ok_or_else(|| {
+                    HalconError::InvalidInput("task_track 'update' requires 'status' string".into())
+                })?;
 
                 let new_status = TaskStatus::from_str(status_str).ok_or_else(|| {
                     HalconError::InvalidInput(format!(
@@ -209,9 +197,10 @@ impl Tool for TaskTrackTool {
 
                 // Enforce only-one-in_progress constraint.
                 if new_status == TaskStatus::InProgress {
-                    let existing = tasks.iter().enumerate().find(|(i, t)| {
-                        *i != task_index && t.status == TaskStatus::InProgress
-                    });
+                    let existing = tasks
+                        .iter()
+                        .enumerate()
+                        .find(|(i, t)| *i != task_index && t.status == TaskStatus::InProgress);
                     if let Some((existing_idx, _)) = existing {
                         return Ok(ToolOutput {
                             tool_use_id: input.tool_use_id,
@@ -314,7 +303,9 @@ mod tests {
     async fn add_task() {
         let tool = TaskTrackTool::new();
         let out = tool
-            .execute(make_input(json!({"action": "add", "content": "Fix the bug"})))
+            .execute(make_input(
+                json!({"action": "add", "content": "Fix the bug"}),
+            ))
             .await
             .unwrap();
         assert!(!out.is_error);
@@ -409,8 +400,8 @@ mod tests {
         tool.execute(make_input(json!({
             "action": "update", "task_index": 0, "status": "in_progress"
         })))
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         // Try to start Task B — should fail.
         let out = tool
@@ -449,13 +440,13 @@ mod tests {
         tool.execute(make_input(json!({
             "action": "update", "task_index": 0, "status": "completed"
         })))
-            .await
-            .unwrap();
+        .await
+        .unwrap();
         tool.execute(make_input(json!({
             "action": "update", "task_index": 1, "status": "completed"
         })))
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         let out = tool
             .execute(make_input(json!({"action": "list"})))
@@ -478,8 +469,8 @@ mod tests {
         tool.execute(make_input(json!({
             "action": "update", "task_index": 0, "status": "in_progress"
         })))
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         // in_progress → completed
         let out = tool
@@ -500,14 +491,14 @@ mod tests {
             "content": "Run tests",
             "active_form": "Running tests"
         })))
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         tool.execute(make_input(json!({
             "action": "update", "task_index": 0, "status": "in_progress"
         })))
-            .await
-            .unwrap();
+        .await
+        .unwrap();
 
         let out = tool
             .execute(make_input(json!({"action": "list"})))

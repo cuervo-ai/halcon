@@ -136,33 +136,27 @@ impl Default for IntentPatterns {
     fn default() -> Self {
         Self {
             approval: vec![
-                "approve",
-                "ok",
-                "okay",
-                "proceed",
-                "go ahead",
-                "do it",
-                "yes",
-                "y",
-                "sure",
-                "fine",
-                "accept",
+                "approve", "ok", "okay", "proceed", "go ahead", "do it", "yes", "y", "sure",
+                "fine", "accept",
             ],
             rejection: vec![
-                "reject",
-                "no",
-                "n",
-                "cancel",
-                "abort",
-                "stop",
-                "deny",
-                "nope",
-                "nah",
-                "refuse",
+                "reject", "no", "n", "cancel", "abort", "stop", "deny", "nope", "nah", "refuse",
             ],
             question: vec![
-                "what", "why", "how", "when", "where", "which", "who", "explain", "tell me",
-                "can you", "could you", "would you", "is this", "does this",
+                "what",
+                "why",
+                "how",
+                "when",
+                "where",
+                "which",
+                "who",
+                "explain",
+                "tell me",
+                "can you",
+                "could you",
+                "would you",
+                "is this",
+                "does this",
             ],
             modification: vec![
                 "use",
@@ -176,7 +170,14 @@ impl Default for IntentPatterns {
                 "different",
             ],
             defer: vec!["wait", "defer", "later", "check", "let me", "pause", "hold"],
-            detail_request: vec!["show", "details", "parameters", "params", "more info", "info"],
+            detail_request: vec![
+                "show",
+                "details",
+                "parameters",
+                "params",
+                "more info",
+                "info",
+            ],
             safer_alternative: vec![
                 "safer",
                 "add --dry-run",
@@ -242,7 +243,10 @@ impl IntentPatterns {
             DetailAspect::Parameters
         } else if input.contains("risk") || input.contains("safe") || input.contains("danger") {
             DetailAspect::RiskAssessment
-        } else if input.contains("history") || input.contains("previous") || input.contains("before") {
+        } else if input.contains("history")
+            || input.contains("previous")
+            || input.contains("before")
+        {
             DetailAspect::History
         } else {
             DetailAspect::WhatItDoes
@@ -279,7 +283,10 @@ mod tests {
         assert!(matches!(n.normalize("ok"), PermissionMessage::Approve));
         assert!(matches!(n.normalize("okay"), PermissionMessage::Approve));
         assert!(matches!(n.normalize("proceed"), PermissionMessage::Approve));
-        assert!(matches!(n.normalize("go ahead"), PermissionMessage::Approve));
+        assert!(matches!(
+            n.normalize("go ahead"),
+            PermissionMessage::Approve
+        ));
         assert!(matches!(n.normalize("do it"), PermissionMessage::Approve));
         assert!(matches!(n.normalize("sure"), PermissionMessage::Approve));
     }
@@ -426,19 +433,13 @@ mod tests {
         let n = InputNormalizer::new();
         assert!(matches!(n.normalize("YES"), PermissionMessage::Approve));
         assert!(matches!(n.normalize("No"), PermissionMessage::Reject));
-        assert!(matches!(
-            n.normalize("PROCEED"),
-            PermissionMessage::Approve
-        ));
+        assert!(matches!(n.normalize("PROCEED"), PermissionMessage::Approve));
     }
 
     #[test]
     fn normalize_whitespace_trimming() {
         let n = InputNormalizer::new();
-        assert!(matches!(
-            n.normalize("  y  "),
-            PermissionMessage::Approve
-        ));
+        assert!(matches!(n.normalize("  y  "), PermissionMessage::Approve));
         assert!(matches!(
             n.normalize("\n\nyes\n\n"),
             PermissionMessage::Approve
@@ -465,10 +466,7 @@ mod tests {
         // For now, fuzzy matching just delegates to normalize
         let msg1 = n.normalize("approve");
         let msg2 = n.normalize_fuzzy("approve");
-        assert_eq!(
-            std::mem::discriminant(&msg1),
-            std::mem::discriminant(&msg2)
-        );
+        assert_eq!(std::mem::discriminant(&msg1), std::mem::discriminant(&msg2));
     }
 
     #[test]

@@ -52,13 +52,13 @@ impl ControlSignals {
     /// Construct a snapshot from the current loop state.
     pub(super) fn from_loop_state(state: &LoopState) -> Self {
         Self {
-            forced_synthesis_detected:      state.synthesis.is_synthesis_forced(),
+            forced_synthesis_detected: state.synthesis.is_synthesis_forced(),
             convergence_directive_injected: state.synthesis.convergence_directive_injected,
-            environment_error_halt:         state.environment_error_halt,
-            auto_pause:                     state.auto_pause,
-            ctrl_cancelled:                 state.ctrl_cancelled,
+            environment_error_halt: state.environment_error_halt,
+            auto_pause: state.auto_pause,
+            ctrl_cancelled: state.ctrl_cancelled,
             model_downgrade_advisory_active: state.model_downgrade_advisory_active,
-            tool_decision:                  state.synthesis.tool_decision,
+            tool_decision: state.synthesis.tool_decision,
         }
     }
 
@@ -100,11 +100,11 @@ impl LoopAccumulator {
     /// Construct a snapshot from the current loop state.
     pub(super) fn from_loop_state(state: &LoopState) -> Self {
         Self {
-            full_text_len:        state.full_text.len(),
-            rounds_completed:     state.rounds,
-            tools_executed:       state.tools_executed.clone(),
-            replan_attempts:      state.convergence.replan_attempts,
-            drift_replan_count:   state.convergence.drift_replan_count,
+            full_text_len: state.full_text.len(),
+            rounds_completed: state.rounds,
+            tools_executed: state.tools_executed.clone(),
+            replan_attempts: state.convergence.replan_attempts,
+            drift_replan_count: state.convergence.drift_replan_count,
             cumulative_drift_score: state.convergence.cumulative_drift_score,
         }
     }
@@ -146,14 +146,14 @@ impl TokenBudget {
     /// Construct a snapshot from the current loop state.
     pub(super) fn from_loop_state(state: &LoopState) -> Self {
         Self {
-            input_tokens:      state.tokens.call_input_tokens,
-            output_tokens:     state.tokens.call_output_tokens,
-            cost:              state.tokens.call_cost,
-            pipeline_budget:   state.tokens.pipeline_budget,
-            context_window:    state.tokens.provider_context_window,
-            tokens_planning:   state.tokens.tokens_planning,
-            tokens_subagents:  state.tokens.tokens_subagents,
-            tokens_critic:     state.tokens.tokens_critic,
+            input_tokens: state.tokens.call_input_tokens,
+            output_tokens: state.tokens.call_output_tokens,
+            cost: state.tokens.call_cost,
+            pipeline_budget: state.tokens.pipeline_budget,
+            context_window: state.tokens.provider_context_window,
+            tokens_planning: state.tokens.tokens_planning,
+            tokens_subagents: state.tokens.tokens_subagents,
+            tokens_critic: state.tokens.tokens_critic,
         }
     }
 
@@ -165,7 +165,9 @@ impl TokenBudget {
     /// Fraction of the pipeline budget consumed by input tokens (0.0–1.0).
     /// Returns 0.0 when `pipeline_budget` is zero.
     pub(super) fn budget_utilization(&self) -> f32 {
-        if self.pipeline_budget == 0 { return 0.0; }
+        if self.pipeline_budget == 0 {
+            return 0.0;
+        }
         (self.input_tokens as f32) / (self.pipeline_budget as f32)
     }
 }
@@ -191,8 +193,8 @@ impl SessionMetadata {
     pub(super) fn from_loop_state(state: &LoopState) -> Self {
         Self {
             session_id: state.session_id,
-            user_msg:   state.user_msg.clone(),
-            goal_text:  state.goal_text.clone(),
+            user_msg: state.user_msg.clone(),
+            goal_text: state.goal_text.clone(),
         }
     }
 }
@@ -218,8 +220,8 @@ impl SubsystemHealth {
     pub(super) fn from_loop_state(state: &LoopState, round: usize) -> Self {
         Self {
             metacognitive_should_run: state.hicon.metacognitive_loop.should_run_cycle(round + 1),
-            last_convergence_ratio:  state.convergence.last_convergence_ratio,
-            next_round_restarts:     state.next_round_restarts,
+            last_convergence_ratio: state.convergence.last_convergence_ratio,
+            next_round_restarts: state.next_round_restarts,
         }
     }
 

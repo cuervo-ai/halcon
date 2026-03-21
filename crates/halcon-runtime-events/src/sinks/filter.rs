@@ -58,7 +58,10 @@ impl<S: EventSink> FilteredSink<S> {
     where
         F: Fn(&RuntimeEvent) -> bool + Send + Sync + 'static,
     {
-        Self { inner, predicate: Arc::new(predicate) }
+        Self {
+            inner,
+            predicate: Arc::new(predicate),
+        }
     }
 
     /// Obtain a reference to the inner sink.
@@ -117,13 +120,16 @@ impl<S: EventSink> FilteredSink<S> {
     /// Only forward warning-severity events: budget, guardrail, circuit-breaker,
     /// and tool-blocked events. A sensible default for production log noise reduction.
     pub fn warn_only(inner: S) -> Self {
-        Self::for_types(inner, &[
-            "budget_warning",
-            "budget_exhausted",
-            "guardrail_triggered",
-            "circuit_breaker_opened",
-            "tool_blocked",
-        ])
+        Self::for_types(
+            inner,
+            &[
+                "budget_warning",
+                "budget_exhausted",
+                "guardrail_triggered",
+                "circuit_breaker_opened",
+                "tool_blocked",
+            ],
+        )
     }
 
     /// Exclude high-frequency streaming events (`model_token`, `reasoning_trace`).
@@ -145,11 +151,16 @@ mod tests {
     use crate::sinks::MetricsSink;
     use uuid::Uuid;
 
-    fn session() -> Uuid { Uuid::new_v4() }
+    fn session() -> Uuid {
+        Uuid::new_v4()
+    }
 
     fn round_started(round: usize) -> RuntimeEventKind {
         RuntimeEventKind::RoundStarted {
-            round, model: "m".into(), tools_allowed: true, token_budget_remaining: 0,
+            round,
+            model: "m".into(),
+            tools_allowed: true,
+            token_budget_remaining: 0,
         }
     }
 
@@ -191,13 +202,16 @@ mod tests {
         // This event type is not in the list — should be dropped.
         sink.emit(&RuntimeEvent::new(s, round_started(1)));
         // This event type IS in the list — should pass.
-        sink.emit(&RuntimeEvent::new(s, RuntimeEventKind::ToolBlocked {
-            round: 1,
-            tool_use_id: "x".into(),
-            tool_name: "bash".into(),
-            reason: ToolBlockReason::GuardrailBlocked,
-            message: "blocked".into(),
-        }));
+        sink.emit(&RuntimeEvent::new(
+            s,
+            RuntimeEventKind::ToolBlocked {
+                round: 1,
+                tool_use_id: "x".into(),
+                tool_name: "bash".into(),
+                reason: ToolBlockReason::GuardrailBlocked,
+                message: "blocked".into(),
+            },
+        ));
 
         let snap = inner.snapshot();
         // round_started dropped → total_rounds = 0
@@ -213,10 +227,16 @@ mod tests {
         let s = session();
 
         // Should pass through (budget_warning is in the warn list).
-        sink.emit(&RuntimeEvent::new(s, RuntimeEventKind::BudgetWarning {
-            tokens_used: 7000, tokens_total: 8000, pct_used: 0.875,
-            time_elapsed_ms: 0, time_limit_ms: 0,
-        }));
+        sink.emit(&RuntimeEvent::new(
+            s,
+            RuntimeEventKind::BudgetWarning {
+                tokens_used: 7000,
+                tokens_total: 8000,
+                pct_used: 0.875,
+                time_elapsed_ms: 0,
+                time_limit_ms: 0,
+            },
+        ));
         // Should be dropped (round_started is not in the warn list).
         sink.emit(&RuntimeEvent::new(s, round_started(1)));
 
@@ -232,17 +252,30 @@ mod tests {
         let s = session();
 
         // Dropped — high-frequency streaming events.
-        sink.emit(&RuntimeEvent::new(s, RuntimeEventKind::ModelToken {
-            round: 1, text: "hello".into(), is_thinking: false,
-        }));
-        sink.emit(&RuntimeEvent::new(s, RuntimeEventKind::ReasoningTrace {
-            round: 1, text: "thinking...".into(), code_ref: None,
-        }));
+        sink.emit(&RuntimeEvent::new(
+            s,
+            RuntimeEventKind::ModelToken {
+                round: 1,
+                text: "hello".into(),
+                is_thinking: false,
+            },
+        ));
+        sink.emit(&RuntimeEvent::new(
+            s,
+            RuntimeEventKind::ReasoningTrace {
+                round: 1,
+                text: "thinking...".into(),
+                code_ref: None,
+            },
+        ));
         // Passed — non-streaming event.
         sink.emit(&RuntimeEvent::new(s, round_completed(1, 500)));
 
         let snap = inner.snapshot();
-        assert_eq!(snap.total_rounds, 1, "only non-streaming RoundCompleted should pass");
+        assert_eq!(
+            snap.total_rounds, 1,
+            "only non-streaming RoundCompleted should pass"
+        );
     }
 
     #[test]

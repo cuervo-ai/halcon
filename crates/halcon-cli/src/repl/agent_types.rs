@@ -218,15 +218,26 @@ impl FailedStepErrorCategory {
         let lower = error.to_lowercase();
         if lower.contains("timeout") || lower.contains("timed out") || lower.contains("deadline") {
             Self::Timeout
-        } else if lower.contains("denied") || lower.contains("permission") || lower.contains("not allowed") || lower.contains("guardrail") {
+        } else if lower.contains("denied")
+            || lower.contains("permission")
+            || lower.contains("not allowed")
+            || lower.contains("guardrail")
+        {
             Self::PermissionDenied
-        } else if lower.contains("cascade") || lower.contains("dependency failed") || lower.contains("dep_failed") {
+        } else if lower.contains("cascade")
+            || lower.contains("dependency failed")
+            || lower.contains("dep_failed")
+        {
             Self::DependencyCascade
         } else if lower.contains("cyclic") || lower.contains("circular dependency") {
             Self::CyclicDependency
         } else if lower.contains("tool") && (lower.contains("fail") || lower.contains("error")) {
             Self::ToolExecutionFailed
-        } else if lower.contains("provider") || lower.contains("api error") || lower.contains("rate limit") || lower.contains("auth") {
+        } else if lower.contains("provider")
+            || lower.contains("api error")
+            || lower.contains("rate limit")
+            || lower.contains("auth")
+        {
             Self::ProviderError
         } else {
             Self::Unknown
@@ -263,7 +274,13 @@ pub struct FailedStepContext {
 
 impl std::fmt::Display for FailedStepContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "[{}] {}: {}", self.error_category.label(), self.description, self.error_message)
+        write!(
+            f,
+            "[{}] {}: {}",
+            self.error_category.label(),
+            self.description,
+            self.error_message
+        )
     }
 }
 
@@ -273,40 +290,74 @@ mod tests {
 
     #[test]
     fn from_error_string_timeout() {
-        assert_eq!(FailedStepErrorCategory::from_error_string("connection timed out after 30s"), FailedStepErrorCategory::Timeout);
-        assert_eq!(FailedStepErrorCategory::from_error_string("Request timeout: 60s deadline exceeded"), FailedStepErrorCategory::Timeout);
+        assert_eq!(
+            FailedStepErrorCategory::from_error_string("connection timed out after 30s"),
+            FailedStepErrorCategory::Timeout
+        );
+        assert_eq!(
+            FailedStepErrorCategory::from_error_string("Request timeout: 60s deadline exceeded"),
+            FailedStepErrorCategory::Timeout
+        );
     }
 
     #[test]
     fn from_error_string_permission_denied() {
-        assert_eq!(FailedStepErrorCategory::from_error_string("access denied by guardrail"), FailedStepErrorCategory::PermissionDenied);
-        assert_eq!(FailedStepErrorCategory::from_error_string("permission not allowed for this tool"), FailedStepErrorCategory::PermissionDenied);
+        assert_eq!(
+            FailedStepErrorCategory::from_error_string("access denied by guardrail"),
+            FailedStepErrorCategory::PermissionDenied
+        );
+        assert_eq!(
+            FailedStepErrorCategory::from_error_string("permission not allowed for this tool"),
+            FailedStepErrorCategory::PermissionDenied
+        );
     }
 
     #[test]
     fn from_error_string_dependency_cascade() {
-        assert_eq!(FailedStepErrorCategory::from_error_string("dependency failed: step 2 cascade"), FailedStepErrorCategory::DependencyCascade);
+        assert_eq!(
+            FailedStepErrorCategory::from_error_string("dependency failed: step 2 cascade"),
+            FailedStepErrorCategory::DependencyCascade
+        );
     }
 
     #[test]
     fn from_error_string_cyclic_dependency() {
-        assert_eq!(FailedStepErrorCategory::from_error_string("cyclic dependency detected between steps"), FailedStepErrorCategory::CyclicDependency);
+        assert_eq!(
+            FailedStepErrorCategory::from_error_string("cyclic dependency detected between steps"),
+            FailedStepErrorCategory::CyclicDependency
+        );
     }
 
     #[test]
     fn from_error_string_tool_execution_failed() {
-        assert_eq!(FailedStepErrorCategory::from_error_string("tool execution failed: grep returned exit code 1"), FailedStepErrorCategory::ToolExecutionFailed);
+        assert_eq!(
+            FailedStepErrorCategory::from_error_string(
+                "tool execution failed: grep returned exit code 1"
+            ),
+            FailedStepErrorCategory::ToolExecutionFailed
+        );
     }
 
     #[test]
     fn from_error_string_provider_error() {
-        assert_eq!(FailedStepErrorCategory::from_error_string("provider returned 500: internal server error"), FailedStepErrorCategory::ProviderError);
-        assert_eq!(FailedStepErrorCategory::from_error_string("rate limit exceeded, retry after 60s"), FailedStepErrorCategory::ProviderError);
+        assert_eq!(
+            FailedStepErrorCategory::from_error_string(
+                "provider returned 500: internal server error"
+            ),
+            FailedStepErrorCategory::ProviderError
+        );
+        assert_eq!(
+            FailedStepErrorCategory::from_error_string("rate limit exceeded, retry after 60s"),
+            FailedStepErrorCategory::ProviderError
+        );
     }
 
     #[test]
     fn from_error_string_unknown() {
-        assert_eq!(FailedStepErrorCategory::from_error_string("something went wrong"), FailedStepErrorCategory::Unknown);
+        assert_eq!(
+            FailedStepErrorCategory::from_error_string("something went wrong"),
+            FailedStepErrorCategory::Unknown
+        );
     }
 
     #[test]
@@ -321,7 +372,11 @@ mod tests {
             FailedStepErrorCategory::Unknown,
         ];
         for cat in &categories {
-            assert!(!cat.label().is_empty(), "label for {:?} must be non-empty", cat);
+            assert!(
+                !cat.label().is_empty(),
+                "label for {:?} must be non-empty",
+                cat
+            );
         }
     }
 }

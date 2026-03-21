@@ -31,12 +31,12 @@ pub const MIN_EVIDENCE_BYTES: usize = 30;
 
 /// Substrings in tool output that indicate binary or unreadable file content.
 pub(crate) const BINARY_INDICATORS: &[&str] = &[
-    "%PDF-",             // PDF magic header bytes
-    "Binary file",       // grep binary-file detection message
-    "binary file",       // lowercase variant
-    "is a binary file",  // extended grep message
+    "%PDF-",            // PDF magic header bytes
+    "Binary file",      // grep binary-file detection message
+    "binary file",      // lowercase variant
+    "is a binary file", // extended grep message
     "cannot process binary file",
-    "\x00\x00\x00",      // null-byte sequence typical in binary formats
+    "\x00\x00\x00", // null-byte sequence typical in binary formats
 ];
 
 // ── EvidenceBundle ─────────────────────────────────────────────────────────────
@@ -161,7 +161,11 @@ impl EvidenceBundle {
             self.content_read_attempts,
             self.text_bytes_extracted,
             self.binary_file_count,
-            if self.evidence_gate_fires() { "FIRES" } else { "pass" },
+            if self.evidence_gate_fires() {
+                "FIRES"
+            } else {
+                "pass"
+            },
         )
     }
 }
@@ -294,9 +298,18 @@ mod tests {
     fn binary_pdf_header_detected() {
         let mut bundle = EvidenceBundle::default();
         bundle.record_tool_result("read_file", "%PDF-1.4\x00\x00garbage binary content");
-        assert_eq!(bundle.binary_file_count, 1, "PDF header must trigger binary count");
-        assert!(bundle.evidence_gate_fires(), "PDF binary should trigger gate");
-        assert_eq!(bundle.text_bytes_extracted, 0, "binary result must not add text bytes");
+        assert_eq!(
+            bundle.binary_file_count, 1,
+            "PDF header must trigger binary count"
+        );
+        assert!(
+            bundle.evidence_gate_fires(),
+            "PDF binary should trigger gate"
+        );
+        assert_eq!(
+            bundle.text_bytes_extracted, 0,
+            "binary result must not add text bytes"
+        );
     }
 
     #[test]
@@ -318,8 +331,14 @@ mod tests {
         // grep returning filenames is NOT a content-read tool
         bundle.record_tool_result("bash", "/path/to/file1.pdf\n/path/to/file2.pdf\n");
         bundle.record_tool_result("grep", "/path/to/file1.pdf\n/path/to/file2.pdf\n");
-        assert_eq!(bundle.content_read_attempts, 0, "grep/bash must not count as content reads");
-        assert!(!bundle.evidence_gate_fires(), "no content read attempt → gate must not fire");
+        assert_eq!(
+            bundle.content_read_attempts, 0,
+            "grep/bash must not count as content reads"
+        );
+        assert!(
+            !bundle.evidence_gate_fires(),
+            "no content read attempt → gate must not fire"
+        );
     }
 
     // ── Multiple reads accumulate ─────────────────────────────────────────────
@@ -345,9 +364,15 @@ mod tests {
             ..Default::default()
         };
         let msg = bundle.gate_message();
-        assert!(msg.contains("binary"), "gate message must mention binary format");
+        assert!(
+            msg.contains("binary"),
+            "gate message must mention binary format"
+        );
         assert!(msg.contains("PDF"), "gate message must mention PDF");
-        assert!(msg.contains("pdftotext"), "gate message must suggest pdftotext");
+        assert!(
+            msg.contains("pdftotext"),
+            "gate message must suggest pdftotext"
+        );
     }
 
     #[test]
@@ -385,15 +410,30 @@ mod tests {
         let mut bundle = EvidenceBundle::default();
         bundle.record_tool_result("read_file", "%PDF-1.7 binary garbage\x00\x00");
 
-        assert!(bundle.evidence_gate_fires(), "pre-condition: gate must fire after binary PDF read");
-        assert!(!bundle.synthesis_blocked, "pre-condition: synthesis not yet blocked");
+        assert!(
+            bundle.evidence_gate_fires(),
+            "pre-condition: gate must fire after binary PDF read"
+        );
+        assert!(
+            !bundle.synthesis_blocked,
+            "pre-condition: synthesis not yet blocked"
+        );
 
         let result = enforce_evidence_boundary(&mut bundle);
 
-        assert!(result.is_some(), "EBS-B2: gate fired → must return Some(gate_msg)");
+        assert!(
+            result.is_some(),
+            "EBS-B2: gate fired → must return Some(gate_msg)"
+        );
         let msg = result.unwrap();
-        assert!(msg.contains("Do NOT fabricate"), "gate_msg must have anti-fabrication directive");
-        assert!(bundle.synthesis_blocked, "EBS-B2: synthesis_blocked must be set after enforcement");
+        assert!(
+            msg.contains("Do NOT fabricate"),
+            "gate_msg must have anti-fabrication directive"
+        );
+        assert!(
+            bundle.synthesis_blocked,
+            "EBS-B2: synthesis_blocked must be set after enforcement"
+        );
     }
 
     /// TEST B — EBS-B2: investigation with no tool calls → gate does NOT fire.
@@ -404,11 +444,20 @@ mod tests {
         let mut bundle = EvidenceBundle::default();
         // No read_file calls — content_read_attempts == 0
 
-        assert!(!bundle.evidence_gate_fires(), "gate must NOT fire when no content reads attempted");
+        assert!(
+            !bundle.evidence_gate_fires(),
+            "gate must NOT fire when no content reads attempted"
+        );
 
         let result = enforce_evidence_boundary(&mut bundle);
-        assert!(result.is_none(), "EBS-B2: no content reads → enforce returns None (normal synthesis)");
-        assert!(!bundle.synthesis_blocked, "synthesis_blocked must remain false");
+        assert!(
+            result.is_none(),
+            "EBS-B2: no content reads → enforce returns None (normal synthesis)"
+        );
+        assert!(
+            !bundle.synthesis_blocked,
+            "synthesis_blocked must remain false"
+        );
     }
 
     /// TEST C — EBS-B2: real evidence read → gate does NOT fire → normal synthesis.
@@ -422,11 +471,20 @@ mod tests {
             "INVOICE #2024-001\nClient: Acme Corp\nAmount: $1,500.00\nDue: 2024-12-31",
         );
 
-        assert!(!bundle.evidence_gate_fires(), "gate must NOT fire when real text was extracted");
+        assert!(
+            !bundle.evidence_gate_fires(),
+            "gate must NOT fire when real text was extracted"
+        );
 
         let result = enforce_evidence_boundary(&mut bundle);
-        assert!(result.is_none(), "EBS-B2: sufficient evidence → enforce returns None");
-        assert!(!bundle.synthesis_blocked, "synthesis_blocked must remain false for valid evidence");
+        assert!(
+            result.is_none(),
+            "EBS-B2: sufficient evidence → enforce returns None"
+        );
+        assert!(
+            !bundle.synthesis_blocked,
+            "synthesis_blocked must remain false for valid evidence"
+        );
     }
 
     /// TEST D — EBS-B2: synthesis_blocked already set → enforce_evidence_boundary is idempotent.
@@ -447,7 +505,10 @@ mod tests {
         assert!(bundle.evidence_gate_fires());
         // enforce still returns Some (idempotent — safe to call again)
         let result = enforce_evidence_boundary(&mut bundle);
-        assert!(result.is_some(), "enforce must return Some even when already blocked (idempotent)");
+        assert!(
+            result.is_some(),
+            "enforce must return Some even when already blocked (idempotent)"
+        );
         // synthesis_blocked stays true (was already true)
         assert!(bundle.synthesis_blocked);
     }

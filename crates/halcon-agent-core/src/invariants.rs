@@ -18,11 +18,7 @@
 //! | I-4   | ConfidenceScore      | Values bounded to [0, 1]                          |
 //! | I-5   | Loop termination     | Step count ≤ max_rounds; replan count ≤ step count|
 
-use crate::{
-    fsm::{AgentFsm, AgentState},
-    strategy::StrategyLearner,
-    goal::ConfidenceScore,
-};
+use crate::{fsm::AgentFsm, goal::ConfidenceScore, strategy::StrategyLearner};
 
 // ─── Static invariant registry ───────────────────────────────────────────────
 
@@ -266,7 +262,7 @@ pub fn check_strategy_invariants(learner: &StrategyLearner) -> Vec<InvariantViol
     // I-3.3: mean reward in [0, 1]
     for s in &stats {
         let mr = s.mean_reward();
-        if mr < -1e-6 || mr > 1.0 + 1e-6 {
+        if !(-1e-6..=1.0 + 1e-6).contains(&mr) {
             violations.push(InvariantViolation {
                 invariant_id: "I-3.3",
                 component: "StrategyLearner",
@@ -280,13 +276,16 @@ pub fn check_strategy_invariants(learner: &StrategyLearner) -> Vec<InvariantViol
 }
 
 /// Assert confidence score invariants I-4.1 and I-4.2.
-pub fn check_confidence_invariant(score: ConfidenceScore, threshold: f32) -> Vec<InvariantViolation> {
+pub fn check_confidence_invariant(
+    score: ConfidenceScore,
+    threshold: f32,
+) -> Vec<InvariantViolation> {
     let mut violations = Vec::new();
 
     let v = score.value();
 
     // I-4.1: value in [0, 1]
-    if v < -1e-6 || v > 1.0 + 1e-6 {
+    if !(-1e-6..=1.0 + 1e-6).contains(&v) {
         violations.push(InvariantViolation {
             invariant_id: "I-4.1",
             component: "ConfidenceScore",
@@ -358,10 +357,8 @@ pub fn simulate_ucb1_convergence(
     let mut sum_rewards = vec![0.0f64; n];
     let mut pull_order: Vec<usize> = Vec::with_capacity(total_rounds);
 
-    let mut t = 0u64; // total pulls so far
-
     // Simulate
-    for _round in 0..total_rounds {
+    for t in 0u64..total_rounds as u64 {
         // Find the arm with the highest UCB1 score.
         let selected = if t < n as u64 {
             // In the first n rounds, pull each arm once (unplayed arms get +∞).
@@ -371,7 +368,9 @@ pub fn simulate_ucb1_convergence(
                 .max_by(|&a, &b| {
                     let ucb_a = ucb1_score(sum_rewards[a], pulls[a], t, exploration_c);
                     let ucb_b = ucb1_score(sum_rewards[b], pulls[b], t, exploration_c);
-                    ucb_a.partial_cmp(&ucb_b).unwrap_or(std::cmp::Ordering::Equal)
+                    ucb_a
+                        .partial_cmp(&ucb_b)
+                        .unwrap_or(std::cmp::Ordering::Equal)
                 })
                 .unwrap()
         };
@@ -379,7 +378,6 @@ pub fn simulate_ucb1_convergence(
         pulls[selected] += 1;
         sum_rewards[selected] += true_rewards[selected];
         pull_order.push(selected);
-        t += 1;
     }
 
     // Check all-arms-first: the first n elements of pull_order must be {0..n-1}.
@@ -454,7 +452,8 @@ mod tests {
             assert!(
                 valid.contains(method),
                 "invariant {} has invalid proof method: {}",
-                id, method
+                id,
+                method
             );
         }
     }
@@ -501,7 +500,11 @@ mod tests {
                     AgentState::Planning => vec![AgentState::Planning],
                     AgentState::Executing => vec![AgentState::Planning, AgentState::Executing],
                     AgentState::Verifying => {
-                        vec![AgentState::Planning, AgentState::Executing, AgentState::Verifying]
+                        vec![
+                            AgentState::Planning,
+                            AgentState::Executing,
+                            AgentState::Verifying,
+                        ]
                     }
                     _ => vec![],
                 };
@@ -528,7 +531,9 @@ mod tests {
             criteria: vec![VerifiableCriterion {
                 description: "criterion".into(),
                 weight: 1.0,
-                kind: CriterionKind::KeywordPresence { keywords: vec!["done".into()] },
+                kind: CriterionKind::KeywordPresence {
+                    keywords: vec!["done".into()],
+                },
                 threshold: 0.8,
             }],
             completion_threshold: 0.8,
@@ -550,7 +555,10 @@ mod tests {
 
     #[test]
     fn i_2_1_sustained_stall_terminates() {
-        let config = CriticConfig { max_stall_rounds: 3, ..Default::default() };
+        let config = CriticConfig {
+            max_stall_rounds: 3,
+            ..Default::default()
+        };
         let mut critic = InLoopCritic::new(config);
         let goal = dummy_goal();
         // 3 consecutive stalls → Terminate
@@ -579,7 +587,10 @@ mod tests {
             max_rounds: 10,
         };
         let signal = critic.evaluate(&m, &goal);
-        assert!(signal.is_terminal(), "expected Terminate on budget exhaustion");
+        assert!(
+            signal.is_terminal(),
+            "expected Terminate on budget exhaustion"
+        );
     }
 
     #[test]
@@ -629,7 +640,10 @@ mod tests {
     fn i_3_4_ucb1_converges_on_best_arm_2arm() {
         let true_rewards = [0.9, 0.3];
         let result = simulate_ucb1_convergence(&true_rewards, 1000, 2.0_f64.sqrt());
-        assert_eq!(result.best_arm_idx, 0, "best arm should be arm 0 (reward 0.9)");
+        assert_eq!(
+            result.best_arm_idx, 0,
+            "best arm should be arm 0 (reward 0.9)"
+        );
         assert!(
             result.converged,
             "UCB1 failed to converge on arm 0 after 1000 rounds"
@@ -646,7 +660,10 @@ mod tests {
         // 5 arms; best is index 3 with reward 0.8
         let true_rewards = [0.3, 0.4, 0.5, 0.8, 0.2];
         let result = simulate_ucb1_convergence(&true_rewards, 2000, 2.0_f64.sqrt());
-        assert_eq!(result.best_arm_idx, 3, "best arm should be index 3 (reward 0.8)");
+        assert_eq!(
+            result.best_arm_idx, 3,
+            "best arm should be index 3 (reward 0.8)"
+        );
         assert!(
             result.converged,
             "UCB1 failed to converge on arm 3 after 2000 rounds"

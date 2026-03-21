@@ -45,7 +45,10 @@ impl PermissionLifecycle {
         // Previously the lock was held across the .await point, which can stall the tokio
         // thread pool if the async executor tries to reschedule while the lock is held.
         let needs_reload = {
-            let mut last_dir = self.last_working_dir.lock().unwrap_or_else(|e| e.into_inner());
+            let mut last_dir = self
+                .last_working_dir
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             if *last_dir != new_dir {
                 *last_dir = new_dir;
                 // Clear matcher cache synchronously while holding the lock.
@@ -111,7 +114,7 @@ impl PermissionLifecycle {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use halcon_core::types::{PermissionRule, RuleScope, PermissionDecision};
+    use halcon_core::types::{PermissionDecision, PermissionRule, RuleScope};
     use halcon_storage::Database;
     use std::sync::Arc;
 

@@ -129,9 +129,8 @@ pub fn analyze(
     // Inferred problem class (retrospective — uses full history)
     let sla_fraction = rounds.last().map(|r| r.sla_fraction).unwrap_or(0.0);
     let inferred_problem_class = {
-        let mut classifier = problem_classifier::ProblemClassifier::new(
-            std::sync::Arc::new(policy.clone()),
-        );
+        let mut classifier =
+            problem_classifier::ProblemClassifier::new(std::sync::Arc::new(policy.clone()));
         classifier.classify(rounds, sla_fraction).class
     };
 
@@ -193,18 +192,17 @@ fn compute_convergence_efficiency(
     (optimal as f64 / rounds.len() as f64).min(1.0)
 }
 
-fn compute_structural_instability(
-    trace: &DecisionTraceCollector,
-    total_rounds: usize,
-) -> f64 {
+fn compute_structural_instability(trace: &DecisionTraceCollector, total_rounds: usize) -> f64 {
     if total_rounds == 0 {
         return 0.0;
     }
     let counts = trace.counts_by_point();
-    let replans = counts.get(&DecisionPoint::OracleAdjudication)
+    let replans = counts
+        .get(&DecisionPoint::OracleAdjudication)
         .copied()
         .unwrap_or(0);
-    let mutations = counts.get(&DecisionPoint::StrategyMutation)
+    let mutations = counts
+        .get(&DecisionPoint::StrategyMutation)
         .copied()
         .unwrap_or(0);
     (replans + mutations) as f64 / total_rounds as f64
@@ -286,7 +284,7 @@ fn classify_evidence_trajectory(
 
     if slope > 0.02 {
         EvidenceTrajectory::Monotonic
-    } else if slope >= -0.01 && slope <= 0.02 && late_slope < 0.005 {
+    } else if (-0.01..=0.02).contains(&slope) && late_slope < 0.005 {
         EvidenceTrajectory::Plateaued
     } else if slope < -0.01 {
         EvidenceTrajectory::Declining
@@ -328,7 +326,12 @@ mod tests {
         PolicyConfig::default()
     }
 
-    fn empty_collectors() -> (DecisionTraceCollector, MetricsCollector, AdaptationBoundsChecker, SystemInvariantChecker) {
+    fn empty_collectors() -> (
+        DecisionTraceCollector,
+        MetricsCollector,
+        AdaptationBoundsChecker,
+        SystemInvariantChecker,
+    ) {
         let trace = DecisionTraceCollector::new();
         let metrics = MetricsCollector::new();
         let bounds = AdaptationBoundsChecker::new(Arc::new(default_policy()));
@@ -455,7 +458,10 @@ mod tests {
         metrics.record_round(r0);
         metrics.record_round(r1);
         let profile = analyze(&trace, &metrics, &bounds, &invariants, &default_policy());
-        assert_eq!(profile.dominant_failure_mode, Some(FailureMode::EvidenceStarvation));
+        assert_eq!(
+            profile.dominant_failure_mode,
+            Some(FailureMode::EvidenceStarvation)
+        );
     }
 
     #[test]
@@ -488,12 +494,27 @@ mod tests {
         r1.evidence_coverage = 0.50;
         metrics.record_round(r0);
         metrics.record_round(r1);
-        use super::super::agent_decision_trace::{DecisionRecord, DecisionPoint};
-        trace.record(DecisionRecord::new(DecisionPoint::OracleAdjudication, 0, "Continue"));
-        trace.record(DecisionRecord::new(DecisionPoint::UtilityEvaluation, 0, "productive"));
-        trace.record(DecisionRecord::new(DecisionPoint::OracleAdjudication, 1, "Continue"));
+        use super::super::agent_decision_trace::{DecisionPoint, DecisionRecord};
+        trace.record(DecisionRecord::new(
+            DecisionPoint::OracleAdjudication,
+            0,
+            "Continue",
+        ));
+        trace.record(DecisionRecord::new(
+            DecisionPoint::UtilityEvaluation,
+            0,
+            "productive",
+        ));
+        trace.record(DecisionRecord::new(
+            DecisionPoint::OracleAdjudication,
+            1,
+            "Continue",
+        ));
         let profile = analyze(&trace, &metrics, &bounds, &invariants, &default_policy());
-        assert!((profile.decision_density - 1.5).abs() < 1e-4, "3 decisions / 2 rounds = 1.5");
+        assert!(
+            (profile.decision_density - 1.5).abs() < 1e-4,
+            "3 decisions / 2 rounds = 1.5"
+        );
     }
 
     // ── GAP-2: JSON serialization for persistence ─────────────────────────────
@@ -524,18 +545,36 @@ mod tests {
         });
 
         // All 10 keys must be present
-        for key in &["convergence_efficiency", "structural_instability_score",
-                     "dominant_failure_mode", "inferred_problem_class",
-                     "adaptation_utilization", "evidence_trajectory",
-                     "decision_density", "wasted_rounds", "peak_utility", "final_utility"] {
-            assert!(row.get(key).is_some(), "key '{}' missing from serialized row", key);
+        for key in &[
+            "convergence_efficiency",
+            "structural_instability_score",
+            "dominant_failure_mode",
+            "inferred_problem_class",
+            "adaptation_utilization",
+            "evidence_trajectory",
+            "decision_density",
+            "wasted_rounds",
+            "peak_utility",
+            "final_utility",
+        ] {
+            assert!(
+                row.get(key).is_some(),
+                "key '{}' missing from serialized row",
+                key
+            );
         }
 
         // Serialized output must be valid JSONL (a single line when serialized)
         let line = format!("{}\n", row);
-        assert!(!line.trim().contains('\n'), "JSONL line must not contain embedded newlines in the JSON");
+        assert!(
+            !line.trim().contains('\n'),
+            "JSONL line must not contain embedded newlines in the JSON"
+        );
         let parsed: serde_json::Value = serde_json::from_str(line.trim()).expect("must parse back");
-        assert_eq!(parsed["wasted_rounds"], serde_json::json!(profile.wasted_rounds));
+        assert_eq!(
+            parsed["wasted_rounds"],
+            serde_json::json!(profile.wasted_rounds)
+        );
     }
 
     // Helper to test trajectory classification with raw coverages

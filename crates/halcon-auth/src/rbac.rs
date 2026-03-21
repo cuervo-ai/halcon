@@ -29,6 +29,7 @@ pub enum Role {
 
 impl Role {
     /// Parse a role from its string representation (case-insensitive).
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "admin" => Some(Self::Admin),
@@ -90,9 +91,18 @@ mod tests {
     #[test]
     fn role_serializes_to_pascal_case() {
         assert_eq!(serde_json::to_string(&Role::Admin).unwrap(), "\"Admin\"");
-        assert_eq!(serde_json::to_string(&Role::Developer).unwrap(), "\"Developer\"");
-        assert_eq!(serde_json::to_string(&Role::ReadOnly).unwrap(), "\"ReadOnly\"");
-        assert_eq!(serde_json::to_string(&Role::AuditViewer).unwrap(), "\"AuditViewer\"");
+        assert_eq!(
+            serde_json::to_string(&Role::Developer).unwrap(),
+            "\"Developer\""
+        );
+        assert_eq!(
+            serde_json::to_string(&Role::ReadOnly).unwrap(),
+            "\"ReadOnly\""
+        );
+        assert_eq!(
+            serde_json::to_string(&Role::AuditViewer).unwrap(),
+            "\"AuditViewer\""
+        );
     }
 
     #[test]

@@ -14,7 +14,10 @@ impl TuiApp {
                 // The loop guard threshold increase (6/10) prevents this in most cases;
                 // this filter handles edge cases where it still leaks through.
                 if text.contains("\u{FF5C}DSML\u{FF5C}") {
-                    tracing::debug!("Suppressing DSML function_call block from activity feed ({} bytes)", text.len());
+                    tracing::debug!(
+                        "Suppressing DSML function_call block from activity feed ({} bytes)",
+                        text.len()
+                    );
                 } else {
                     // First real answer token arrived — drop the "thinking" skeleton.
                     self.activity_model.remove_thinking();
@@ -64,11 +67,16 @@ impl TuiApp {
                 let label = format!("Razonando... {kchars} chars");
                 use crate::tui::activity_types::AgentPhase;
                 self.activity_model.remove_thinking();
-                self.activity_model.push_phase_indicator(AgentPhase::Reasoning, &label);
+                self.activity_model
+                    .push_phase_indicator(AgentPhase::Reasoning, &label);
             }
-            UiEvent::ThinkingComplete { preview, char_count } => {
+            UiEvent::ThinkingComplete {
+                preview,
+                char_count,
+            } => {
                 // PhaseIndicator → ThinkingBubble persistente.
-                self.activity_model.push_thinking_bubble(char_count, preview);
+                self.activity_model
+                    .push_thinking_bubble(char_count, preview);
                 // Clear thinking_buffer so StreamChunk's fallback 🧠 line is skipped.
                 self.state.thinking_buffer.clear();
             }
@@ -106,7 +114,8 @@ impl TuiApp {
                 tracing::trace!("StreamDone received");
             }
             UiEvent::StreamError(msg) => {
-                self.activity_model.push_error(&msg, Some("Usa Ctrl+M para cambiar de modelo"));
+                self.activity_model
+                    .push_error(&msg, Some("Usa Ctrl+M para cambiar de modelo"));
                 self.toasts.push(Toast::new(
                     format!("Error — Ctrl+M para cambiar modelo"),
                     ToastLevel::Error,
@@ -115,7 +124,10 @@ impl TuiApp {
                 let model = self.status.current_model().to_string();
                 let provider = self.status.current_provider().to_string();
                 self.model_error_context = Some(format!(
-                    "{}/{}: {}", provider, model, &msg[..msg.len().min(80)]
+                    "{}/{}: {}",
+                    provider,
+                    model,
+                    &msg[..msg.len().min(80)]
                 ));
             }
             UiEvent::ToolStart { name, input } => {
@@ -133,18 +145,29 @@ impl TuiApp {
 
                 // Phase 2.3: Set agent state to ToolExecution + highlight
                 self.agent_badge.set_state(AgentState::ToolExecution);
-                self.agent_badge.set_detail(Some(format!("Running {}...", name)));
+                self.agent_badge
+                    .set_detail(Some(format!("Running {}...", name)));
 
                 // Start subtle highlight pulse on tool execution
                 let p = &crate::render::theme::active().palette;
                 self.highlights.start_subtle("tool_execution", p.delegated);
             }
-            UiEvent::ToolOutput { name, content, is_error, duration_ms } => {
+            UiEvent::ToolOutput {
+                name,
+                content,
+                is_error,
+                duration_ms,
+            } => {
                 use crate::tui::activity_types::ToolOutcome;
                 // Remove from executing map — stops the shimmer animation on the next frame.
                 self.executing_tools.remove(&name);
-                let outcome = if is_error { ToolOutcome::Error } else { ToolOutcome::Success };
-                self.activity_model.complete_tool(&name, content.clone(), outcome, duration_ms);
+                let outcome = if is_error {
+                    ToolOutcome::Error
+                } else {
+                    ToolOutcome::Success
+                };
+                self.activity_model
+                    .complete_tool(&name, content.clone(), outcome, duration_ms);
             }
             UiEvent::ToolDenied(name) => {
                 // FIX: Remove from executing_tools so the shimmer stops immediately,
@@ -153,7 +176,8 @@ impl TuiApp {
                 // separate Warning line below it.
                 self.executing_tools.remove(&name);
                 self.activity_model.deny_tool(&name);
-                self.toasts.push(Toast::new(format!("Denied: {name}"), ToastLevel::Warning));
+                self.toasts
+                    .push(Toast::new(format!("Denied: {name}"), ToastLevel::Warning));
             }
             UiEvent::SpinnerStart(label) => {
                 self.state.spinner_active = true;
@@ -171,10 +195,8 @@ impl TuiApp {
             }
             UiEvent::Error { message, hint } => {
                 self.activity_model.push_error(&message, hint.as_deref());
-                self.toasts.push(Toast::new(
-                    truncate_str(&message, 40),
-                    ToastLevel::Error,
-                ));
+                self.toasts
+                    .push(Toast::new(truncate_str(&message, 40), ToastLevel::Error));
 
                 // Phase 4C: CRITICAL FIX - Force unlock input on ANY error to prevent stuck UI
                 // When provider errors occur (auth, quota, etc.), we MUST guarantee input remains accessible.
@@ -188,12 +210,22 @@ impl TuiApp {
                 self.activity_model.push_info(&msg);
             }
             UiEvent::StatusUpdate {
-                provider, model, round, tokens, cost,
-                session_id, elapsed_ms, tool_count, input_tokens, output_tokens,
+                provider,
+                model,
+                round,
+                tokens,
+                cost,
+                session_id,
+                elapsed_ms,
+                tool_count,
+                input_tokens,
+                output_tokens,
             } => {
                 // Track discovered model in known_models for model selector.
                 if let (Some(ref p), Some(ref m)) = (&provider, &model) {
-                    let already_known = self.known_models.iter()
+                    let already_known = self
+                        .known_models
+                        .iter()
                         .any(|(kp, km, _)| kp == p && km == m);
                     if !already_known && !m.is_empty() {
                         let label = format!("{}/{}", p, m);
@@ -201,8 +233,16 @@ impl TuiApp {
                     }
                 }
                 self.status.update(
-                    provider, model, round, tokens, cost,
-                    session_id, elapsed_ms, tool_count, input_tokens, output_tokens,
+                    provider,
+                    model,
+                    round,
+                    tokens,
+                    cost,
+                    session_id,
+                    elapsed_ms,
+                    tool_count,
+                    input_tokens,
+                    output_tokens,
                 );
             }
             UiEvent::RoundStart(n) => {
@@ -225,7 +265,10 @@ impl TuiApp {
                 // previous turn doesn't bleed into the current turn's display.
                 self.state.thinking_buffer.clear();
                 // Phase 100 Fix #2: Reset real-time tool_count so each turn starts at 0.
-                self.status.apply_patch(StatusPatch { tool_count: Some(0), ..Default::default() });
+                self.status.apply_patch(StatusPatch {
+                    tool_count: Some(0),
+                    ..Default::default()
+                });
                 self.panel.metrics.tool_count = 0;
                 self.state.agent_running = true;
                 // Phase 45C: Sync status bar agent_running for STOP button display.
@@ -237,7 +280,8 @@ impl TuiApp {
 
                 // Phase 2.3: Set agent state to Running
                 self.agent_badge.set_state(AgentState::Running);
-                self.agent_badge.set_detail(Some("Processing prompt...".to_string()));
+                self.agent_badge
+                    .set_detail(Some("Processing prompt...".to_string()));
 
                 // Start watchdog timer to prevent permanent UI freeze
                 self.agent_started_at = Some(Instant::now());
@@ -283,11 +327,7 @@ impl TuiApp {
                 let agents_active = if self.state.agent_running { 1 } else { 0 };
                 self.status.update_queue_status(count, agents_active);
 
-                tracing::debug!(
-                    queued = count,
-                    agents_active,
-                    "Prompt queue status updated"
-                );
+                tracing::debug!(queued = count, agents_active, "Prompt queue status updated");
             }
             UiEvent::AgentDone => {
                 // Capture state BEFORE changes for debugging
@@ -332,7 +372,8 @@ impl TuiApp {
                     );
                 } else {
                     // Only show completion toast if queue is empty
-                    self.toasts.push(Toast::new("Agent completed", ToastLevel::Success));
+                    self.toasts
+                        .push(Toast::new("Agent completed", ToastLevel::Success));
                 }
 
                 // Log final state AFTER changes
@@ -348,8 +389,14 @@ impl TuiApp {
             UiEvent::Quit => {
                 self.state.should_quit = true;
             }
-            UiEvent::PlanProgress { goal, steps, current_step, .. } => {
-                self.activity_model.set_plan_overview(goal.clone(), steps.clone(), current_step);
+            UiEvent::PlanProgress {
+                goal,
+                steps,
+                current_step,
+                ..
+            } => {
+                self.activity_model
+                    .set_plan_overview(goal.clone(), steps.clone(), current_step);
                 self.panel.update_plan(steps.clone(), current_step);
 
                 // Update status bar plan step indicator.
@@ -368,9 +415,16 @@ impl TuiApp {
 
             // --- Phase 42B: Cockpit feedback event handlers ---
             UiEvent::SessionInitialized { session_id } => {
-                self.status.apply_patch(StatusPatch { session_id: Some(session_id), ..Default::default() });
+                self.status.apply_patch(StatusPatch {
+                    session_id: Some(session_id),
+                    ..Default::default()
+                });
             }
-            UiEvent::RoundStarted { round, provider, model } => {
+            UiEvent::RoundStarted {
+                round,
+                provider,
+                model,
+            } => {
                 self.activity_model.push_round_separator(round);
                 self.status.apply_patch(StatusPatch {
                     provider: Some(provider),
@@ -379,7 +433,13 @@ impl TuiApp {
                     ..Default::default()
                 });
             }
-            UiEvent::RoundEnded { round, input_tokens, output_tokens, cost, duration_ms } => {
+            UiEvent::RoundEnded {
+                round,
+                input_tokens,
+                output_tokens,
+                cost,
+                duration_ms,
+            } => {
                 self.status.apply_patch(StatusPatch {
                     cost: Some(cost),
                     elapsed_ms: Some(duration_ms),
@@ -387,11 +447,16 @@ impl TuiApp {
                     output_tokens: Some(output_tokens),
                     ..Default::default()
                 });
-                self.panel.update_metrics(round, input_tokens, output_tokens, cost, duration_ms);
+                self.panel
+                    .update_metrics(round, input_tokens, output_tokens, cost, duration_ms);
                 // Clear model error context on successful round completion.
                 self.model_error_context = None;
             }
-            UiEvent::ModelSelected { model, provider, reason: _ } => {
+            UiEvent::ModelSelected {
+                model,
+                provider,
+                reason: _,
+            } => {
                 // [model] info already visible in status bar — suppress from activity feed
                 self.toasts.push(Toast::new(
                     format!("Model: {provider}/{model}"),
@@ -399,23 +464,33 @@ impl TuiApp {
                 ));
                 // Track this model in the known_models list for the model selector.
                 let label = format!("{}/{}", provider, model);
-                let already_known = self.known_models.iter()
+                let already_known = self
+                    .known_models
+                    .iter()
                     .any(|(p, m, _)| *p == provider && *m == model);
                 if !already_known {
-                    self.known_models.push((provider.clone(), model.clone(), label));
+                    self.known_models
+                        .push((provider.clone(), model.clone(), label));
                 }
                 // Clear error context on successful model switch.
                 self.model_error_context = None;
             }
             UiEvent::ProviderFallback { from, to, reason } => {
                 // Single push using chip-aware prefix (⇄ rendered by Warning chip classifier)
-                self.activity_model.push_warning(&format!("⇄ {from} → {to}  {reason}"), None);
-                self.toasts.push(Toast::new(format!("{from} → {to}"), ToastLevel::Warning));
+                self.activity_model
+                    .push_warning(&format!("⇄ {from} → {to}  {reason}"), None);
+                self.toasts
+                    .push(Toast::new(format!("{from} → {to}"), ToastLevel::Warning));
             }
             UiEvent::LoopGuardAction { action, reason } => {
-                self.activity_model.push_warning(&format!("[guard] {action}: {reason}"), None);
+                self.activity_model
+                    .push_warning(&format!("[guard] {action}: {reason}"), None);
             }
-            UiEvent::CompactionComplete { old_msgs, new_msgs, tokens_saved } => {
+            UiEvent::CompactionComplete {
+                old_msgs,
+                new_msgs,
+                tokens_saved,
+            } => {
                 // Single push, no duplicate
                 self.activity_model.push_info(&format!(
                     "[compaction] {old_msgs} → {new_msgs} messages ({tokens_saved} tokens saved)"
@@ -428,20 +503,29 @@ impl TuiApp {
             UiEvent::SpeculativeResult { tool: _, hit: _ } => {
                 // Speculative execution results: panel-only visibility
             }
-            UiEvent::PermissionAwaiting { tool, args, risk_level, timeout_secs: _, reply_tx } => {
+            UiEvent::PermissionAwaiting {
+                tool,
+                args,
+                risk_level,
+                timeout_secs: _,
+                reply_tx,
+            } => {
                 // Sub-agent tools (reply_tx = Some): auto-approve and log to activity panel.
                 // Sub-agents run with confirm_destructive=false — permissions.authorize() already
                 // auto-approved the tool before this event reached the TUI. Showing a blocking
                 // modal here would create an orphan modal that nobody is waiting on (the tool
                 // already executed). Send Allowed immediately to unblock the reply channel.
                 if let Some(tx) = reply_tx {
-                    self.activity_model.push_info(&format!("[sub-agent] ▶ executing `{tool}` (auto-approved)"));
+                    self.activity_model
+                        .push_info(&format!("[sub-agent] ▶ executing `{tool}` (auto-approved)"));
                     let _ = tx.send(halcon_core::types::PermissionDecision::Allowed);
                     return;
                 }
 
                 // Main agent (reply_tx = None): show blocking modal — agent is waiting for user.
-                self.activity_model.push_info(&format!("[permission] ⏸ agent paused — awaiting your decision for `{tool}`"));
+                self.activity_model.push_info(&format!(
+                    "[permission] ⏸ agent paused — awaiting your decision for `{tool}`"
+                ));
                 self.state.agent_control = crate::tui::state::AgentControl::WaitingApproval;
 
                 // Main agent uses the stored perm_tx channel; pending_perm_reply_tx stays None.
@@ -459,7 +543,9 @@ impl TuiApp {
                 // Phase 5/6/7: Conversational overlay removed - using direct 8-option modal instead.
                 // All permission keys (Y/N/A/D/S/P/X) now route directly to PermissionOptions.
 
-                self.state.overlay.open(OverlayKind::PermissionPrompt { tool: tool.clone() });
+                self.state
+                    .overlay
+                    .open(OverlayKind::PermissionPrompt { tool: tool.clone() });
                 // Indefinite wait — NO auto-deny. Agent blocks until user approves or rejects.
                 // Backend already waits indefinitely on rx.recv(); TUI now mirrors that.
                 // User MUST press Y/N/A/D/S/P/X to continue.
@@ -471,11 +557,13 @@ impl TuiApp {
 
                 // Phase 2.3: Set agent state to WaitingPermission + strong pulse
                 self.agent_badge.set_state(AgentState::WaitingPermission);
-                self.agent_badge.set_detail(Some(format!("Awaiting approval: {}", tool)));
+                self.agent_badge
+                    .set_detail(Some(format!("Awaiting approval: {}", tool)));
 
                 // Start strong pulse on permission prompt (high urgency)
                 let risk_color = risk.color(&crate::render::theme::active().palette);
-                self.highlights.start_strong("permission_prompt", risk_color);
+                self.highlights
+                    .start_strong("permission_prompt", risk_color);
 
                 tracing::debug!(
                     tool = tool,
@@ -487,23 +575,27 @@ impl TuiApp {
             // Phase 43C: Feedback completeness events.
             UiEvent::ReflectionStarted => {
                 use crate::tui::activity_types::AgentPhase;
-                self.activity_model.push_phase_indicator(AgentPhase::Reflecting, "Analyzing conversation quality...");
+                self.activity_model.push_phase_indicator(
+                    AgentPhase::Reflecting,
+                    "Analyzing conversation quality...",
+                );
             }
             UiEvent::ReflectionComplete { analysis, score } => {
                 self.activity_model.remove_phase_indicator();
                 let preview = truncate_str(&analysis, 80);
-                self.activity_model.push_info(&format!("[reflection] {preview} (score: {score:.2})"));
+                self.activity_model
+                    .push_info(&format!("[reflection] {preview} (score: {score:.2})"));
             }
 
             // Phase 83: Phase-Aware Skeleton/Spinner.
             UiEvent::PhaseStarted { phase, label } => {
                 use crate::tui::activity_types::AgentPhase;
                 let ap = match phase.as_str() {
-                    "planning"   => AgentPhase::Planning,
-                    "reasoning"  => AgentPhase::Reasoning,
+                    "planning" => AgentPhase::Planning,
+                    "reasoning" => AgentPhase::Reasoning,
                     "reflecting" => AgentPhase::Reflecting,
-                    "searching"  => AgentPhase::Searching,
-                    _            => AgentPhase::Reasoning,
+                    "searching" => AgentPhase::Searching,
+                    _ => AgentPhase::Reasoning,
                 };
                 self.activity_model.push_phase_indicator(ap, label.as_str());
             }
@@ -512,10 +604,12 @@ impl TuiApp {
             }
             // Phase 93: Media attachment events — update state for chip rendering.
             UiEvent::AttachmentAdded { path, modality } => {
-                self.activity_model.push_info(&format!("[media] Attached {modality}: {path}"));
+                self.activity_model
+                    .push_info(&format!("[media] Attached {modality}: {path}"));
             }
             UiEvent::AttachmentRemoved { index } => {
-                self.activity_model.push_info(&format!("[media] Removed attachment at index {index}"));
+                self.activity_model
+                    .push_info(&format!("[media] Removed attachment at index {index}"));
             }
 
             // Phase 94: Project Onboarding events
@@ -524,13 +618,24 @@ impl TuiApp {
                     format!("No project config ({project_type}) — /init to configure"),
                     ToastLevel::Info,
                 ));
-                self.activity_model.push_info(
-                    &format!("[onboarding] Sin HALCON.md en {root} → /init para configurar el proyecto"),
-                );
+                self.activity_model.push_info(&format!(
+                    "[onboarding] Sin HALCON.md en {root} → /init para configurar el proyecto"
+                ));
             }
-            UiEvent::ProjectAnalysisComplete { root: _, project_type: _, package_name: _, has_git: _, preview, save_path } => {
-                if let Some(crate::tui::overlay::OverlayKind::InitWizard { ref mut step, preview: ref mut p, save_path: ref mut sp, .. }) =
-                    self.state.overlay.active
+            UiEvent::ProjectAnalysisComplete {
+                root: _,
+                project_type: _,
+                package_name: _,
+                has_git: _,
+                preview,
+                save_path,
+            } => {
+                if let Some(crate::tui::overlay::OverlayKind::InitWizard {
+                    ref mut step,
+                    preview: ref mut p,
+                    save_path: ref mut sp,
+                    ..
+                }) = self.state.overlay.active
                 {
                     *step = 1;
                     *p = preview;
@@ -538,29 +643,31 @@ impl TuiApp {
                 }
             }
             UiEvent::ProjectConfigCreated { path } => {
-                if let Some(crate::tui::overlay::OverlayKind::InitWizard { ref mut step, .. }) = self.state.overlay.active {
+                if let Some(crate::tui::overlay::OverlayKind::InitWizard { ref mut step, .. }) =
+                    self.state.overlay.active
+                {
                     *step = 4;
                 }
-                self.toasts.push(Toast::new(
-                    format!("Guardado: {path}"),
-                    ToastLevel::Success,
-                ));
+                self.toasts
+                    .push(Toast::new(format!("Guardado: {path}"), ToastLevel::Success));
             }
             UiEvent::ProjectConfigLoaded { .. } => {
                 // Silent — no toast. Banner already shows ◆ project cfg.
             }
             UiEvent::OpenInitWizard { dry_run } => {
-                self.state.overlay.open(crate::tui::overlay::OverlayKind::InitWizard {
-                    step: 0,
-                    preview: String::new(),
-                    save_path: String::new(),
-                    dry_run,
-                });
+                self.state
+                    .overlay
+                    .open(crate::tui::overlay::OverlayKind::InitWizard {
+                        step: 0,
+                        preview: String::new(),
+                        save_path: String::new(),
+                        dry_run,
+                    });
                 // Kick off background analysis identical to the /init command path.
                 if let Some(ref tx) = self.ui_tx_for_bg {
                     let tx = tx.clone();
-                    let cwd = std::env::current_dir()
-                        .unwrap_or_else(|_| std::path::PathBuf::from("."));
+                    let cwd =
+                        std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
                     tokio::spawn(async move {
                         super::super::project_analyzer::analyze_and_emit(tx, cwd).await;
                     });
@@ -568,34 +675,59 @@ impl TuiApp {
             }
 
             // Phase 95: Plugin Auto-Implantation events
-            UiEvent::PluginSuggestionReady { suggestions, dry_run } => {
-                self.state.overlay.open(crate::tui::overlay::OverlayKind::PluginSuggest {
-                    suggestions,
-                    selected: 0,
-                    dry_run,
-                });
+            UiEvent::PluginSuggestionReady {
+                suggestions,
+                dry_run,
+            } => {
+                self.state
+                    .overlay
+                    .open(crate::tui::overlay::OverlayKind::PluginSuggest {
+                        suggestions,
+                        selected: 0,
+                        dry_run,
+                    });
             }
             UiEvent::PluginBootstrapStarted { count, dry_run } => {
                 let label = if dry_run { "dry-run" } else { "installing" };
-                self.activity_model.push_info(&format!(
-                    "[plugins] Bootstrap {label} — {count} plugins"
-                ));
+                self.activity_model
+                    .push_info(&format!("[plugins] Bootstrap {label} — {count} plugins"));
             }
-            UiEvent::PluginBootstrapComplete { installed, skipped, failed } => {
+            UiEvent::PluginBootstrapComplete {
+                installed,
+                skipped,
+                failed,
+            } => {
                 self.toasts.push(Toast::new(
                     format!("Plugins: ✓{installed} installed, {skipped} skipped, {failed} failed"),
-                    if failed > 0 { ToastLevel::Warning } else { ToastLevel::Info },
+                    if failed > 0 {
+                        ToastLevel::Warning
+                    } else {
+                        ToastLevel::Info
+                    },
                 ));
             }
-            UiEvent::PluginStatusChanged { plugin_id, new_status } => {
+            UiEvent::PluginStatusChanged {
+                plugin_id,
+                new_status,
+            } => {
                 self.toasts.push(Toast::new(
                     format!("[plugin] {plugin_id} → {new_status}"),
                     ToastLevel::Info,
                 ));
             }
 
-            UiEvent::ProjectHealthCalculated { score, issues, recommendations } => {
-                let icon = if score >= 80 { "◈" } else if score >= 60 { "◇" } else { "⚐" };
+            UiEvent::ProjectHealthCalculated {
+                score,
+                issues,
+                recommendations,
+            } => {
+                let icon = if score >= 80 {
+                    "◈"
+                } else if score >= 60 {
+                    "◇"
+                } else {
+                    "⚐"
+                };
                 self.activity_model.push_info(&format!(
                     "[init] {icon} Health score: {score}/100 ({} issues, {} recs)",
                     issues.len(),
@@ -603,10 +735,8 @@ impl TuiApp {
                 ));
                 if !issues.is_empty() {
                     for issue in &issues {
-                        self.activity_model.push_warning(
-                            &format!("[init] ⚐ {issue}"),
-                            None,
-                        );
+                        self.activity_model
+                            .push_warning(&format!("[init] ⚐ {issue}"), None);
                     }
                 }
                 if !recommendations.is_empty() {
@@ -616,14 +746,22 @@ impl TuiApp {
                 }
                 self.toasts.push(Toast::new(
                     format!("Project health: {score}/100"),
-                    if score >= 80 { ToastLevel::Info } else { ToastLevel::Warning },
+                    if score >= 80 {
+                        ToastLevel::Info
+                    } else {
+                        ToastLevel::Warning
+                    },
                 ));
             }
 
             UiEvent::ConsolidationStatus { action } => {
                 self.activity_model.push_info(&format!("[memory] {action}"));
             }
-            UiEvent::ConsolidationComplete { merged, pruned, duration_ms } => {
+            UiEvent::ConsolidationComplete {
+                merged,
+                pruned,
+                duration_ms,
+            } => {
                 let duration_s = duration_ms as f64 / 1000.0;
                 self.activity_model.push_info(&format!(
                     "[memory] consolidation complete: merged={merged}, pruned={pruned}, {duration_s:.2}s"
@@ -635,7 +773,12 @@ impl TuiApp {
                     "Memory consolidation completed successfully"
                 );
             }
-            UiEvent::ToolRetrying { tool, attempt, max_attempts, delay_ms } => {
+            UiEvent::ToolRetrying {
+                tool,
+                attempt,
+                max_attempts,
+                delay_ms,
+            } => {
                 // Single push — no duplicate
                 self.activity_model.push_warning(
                     &format!("[retry] {tool} attempt {attempt}/{max_attempts} in {delay_ms}ms"),
@@ -649,15 +792,31 @@ impl TuiApp {
 
             // Phase 43D: Live panel data
             UiEvent::ContextTierUpdate {
-                l0_tokens, l0_capacity, l1_tokens, l1_entries,
-                l2_entries, l3_entries, l4_entries, total_tokens,
+                l0_tokens,
+                l0_capacity,
+                l1_tokens,
+                l1_entries,
+                l2_entries,
+                l3_entries,
+                l4_entries,
+                total_tokens,
             } => {
                 self.panel.update_context(
-                    l0_tokens, l0_capacity, l1_tokens, l1_entries,
-                    l2_entries, l3_entries, l4_entries, total_tokens,
+                    l0_tokens,
+                    l0_capacity,
+                    l1_tokens,
+                    l1_entries,
+                    l2_entries,
+                    l3_entries,
+                    l4_entries,
+                    total_tokens,
                 );
             }
-            UiEvent::ReasoningUpdate { strategy, task_type, complexity } => {
+            UiEvent::ReasoningUpdate {
+                strategy,
+                task_type,
+                complexity,
+            } => {
                 self.panel.update_reasoning(strategy, task_type, complexity);
             }
 
@@ -677,12 +836,18 @@ impl TuiApp {
             }
 
             // Phase 50: Sudo password elevation — open modal for password entry.
-            UiEvent::SudoPasswordRequest { tool, command, has_cached } => {
+            UiEvent::SudoPasswordRequest {
+                tool,
+                command,
+                has_cached,
+            } => {
                 // Check in-process 5-minute sudo cache before showing modal.
-                let use_cached = has_cached && self.sudo_cache
-                    .as_ref()
-                    .map(|(_, ts)| ts.elapsed().as_secs() < 300)
-                    .unwrap_or(false);
+                let use_cached = has_cached
+                    && self
+                        .sudo_cache
+                        .as_ref()
+                        .map(|(_, ts)| ts.elapsed().as_secs() < 300)
+                        .unwrap_or(false);
 
                 self.sudo_has_cached = use_cached;
                 self.sudo_password_buf.clear();
@@ -696,12 +861,12 @@ impl TuiApp {
                     }
                 } else {
                     // Open the sudo password overlay.
-                    self.state.overlay.open(
-                        crate::tui::overlay::OverlayKind::SudoPasswordEntry {
+                    self.state
+                        .overlay
+                        .open(crate::tui::overlay::OverlayKind::SudoPasswordEntry {
                             tool: tool.clone(),
                             command: command.clone(),
-                        }
-                    );
+                        });
                     self.toasts.push(Toast::new(
                         format!("Sudo elevation required for {tool}"),
                         ToastLevel::Warning,
@@ -714,14 +879,17 @@ impl TuiApp {
             UiEvent::DryRunActive(active) => {
                 self.state.dry_run_active = active;
                 if active {
-                    self.activity_model.push_warning(
-                        constants::DRY_RUN_WARNING,
-                        Some(constants::DRY_RUN_HINT),
-                    );
-                    self.toasts.push(Toast::new(constants::DRY_RUN_TOAST, ToastLevel::Warning));
+                    self.activity_model
+                        .push_warning(constants::DRY_RUN_WARNING, Some(constants::DRY_RUN_HINT));
+                    self.toasts
+                        .push(Toast::new(constants::DRY_RUN_TOAST, ToastLevel::Warning));
                 }
             }
-            UiEvent::TokenBudgetUpdate { used, limit, rate_per_minute } => {
+            UiEvent::TokenBudgetUpdate {
+                used,
+                limit,
+                rate_per_minute,
+            } => {
                 self.state.token_budget.used = used;
                 self.state.token_budget.limit = limit;
                 self.state.token_budget.rate_per_minute = rate_per_minute;
@@ -736,7 +904,8 @@ impl TuiApp {
                         format!("unhealthy: {reason}")
                     }
                 };
-                self.activity_model.push_info(&format!("[health] {provider}: {label}"));
+                self.activity_model
+                    .push_info(&format!("[health] {provider}: {label}"));
                 // Update status bar health indicator for the active provider.
                 if provider == self.status.current_provider() {
                     self.status.provider_health = status;
@@ -744,7 +913,11 @@ impl TuiApp {
             }
 
             // Phase B4: Circuit breaker state
-            UiEvent::CircuitBreakerUpdate { provider, state, failure_count } => {
+            UiEvent::CircuitBreakerUpdate {
+                provider,
+                state,
+                failure_count,
+            } => {
                 let label = match &state {
                     crate::tui::events::CircuitBreakerState::Closed => "closed",
                     crate::tui::events::CircuitBreakerState::Open => "OPEN",
@@ -753,7 +926,8 @@ impl TuiApp {
                 self.activity_model.push_info(&format!(
                     "[breaker] {provider}: {label} (failures: {failure_count})"
                 ));
-                self.panel.update_breaker(provider.clone(), state.clone(), failure_count);
+                self.panel
+                    .update_breaker(provider.clone(), state.clone(), failure_count);
                 if matches!(state, crate::tui::events::CircuitBreakerState::Open) {
                     self.toasts.push(Toast::new(
                         format!("Breaker OPEN: {provider}"),
@@ -775,9 +949,8 @@ impl TuiApp {
                         "Invalid agent state transition"
                     );
                 } else {
-                    self.activity_model.push_info(&format!(
-                        "[state] {:?} → {:?}: {reason}", from, to
-                    ));
+                    self.activity_model
+                        .push_info(&format!("[state] {:?} → {:?}: {reason}", from, to));
                 }
                 // Persist FSM state in AppState.
                 self.state.agent_state = to.clone();
@@ -786,28 +959,28 @@ impl TuiApp {
                 use crate::tui::events::AgentState as FsmState;
                 use crate::tui::widgets::activity_indicator::AgentState as BadgeState;
                 let badge_state = match &to {
-                    FsmState::Idle         => BadgeState::Idle,
-                    FsmState::Planning     => BadgeState::Planning,
-                    FsmState::Executing    => BadgeState::Running,
-                    FsmState::ToolWait     => BadgeState::ToolExecution,
-                    FsmState::Reflecting   => BadgeState::Running,
+                    FsmState::Idle => BadgeState::Idle,
+                    FsmState::Planning => BadgeState::Planning,
+                    FsmState::Executing => BadgeState::Running,
+                    FsmState::ToolWait => BadgeState::ToolExecution,
+                    FsmState::Reflecting => BadgeState::Running,
                     FsmState::Synthesizing => BadgeState::Running,
-                    FsmState::Paused       => BadgeState::WaitingPermission,
-                    FsmState::Complete     => BadgeState::Idle,
-                    FsmState::Failed       => BadgeState::Error,
+                    FsmState::Paused => BadgeState::WaitingPermission,
+                    FsmState::Complete => BadgeState::Idle,
+                    FsmState::Failed => BadgeState::Error,
                 };
                 self.agent_badge.set_state(badge_state);
                 // Update badge detail label.
                 let detail = match &to {
-                    FsmState::Planning     => Some("Planning…".to_string()),
-                    FsmState::Executing    => Some("Running".to_string()),
-                    FsmState::ToolWait     => Some("Tools…".to_string()),
-                    FsmState::Reflecting   => Some("Reflecting…".to_string()),
+                    FsmState::Planning => Some("Planning…".to_string()),
+                    FsmState::Executing => Some("Running".to_string()),
+                    FsmState::ToolWait => Some("Tools…".to_string()),
+                    FsmState::Reflecting => Some("Reflecting…".to_string()),
                     FsmState::Synthesizing => Some("Synthesizing…".to_string()),
-                    FsmState::Paused       => Some("Paused".to_string()),
-                    FsmState::Complete     => Some("Done".to_string()),
-                    FsmState::Failed       => Some(format!("Failed: {reason}")),
-                    FsmState::Idle         => None,
+                    FsmState::Paused => Some("Paused".to_string()),
+                    FsmState::Complete => Some("Done".to_string()),
+                    FsmState::Failed => Some(format!("Failed: {reason}")),
+                    FsmState::Idle => None,
                 };
                 self.agent_badge.set_detail(detail);
                 // Toast for failure transitions.
@@ -820,12 +993,21 @@ impl TuiApp {
             }
 
             // Sprint 1 B2: Task status (parity with ClassicSink)
-            UiEvent::TaskStatus { title, status, duration_ms, artifact_count } => {
+            UiEvent::TaskStatus {
+                title,
+                status,
+                duration_ms,
+                artifact_count,
+            } => {
                 let timing = duration_ms
                     .map(|ms| format!(" ({:.1}s", ms as f64 / 1000.0))
                     .unwrap_or_default();
                 let artifacts = if artifact_count > 0 {
-                    format!(", {} artifact{}", artifact_count, if artifact_count == 1 { "" } else { "s" })
+                    format!(
+                        ", {} artifact{}",
+                        artifact_count,
+                        if artifact_count == 1 { "" } else { "s" }
+                    )
                 } else {
                     String::new()
                 };
@@ -836,23 +1018,46 @@ impl TuiApp {
                 } else {
                     String::new()
                 };
-                self.activity_model.push_info(&format!("[task] {title} — {status}{suffix}"));
+                self.activity_model
+                    .push_info(&format!("[task] {title} — {status}{suffix}"));
             }
 
             // Sprint 1 B3: Reasoning status (parity with ClassicSink)
-            UiEvent::ReasoningStatus { task_type, complexity, strategy, score, success } => {
-                let outcome = if success { "Success" } else { "Below threshold" };
-                self.activity_model.push_info(&format!("[reasoning] {task_type} ({complexity}) → {strategy}"));
-                self.activity_model.push_info(&format!("[evaluation] Score: {score:.2} — {outcome}"));
+            UiEvent::ReasoningStatus {
+                task_type,
+                complexity,
+                strategy,
+                score,
+                success,
+            } => {
+                let outcome = if success {
+                    "Success"
+                } else {
+                    "Below threshold"
+                };
+                self.activity_model.push_info(&format!(
+                    "[reasoning] {task_type} ({complexity}) → {strategy}"
+                ));
+                self.activity_model
+                    .push_info(&format!("[evaluation] Score: {score:.2} — {outcome}"));
             }
 
             // FASE 1.2: HICON Metrics Visibility
-            UiEvent::HiconCorrection { strategy, reason, round } => {
+            UiEvent::HiconCorrection {
+                strategy,
+                reason,
+                round,
+            } => {
                 self.activity_model.push_info(&format!(
                     "[hicon:correction] Round {round}: Applied {strategy} — {reason}"
                 ));
             }
-            UiEvent::HiconAnomaly { anomaly_type, severity, details, confidence } => {
+            UiEvent::HiconAnomaly {
+                anomaly_type,
+                severity,
+                details,
+                confidence,
+            } => {
                 let message = format!(
                     "[hicon:anomaly] {severity} {anomaly_type} detected (conf: {:.2}) — {details}",
                     confidence
@@ -866,12 +1071,17 @@ impl TuiApp {
             UiEvent::HiconCoherence { phi, round, status } => {
                 let message = format!("[hicon:coherence] Round {round}: Φ = {:.3} ({status})", phi);
                 if status == "degraded" || status == "critical" {
-                    self.activity_model.push_warning(&message, Some("Agent coherence below target threshold"));
+                    self.activity_model
+                        .push_warning(&message, Some("Agent coherence below target threshold"));
                 } else {
                     self.activity_model.push_info(&message);
                 }
             }
-            UiEvent::HiconBudgetWarning { predicted_overflow_rounds, current_tokens, projected_tokens } => {
+            UiEvent::HiconBudgetWarning {
+                predicted_overflow_rounds,
+                current_tokens,
+                projected_tokens,
+            } => {
                 self.activity_model.push_warning(
                     &format!(
                         "[hicon:budget] Token overflow predicted in {predicted_overflow_rounds} rounds (current: {current_tokens}, projected: {projected_tokens})"
@@ -885,7 +1095,11 @@ impl TuiApp {
             }
 
             // Context Servers Integration: Receive real server data from Repl
-            UiEvent::ContextServersList { servers, total_count, enabled_count } => {
+            UiEvent::ContextServersList {
+                servers,
+                total_count,
+                enabled_count,
+            } => {
                 self.state.context_servers = servers;
                 self.state.context_servers_total = total_count;
                 self.state.context_servers_enabled = enabled_count;
@@ -893,7 +1107,11 @@ impl TuiApp {
             }
 
             // Phase 45B: Real-time token delta from streaming.
-            UiEvent::TokenDelta { session_input, session_output, .. } => {
+            UiEvent::TokenDelta {
+                session_input,
+                session_output,
+                ..
+            } => {
                 self.status.apply_patch(StatusPatch {
                     input_tokens: Some(session_input),
                     output_tokens: Some(session_output),
@@ -914,9 +1132,9 @@ impl TuiApp {
             UiEvent::IdeConnected { port } => {
                 self.status.dev_gateway_port = Some(port);
                 self.status.ide_connected = false; // no buffers yet
-                self.activity_model.push_info(
-                    &format!("[dev] LSP server listening on localhost:{port} — connect your IDE extension"),
-                );
+                self.activity_model.push_info(&format!(
+                    "[dev] LSP server listening on localhost:{port} — connect your IDE extension"
+                ));
             }
 
             // LSP server stopped (session teardown).
@@ -927,33 +1145,62 @@ impl TuiApp {
             }
 
             // --- Multi-Agent Orchestration Visibility ---
-
-            UiEvent::OrchestratorWave { wave_index: _, total_waves, task_count } => {
-                self.activity_model.push_orchestrator_header(task_count, total_waves);
+            UiEvent::OrchestratorWave {
+                wave_index: _,
+                total_waves,
+                task_count,
+            } => {
+                self.activity_model
+                    .push_orchestrator_header(task_count, total_waves);
             }
 
-            UiEvent::SubAgentSpawned { step_index, total_steps, description, agent_type } => {
-                self.activity_model.push_sub_agent_spawn(step_index, total_steps, &description, &agent_type);
-            }
-
-            UiEvent::SubAgentCompleted { step_index, total_steps: _, success, latency_ms, tools_used, rounds, summary, error_hint } => {
-                self.activity_model.update_sub_agent_complete(step_index, success, latency_ms, tools_used, rounds, summary, error_hint);
-            }
-
-            UiEvent::MediaAnalysisStarted { count } => {
-                self.activity_model.push_info(
-                    &format!("[media] Analyzing {count} file{}…", if count == 1 { "" } else { "s" }),
+            UiEvent::SubAgentSpawned {
+                step_index,
+                total_steps,
+                description,
+                agent_type,
+            } => {
+                self.activity_model.push_sub_agent_spawn(
+                    step_index,
+                    total_steps,
+                    &description,
+                    &agent_type,
                 );
             }
 
+            UiEvent::SubAgentCompleted {
+                step_index,
+                total_steps: _,
+                success,
+                latency_ms,
+                tools_used,
+                rounds,
+                summary,
+                error_hint,
+            } => {
+                self.activity_model.update_sub_agent_complete(
+                    step_index, success, latency_ms, tools_used, rounds, summary, error_hint,
+                );
+            }
+
+            UiEvent::MediaAnalysisStarted { count } => {
+                self.activity_model.push_info(&format!(
+                    "[media] Analyzing {count} file{}…",
+                    if count == 1 { "" } else { "s" }
+                ));
+            }
+
             UiEvent::MediaAnalysisComplete { filename, tokens } => {
-                self.activity_model.push_info(&format!("[media]   {filename}: {tokens} tokens"));
+                self.activity_model
+                    .push_info(&format!("[media]   {filename}: {tokens} tokens"));
             }
 
             // Pre-populate model selector with all configured providers (sent once at startup).
             UiEvent::AvailableProviders { models } => {
                 for (provider, model_id, label) in models {
-                    let already_known = self.known_models.iter()
+                    let already_known = self
+                        .known_models
+                        .iter()
                         .any(|(p, m, _)| p == &provider && m == &model_id);
                     if !already_known {
                         self.known_models.push((provider, model_id, label));
@@ -970,10 +1217,10 @@ impl TuiApp {
                         .as_deref()
                         .map(|b| format!(" on {b}"))
                         .unwrap_or_default();
-                    self.activity_model.push_info(
-                        &format!("[dev] IDE: {count} open buffer{}{branch_str}",
-                            if count == 1 { "" } else { "s" }),
-                    );
+                    self.activity_model.push_info(&format!(
+                        "[dev] IDE: {count} open buffer{}{branch_str}",
+                        if count == 1 { "" } else { "s" }
+                    ));
                 }
             }
         }

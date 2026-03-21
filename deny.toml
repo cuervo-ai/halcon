@@ -38,13 +38,9 @@ allow = [
     "CC0-1.0",
     "0BSD",
 ]
-# Lint level for crates which do not have a detectable license
-unlicensed = "deny"
-# Lint level for crates which have a copyleft license (GPL, LGPL, AGPL, etc.)
-copyleft = "warn"
-# Some crates have multiple licenses, and we prefer specific ones
-allow-osi-fsf-free = "neither"
-default = "deny"
+# Crates without a detectable license or with licenses not in the allow list
+# are denied by default in cargo-deny v2 (allow-list mode).
+# Copyleft licenses (GPL, LGPL, AGPL) are not in the allow list → denied.
 
 [[licenses.clarify]]
 name = "ring"

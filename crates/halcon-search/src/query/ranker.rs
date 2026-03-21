@@ -4,8 +4,8 @@ use crate::config::RankingConfig;
 use crate::error::Result;
 use crate::types::{Document, DocumentId, RankBreakdown, SearchResult};
 
-use std::sync::Arc;
 use halcon_storage::Database;
+use std::sync::Arc;
 
 pub struct Ranker {
     db: Arc<Database>,
@@ -50,8 +50,7 @@ impl Ranker {
 
             // Convert stored document to search Document type
             let doc = Document {
-                id: DocumentId::from_bytes(&stored_doc.id)
-                    .unwrap_or_else(DocumentId::new),
+                id: DocumentId::from_bytes(&stored_doc.id).unwrap_or_default(),
                 url: url::Url::parse(&stored_doc.url)
                     .unwrap_or_else(|_| url::Url::parse("https://invalid.url").unwrap()),
                 domain: stored_doc.domain,
@@ -268,4 +267,3 @@ mod tests {
         assert_eq!(results.len(), 0);
     }
 }
-

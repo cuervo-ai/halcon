@@ -38,8 +38,7 @@ pub fn write_pdf<W: std::io::Write + std::io::Seek>(
     export_title: &str,
     export_ts: &str,
 ) -> Result<()> {
-    let (doc, page1, layer1) =
-        PdfDocument::new(export_title, Mm(PAGE_W), Mm(PAGE_H), "Cover");
+    let (doc, page1, layer1) = PdfDocument::new(export_title, Mm(PAGE_W), Mm(PAGE_H), "Cover");
     let font = doc
         .add_builtin_font(BuiltinFont::HelveticaBold)
         .expect("builtin font");
@@ -55,7 +54,7 @@ pub fn write_pdf<W: std::io::Write + std::io::Seek>(
         layer.use_text(export_title, FONT_TITLE, Mm(MARGIN_L), Mm(y), &font);
         y -= 10.0;
         layer.use_text(
-            &format!("Generated: {export_ts}"),
+            format!("Generated: {export_ts}"),
             FONT_BODY,
             Mm(MARGIN_L),
             Mm(y),
@@ -63,7 +62,7 @@ pub fn write_pdf<W: std::io::Write + std::io::Seek>(
         );
         y -= 6.0;
         layer.use_text(
-            &format!("Total events: {}", events.len()),
+            format!("Total events: {}", events.len()),
             FONT_BODY,
             Mm(MARGIN_L),
             Mm(y),
@@ -71,7 +70,10 @@ pub fn write_pdf<W: std::io::Write + std::io::Seek>(
         );
 
         // Count events by type.
-        let tool_calls = events.iter().filter(|e| e.event_type == event_types::TOOL_CALL).count();
+        let tool_calls = events
+            .iter()
+            .filter(|e| e.event_type == event_types::TOOL_CALL)
+            .count();
         let blocked = events
             .iter()
             .filter(|e| e.event_type == event_types::TOOL_BLOCKED)
@@ -87,7 +89,7 @@ pub fn write_pdf<W: std::io::Write + std::io::Seek>(
 
         y -= 6.0;
         layer.use_text(
-            &format!("Tool calls: {tool_calls}  Blocked: {blocked}  Safety gates: {safety}  Circuit breaker: {cb}"),
+            format!("Tool calls: {tool_calls}  Blocked: {blocked}  Safety gates: {safety}  Circuit breaker: {cb}"),
             FONT_BODY,
             Mm(MARGIN_L),
             Mm(y),
@@ -112,7 +114,7 @@ pub fn write_pdf<W: std::io::Write + std::io::Seek>(
                     break;
                 }
                 layer.use_text(
-                    &s.display_row(),
+                    s.display_row(),
                     FONT_SMALL,
                     Mm(MARGIN_L),
                     Mm(y),
@@ -127,16 +129,13 @@ pub fn write_pdf<W: std::io::Write + std::io::Seek>(
     let timeline_chunks: Vec<&[AuditEvent]> = events.chunks(ROWS_PER_PAGE).collect();
 
     for (chunk_idx, chunk) in timeline_chunks.iter().enumerate() {
-        let (page_ref, layer_ref) = doc.add_page(
-            Mm(PAGE_W),
-            Mm(PAGE_H),
-            &format!("Events {}", chunk_idx + 1),
-        );
+        let (page_ref, layer_ref) =
+            doc.add_page(Mm(PAGE_W), Mm(PAGE_H), format!("Events {}", chunk_idx + 1));
         let layer = doc.get_page(page_ref).get_layer(layer_ref);
         let mut y = PAGE_H - 20.0;
 
         layer.use_text(
-            &format!("Event Timeline (page {})", chunk_idx + 1),
+            format!("Event Timeline (page {})", chunk_idx + 1),
             FONT_H2,
             Mm(MARGIN_L),
             Mm(y),
@@ -188,8 +187,7 @@ pub fn write_pdf<W: std::io::Write + std::io::Seek>(
         y -= 8.0;
 
         // Count by event_type.
-        let mut counts: std::collections::HashMap<&str, usize> =
-            std::collections::HashMap::new();
+        let mut counts: std::collections::HashMap<&str, usize> = std::collections::HashMap::new();
         for ev in events {
             *counts.entry(ev.event_type.as_str()).or_insert(0) += 1;
         }
@@ -210,7 +208,7 @@ pub fn write_pdf<W: std::io::Write + std::io::Seek>(
                 break;
             }
             layer.use_text(
-                &format!("{:<35} {}", ev_type, count),
+                format!("{:<35} {}", ev_type, count),
                 FONT_BODY,
                 Mm(MARGIN_L),
                 Mm(y),
@@ -227,7 +225,7 @@ pub fn write_pdf<W: std::io::Write + std::io::Seek>(
                 .filter(|e| e.event_type == event_types::SAFETY_GATE_TRIGGER)
                 .count();
             layer.use_text(
-                &format!("Safety Gate Triggers: {safety_count}"),
+                format!("Safety Gate Triggers: {safety_count}"),
                 FONT_H2,
                 Mm(MARGIN_L),
                 Mm(y),
@@ -270,9 +268,19 @@ mod tests {
     fn pdf_generates_without_error() {
         let events = make_events();
         let mut buf = std::io::Cursor::new(Vec::new());
-        write_pdf(&mut buf, &events, &[], "Test Report", "2026-03-08T00:00:00Z").unwrap();
+        write_pdf(
+            &mut buf,
+            &events,
+            &[],
+            "Test Report",
+            "2026-03-08T00:00:00Z",
+        )
+        .unwrap();
         // PDF magic bytes: %PDF
         let inner = buf.into_inner();
-        assert!(inner.starts_with(b"%PDF"), "output should start with PDF header");
+        assert!(
+            inner.starts_with(b"%PDF"),
+            "output should start with PDF header"
+        );
     }
 }

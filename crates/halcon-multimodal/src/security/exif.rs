@@ -25,7 +25,9 @@ pub fn strip_exif_jpeg(data: &[u8]) -> Result<Vec<u8>> {
             pos += 1;
             continue;
         }
-        if pos == 0 { break; } // shouldn't happen
+        if pos == 0 {
+            break;
+        } // shouldn't happen
 
         // data[pos-1] is 0xFF, data[pos] is the marker byte
         let marker = data[pos];
@@ -34,7 +36,9 @@ pub fn strip_exif_jpeg(data: &[u8]) -> Result<Vec<u8>> {
         // Standalone markers (no length field): SOI, EOI, RST0-RST7, TEM
         if matches!(marker, 0x00 | 0x01 | 0xD0..=0xD9) {
             out.extend_from_slice(&[0xFF, marker]);
-            if marker == 0xD9 { break; } // EOI
+            if marker == 0xD9 {
+                break;
+            } // EOI
             continue;
         }
 
@@ -48,9 +52,13 @@ pub fn strip_exif_jpeg(data: &[u8]) -> Result<Vec<u8>> {
         }
 
         // Normal segment: 2-byte length (includes the 2 length bytes themselves)
-        if pos + 1 >= data.len() { break; }
+        if pos + 1 >= data.len() {
+            break;
+        }
         let seg_len = u16::from_be_bytes([data[pos], data[pos + 1]]) as usize;
-        if seg_len < 2 { break; }
+        if seg_len < 2 {
+            break;
+        }
         let seg_end = (pos + seg_len).min(data.len());
 
         // Drop: APP1 (0xE1 = Exif/XMP) and APP2 (0xE2 = ICC/extended XMP)
@@ -81,17 +89,13 @@ pub fn strip_exif_png(data: &[u8]) -> Result<Vec<u8>> {
     let mut pos = 8usize;
 
     while pos + 12 <= data.len() {
-        let chunk_len = u32::from_be_bytes([
-            data[pos], data[pos + 1], data[pos + 2], data[pos + 3],
-        ]) as usize;
+        let chunk_len =
+            u32::from_be_bytes([data[pos], data[pos + 1], data[pos + 2], data[pos + 3]]) as usize;
         let chunk_type = &data[pos + 4..pos + 8];
         let total = 4 + 4 + chunk_len + 4; // length + type + data + CRC
 
         // Drop metadata-bearing chunks
-        let drop = matches!(
-            chunk_type,
-            b"iTXt" | b"tEXt" | b"zTXt" | b"tIME" | b"eXIf"
-        );
+        let drop = matches!(chunk_type, b"iTXt" | b"tEXt" | b"zTXt" | b"tIME" | b"eXIf");
 
         if !drop {
             let end = (pos + total).min(data.len());
@@ -108,9 +112,7 @@ pub fn strip_exif(data: &[u8]) -> Result<Vec<u8>> {
     if data.len() >= 2 && data[..2] == [0xFF, 0xD8] {
         return strip_exif_jpeg(data);
     }
-    if data.len() >= 8
-        && &data[..8] == &[0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]
-    {
+    if data.len() >= 8 && data[..8] == [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A] {
         return strip_exif_png(data);
     }
     // WebP, GIF — no standard EXIF embedding; return as-is.

@@ -53,10 +53,7 @@ pub fn show(ctx: &egui::Context, modal: &ChatPermissionModal) -> PermissionOutco
             ui.vertical(|ui| {
                 // Tool name header.
                 ui.horizontal(|ui| {
-                    ui.colored_label(
-                        risk_color,
-                        RichText::new("\u{26A0}").size(18.0),
-                    );
+                    ui.colored_label(risk_color, RichText::new("\u{26A0}").size(18.0));
                     ui.add_space(4.0);
                     ui.colored_label(
                         risk_color,
@@ -109,17 +106,14 @@ pub fn show(ctx: &egui::Context, modal: &ChatPermissionModal) -> PermissionOutco
 
                 // Buttons.
                 ui.horizontal(|ui| {
-                    let approve_btn = egui::Button::new(
-                        RichText::new("Approve").color(Color32::WHITE),
-                    )
-                    .fill(Color32::from_rgb(30, 100, 50))
-                    .min_size(Vec2::new(90.0, 28.0));
+                    let approve_btn =
+                        egui::Button::new(RichText::new("Approve").color(Color32::WHITE))
+                            .fill(Color32::from_rgb(30, 100, 50))
+                            .min_size(Vec2::new(90.0, 28.0));
 
-                    let deny_btn = egui::Button::new(
-                        RichText::new("Deny").color(Color32::WHITE),
-                    )
-                    .fill(Color32::from_rgb(120, 30, 30))
-                    .min_size(Vec2::new(90.0, 28.0));
+                    let deny_btn = egui::Button::new(RichText::new("Deny").color(Color32::WHITE))
+                        .fill(Color32::from_rgb(120, 30, 30))
+                        .min_size(Vec2::new(90.0, 28.0));
 
                     if ui.add(approve_btn).clicked() {
                         outcome = PermissionOutcome::Approved;

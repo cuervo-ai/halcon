@@ -65,8 +65,16 @@ fn discovers_project_agents() {
     let tmp = TempDir::new().unwrap();
     let agents_dir = setup_project_agents(&tmp);
 
-    write_agent(&agents_dir, "reviewer.md", &make_agent_md("code-reviewer", "Reviews code"));
-    write_agent(&agents_dir, "security.md", &make_agent_md("security-auditor", "Audits security"));
+    write_agent(
+        &agents_dir,
+        "reviewer.md",
+        &make_agent_md("code-reviewer", "Reviews code"),
+    );
+    write_agent(
+        &agents_dir,
+        "security.md",
+        &make_agent_md("security-auditor", "Audits security"),
+    );
 
     let reg = AgentRegistry::load_isolated(&[], tmp.path());
     assert_eq!(reg.len(), 2);
@@ -91,7 +99,11 @@ fn non_md_files_are_ignored() {
     let tmp = TempDir::new().unwrap();
     let agents_dir = setup_project_agents(&tmp);
 
-    write_agent(&agents_dir, "agent.md", &make_agent_md("my-agent", "Valid agent"));
+    write_agent(
+        &agents_dir,
+        "agent.md",
+        &make_agent_md("my-agent", "Valid agent"),
+    );
     std::fs::write(agents_dir.join("README.txt"), "not an agent").unwrap();
     std::fs::write(agents_dir.join("agent.yaml"), "not an agent").unwrap();
 
@@ -113,7 +125,10 @@ fn model_alias_haiku_resolved() {
 
     let reg = AgentRegistry::load_isolated(&[], tmp.path());
     let def = reg.get("fast-agent").unwrap();
-    assert_eq!(def.resolved_model, Some("claude-haiku-4-5-20251001".to_string()));
+    assert_eq!(
+        def.resolved_model,
+        Some("claude-haiku-4-5-20251001".to_string())
+    );
 }
 
 #[test]
@@ -154,13 +169,18 @@ fn project_agent_wins_over_session_conflict_warning() {
     let tmp = TempDir::new().unwrap();
     let agents_dir = setup_project_agents(&tmp);
 
-    write_agent(&agents_dir, "shared.md", &make_agent_md("shared-agent", "Project version"));
+    write_agent(
+        &agents_dir,
+        "shared.md",
+        &make_agent_md("shared-agent", "Project version"),
+    );
 
     let session_path = tmp.path().join("session-shared.md");
     std::fs::write(
         &session_path,
         make_agent_md("shared-agent", "Session version"),
-    ).unwrap();
+    )
+    .unwrap();
 
     let reg = AgentRegistry::load_isolated(&[session_path], tmp.path());
     // Session scope wins over Project.
@@ -191,8 +211,16 @@ fn valid_agents_loaded_alongside_invalid() {
     let tmp = TempDir::new().unwrap();
     let agents_dir = setup_project_agents(&tmp);
 
-    write_agent(&agents_dir, "good.md", &make_agent_md("good-agent", "Valid"));
-    write_agent(&agents_dir, "bad.md", "---\nname: Bad_Name\ndescription: broken\n---\n");
+    write_agent(
+        &agents_dir,
+        "good.md",
+        &make_agent_md("good-agent", "Valid"),
+    );
+    write_agent(
+        &agents_dir,
+        "bad.md",
+        "---\nname: Bad_Name\ndescription: broken\n---\n",
+    );
 
     let reg = AgentRegistry::load_isolated(&[], tmp.path());
     assert_eq!(reg.len(), 1);
@@ -218,8 +246,16 @@ fn routing_manifest_contains_agent_names() {
     let tmp = TempDir::new().unwrap();
     let agents_dir = setup_project_agents(&tmp);
 
-    write_agent(&agents_dir, "reviewer.md", &make_agent_md("code-reviewer", "Reviews code"));
-    write_agent(&agents_dir, "security.md", &make_agent_md("security-auditor", "Audits security"));
+    write_agent(
+        &agents_dir,
+        "reviewer.md",
+        &make_agent_md("code-reviewer", "Reviews code"),
+    );
+    write_agent(
+        &agents_dir,
+        "security.md",
+        &make_agent_md("security-auditor", "Audits security"),
+    );
 
     let reg = AgentRegistry::load_isolated(&[], tmp.path());
     let manifest = reg.routing_manifest().unwrap();
@@ -242,12 +278,19 @@ fn routing_manifest_truncates_long_descriptions() {
     let agents_dir = setup_project_agents(&tmp);
 
     let long_desc = "x".repeat(200);
-    write_agent(&agents_dir, "long.md", &make_agent_md("long-desc-agent", &long_desc));
+    write_agent(
+        &agents_dir,
+        "long.md",
+        &make_agent_md("long-desc-agent", &long_desc),
+    );
 
     let reg = AgentRegistry::load_isolated(&[], tmp.path());
     let manifest = reg.routing_manifest().unwrap();
     // The manifest line must not exceed some reasonable length.
-    let line = manifest.lines().find(|l| l.contains("long-desc-agent")).unwrap();
+    let line = manifest
+        .lines()
+        .find(|l| l.contains("long-desc-agent"))
+        .unwrap();
     // Description truncated to 120 chars + "…"
     assert!(line.contains("…"));
 }
@@ -279,7 +322,8 @@ fn resolve_for_dispatch_respects_tool_allowlist() {
     let tmp = TempDir::new().unwrap();
     let agents_dir = setup_project_agents(&tmp);
 
-    let content = "---\nname: restricted\ndescription: Limited tools\ntools: [file_read, grep]\n---\n";
+    let content =
+        "---\nname: restricted\ndescription: Limited tools\ntools: [file_read, grep]\n---\n";
     write_agent(&agents_dir, "restricted.md", content);
 
     let reg = AgentRegistry::load_isolated(&[], tmp.path());
@@ -293,7 +337,11 @@ fn resolve_for_dispatch_empty_tools_means_inherit_all() {
     let tmp = TempDir::new().unwrap();
     let agents_dir = setup_project_agents(&tmp);
 
-    write_agent(&agents_dir, "open.md", &make_agent_md("open-agent", "All tools"));
+    write_agent(
+        &agents_dir,
+        "open.md",
+        &make_agent_md("open-agent", "All tools"),
+    );
 
     let reg = AgentRegistry::load_isolated(&[], tmp.path());
     let resolved = reg.resolve_for_dispatch("open-agent").unwrap();
@@ -313,7 +361,8 @@ fn agent_with_skills_gets_skill_body_in_prompt() {
     std::fs::write(
         skills_dir.join("security-rules.md"),
         "---\nname: security-rules\ndescription: Security\n---\n\nAlways check for injection.\n",
-    ).unwrap();
+    )
+    .unwrap();
 
     // Create an agent that uses the skill.
     let content = "---\nname: secure-agent\ndescription: Security agent\nskills: [security-rules]\n---\n\nAgent body here.\n";
@@ -332,7 +381,8 @@ fn unknown_skill_produces_warning_but_agent_loads() {
     let agents_dir = setup_project_agents(&tmp);
 
     // Agent references non-existent skill.
-    let content = "---\nname: risky-agent\ndescription: Uses unknown skill\nskills: [ghost-skill]\n---\n";
+    let content =
+        "---\nname: risky-agent\ndescription: Uses unknown skill\nskills: [ghost-skill]\n---\n";
     write_agent(&agents_dir, "risky.md", content);
 
     let reg = AgentRegistry::load_isolated(&[], tmp.path());
@@ -356,8 +406,16 @@ fn format_list_shows_all_agents() {
     let tmp = TempDir::new().unwrap();
     let agents_dir = setup_project_agents(&tmp);
 
-    write_agent(&agents_dir, "alpha.md", &make_agent_md("alpha-agent", "First agent"));
-    write_agent(&agents_dir, "beta.md", &make_agent_md("beta-agent", "Second agent"));
+    write_agent(
+        &agents_dir,
+        "alpha.md",
+        &make_agent_md("alpha-agent", "First agent"),
+    );
+    write_agent(
+        &agents_dir,
+        "beta.md",
+        &make_agent_md("beta-agent", "Second agent"),
+    );
 
     let reg = AgentRegistry::load_isolated(&[], tmp.path());
     let output = reg.format_list();

@@ -69,7 +69,8 @@ impl SharedBudget {
         if self.token_limit == 0 {
             return u64::MAX;
         }
-        self.token_limit.saturating_sub(self.tokens_used.load(Ordering::Acquire))
+        self.token_limit
+            .saturating_sub(self.tokens_used.load(Ordering::Acquire))
     }
 }
 
@@ -152,10 +153,10 @@ pub fn topological_waves(tasks: &[SubAgentTask]) -> Vec<Vec<&SubAgentTask>> {
 ///   per_tool      = 1 500 tokens / tool  (each tool result adds ~1 500 output tokens)
 ///   cap           = 80 000 tokens   (single-task hard ceiling; well under 200k context)
 pub fn estimate_task_tokens(instruction: &str, tool_count: usize) -> u32 {
-    const BASE: u32     = 2_000;
+    const BASE: u32 = 2_000;
     const PER_WORD: u32 = 4;
     const PER_TOOL: u32 = 1_500;
-    const CAP: u32      = 80_000;
+    const CAP: u32 = 80_000;
 
     let word_count = instruction.split_whitespace().count() as u32;
     let estimate = BASE
@@ -187,8 +188,7 @@ pub fn derive_sub_limits(
         // Use the REMAINING tokens (not the initial parent budget) so later waves
         // reflect actual consumption.  Cap at the original parent limit to guard
         // against u64::MAX (returned by remaining_tokens() when unlimited).
-        let effective = remaining_tokens
-            .min(parent.max_total_tokens as u64) as u32;
+        let effective = remaining_tokens.min(parent.max_total_tokens as u64) as u32;
         // Divide by wave_size (all tasks that need a share) and floor at 1.
         (effective / wave_size as u32).max(1)
     } else {
@@ -283,7 +283,10 @@ pub async fn run_orchestrator(
     // must appear in all_results as failures so the calling agent loop can
     // correctly account for them (prevents "zombie Running" tasks in ExecutionTracker).
     {
-        let scheduled: HashSet<Uuid> = waves.iter().flat_map(|w| w.iter().map(|t| t.task_id)).collect();
+        let scheduled: HashSet<Uuid> = waves
+            .iter()
+            .flat_map(|w| w.iter().map(|t| t.task_id))
+            .collect();
         for task in &tasks {
             if !scheduled.contains(&task.task_id) {
                 tracing::warn!(
@@ -322,15 +325,16 @@ pub async fn run_orchestrator(
         // Compute per-wave sub-limits using the actual wave size so the budget is split
         // correctly.  A wave with 11 tasks divides by 11; a wave with 2 tasks divides by 2.
         let wave_size = wave.len();
-        let sub_limits = derive_sub_limits(parent_limits, config, wave_size, budget.remaining_tokens());
+        let sub_limits =
+            derive_sub_limits(parent_limits, config, wave_size, budget.remaining_tokens());
 
         // Check budget before each wave.
         if budget.is_over_budget() {
             budget_exceeded = true;
-            budget_skipped_count += wave.iter().count();
+            budget_skipped_count += wave.len();
             tracing::warn!(
                 orchestrator_id = %orchestrator_id,
-                skipped = wave.iter().count(),
+                skipped = wave.len(),
                 "Orchestrator budget exceeded, stopping before next wave",
             );
             break;
@@ -339,7 +343,11 @@ pub async fn run_orchestrator(
         // Capture shared context snapshot for this wave (if communication enabled).
         let context_snapshot = if let Some(ref ctx) = shared_context {
             let snap = ctx.snapshot().await;
-            if snap.is_empty() { None } else { Some(snap) }
+            if snap.is_empty() {
+                None
+            } else {
+                Some(snap)
+            }
         } else {
             None
         };
@@ -349,14 +357,17 @@ pub async fn run_orchestrator(
         let eligible_tasks: Vec<&&SubAgentTask> = wave
             .iter()
             .filter(|task| {
-                let failed_deps: Vec<uuid::Uuid> = task.depends_on.iter()
+                let failed_deps: Vec<uuid::Uuid> = task
+                    .depends_on
+                    .iter()
                     .filter(|dep| failed_task_ids.contains(*dep))
                     .copied()
                     .collect();
                 let has_failed_dep = !failed_deps.is_empty();
                 if has_failed_dep {
                     // Build a descriptive error that names the blocking failed dependency IDs.
-                    let dep_ids = failed_deps.iter()
+                    let dep_ids = failed_deps
+                        .iter()
                         .map(|id| id.to_string())
                         .collect::<Vec<_>>()
                         .join(", ");
@@ -377,7 +388,10 @@ pub async fn run_orchestrator(
                         output_text: String::new(),
                         agent_result: AgentResult {
                             success: false,
-                            summary: format!("Skipped: dependency cascade from task(s) [{}]", dep_ids),
+                            summary: format!(
+                                "Skipped: dependency cascade from task(s) [{}]",
+                                dep_ids
+                            ),
                             files_modified: vec![],
                             tools_used: vec![],
                         },
@@ -1133,9 +1147,7 @@ pub async fn run_orchestrator(
         let mut wave_results: Vec<SubAgentResult> = Vec::with_capacity(eligible_tasks.len());
         {
             use futures::stream::StreamExt as _;
-            let mut stream = std::pin::pin!(
-                futures::stream::iter(futures).buffer_unordered(cap)
-            );
+            let mut stream = std::pin::pin!(futures::stream::iter(futures).buffer_unordered(cap));
             while let Some(result) = stream.next().await {
                 budget.add_tokens(result.input_tokens + result.output_tokens);
                 wave_results.push(result);
@@ -1163,7 +1175,6 @@ pub async fn run_orchestrator(
         // NOTE: budget.add_tokens() has been moved into the stream collection loop above
         // (P4 fix) so that intra-wave budget checks reflect real token consumption.
         for result in wave_results {
-
             // Track failed tasks for downstream failure cascade.
             // IMPORTANT: Timeout failures (error_type:timeout) are treated differently from
             // hard failures (provider errors, permission denials). A timeout is a transient
@@ -1187,7 +1198,9 @@ pub async fn run_orchestrator(
                 && result.had_tools_available;
 
             if !result.success || is_zero_tool_drift {
-                let is_timeout = result.error.as_deref()
+                let is_timeout = result
+                    .error
+                    .as_deref()
                     .map(|e| e.contains("error_type:timeout"))
                     .unwrap_or(false);
                 if is_timeout {
@@ -1197,8 +1210,7 @@ pub async fn run_orchestrator(
                          Consider increasing sub_agent_timeout_secs in config."
                     );
                 } else if is_zero_tool_drift {
-                    let preview: String = result.agent_result.summary
-                        .chars().take(120).collect();
+                    let preview: String = result.agent_result.summary.chars().take(120).collect();
                     tracing::warn!(
                         task_id = %result.task_id,
                         summary_preview = %preview,
@@ -1213,18 +1225,24 @@ pub async fn run_orchestrator(
 
             // Persist task completion.
             if let Some(db) = trace_db {
-                let status = if result.success { "completed" } else { "failed" };
-                let _ = db.update_agent_task_status(
-                    &result.task_id.to_string(),
-                    status,
-                    result.input_tokens,
-                    result.output_tokens,
-                    result.cost_usd,
-                    result.latency_ms,
-                    result.rounds as u32,
-                    result.error.as_deref(),
-                    Some(&result.output_text),
-                ).await;
+                let status = if result.success {
+                    "completed"
+                } else {
+                    "failed"
+                };
+                let _ = db
+                    .update_agent_task_status(
+                        &result.task_id.to_string(),
+                        status,
+                        result.input_tokens,
+                        result.output_tokens,
+                        result.cost_usd,
+                        result.latency_ms,
+                        result.rounds as u32,
+                        result.error.as_deref(),
+                        Some(&result.output_text),
+                    )
+                    .await;
             }
 
             let _ = event_tx.send(DomainEvent::new(EventPayload::SubAgentCompleted {
@@ -1243,7 +1261,8 @@ pub async fn run_orchestrator(
                         "output": result.output_text,
                         "success": result.success,
                     }),
-                ).await;
+                )
+                .await;
             }
 
             all_results.push(result);
@@ -1293,8 +1312,8 @@ pub async fn run_orchestrator(
 /// Used by the SC-2 zero-tool-drift guard to avoid false positives.
 const SYNTHESIS_SUMMARY_KEYWORDS: &[&str] = &[
     "synthesis",
-    "summariz",   // matches "summarize", "summarized", "summarizing"
-    "conclus",    // matches "conclusion", "conclusions"
+    "summariz", // matches "summarize", "summarized", "summarizing"
+    "conclus",  // matches "conclusion", "conclusions"
     "final",
     "review",
     "analysis complete",
@@ -1302,7 +1321,9 @@ const SYNTHESIS_SUMMARY_KEYWORDS: &[&str] = &[
 
 fn is_synthesis_summary(summary: &str) -> bool {
     let lower = summary.to_lowercase();
-    SYNTHESIS_SUMMARY_KEYWORDS.iter().any(|kw| lower.contains(kw))
+    SYNTHESIS_SUMMARY_KEYWORDS
+        .iter()
+        .any(|kw| lower.contains(kw))
 }
 
 #[cfg(test)]
@@ -1348,11 +1369,11 @@ mod tests {
                 limits_override: None,
                 depends_on: vec![],
                 priority: 0,
-            system_prompt_prefix: None,
-            role: halcon_core::types::AgentRole::default(),
-            team_id: None,
-            mailbox_id: None,
-            estimated_tokens: 0,
+                system_prompt_prefix: None,
+                role: halcon_core::types::AgentRole::default(),
+                team_id: None,
+                mailbox_id: None,
+                estimated_tokens: 0,
             },
             SubAgentTask {
                 task_id: Uuid::new_v4(),
@@ -1364,11 +1385,11 @@ mod tests {
                 limits_override: None,
                 depends_on: vec![],
                 priority: 0,
-            system_prompt_prefix: None,
-            role: halcon_core::types::AgentRole::default(),
-            team_id: None,
-            mailbox_id: None,
-            estimated_tokens: 0,
+                system_prompt_prefix: None,
+                role: halcon_core::types::AgentRole::default(),
+                team_id: None,
+                mailbox_id: None,
+                estimated_tokens: 0,
             },
         ];
         let waves = topological_waves(&tasks);
@@ -1392,11 +1413,11 @@ mod tests {
                 limits_override: None,
                 depends_on: vec![],
                 priority: 0,
-            system_prompt_prefix: None,
-            role: halcon_core::types::AgentRole::default(),
-            team_id: None,
-            mailbox_id: None,
-            estimated_tokens: 0,
+                system_prompt_prefix: None,
+                role: halcon_core::types::AgentRole::default(),
+                team_id: None,
+                mailbox_id: None,
+                estimated_tokens: 0,
             },
             SubAgentTask {
                 task_id: b,
@@ -1408,11 +1429,11 @@ mod tests {
                 limits_override: None,
                 depends_on: vec![a],
                 priority: 0,
-            system_prompt_prefix: None,
-            role: halcon_core::types::AgentRole::default(),
-            team_id: None,
-            mailbox_id: None,
-            estimated_tokens: 0,
+                system_prompt_prefix: None,
+                role: halcon_core::types::AgentRole::default(),
+                team_id: None,
+                mailbox_id: None,
+                estimated_tokens: 0,
             },
             SubAgentTask {
                 task_id: c,
@@ -1424,11 +1445,11 @@ mod tests {
                 limits_override: None,
                 depends_on: vec![b],
                 priority: 0,
-            system_prompt_prefix: None,
-            role: halcon_core::types::AgentRole::default(),
-            team_id: None,
-            mailbox_id: None,
-            estimated_tokens: 0,
+                system_prompt_prefix: None,
+                role: halcon_core::types::AgentRole::default(),
+                team_id: None,
+                mailbox_id: None,
+                estimated_tokens: 0,
             },
         ];
         let waves = topological_waves(&tasks);
@@ -1455,11 +1476,11 @@ mod tests {
                 limits_override: None,
                 depends_on: vec![],
                 priority: 0,
-            system_prompt_prefix: None,
-            role: halcon_core::types::AgentRole::default(),
-            team_id: None,
-            mailbox_id: None,
-            estimated_tokens: 0,
+                system_prompt_prefix: None,
+                role: halcon_core::types::AgentRole::default(),
+                team_id: None,
+                mailbox_id: None,
+                estimated_tokens: 0,
             },
             SubAgentTask {
                 task_id: b,
@@ -1471,11 +1492,11 @@ mod tests {
                 limits_override: None,
                 depends_on: vec![a],
                 priority: 10,
-            system_prompt_prefix: None,
-            role: halcon_core::types::AgentRole::default(),
-            team_id: None,
-            mailbox_id: None,
-            estimated_tokens: 0,
+                system_prompt_prefix: None,
+                role: halcon_core::types::AgentRole::default(),
+                team_id: None,
+                mailbox_id: None,
+                estimated_tokens: 0,
             },
             SubAgentTask {
                 task_id: c,
@@ -1487,11 +1508,11 @@ mod tests {
                 limits_override: None,
                 depends_on: vec![a],
                 priority: 5,
-            system_prompt_prefix: None,
-            role: halcon_core::types::AgentRole::default(),
-            team_id: None,
-            mailbox_id: None,
-            estimated_tokens: 0,
+                system_prompt_prefix: None,
+                role: halcon_core::types::AgentRole::default(),
+                team_id: None,
+                mailbox_id: None,
+                estimated_tokens: 0,
             },
             SubAgentTask {
                 task_id: d,
@@ -1503,11 +1524,11 @@ mod tests {
                 limits_override: None,
                 depends_on: vec![b, c],
                 priority: 0,
-            system_prompt_prefix: None,
-            role: halcon_core::types::AgentRole::default(),
-            team_id: None,
-            mailbox_id: None,
-            estimated_tokens: 0,
+                system_prompt_prefix: None,
+                role: halcon_core::types::AgentRole::default(),
+                team_id: None,
+                mailbox_id: None,
+                estimated_tokens: 0,
             },
         ];
         let waves = topological_waves(&tasks);
@@ -1515,7 +1536,7 @@ mod tests {
         assert_eq!(waves[0].len(), 1); // A
         assert_eq!(waves[1].len(), 2); // B, C (concurrent)
         assert_eq!(waves[2].len(), 1); // D
-        // B should come before C in wave 1 (higher priority).
+                                       // B should come before C in wave 1 (higher priority).
         assert_eq!(waves[1][0].task_id, b);
         assert_eq!(waves[1][1].task_id, c);
     }
@@ -1535,11 +1556,11 @@ mod tests {
                 limits_override: None,
                 depends_on: vec![b],
                 priority: 0,
-            system_prompt_prefix: None,
-            role: halcon_core::types::AgentRole::default(),
-            team_id: None,
-            mailbox_id: None,
-            estimated_tokens: 0,
+                system_prompt_prefix: None,
+                role: halcon_core::types::AgentRole::default(),
+                team_id: None,
+                mailbox_id: None,
+                estimated_tokens: 0,
             },
             SubAgentTask {
                 task_id: b,
@@ -1551,11 +1572,11 @@ mod tests {
                 limits_override: None,
                 depends_on: vec![a],
                 priority: 0,
-            system_prompt_prefix: None,
-            role: halcon_core::types::AgentRole::default(),
-            team_id: None,
-            mailbox_id: None,
-            estimated_tokens: 0,
+                system_prompt_prefix: None,
+                role: halcon_core::types::AgentRole::default(),
+                team_id: None,
+                mailbox_id: None,
+                estimated_tokens: 0,
             },
         ];
         let waves = topological_waves(&tasks);
@@ -1586,55 +1607,78 @@ mod tests {
                 task_id: a,
                 instruction: "A (cyclic)".into(),
                 agent_type: AgentType::Chat,
-                model: None, provider: None,
-                allowed_tools: HashSet::new(), limits_override: None,
-                depends_on: vec![b], priority: 0,
-            system_prompt_prefix: None,
-            role: halcon_core::types::AgentRole::default(),
-            team_id: None,
-            mailbox_id: None,
-            estimated_tokens: 0,
+                model: None,
+                provider: None,
+                allowed_tools: HashSet::new(),
+                limits_override: None,
+                depends_on: vec![b],
+                priority: 0,
+                system_prompt_prefix: None,
+                role: halcon_core::types::AgentRole::default(),
+                team_id: None,
+                mailbox_id: None,
+                estimated_tokens: 0,
             },
             SubAgentTask {
                 task_id: b,
                 instruction: "B (cyclic)".into(),
                 agent_type: AgentType::Chat,
-                model: None, provider: None,
-                allowed_tools: HashSet::new(), limits_override: None,
-                depends_on: vec![a], priority: 0,
-            system_prompt_prefix: None,
-            role: halcon_core::types::AgentRole::default(),
-            team_id: None,
-            mailbox_id: None,
-            estimated_tokens: 0,
+                model: None,
+                provider: None,
+                allowed_tools: HashSet::new(),
+                limits_override: None,
+                depends_on: vec![a],
+                priority: 0,
+                system_prompt_prefix: None,
+                role: halcon_core::types::AgentRole::default(),
+                team_id: None,
+                mailbox_id: None,
+                estimated_tokens: 0,
             },
             SubAgentTask {
                 task_id: c,
                 instruction: "C (independent)".into(),
                 agent_type: AgentType::Chat,
-                model: None, provider: None,
-                allowed_tools: HashSet::new(), limits_override: None,
-                depends_on: vec![], priority: 0,
-            system_prompt_prefix: None,
-            role: halcon_core::types::AgentRole::default(),
-            team_id: None,
-            mailbox_id: None,
-            estimated_tokens: 0,
+                model: None,
+                provider: None,
+                allowed_tools: HashSet::new(),
+                limits_override: None,
+                depends_on: vec![],
+                priority: 0,
+                system_prompt_prefix: None,
+                role: halcon_core::types::AgentRole::default(),
+                team_id: None,
+                mailbox_id: None,
+                estimated_tokens: 0,
             },
         ];
         let waves = topological_waves(&tasks);
 
         // C has no deps so it should be in wave 0; A and B form a cycle → not in any wave.
-        let scheduled: std::collections::HashSet<Uuid> =
-            waves.iter().flat_map(|w| w.iter().map(|t| t.task_id)).collect();
+        let scheduled: std::collections::HashSet<Uuid> = waves
+            .iter()
+            .flat_map(|w| w.iter().map(|t| t.task_id))
+            .collect();
 
         assert!(scheduled.contains(&c), "independent task must be scheduled");
-        assert!(!scheduled.contains(&a), "cyclic task A must be excluded from waves");
-        assert!(!scheduled.contains(&b), "cyclic task B must be excluded from waves");
+        assert!(
+            !scheduled.contains(&a),
+            "cyclic task A must be excluded from waves"
+        );
+        assert!(
+            !scheduled.contains(&b),
+            "cyclic task B must be excluded from waves"
+        );
 
         // Both A and B would become failure results in run_orchestrator().
-        let cyclic_count = tasks.iter().filter(|t| !scheduled.contains(&t.task_id)).count();
-        assert_eq!(cyclic_count, 2, "exactly 2 cyclic tasks must be unscheduled");
+        let cyclic_count = tasks
+            .iter()
+            .filter(|t| !scheduled.contains(&t.task_id))
+            .count();
+        assert_eq!(
+            cyclic_count, 2,
+            "exactly 2 cyclic tasks must be unscheduled"
+        );
     }
 
     // --- derive_sub_limits tests ---
@@ -1730,7 +1774,10 @@ mod tests {
             estimated_tokens
         };
         // Cap must NOT be 1 — that was the bug.
-        assert!(cap >= estimated_tokens, "cap={cap} must equal estimate when parent is unlimited");
+        assert!(
+            cap >= estimated_tokens,
+            "cap={cap} must equal estimate when parent is unlimited"
+        );
     }
 
     #[test]
@@ -1815,7 +1862,7 @@ mod tests {
             limits_override: None,
             depends_on: vec![],
             priority: 0,
-        system_prompt_prefix: None,
+            system_prompt_prefix: None,
             role: halcon_core::types::AgentRole::default(),
             team_id: None,
             mailbox_id: None,
@@ -1823,12 +1870,29 @@ mod tests {
         }];
 
         let result = run_orchestrator(
-            orch_id, tasks, &provider, &tool_registry, &event_tx,
-            &limits, &config, &routing,
-            None, None, &[], "echo", "/tmp", None,
-            &[], true, false, None,
-            test_policy(), None,
-        ).await.unwrap();
+            orch_id,
+            tasks,
+            &provider,
+            &tool_registry,
+            &event_tx,
+            &limits,
+            &config,
+            &routing,
+            None,
+            None,
+            &[],
+            "echo",
+            "/tmp",
+            None,
+            &[],
+            true,
+            false,
+            None,
+            test_policy(),
+            None,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(result.total_count, 1);
         assert_eq!(result.success_count, 1);
@@ -1856,11 +1920,11 @@ mod tests {
                 limits_override: None,
                 depends_on: vec![],
                 priority: 0,
-            system_prompt_prefix: None,
-            role: halcon_core::types::AgentRole::default(),
-            team_id: None,
-            mailbox_id: None,
-            estimated_tokens: 0,
+                system_prompt_prefix: None,
+                role: halcon_core::types::AgentRole::default(),
+                team_id: None,
+                mailbox_id: None,
+                estimated_tokens: 0,
             },
             SubAgentTask {
                 task_id: Uuid::new_v4(),
@@ -1872,21 +1936,38 @@ mod tests {
                 limits_override: None,
                 depends_on: vec![],
                 priority: 0,
-            system_prompt_prefix: None,
-            role: halcon_core::types::AgentRole::default(),
-            team_id: None,
-            mailbox_id: None,
-            estimated_tokens: 0,
+                system_prompt_prefix: None,
+                role: halcon_core::types::AgentRole::default(),
+                team_id: None,
+                mailbox_id: None,
+                estimated_tokens: 0,
             },
         ];
 
         let result = run_orchestrator(
-            orch_id, tasks, &provider, &tool_registry, &event_tx,
-            &limits, &config, &routing,
-            None, None, &[], "echo", "/tmp", None,
-            &[], true, false, None,
-            test_policy(), None,
-        ).await.unwrap();
+            orch_id,
+            tasks,
+            &provider,
+            &tool_registry,
+            &event_tx,
+            &limits,
+            &config,
+            &routing,
+            None,
+            None,
+            &[],
+            "echo",
+            "/tmp",
+            None,
+            &[],
+            true,
+            false,
+            None,
+            test_policy(),
+            None,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(result.total_count, 2);
         assert_eq!(result.success_count, 2);
@@ -1914,11 +1995,11 @@ mod tests {
                 limits_override: None,
                 depends_on: vec![],
                 priority: 0,
-            system_prompt_prefix: None,
-            role: halcon_core::types::AgentRole::default(),
-            team_id: None,
-            mailbox_id: None,
-            estimated_tokens: 0,
+                system_prompt_prefix: None,
+                role: halcon_core::types::AgentRole::default(),
+                team_id: None,
+                mailbox_id: None,
+                estimated_tokens: 0,
             },
             SubAgentTask {
                 task_id: Uuid::new_v4(),
@@ -1930,21 +2011,38 @@ mod tests {
                 limits_override: None,
                 depends_on: vec![a_id],
                 priority: 0,
-            system_prompt_prefix: None,
-            role: halcon_core::types::AgentRole::default(),
-            team_id: None,
-            mailbox_id: None,
-            estimated_tokens: 0,
+                system_prompt_prefix: None,
+                role: halcon_core::types::AgentRole::default(),
+                team_id: None,
+                mailbox_id: None,
+                estimated_tokens: 0,
             },
         ];
 
         let result = run_orchestrator(
-            orch_id, tasks, &provider, &tool_registry, &event_tx,
-            &limits, &config, &routing,
-            None, None, &[], "echo", "/tmp", None,
-            &[], true, false, None,
-            test_policy(), None,
-        ).await.unwrap();
+            orch_id,
+            tasks,
+            &provider,
+            &tool_registry,
+            &event_tx,
+            &limits,
+            &config,
+            &routing,
+            None,
+            None,
+            &[],
+            "echo",
+            "/tmp",
+            None,
+            &[],
+            true,
+            false,
+            None,
+            test_policy(),
+            None,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(result.total_count, 2);
         assert_eq!(result.success_count, 2);
@@ -1970,7 +2068,7 @@ mod tests {
             limits_override: None,
             depends_on: vec![],
             priority: 0,
-        system_prompt_prefix: None,
+            system_prompt_prefix: None,
             role: halcon_core::types::AgentRole::default(),
             team_id: None,
             mailbox_id: None,
@@ -1978,12 +2076,29 @@ mod tests {
         }];
 
         run_orchestrator(
-            orch_id, tasks, &provider, &tool_registry, &event_tx,
-            &limits, &config, &routing,
-            None, None, &[], "echo", "/tmp", None,
-            &[], true, false, None,
-            test_policy(), None,
-        ).await.unwrap();
+            orch_id,
+            tasks,
+            &provider,
+            &tool_registry,
+            &event_tx,
+            &limits,
+            &config,
+            &routing,
+            None,
+            None,
+            &[],
+            "echo",
+            "/tmp",
+            None,
+            &[],
+            true,
+            false,
+            None,
+            test_policy(),
+            None,
+        )
+        .await
+        .unwrap();
 
         // Collect all events.
         let mut events = Vec::new();
@@ -1991,9 +2106,15 @@ mod tests {
             events.push(ev);
         }
 
-        let spawned = events.iter().any(|e| matches!(e.payload, EventPayload::SubAgentSpawned { .. }));
-        let completed = events.iter().any(|e| matches!(e.payload, EventPayload::SubAgentCompleted { .. }));
-        let orch_done = events.iter().any(|e| matches!(e.payload, EventPayload::OrchestratorCompleted { .. }));
+        let spawned = events
+            .iter()
+            .any(|e| matches!(e.payload, EventPayload::SubAgentSpawned { .. }));
+        let completed = events
+            .iter()
+            .any(|e| matches!(e.payload, EventPayload::SubAgentCompleted { .. }));
+        let orch_done = events
+            .iter()
+            .any(|e| matches!(e.payload, EventPayload::OrchestratorCompleted { .. }));
 
         assert!(spawned, "should emit SubAgentSpawned");
         assert!(completed, "should emit SubAgentCompleted");
@@ -2015,40 +2136,73 @@ mod tests {
         let tool_registry = ToolRegistry::new();
         let (event_tx, _rx) = halcon_core::event_bus(64);
         let limits = AgentLimits::default();
-        let config = OrchestratorConfig { enabled: true, ..Default::default() };
+        let config = OrchestratorConfig {
+            enabled: true,
+            ..Default::default()
+        };
         let routing = RoutingConfig::default();
 
         let a_id = Uuid::new_v4();
         let tasks = vec![
             SubAgentTask {
-                task_id: a_id, instruction: "Wave 1".into(), agent_type: AgentType::Chat,
-                model: None, provider: None, allowed_tools: HashSet::new(),
-                limits_override: None, depends_on: vec![], priority: 0,
-            system_prompt_prefix: None,
-            role: halcon_core::types::AgentRole::default(),
-            team_id: None,
-            mailbox_id: None,
-            estimated_tokens: 0,
+                task_id: a_id,
+                instruction: "Wave 1".into(),
+                agent_type: AgentType::Chat,
+                model: None,
+                provider: None,
+                allowed_tools: HashSet::new(),
+                limits_override: None,
+                depends_on: vec![],
+                priority: 0,
+                system_prompt_prefix: None,
+                role: halcon_core::types::AgentRole::default(),
+                team_id: None,
+                mailbox_id: None,
+                estimated_tokens: 0,
             },
             SubAgentTask {
-                task_id: Uuid::new_v4(), instruction: "Wave 2".into(), agent_type: AgentType::Chat,
-                model: None, provider: None, allowed_tools: HashSet::new(),
-                limits_override: None, depends_on: vec![a_id], priority: 0,
-            system_prompt_prefix: None,
-            role: halcon_core::types::AgentRole::default(),
-            team_id: None,
-            mailbox_id: None,
-            estimated_tokens: 0,
+                task_id: Uuid::new_v4(),
+                instruction: "Wave 2".into(),
+                agent_type: AgentType::Chat,
+                model: None,
+                provider: None,
+                allowed_tools: HashSet::new(),
+                limits_override: None,
+                depends_on: vec![a_id],
+                priority: 0,
+                system_prompt_prefix: None,
+                role: halcon_core::types::AgentRole::default(),
+                team_id: None,
+                mailbox_id: None,
+                estimated_tokens: 0,
             },
         ];
 
         // With communication disabled (default), should still work.
         let result = run_orchestrator(
-            Uuid::new_v4(), tasks, &provider, &tool_registry, &event_tx,
-            &limits, &config, &routing, None, None, &[], "echo", "/tmp", None,
-            &[], true, false, None,
-            test_policy(), None,
-        ).await.unwrap();
+            Uuid::new_v4(),
+            tasks,
+            &provider,
+            &tool_registry,
+            &event_tx,
+            &limits,
+            &config,
+            &routing,
+            None,
+            None,
+            &[],
+            "echo",
+            "/tmp",
+            None,
+            &[],
+            true,
+            false,
+            None,
+            test_policy(),
+            None,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(result.total_count, 2);
         assert_eq!(result.success_count, 2);
@@ -2070,34 +2224,64 @@ mod tests {
         let a_id = Uuid::new_v4();
         let tasks = vec![
             SubAgentTask {
-                task_id: a_id, instruction: "Wave 1 task".into(), agent_type: AgentType::Chat,
-                model: None, provider: None, allowed_tools: HashSet::new(),
-                limits_override: None, depends_on: vec![], priority: 0,
-            system_prompt_prefix: None,
-            role: halcon_core::types::AgentRole::default(),
-            team_id: None,
-            mailbox_id: None,
-            estimated_tokens: 0,
+                task_id: a_id,
+                instruction: "Wave 1 task".into(),
+                agent_type: AgentType::Chat,
+                model: None,
+                provider: None,
+                allowed_tools: HashSet::new(),
+                limits_override: None,
+                depends_on: vec![],
+                priority: 0,
+                system_prompt_prefix: None,
+                role: halcon_core::types::AgentRole::default(),
+                team_id: None,
+                mailbox_id: None,
+                estimated_tokens: 0,
             },
             SubAgentTask {
-                task_id: Uuid::new_v4(), instruction: "Wave 2 task".into(), agent_type: AgentType::Chat,
-                model: None, provider: None, allowed_tools: HashSet::new(),
-                limits_override: None, depends_on: vec![a_id], priority: 0,
-            system_prompt_prefix: None,
-            role: halcon_core::types::AgentRole::default(),
-            team_id: None,
-            mailbox_id: None,
-            estimated_tokens: 0,
+                task_id: Uuid::new_v4(),
+                instruction: "Wave 2 task".into(),
+                agent_type: AgentType::Chat,
+                model: None,
+                provider: None,
+                allowed_tools: HashSet::new(),
+                limits_override: None,
+                depends_on: vec![a_id],
+                priority: 0,
+                system_prompt_prefix: None,
+                role: halcon_core::types::AgentRole::default(),
+                team_id: None,
+                mailbox_id: None,
+                estimated_tokens: 0,
             },
         ];
 
         // With communication enabled, wave 2 should see wave 1 results.
         let result = run_orchestrator(
-            Uuid::new_v4(), tasks, &provider, &tool_registry, &event_tx,
-            &limits, &config, &routing, None, None, &[], "echo", "/tmp", None,
-            &[], true, false, None,
-            test_policy(), None,
-        ).await.unwrap();
+            Uuid::new_v4(),
+            tasks,
+            &provider,
+            &tool_registry,
+            &event_tx,
+            &limits,
+            &config,
+            &routing,
+            None,
+            None,
+            &[],
+            "echo",
+            "/tmp",
+            None,
+            &[],
+            true,
+            false,
+            None,
+            test_policy(),
+            None,
+        )
+        .await
+        .unwrap();
 
         assert_eq!(result.total_count, 2);
         assert_eq!(result.success_count, 2);
@@ -2106,7 +2290,12 @@ mod tests {
     #[tokio::test]
     async fn shared_context_store_set_and_snapshot() {
         let store = SharedContextStore::new();
-        store.set("result_abc".into(), serde_json::json!({"output": "hello", "success": true})).await;
+        store
+            .set(
+                "result_abc".into(),
+                serde_json::json!({"output": "hello", "success": true}),
+            )
+            .await;
         let snap = store.snapshot().await;
         assert_eq!(snap.len(), 1);
         assert!(snap.contains_key("result_abc"));
@@ -2124,7 +2313,12 @@ mod tests {
     async fn wave_results_contain_task_id_keys() {
         let store = SharedContextStore::new();
         let task_id = Uuid::new_v4();
-        store.set(format!("result_{task_id}"), serde_json::json!({"output": "done", "success": true})).await;
+        store
+            .set(
+                format!("result_{task_id}"),
+                serde_json::json!({"output": "done", "success": true}),
+            )
+            .await;
         let keys = store.keys().await;
         assert_eq!(keys.len(), 1);
         assert!(keys[0].starts_with("result_"));
@@ -2149,7 +2343,12 @@ mod tests {
     #[tokio::test]
     async fn shared_context_snapshot_json_format() {
         let store = SharedContextStore::new();
-        store.set("result_123".into(), serde_json::json!({"output": "test output", "success": true})).await;
+        store
+            .set(
+                "result_123".into(),
+                serde_json::json!({"output": "test output", "success": true}),
+            )
+            .await;
         let snap = store.snapshot().await;
         let json = serde_json::to_string_pretty(&snap).unwrap();
         assert!(json.contains("test output"));
@@ -2178,34 +2377,52 @@ mod tests {
         let c = Uuid::new_v4();
         let tasks = vec![
             SubAgentTask {
-                task_id: a, instruction: "A fails".into(), agent_type: AgentType::Chat,
-                model: None, provider: None, allowed_tools: HashSet::new(),
-                limits_override: None, depends_on: vec![], priority: 0,
-            system_prompt_prefix: None,
-            role: halcon_core::types::AgentRole::default(),
-            team_id: None,
-            mailbox_id: None,
-            estimated_tokens: 0,
+                task_id: a,
+                instruction: "A fails".into(),
+                agent_type: AgentType::Chat,
+                model: None,
+                provider: None,
+                allowed_tools: HashSet::new(),
+                limits_override: None,
+                depends_on: vec![],
+                priority: 0,
+                system_prompt_prefix: None,
+                role: halcon_core::types::AgentRole::default(),
+                team_id: None,
+                mailbox_id: None,
+                estimated_tokens: 0,
             },
             SubAgentTask {
-                task_id: b, instruction: "B depends on A".into(), agent_type: AgentType::Chat,
-                model: None, provider: None, allowed_tools: HashSet::new(),
-                limits_override: None, depends_on: vec![a], priority: 0,
-            system_prompt_prefix: None,
-            role: halcon_core::types::AgentRole::default(),
-            team_id: None,
-            mailbox_id: None,
-            estimated_tokens: 0,
+                task_id: b,
+                instruction: "B depends on A".into(),
+                agent_type: AgentType::Chat,
+                model: None,
+                provider: None,
+                allowed_tools: HashSet::new(),
+                limits_override: None,
+                depends_on: vec![a],
+                priority: 0,
+                system_prompt_prefix: None,
+                role: halcon_core::types::AgentRole::default(),
+                team_id: None,
+                mailbox_id: None,
+                estimated_tokens: 0,
             },
             SubAgentTask {
-                task_id: c, instruction: "C depends on B".into(), agent_type: AgentType::Chat,
-                model: None, provider: None, allowed_tools: HashSet::new(),
-                limits_override: None, depends_on: vec![b], priority: 0,
-            system_prompt_prefix: None,
-            role: halcon_core::types::AgentRole::default(),
-            team_id: None,
-            mailbox_id: None,
-            estimated_tokens: 0,
+                task_id: c,
+                instruction: "C depends on B".into(),
+                agent_type: AgentType::Chat,
+                model: None,
+                provider: None,
+                allowed_tools: HashSet::new(),
+                limits_override: None,
+                depends_on: vec![b],
+                priority: 0,
+                system_prompt_prefix: None,
+                role: halcon_core::types::AgentRole::default(),
+                team_id: None,
+                mailbox_id: None,
+                estimated_tokens: 0,
             },
         ];
         let waves = topological_waves(&tasks);
@@ -2216,14 +2433,16 @@ mod tests {
         failed.insert(a); // A failed
 
         // Wave 2: B depends on A (failed) → skipped
-        let wave2_eligible: Vec<_> = waves[1].iter()
+        let wave2_eligible: Vec<_> = waves[1]
+            .iter()
             .filter(|t| !t.depends_on.iter().any(|d| failed.contains(d)))
             .collect();
         assert!(wave2_eligible.is_empty(), "B should be skipped");
         failed.insert(b); // B cascaded as failed
 
         // Wave 3: C depends on B (failed) → skipped
-        let wave3_eligible: Vec<_> = waves[2].iter()
+        let wave3_eligible: Vec<_> = waves[2]
+            .iter()
             .filter(|t| !t.depends_on.iter().any(|d| failed.contains(d)))
             .collect();
         assert!(wave3_eligible.is_empty(), "C should be skipped too");
@@ -2240,44 +2459,68 @@ mod tests {
         let d = Uuid::new_v4();
         let tasks = vec![
             SubAgentTask {
-                task_id: a, instruction: "A".into(), agent_type: AgentType::Chat,
-                model: None, provider: None, allowed_tools: HashSet::new(),
-                limits_override: None, depends_on: vec![], priority: 0,
-            system_prompt_prefix: None,
-            role: halcon_core::types::AgentRole::default(),
-            team_id: None,
-            mailbox_id: None,
-            estimated_tokens: 0,
+                task_id: a,
+                instruction: "A".into(),
+                agent_type: AgentType::Chat,
+                model: None,
+                provider: None,
+                allowed_tools: HashSet::new(),
+                limits_override: None,
+                depends_on: vec![],
+                priority: 0,
+                system_prompt_prefix: None,
+                role: halcon_core::types::AgentRole::default(),
+                team_id: None,
+                mailbox_id: None,
+                estimated_tokens: 0,
             },
             SubAgentTask {
-                task_id: b, instruction: "B fails".into(), agent_type: AgentType::Chat,
-                model: None, provider: None, allowed_tools: HashSet::new(),
-                limits_override: None, depends_on: vec![a], priority: 0,
-            system_prompt_prefix: None,
-            role: halcon_core::types::AgentRole::default(),
-            team_id: None,
-            mailbox_id: None,
-            estimated_tokens: 0,
+                task_id: b,
+                instruction: "B fails".into(),
+                agent_type: AgentType::Chat,
+                model: None,
+                provider: None,
+                allowed_tools: HashSet::new(),
+                limits_override: None,
+                depends_on: vec![a],
+                priority: 0,
+                system_prompt_prefix: None,
+                role: halcon_core::types::AgentRole::default(),
+                team_id: None,
+                mailbox_id: None,
+                estimated_tokens: 0,
             },
             SubAgentTask {
-                task_id: c, instruction: "C succeeds".into(), agent_type: AgentType::Chat,
-                model: None, provider: None, allowed_tools: HashSet::new(),
-                limits_override: None, depends_on: vec![a], priority: 0,
-            system_prompt_prefix: None,
-            role: halcon_core::types::AgentRole::default(),
-            team_id: None,
-            mailbox_id: None,
-            estimated_tokens: 0,
+                task_id: c,
+                instruction: "C succeeds".into(),
+                agent_type: AgentType::Chat,
+                model: None,
+                provider: None,
+                allowed_tools: HashSet::new(),
+                limits_override: None,
+                depends_on: vec![a],
+                priority: 0,
+                system_prompt_prefix: None,
+                role: halcon_core::types::AgentRole::default(),
+                team_id: None,
+                mailbox_id: None,
+                estimated_tokens: 0,
             },
             SubAgentTask {
-                task_id: d, instruction: "D depends on B+C".into(), agent_type: AgentType::Chat,
-                model: None, provider: None, allowed_tools: HashSet::new(),
-                limits_override: None, depends_on: vec![b, c], priority: 0,
-            system_prompt_prefix: None,
-            role: halcon_core::types::AgentRole::default(),
-            team_id: None,
-            mailbox_id: None,
-            estimated_tokens: 0,
+                task_id: d,
+                instruction: "D depends on B+C".into(),
+                agent_type: AgentType::Chat,
+                model: None,
+                provider: None,
+                allowed_tools: HashSet::new(),
+                limits_override: None,
+                depends_on: vec![b, c],
+                priority: 0,
+                system_prompt_prefix: None,
+                role: halcon_core::types::AgentRole::default(),
+                team_id: None,
+                mailbox_id: None,
+                estimated_tokens: 0,
             },
         ];
         let waves = topological_waves(&tasks);
@@ -2289,7 +2532,8 @@ mod tests {
         let mut failed: HashSet<Uuid> = HashSet::new();
 
         // Wave 2 cascade check: neither B nor C has a failed dep (A succeeded)
-        let wave2_eligible: Vec<_> = waves[1].iter()
+        let wave2_eligible: Vec<_> = waves[1]
+            .iter()
             .filter(|t| !t.depends_on.iter().any(|d| failed.contains(d)))
             .collect();
         assert_eq!(wave2_eligible.len(), 2, "B and C both eligible in wave 2");
@@ -2298,10 +2542,14 @@ mod tests {
         failed.insert(b);
 
         // Wave 3: D depends on B (failed) → skipped
-        let wave3_eligible: Vec<_> = waves[2].iter()
+        let wave3_eligible: Vec<_> = waves[2]
+            .iter()
             .filter(|t| !t.depends_on.iter().any(|d| failed.contains(d)))
             .collect();
-        assert!(wave3_eligible.is_empty(), "D should be skipped (depends on failed B)");
+        assert!(
+            wave3_eligible.is_empty(),
+            "D should be skipped (depends on failed B)"
+        );
     }
 
     #[test]
@@ -2311,34 +2559,51 @@ mod tests {
         let b = Uuid::new_v4();
         let tasks = vec![
             SubAgentTask {
-                task_id: a, instruction: "A".into(), agent_type: AgentType::Chat,
-                model: None, provider: None, allowed_tools: HashSet::new(),
-                limits_override: None, depends_on: vec![], priority: 0,
-            system_prompt_prefix: None,
-            role: halcon_core::types::AgentRole::default(),
-            team_id: None,
-            mailbox_id: None,
-            estimated_tokens: 0,
+                task_id: a,
+                instruction: "A".into(),
+                agent_type: AgentType::Chat,
+                model: None,
+                provider: None,
+                allowed_tools: HashSet::new(),
+                limits_override: None,
+                depends_on: vec![],
+                priority: 0,
+                system_prompt_prefix: None,
+                role: halcon_core::types::AgentRole::default(),
+                team_id: None,
+                mailbox_id: None,
+                estimated_tokens: 0,
             },
             SubAgentTask {
-                task_id: b, instruction: "B".into(), agent_type: AgentType::Chat,
-                model: None, provider: None, allowed_tools: HashSet::new(),
-                limits_override: None, depends_on: vec![], priority: 0,
-            system_prompt_prefix: None,
-            role: halcon_core::types::AgentRole::default(),
-            team_id: None,
-            mailbox_id: None,
-            estimated_tokens: 0,
+                task_id: b,
+                instruction: "B".into(),
+                agent_type: AgentType::Chat,
+                model: None,
+                provider: None,
+                allowed_tools: HashSet::new(),
+                limits_override: None,
+                depends_on: vec![],
+                priority: 0,
+                system_prompt_prefix: None,
+                role: halcon_core::types::AgentRole::default(),
+                team_id: None,
+                mailbox_id: None,
+                estimated_tokens: 0,
             },
         ];
         let waves = topological_waves(&tasks);
         let failed: HashSet<Uuid> = [a].into_iter().collect();
 
         // B has no deps → should still be eligible
-        let eligible: Vec<_> = waves[0].iter()
+        let eligible: Vec<_> = waves[0]
+            .iter()
             .filter(|t| !t.depends_on.iter().any(|d| failed.contains(d)))
             .collect();
-        assert_eq!(eligible.len(), 2, "Both tasks have no deps so both eligible");
+        assert_eq!(
+            eligible.len(),
+            2,
+            "Both tasks have no deps so both eligible"
+        );
     }
 
     // ── BUG-007 regression tests ──────────────────────────────────────────────
@@ -2351,7 +2616,10 @@ mod tests {
         let tools_used: Vec<String> = vec![];
         let summary = "Analyzed the repository structure";
         let is_zero_tool_drift = true && tools_used.is_empty() && !is_synthesis_summary(summary);
-        assert!(is_zero_tool_drift, "Non-synthesis result with zero tools must be detected as drift");
+        assert!(
+            is_zero_tool_drift,
+            "Non-synthesis result with zero tools must be detected as drift"
+        );
     }
 
     /// A synthesis summary should NOT be treated as zero-tool drift.
@@ -2360,7 +2628,10 @@ mod tests {
         let tools_used: Vec<String> = vec![];
         let summary = "synthesis: consolidated findings from 3 sub-agents";
         let is_zero_tool_drift = true && tools_used.is_empty() && !is_synthesis_summary(summary);
-        assert!(!is_zero_tool_drift, "Explicit synthesis task with zero tools must NOT be flagged as drift");
+        assert!(
+            !is_zero_tool_drift,
+            "Explicit synthesis task with zero tools must NOT be flagged as drift"
+        );
     }
 
     /// A task that actually ran tools should never be flagged as drift.
@@ -2369,7 +2640,10 @@ mod tests {
         let tools_used = vec!["bash".to_string(), "file_write".to_string()];
         let summary = "Wrote the output file";
         let is_zero_tool_drift = true && tools_used.is_empty() && !is_synthesis_summary(summary);
-        assert!(!is_zero_tool_drift, "Task that ran tools must NOT be flagged as drift");
+        assert!(
+            !is_zero_tool_drift,
+            "Task that ran tools must NOT be flagged as drift"
+        );
     }
 
     // ── P10: Concurrency cap tests ────────────────────────────────────────────
@@ -2397,24 +2671,51 @@ mod tests {
                 task_id: Uuid::new_v4(),
                 instruction: format!("Task {i}"),
                 agent_type: AgentType::Chat,
-                model: None, provider: None,
+                model: None,
+                provider: None,
                 allowed_tools: HashSet::new(),
-                limits_override: None, depends_on: vec![], priority: 0,
+                limits_override: None,
+                depends_on: vec![],
+                priority: 0,
                 system_prompt_prefix: None,
                 role: halcon_core::types::AgentRole::default(),
-                team_id: None, mailbox_id: None, estimated_tokens: 0,
+                team_id: None,
+                mailbox_id: None,
+                estimated_tokens: 0,
             })
             .collect();
 
         let result = run_orchestrator(
-            Uuid::new_v4(), tasks, &provider, &tool_registry, &event_tx,
-            &limits, &config, &routing, None, None, &[], "echo", "/tmp", None,
-            &[], true, false, None, test_policy(), None,
-        ).await.unwrap();
+            Uuid::new_v4(),
+            tasks,
+            &provider,
+            &tool_registry,
+            &event_tx,
+            &limits,
+            &config,
+            &routing,
+            None,
+            None,
+            &[],
+            "echo",
+            "/tmp",
+            None,
+            &[],
+            true,
+            false,
+            None,
+            test_policy(),
+            None,
+        )
+        .await
+        .unwrap();
 
         // All 5 must succeed despite the concurrency cap of 1.
         assert_eq!(result.total_count, 5, "all tasks must complete under cap=1");
-        assert_eq!(result.success_count, 5, "all tasks must succeed under cap=1");
+        assert_eq!(
+            result.success_count, 5,
+            "all tasks must succeed under cap=1"
+        );
     }
 
     #[tokio::test]
@@ -2435,22 +2736,49 @@ mod tests {
                 task_id: Uuid::new_v4(),
                 instruction: format!("Work item {i}"),
                 agent_type: AgentType::Chat,
-                model: None, provider: None,
+                model: None,
+                provider: None,
                 allowed_tools: HashSet::new(),
-                limits_override: None, depends_on: vec![], priority: 0,
+                limits_override: None,
+                depends_on: vec![],
+                priority: 0,
                 system_prompt_prefix: None,
                 role: halcon_core::types::AgentRole::default(),
-                team_id: None, mailbox_id: None, estimated_tokens: 0,
+                team_id: None,
+                mailbox_id: None,
+                estimated_tokens: 0,
             })
             .collect();
 
         let result = run_orchestrator(
-            Uuid::new_v4(), tasks, &provider, &tool_registry, &event_tx,
-            &limits, &config, &routing, None, None, &[], "echo", "/tmp", None,
-            &[], true, false, None, test_policy(), None,
-        ).await.unwrap();
+            Uuid::new_v4(),
+            tasks,
+            &provider,
+            &tool_registry,
+            &event_tx,
+            &limits,
+            &config,
+            &routing,
+            None,
+            None,
+            &[],
+            "echo",
+            "/tmp",
+            None,
+            &[],
+            true,
+            false,
+            None,
+            test_policy(),
+            None,
+        )
+        .await
+        .unwrap();
 
-        assert_eq!(result.total_count, 8, "all 8 tasks must complete with cap=3");
+        assert_eq!(
+            result.total_count, 8,
+            "all 8 tasks must complete with cap=3"
+        );
         assert_eq!(result.success_count, 8);
     }
 
@@ -2475,33 +2803,58 @@ mod tests {
             ..Default::default()
         };
         let config = OrchestratorConfig {
-            shared_budget: false,        // each sub-agent gets full 8-token budget to run
-            max_concurrent_agents: 1,   // serial execution for a deterministic test
+            shared_budget: false,     // each sub-agent gets full 8-token budget to run
+            max_concurrent_agents: 1, // serial execution for a deterministic test
             ..Default::default()
         };
         let routing = RoutingConfig::default();
 
         // Use single-character instructions to keep token counts predictable.
         let instrs = ["A", "B", "C", "D", "E", "F"];
-        let tasks: Vec<SubAgentTask> = instrs.iter()
+        let tasks: Vec<SubAgentTask> = instrs
+            .iter()
             .map(|s| SubAgentTask {
                 task_id: Uuid::new_v4(),
                 instruction: s.to_string(),
                 agent_type: AgentType::Chat,
-                model: None, provider: None,
+                model: None,
+                provider: None,
                 allowed_tools: HashSet::new(),
-                limits_override: None, depends_on: vec![], priority: 0,
+                limits_override: None,
+                depends_on: vec![],
+                priority: 0,
                 system_prompt_prefix: None,
                 role: halcon_core::types::AgentRole::default(),
-                team_id: None, mailbox_id: None, estimated_tokens: 0,
+                team_id: None,
+                mailbox_id: None,
+                estimated_tokens: 0,
             })
             .collect();
 
         let result = run_orchestrator(
-            Uuid::new_v4(), tasks, &provider, &tool_registry, &event_tx,
-            &limits, &config, &routing, None, None, &[], "echo", "/tmp", None,
-            &[], true, false, None, test_policy(), None,
-        ).await.unwrap();
+            Uuid::new_v4(),
+            tasks,
+            &provider,
+            &tool_registry,
+            &event_tx,
+            &limits,
+            &config,
+            &routing,
+            None,
+            None,
+            &[],
+            "echo",
+            "/tmp",
+            None,
+            &[],
+            true,
+            false,
+            None,
+            test_policy(),
+            None,
+        )
+        .await
+        .unwrap();
 
         // Intra-wave budget enforcement must stop before all 6 tasks execute.
         // Previously (join_all), all 6 ran and tokens were summed only after the wave.
@@ -2528,7 +2881,7 @@ mod tests {
         let tool_registry = ToolRegistry::new();
         let (event_tx, _rx) = halcon_core::event_bus(64);
         let limits = AgentLimits {
-            max_total_tokens: 0, // 0 = unlimited
+            max_total_tokens: 0,  // 0 = unlimited
             max_duration_secs: 0, // 0 = unlimited
             ..Default::default()
         };
@@ -2540,22 +2893,49 @@ mod tests {
                 task_id: Uuid::new_v4(),
                 instruction: format!("Unlimited {i}"),
                 agent_type: AgentType::Chat,
-                model: None, provider: None,
+                model: None,
+                provider: None,
                 allowed_tools: HashSet::new(),
-                limits_override: None, depends_on: vec![], priority: 0,
+                limits_override: None,
+                depends_on: vec![],
+                priority: 0,
                 system_prompt_prefix: None,
                 role: halcon_core::types::AgentRole::default(),
-                team_id: None, mailbox_id: None, estimated_tokens: 0,
+                team_id: None,
+                mailbox_id: None,
+                estimated_tokens: 0,
             })
             .collect();
 
         let result = run_orchestrator(
-            Uuid::new_v4(), tasks, &provider, &tool_registry, &event_tx,
-            &limits, &config, &routing, None, None, &[], "echo", "/tmp", None,
-            &[], true, false, None, test_policy(), None,
-        ).await.unwrap();
+            Uuid::new_v4(),
+            tasks,
+            &provider,
+            &tool_registry,
+            &event_tx,
+            &limits,
+            &config,
+            &routing,
+            None,
+            None,
+            &[],
+            "echo",
+            "/tmp",
+            None,
+            &[],
+            true,
+            false,
+            None,
+            test_policy(),
+            None,
+        )
+        .await
+        .unwrap();
 
-        assert_eq!(result.total_count, 4, "unlimited budget must complete all tasks");
+        assert_eq!(
+            result.total_count, 4,
+            "unlimited budget must complete all tasks"
+        );
         assert_eq!(result.success_count, 4);
     }
 
@@ -2574,8 +2954,10 @@ mod tests {
         ];
         for (summary, expected) in &cases {
             assert_eq!(
-                is_synthesis_summary(summary), *expected,
-                "Unexpected classification for: {:?}", summary
+                is_synthesis_summary(summary),
+                *expected,
+                "Unexpected classification for: {:?}",
+                summary
             );
         }
     }

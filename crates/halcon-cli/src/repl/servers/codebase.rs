@@ -4,7 +4,6 @@
 /// Reuses existing RepoMap infrastructure from halcon-cli.
 /// Phase: Implementation
 /// Priority: 85
-
 use async_trait::async_trait;
 use halcon_context::estimate_tokens;
 use halcon_core::error::Result;
@@ -104,7 +103,10 @@ impl ContextSource for CodebaseServer {
         // Truncate if exceeds budget
         let final_context = if token_estimate > self.token_budget as usize {
             let char_limit = (self.token_budget as usize * 4).min(context.len()); // ~4 chars per token
-            format!("{}...\n[Truncated due to budget limit]", &context[..char_limit])
+            format!(
+                "{}...\n[Truncated due to budget limit]",
+                &context[..char_limit]
+            )
         } else {
             context
         };
@@ -180,7 +182,10 @@ mod tests {
         let chunks = server.gather(&query).await.unwrap();
         assert_eq!(chunks.len(), 1);
         // Should find CodebaseServer struct reference
-        assert!(chunks[0].content.contains("Relevant Symbols") || chunks[0].content.contains("Structure"));
+        assert!(
+            chunks[0].content.contains("Relevant Symbols")
+                || chunks[0].content.contains("Structure")
+        );
     }
 
     #[tokio::test]

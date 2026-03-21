@@ -5,9 +5,7 @@ use crate::server::state::AppState;
 use crate::types::observability::*;
 
 /// GET /api/v1/metrics — get current metrics snapshot.
-pub async fn get_metrics(
-    State(state): State<AppState>,
-) -> Result<Json<MetricsSnapshot>, ApiError> {
+pub async fn get_metrics(State(state): State<AppState>) -> Result<Json<MetricsSnapshot>, ApiError> {
     let agents = state.runtime.all_agents().await;
     let health_report = state.runtime.health_report().await;
     let tool_states = state.tool_states.read().await;
@@ -37,7 +35,12 @@ pub async fn get_metrics(
             let inner = db.inner();
             let sys = inner.system_metrics().unwrap_or_default();
             let eps = inner.events_per_second_last_60s().unwrap_or(0.0);
-            (sys.total_invocations, sys.total_tokens, sys.total_cost_usd, eps)
+            (
+                sys.total_invocations,
+                sys.total_tokens,
+                sys.total_cost_usd,
+                eps,
+            )
         } else {
             (0u64, 0u64, 0.0f64, 0.0f64)
         };

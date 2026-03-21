@@ -28,11 +28,11 @@
 //! ╚═══════════════════════════════════════════════╝
 //! ```
 
-use super::domain_detector::TechnicalDomain;
 use super::complexity_estimator::ComplexityLevel;
+use super::convergence_policy::ConvergencePolicy;
+use super::domain_detector::TechnicalDomain;
 use super::risk_assessor::ExecutionRisk;
 use super::sla_router::RoutingMode;
-use super::convergence_policy::ConvergencePolicy;
 
 // ── Trace ─────────────────────────────────────────────────────────────────────
 
@@ -120,8 +120,16 @@ impl DecisionTrace {
 
     /// Render the trace as a human-readable box for TUI / console display.
     pub fn display_box(&self) -> String {
-        let ev_status = if self.evidence_threshold_disabled { "DISABLED" } else { "enabled" };
-        let dr_status = if self.diminishing_returns_disabled { "DISABLED" } else { "enabled" };
+        let ev_status = if self.evidence_threshold_disabled {
+            "DISABLED"
+        } else {
+            "enabled"
+        };
+        let dr_status = if self.diminishing_returns_disabled {
+            "DISABLED"
+        } else {
+            "enabled"
+        };
         let sec = self
             .secondary_domain
             .map(|d| format!(" + {}", d.label()))
@@ -142,7 +150,11 @@ impl DecisionTrace {
              \n║  Rationale  : {:<36}║\
              \n╚════════════════════════════════════════════════════╝\n",
             format!("{}{}", self.domain.label(), sec),
-            format!("{} (score: {:.0})", self.complexity.label(), self.complexity_score),
+            format!(
+                "{} (score: {:.0})",
+                self.complexity.label(),
+                self.complexity_score
+            ),
             self.risk.label(),
             self.sla_mode.label(),
             self.max_rounds,
@@ -213,11 +225,15 @@ impl DecisionTraceBuilder {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::convergence_policy::ConvergencePolicyFactory;
     use super::super::sla_router::SlaRouter;
+    use super::*;
 
-    fn make_trace(domain: TechnicalDomain, complexity: ComplexityLevel, risk: ExecutionRisk) -> DecisionTrace {
+    fn make_trace(
+        domain: TechnicalDomain,
+        complexity: ComplexityLevel,
+        risk: ExecutionRisk,
+    ) -> DecisionTrace {
         let routing = SlaRouter::route(domain, complexity, risk);
         let policy = ConvergencePolicyFactory::build(domain, risk, complexity);
         DecisionTraceBuilder {
@@ -237,7 +253,8 @@ mod tests {
             risk_reasons: vec!["domain:SecurityAnalysis".to_string()],
             complexity_factors: vec!["technical_depth".to_string()],
             domain_confidence: 0.85,
-        }.build()
+        }
+        .build()
     }
 
     #[test]

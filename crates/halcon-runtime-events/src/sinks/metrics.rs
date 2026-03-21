@@ -122,9 +122,12 @@ pub struct DiagnosticsSnapshot {
 impl DiagnosticsSnapshot {
     /// Average model response latency for a specific provider. Returns `None`
     /// if the provider has no recorded calls.
+    #[must_use]
     pub fn avg_provider_latency_ms(&self, provider: &str) -> Option<f64> {
         let count = *self.provider_call_counts.get(provider)? as f64;
-        if count == 0.0 { return None; }
+        if count == 0.0 {
+            return None;
+        }
         let total = *self.provider_total_latency_ms.get(provider).unwrap_or(&0) as f64;
         Some(total / count)
     }
@@ -166,7 +169,11 @@ impl DiagnosticsStore {
     fn handle(&mut self, event: &RuntimeEvent) {
         match &event.kind {
             // ── Rounds ──────────────────────────────────────────────────────
-            RuntimeEventKind::RoundCompleted { duration_ms, fsm_phase, .. } => {
+            RuntimeEventKind::RoundCompleted {
+                duration_ms,
+                fsm_phase,
+                ..
+            } => {
                 self.round_latencies.push(*duration_ms);
                 let phase = fsm_phase.to_lowercase();
                 if phase.contains("plan") {
@@ -177,13 +184,18 @@ impl DiagnosticsStore {
             }
 
             // ── Tools ────────────────────────────────────────────────────────
-            RuntimeEventKind::ToolCallCompleted { tool_name, success, .. } => {
+            RuntimeEventKind::ToolCallCompleted {
+                tool_name, success, ..
+            } => {
                 *self.tool_call_counts.entry(tool_name.clone()).or_default() += 1;
                 if *success {
                     self.tool_calls_succeeded += 1;
                 } else {
                     self.tool_calls_failed += 1;
-                    *self.tool_failure_counts.entry(tool_name.clone()).or_default() += 1;
+                    *self
+                        .tool_failure_counts
+                        .entry(tool_name.clone())
+                        .or_default() += 1;
                 }
             }
             RuntimeEventKind::ToolBlocked { .. } => {
@@ -191,10 +203,20 @@ impl DiagnosticsStore {
             }
 
             // ── Model ────────────────────────────────────────────────────────
-            RuntimeEventKind::ModelResponseCompleted { latency_ms, provider, .. } => {
+            RuntimeEventKind::ModelResponseCompleted {
+                latency_ms,
+                provider,
+                ..
+            } => {
                 self.model_latencies.push(*latency_ms);
-                *self.provider_call_counts.entry(provider.clone()).or_default() += 1;
-                *self.provider_total_latency.entry(provider.clone()).or_default() += latency_ms;
+                *self
+                    .provider_call_counts
+                    .entry(provider.clone())
+                    .or_default() += 1;
+                *self
+                    .provider_total_latency
+                    .entry(provider.clone())
+                    .or_default() += latency_ms;
             }
 
             // ── Planning ────────────────────────────────────────────────────
@@ -308,16 +330,23 @@ impl std::fmt::Debug for MetricsSink {
 
 impl MetricsSink {
     /// Create a new empty metrics sink.
+    #[must_use]
     pub fn new() -> Self {
-        Self { store: Arc::new(Mutex::new(DiagnosticsStore::default())) }
+        Self {
+            store: Arc::new(Mutex::new(DiagnosticsStore::default())),
+        }
     }
 
     /// Return a point-in-time snapshot of all accumulated diagnostics.
     ///
     /// This call is O(n) in the number of distinct tool names and providers, but
     /// O(1) in the number of events (counters are maintained incrementally).
+    #[must_use]
     pub fn snapshot(&self) -> DiagnosticsSnapshot {
-        self.store.lock().expect("MetricsSink lock poisoned").snapshot()
+        self.store
+            .lock()
+            .expect("MetricsSink lock poisoned")
+            .snapshot()
     }
 
     /// Reset all accumulated metrics (useful between sessions in long-running processes).
@@ -327,7 +356,9 @@ impl MetricsSink {
 }
 
 impl Default for MetricsSink {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl EventSink for MetricsSink {
@@ -344,12 +375,13 @@ impl EventSink for MetricsSink {
 mod tests {
     use super::*;
     use crate::event::{
-        BudgetExhaustionReason, ConvergenceAction, RuntimeEventKind, ToolBatchKind,
-        ToolBlockReason,
+        BudgetExhaustionReason, ConvergenceAction, RuntimeEventKind, ToolBatchKind, ToolBlockReason,
     };
     use uuid::Uuid;
 
-    fn session() -> Uuid { Uuid::new_v4() }
+    fn session() -> Uuid {
+        Uuid::new_v4()
+    }
 
     fn round_completed(round: usize, ms: u64, phase: &str) -> RuntimeEventKind {
         RuntimeEventKind::RoundCompleted {
@@ -402,7 +434,10 @@ mod tests {
         let s = session();
         sink.emit(&RuntimeEvent::new(s, tool_completed("bash", true, 100)));
         sink.emit(&RuntimeEvent::new(s, tool_completed("bash", true, 200)));
-        sink.emit(&RuntimeEvent::new(s, tool_completed("file_read", false, 50)));
+        sink.emit(&RuntimeEvent::new(
+            s,
+            tool_completed("file_read", false, 50),
+        ));
 
         let snap = sink.snapshot();
         assert_eq!(snap.total_tool_calls, 3);
@@ -431,22 +466,28 @@ mod tests {
     fn model_provider_latency() {
         let sink = MetricsSink::new();
         let s = session();
-        sink.emit(&RuntimeEvent::new(s, RuntimeEventKind::ModelResponseCompleted {
-            round: 1,
-            input_tokens: 100,
-            output_tokens: 50,
-            latency_ms: 800,
-            model: "claude-sonnet-4-6".into(),
-            provider: "anthropic".into(),
-        }));
-        sink.emit(&RuntimeEvent::new(s, RuntimeEventKind::ModelResponseCompleted {
-            round: 2,
-            input_tokens: 200,
-            output_tokens: 80,
-            latency_ms: 1200,
-            model: "claude-sonnet-4-6".into(),
-            provider: "anthropic".into(),
-        }));
+        sink.emit(&RuntimeEvent::new(
+            s,
+            RuntimeEventKind::ModelResponseCompleted {
+                round: 1,
+                input_tokens: 100,
+                output_tokens: 50,
+                latency_ms: 800,
+                model: "claude-sonnet-4-6".into(),
+                provider: "anthropic".into(),
+            },
+        ));
+        sink.emit(&RuntimeEvent::new(
+            s,
+            RuntimeEventKind::ModelResponseCompleted {
+                round: 2,
+                input_tokens: 200,
+                output_tokens: 80,
+                latency_ms: 1200,
+                model: "claude-sonnet-4-6".into(),
+                provider: "anthropic".into(),
+            },
+        ));
 
         let snap = sink.snapshot();
         assert_eq!(snap.total_model_responses, 2);
@@ -478,20 +519,26 @@ mod tests {
         let s = session();
         let plan_id = Uuid::new_v4();
         let new_plan_id = Uuid::new_v4();
-        sink.emit(&RuntimeEvent::new(s, RuntimeEventKind::PlanCreated {
-            plan_id,
-            goal: "Refactor auth".into(),
-            steps: vec![],
-            replan_count: 0,
-            requires_confirmation: false,
-            mode: crate::event::PlanMode::PlanExecuteReflect,
-        }));
-        sink.emit(&RuntimeEvent::new(s, RuntimeEventKind::PlanReplanned {
-            old_plan_id: plan_id,
-            new_plan_id,
-            reason: "tool_failure".into(),
-            replan_count: 1,
-        }));
+        sink.emit(&RuntimeEvent::new(
+            s,
+            RuntimeEventKind::PlanCreated {
+                plan_id,
+                goal: "Refactor auth".into(),
+                steps: vec![],
+                replan_count: 0,
+                requires_confirmation: false,
+                mode: crate::event::PlanMode::PlanExecuteReflect,
+            },
+        ));
+        sink.emit(&RuntimeEvent::new(
+            s,
+            RuntimeEventKind::PlanReplanned {
+                old_plan_id: plan_id,
+                new_plan_id,
+                reason: "tool_failure".into(),
+                replan_count: 1,
+            },
+        ));
 
         let snap = sink.snapshot();
         assert_eq!(snap.plans_created, 1);
@@ -502,19 +549,25 @@ mod tests {
     fn budget_warning_and_exhaustion() {
         let sink = MetricsSink::new();
         let s = session();
-        sink.emit(&RuntimeEvent::new(s, RuntimeEventKind::BudgetWarning {
-            tokens_used: 6000,
-            tokens_total: 8000,
-            pct_used: 0.75,
-            time_elapsed_ms: 60_000,
-            time_limit_ms: 120_000,
-        }));
-        sink.emit(&RuntimeEvent::new(s, RuntimeEventKind::BudgetExhausted {
-            reason: BudgetExhaustionReason::TokenLimit,
-            tokens_used: 8000,
-            tokens_total: 8000,
-            time_elapsed_ms: 90_000,
-        }));
+        sink.emit(&RuntimeEvent::new(
+            s,
+            RuntimeEventKind::BudgetWarning {
+                tokens_used: 6000,
+                tokens_total: 8000,
+                pct_used: 0.75,
+                time_elapsed_ms: 60_000,
+                time_limit_ms: 120_000,
+            },
+        ));
+        sink.emit(&RuntimeEvent::new(
+            s,
+            RuntimeEventKind::BudgetExhausted {
+                reason: BudgetExhaustionReason::TokenLimit,
+                tokens_used: 8000,
+                tokens_total: 8000,
+                time_elapsed_ms: 90_000,
+            },
+        ));
 
         let snap = sink.snapshot();
         assert_eq!(snap.budget_warnings, 1);
@@ -526,14 +579,17 @@ mod tests {
     fn session_ended_records_cost_and_tokens() {
         let sink = MetricsSink::new();
         let s = session();
-        sink.emit(&RuntimeEvent::new(s, RuntimeEventKind::SessionEnded {
-            rounds_completed: 5,
-            stop_condition: "end_turn".into(),
-            total_tokens: 12_500,
-            estimated_cost_usd: 0.0045,
-            duration_ms: 30_000,
-            fingerprint: None,
-        }));
+        sink.emit(&RuntimeEvent::new(
+            s,
+            RuntimeEventKind::SessionEnded {
+                rounds_completed: 5,
+                stop_condition: "end_turn".into(),
+                total_tokens: 12_500,
+                estimated_cost_usd: 0.0045,
+                duration_ms: 30_000,
+                fingerprint: None,
+            },
+        ));
 
         let snap = sink.snapshot();
         assert_eq!(snap.total_tokens_used, 12_500);
@@ -544,13 +600,16 @@ mod tests {
     fn tool_blocked_increments_blocked_counter() {
         let sink = MetricsSink::new();
         let s = session();
-        sink.emit(&RuntimeEvent::new(s, RuntimeEventKind::ToolBlocked {
-            round: 1,
-            tool_use_id: Uuid::new_v4().to_string(),
-            tool_name: "bash".into(),
-            reason: ToolBlockReason::GuardrailBlocked,
-            message: "dangerous pattern".into(),
-        }));
+        sink.emit(&RuntimeEvent::new(
+            s,
+            RuntimeEventKind::ToolBlocked {
+                round: 1,
+                tool_use_id: Uuid::new_v4().to_string(),
+                tool_name: "bash".into(),
+                reason: ToolBlockReason::GuardrailBlocked,
+                message: "dangerous pattern".into(),
+            },
+        ));
 
         let snap = sink.snapshot();
         assert_eq!(snap.tool_calls_blocked, 1);
@@ -578,16 +637,30 @@ mod tests {
         let s = session();
         // Anthropic: 2 calls at 500ms + 1000ms = avg 750ms
         for ms in [500u64, 1000] {
-            sink.emit(&RuntimeEvent::new(s, RuntimeEventKind::ModelResponseCompleted {
-                round: 1, input_tokens: 0, output_tokens: 0,
-                latency_ms: ms, model: "m".into(), provider: "anthropic".into(),
-            }));
+            sink.emit(&RuntimeEvent::new(
+                s,
+                RuntimeEventKind::ModelResponseCompleted {
+                    round: 1,
+                    input_tokens: 0,
+                    output_tokens: 0,
+                    latency_ms: ms,
+                    model: "m".into(),
+                    provider: "anthropic".into(),
+                },
+            ));
         }
         // Bedrock: 1 call at 2000ms
-        sink.emit(&RuntimeEvent::new(s, RuntimeEventKind::ModelResponseCompleted {
-            round: 1, input_tokens: 0, output_tokens: 0,
-            latency_ms: 2000, model: "m".into(), provider: "bedrock".into(),
-        }));
+        sink.emit(&RuntimeEvent::new(
+            s,
+            RuntimeEventKind::ModelResponseCompleted {
+                round: 1,
+                input_tokens: 0,
+                output_tokens: 0,
+                latency_ms: 2000,
+                model: "m".into(),
+                provider: "bedrock".into(),
+            },
+        ));
 
         let snap = sink.snapshot();
         assert_eq!(snap.avg_provider_latency_ms("anthropic"), Some(750.0));
@@ -602,20 +675,29 @@ mod tests {
         // only ToolCallCompleted does.
         let sink = MetricsSink::new();
         let s = session();
-        sink.emit(&RuntimeEvent::new(s, RuntimeEventKind::ToolBatchStarted {
-            round: 1,
-            batch_kind: ToolBatchKind::Parallel,
-            tool_names: vec!["bash".into(), "file_read".into()],
-        }));
-        sink.emit(&RuntimeEvent::new(s, RuntimeEventKind::ToolBatchCompleted {
-            round: 1,
-            batch_kind: ToolBatchKind::Parallel,
-            success_count: 2,
-            failure_count: 0,
-            total_duration_ms: 500,
-        }));
+        sink.emit(&RuntimeEvent::new(
+            s,
+            RuntimeEventKind::ToolBatchStarted {
+                round: 1,
+                batch_kind: ToolBatchKind::Parallel,
+                tool_names: vec!["bash".into(), "file_read".into()],
+            },
+        ));
+        sink.emit(&RuntimeEvent::new(
+            s,
+            RuntimeEventKind::ToolBatchCompleted {
+                round: 1,
+                batch_kind: ToolBatchKind::Parallel,
+                success_count: 2,
+                failure_count: 0,
+                total_duration_ms: 500,
+            },
+        ));
 
         let snap = sink.snapshot();
-        assert_eq!(snap.total_tool_calls, 0, "batch events must not count as individual calls");
+        assert_eq!(
+            snap.total_tool_calls, 0,
+            "batch events must not count as individual calls"
+        );
     }
 }

@@ -157,7 +157,8 @@ impl AdaptivePolicy {
 
         // ── Sensitivity escalation (requires ≥ MIN_LOW_ROUNDS_FOR_ESCALATION) ─
         if self.consecutive_low_rounds >= Self::MIN_LOW_ROUNDS_FOR_ESCALATION {
-            let max_sensitivity = (self.base_sensitivity + Self::MAX_SENSITIVITY_ESCALATION).min(1.0);
+            let max_sensitivity =
+                (self.base_sensitivity + Self::MAX_SENSITIVITY_ESCALATION).min(1.0);
             let new_sensitivity =
                 (self.current_sensitivity + Self::SENSITIVITY_STEP).min(max_sensitivity);
             let delta = new_sensitivity - self.current_sensitivity;
@@ -295,8 +296,10 @@ mod tests {
         // Requires ≥ 2 consecutive low rounds before escalation starts.
         let mut policy = AdaptivePolicy::new(0.0);
         let adj = policy.observe(&low_feedback());
-        assert!((adj.replan_sensitivity_delta - 0.0).abs() < f32::EPSILON,
-            "single low round should not trigger escalation");
+        assert!(
+            (adj.replan_sensitivity_delta - 0.0).abs() < f32::EPSILON,
+            "single low round should not trigger escalation"
+        );
     }
 
     #[test]
@@ -304,9 +307,13 @@ mod tests {
         let mut policy = AdaptivePolicy::new(0.0);
         policy.observe(&low_feedback()); // round 1
         let adj = policy.observe(&low_feedback()); // round 2
-        assert!(adj.replan_sensitivity_delta > 0.0,
-            "two consecutive low rounds should trigger escalation");
-        assert!((adj.replan_sensitivity_delta - AdaptivePolicy::SENSITIVITY_STEP).abs() < f32::EPSILON);
+        assert!(
+            adj.replan_sensitivity_delta > 0.0,
+            "two consecutive low rounds should trigger escalation"
+        );
+        assert!(
+            (adj.replan_sensitivity_delta - AdaptivePolicy::SENSITIVITY_STEP).abs() < f32::EPSILON
+        );
     }
 
     #[test]
@@ -317,8 +324,10 @@ mod tests {
         let adj = policy.observe(&low_feedback()); // round 3 — second escalation
         assert!(adj.replan_sensitivity_delta > 0.0);
         let expected = AdaptivePolicy::SENSITIVITY_STEP;
-        assert!((adj.replan_sensitivity_delta - expected).abs() < f32::EPSILON,
-            "each additional low round escalates by SENSITIVITY_STEP");
+        assert!(
+            (adj.replan_sensitivity_delta - expected).abs() < f32::EPSILON,
+            "each additional low round escalates by SENSITIVITY_STEP"
+        );
     }
 
     #[test]
@@ -329,8 +338,10 @@ mod tests {
             policy.observe(&low_feedback());
         }
         let max = AdaptivePolicy::MAX_SENSITIVITY_ESCALATION;
-        assert!(policy.current_sensitivity() <= max + f32::EPSILON,
-            "sensitivity must never exceed base + MAX_SENSITIVITY_ESCALATION");
+        assert!(
+            policy.current_sensitivity() <= max + f32::EPSILON,
+            "sensitivity must never exceed base + MAX_SENSITIVITY_ESCALATION"
+        );
     }
 
     #[test]
@@ -351,9 +362,14 @@ mod tests {
     fn oscillation_detected_triggers_synthesis_urgency() {
         let mut policy = AdaptivePolicy::new(0.0);
         let adj = policy.observe(&oscillating_feedback());
-        assert!(adj.synthesis_urgency_boost > 0.0,
-            "oscillation above threshold should trigger synthesis urgency boost");
-        assert!(matches!(adj.rationale, AdaptationRationale::OscillationDetected { .. }));
+        assert!(
+            adj.synthesis_urgency_boost > 0.0,
+            "oscillation above threshold should trigger synthesis urgency boost"
+        );
+        assert!(matches!(
+            adj.rationale,
+            AdaptationRationale::OscillationDetected { .. }
+        ));
     }
 
     #[test]
@@ -362,9 +378,14 @@ mod tests {
         policy.observe(&very_low_feedback()); // round 1
         policy.observe(&very_low_feedback()); // round 2
         let adj = policy.observe(&very_low_feedback()); // round 3 — MODEL_DOWNGRADE_ROUNDS
-        assert!(adj.model_downgrade_advisory,
-            "3 consecutive very low rounds should trigger model downgrade advisory");
-        assert!(matches!(adj.rationale, AdaptationRationale::ModelUnderperforming { .. }));
+        assert!(
+            adj.model_downgrade_advisory,
+            "3 consecutive very low rounds should trigger model downgrade advisory"
+        );
+        assert!(matches!(
+            adj.rationale,
+            AdaptationRationale::ModelUnderperforming { .. }
+        ));
     }
 
     #[test]
@@ -372,14 +393,16 @@ mod tests {
         let mut policy = AdaptivePolicy::new(0.0);
         // Trend just above MODEL_DOWNGRADE_TREND (0.20) — advisory should NOT fire.
         let fb = make_feedback(0.25, 0.0); // above MODEL_DOWNGRADE_TREND but below LOW_TRAJECTORY_THRESHOLD
-        // Need 3 rounds for the consecutive counter, but trend is too high for advisory
-        // Note: 0.25 < LOW_TRAJECTORY_THRESHOLD (0.30) so counter DOES increment
-        // but 0.25 > MODEL_DOWNGRADE_TREND (0.20) so advisory DOES NOT fire
+                                           // Need 3 rounds for the consecutive counter, but trend is too high for advisory
+                                           // Note: 0.25 < LOW_TRAJECTORY_THRESHOLD (0.30) so counter DOES increment
+                                           // but 0.25 > MODEL_DOWNGRADE_TREND (0.20) so advisory DOES NOT fire
         policy.observe(&fb);
         policy.observe(&fb);
         let adj = policy.observe(&fb);
-        assert!(!adj.model_downgrade_advisory,
-            "trend above MODEL_DOWNGRADE_TREND should not trigger advisory");
+        assert!(
+            !adj.model_downgrade_advisory,
+            "trend above MODEL_DOWNGRADE_TREND should not trigger advisory"
+        );
     }
 
     #[test]
@@ -391,8 +414,10 @@ mod tests {
         assert!(policy.current_sensitivity() > 0.2, "should have escalated");
         // Reset.
         policy.reset_after_replan();
-        assert!((policy.current_sensitivity() - 0.2).abs() < f32::EPSILON,
-            "reset should restore base sensitivity");
+        assert!(
+            (policy.current_sensitivity() - 0.2).abs() < f32::EPSILON,
+            "reset should restore base sensitivity"
+        );
     }
 
     #[test]
@@ -406,8 +431,10 @@ mod tests {
         let mut policy = AdaptivePolicy::new(0.0);
         policy.observe(&low_feedback());
         policy.observe(&low_feedback()); // triggers first escalation
-        assert!(policy.current_sensitivity() > 0.0,
-            "current_sensitivity should reflect accumulated escalation");
+        assert!(
+            policy.current_sensitivity() > 0.0,
+            "current_sensitivity should reflect accumulated escalation"
+        );
     }
 
     #[test]
@@ -416,8 +443,10 @@ mod tests {
         // Only 2 rounds (need MODEL_DOWNGRADE_ROUNDS = 3)
         policy.observe(&very_low_feedback());
         let adj = policy.observe(&very_low_feedback());
-        assert!(!adj.model_downgrade_advisory,
-            "fewer than MODEL_DOWNGRADE_ROUNDS rounds should not issue advisory");
+        assert!(
+            !adj.model_downgrade_advisory,
+            "fewer than MODEL_DOWNGRADE_ROUNDS rounds should not issue advisory"
+        );
     }
 
     #[test]
@@ -430,19 +459,28 @@ mod tests {
         // Oscillation
         let mut policy = AdaptivePolicy::new(0.0);
         let adj = policy.observe(&oscillating_feedback());
-        assert!(matches!(adj.rationale, AdaptationRationale::OscillationDetected { .. }));
+        assert!(matches!(
+            adj.rationale,
+            AdaptationRationale::OscillationDetected { .. }
+        ));
 
         // Declining trajectory (after 2+ consecutive low rounds)
         let mut policy = AdaptivePolicy::new(0.0);
         policy.observe(&low_feedback());
         let adj = policy.observe(&low_feedback());
-        assert!(matches!(adj.rationale, AdaptationRationale::DecliningTrajectory { .. }));
+        assert!(matches!(
+            adj.rationale,
+            AdaptationRationale::DecliningTrajectory { .. }
+        ));
 
         // Model underperforming (after 3 very low rounds)
         let mut policy = AdaptivePolicy::new(0.0);
         policy.observe(&very_low_feedback());
         policy.observe(&very_low_feedback());
         let adj = policy.observe(&very_low_feedback());
-        assert!(matches!(adj.rationale, AdaptationRationale::ModelUnderperforming { .. }));
+        assert!(matches!(
+            adj.rationale,
+            AdaptationRationale::ModelUnderperforming { .. }
+        ));
     }
 }
