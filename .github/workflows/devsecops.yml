@@ -42,7 +42,7 @@ jobs:
           curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
             | tar xz -C /usr/local/bin gitleaks
       - name: Gitleaks scan
-        run: gitleaks detect --source . --verbose --redact
+        run: gitleaks detect --source . --verbose --redact --config .gitleaks.toml
 
   # ── License + ban check (runs on PRs + push, fast) ───────────────────────
   deny:
@@ -50,11 +50,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: EmbarkStudios/cargo-deny-action@v2
-        with:
-          command: check
-          arguments: --all-features
-          log-level: warn
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-deny
+        run: cargo install --locked cargo-deny@0.16.2
+      - name: Run cargo-deny
+        run: cargo deny check --config deny.toml
 
   # ── Dependency vulnerability audit (post-merge + schedule only) ──────────
   # Skipped on PRs: cargo-audit requires a full workspace resolve and is

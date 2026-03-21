@@ -1,0 +1,11 @@
+# Gitleaks configuration — allowlist for test fixtures and false positives
+# These are intentional test data in security testing modules, not real secrets.
+
+[allowlist]
+description = "Test fixtures and false positives"
+
+paths = [
+    '''crates/cuervo-security/src/pii\.rs''',
+    '''crates/halcon-security/src/guardrails\.rs''',
+    '''crates/halcon-security/src/pii\.rs''',
+]

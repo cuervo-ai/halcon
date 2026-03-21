@@ -65,7 +65,7 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - name: Clippy
-        run: cargo clippy --workspace ${{ env.CARGO_FEATURES }} -- -D warnings
+        run: cargo clippy --workspace ${{ env.CARGO_FEATURES }} --exclude momoto-core --exclude momoto-metrics --exclude momoto-intelligence -- -D warnings
 
   # ── cargo check (type-check without full codegen) ─────────────────────────
   check:
@@ -79,7 +79,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Check
-        run: cargo check --workspace ${{ env.CARGO_FEATURES }}
+        run: cargo check --workspace ${{ env.CARGO_FEATURES }} --exclude momoto-core --exclude momoto-metrics --exclude momoto-intelligence
 
   # ── Tests — Linux (always runs on PR and push) ───────────────────────────
   # Tests use --no-default-features --features headless to avoid momoto (private
