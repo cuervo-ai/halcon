@@ -6,6 +6,7 @@
     unused_imports,
     unused_variables,
     unused_assignments,
+    unused_mut,
     unexpected_cfgs,
     private_interfaces,
     clippy::too_many_arguments,

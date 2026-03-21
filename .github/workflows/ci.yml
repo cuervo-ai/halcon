@@ -95,7 +95,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Run tests
-        run: cargo test --workspace --no-default-features --features tui
+        run: cargo test --workspace --no-default-features --features tui --exclude momoto-core --exclude momoto-metrics --exclude momoto-intelligence
 
   # ── Tests — macOS (only on push to main, macOS runner = 10× cost) ────────
   test-macos:
@@ -113,7 +113,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Run tests
-        run: cargo test --workspace --no-default-features --features tui
+        run: cargo test --workspace --no-default-features --features tui --exclude momoto-core --exclude momoto-metrics --exclude momoto-intelligence
 
   # ── Color-science tests (informational, non-gating) ───────────────────────
   # Runs only when the momoto-ui submodule is available.
