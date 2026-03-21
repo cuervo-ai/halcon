@@ -530,6 +530,7 @@ fn e2e_never_this_directory_persists_denial() {
 /// Test that Cancel is equivalent to No (both Denied).
 #[test]
 fn e2e_cancel_equals_no() {
+    #[allow(unused_imports)]
     use halcon_core::types::PermissionDecision;
 
     assert_eq!(
@@ -645,7 +646,7 @@ fn e2e_risk_level_default_is_medium() {
 /// Integration test: Verify complete blacklist patterns are comprehensive.
 #[test]
 fn e2e_blacklist_coverage_comprehensive() {
-    let dangerous_categories = vec![
+    let _dangerous_categories = vec![
         "filesystem destruction",
         "disk operations",
         "system resource exhaustion",
