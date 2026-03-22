@@ -41,7 +41,7 @@ default_model = "gemini-2.0-flash"
 # Autenticación: halcon login cenzontle  o  CENZONTLE_ACCESS_TOKEN
 [models.providers.cenzontle]
 enabled       = true
-api_base      = "https://ca-cenzontle-backend.graypond-e35bfdd8.eastus2.azurecontainerapps.io"
+api_base      = "https://api-cenzontle.zuclubit.com"
 api_key_env   = "CENZONTLE_ACCESS_TOKEN"
 default_model = "claude-sonnet-4-6"
 
@@ -79,7 +79,7 @@ default_model = "claude-sonnet-4-6"
 [mcp.servers.cenzontle]
 enabled   = false
 transport = "ws"
-url       = "https://ca-cenzontle-backend.graypond-e35bfdd8.eastus2.azurecontainerapps.io"
+url       = "https://api-cenzontle.zuclubit.com"
 namespace = "/mcp"
 auth_env  = "CENZONTLE_ACCESS_TOKEN"
 # Tools exposed: llm_chat, knowledge_search, agent_submit_task,

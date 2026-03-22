@@ -1701,7 +1701,7 @@ ${_SYS_CLAUDE_SECTION}
 # Env var override: export CENZONTLE_ACCESS_TOKEN=<token>
 [models.providers.cenzontle]
 enabled       = ${_SYS_CENZONTLE_CONFIGURED}
-api_base      = "https://ca-cenzontle-backend.graypond-e35bfdd8.eastus2.azurecontainerapps.io"
+api_base      = "https://api-cenzontle.zuclubit.com"
 api_key_env   = "CENZONTLE_ACCESS_TOKEN"
 default_model = "claude-sonnet-4-6"
 
@@ -1810,7 +1810,7 @@ _patch_cenzontle_config() {
 # ── Cenzontle — added by installer upgrade (token detected) ───────────────────
 [models.providers.cenzontle]
 enabled       = true
-api_base      = "https://ca-cenzontle-backend.graypond-e35bfdd8.eastus2.azurecontainerapps.io"
+api_base      = "https://api-cenzontle.zuclubit.com"
 api_key_env   = "CENZONTLE_ACCESS_TOKEN"
 default_model = "claude-sonnet-4-6"
 

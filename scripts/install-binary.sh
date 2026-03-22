@@ -497,7 +497,7 @@ default_model = "llama3.2"
 # o exporta CENZONTLE_ACCESS_TOKEN y CENZONTLE_BASE_URL
 [models.providers.cenzontle]
 enabled = false
-api_base = "https://ca-cenzontle-backend.graypond-e35bfdd8.eastus2.azurecontainerapps.io"
+api_base = "https://api-cenzontle.zuclubit.com"
 api_key_env = "CENZONTLE_ACCESS_TOKEN"
 default_model = "gpt-4o-mini"
 

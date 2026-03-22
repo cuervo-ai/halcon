@@ -42,10 +42,12 @@ use crate::openai_compat::types::StreamOptions;
 use crate::openai_compat::OpenAICompatibleProvider;
 use types::{CenzontleModel, CenzontleModelsResponse};
 
-/// Production Cenzontle backend on Azure Container Apps.
-/// Override with CENZONTLE_BASE_URL env var or provider config api_base.
-pub const DEFAULT_BASE_URL: &str =
-    "https://ca-cenzontle-backend.graypond-e35bfdd8.eastus2.azurecontainerapps.io";
+/// Production Cenzontle backend via Cloudflare proxy.
+///
+/// Cloudflare CNAME → Azure Container Apps `ca-cenzontle-backend`.
+/// Provides DDoS protection, edge caching, and WAF via Cloudflare.
+/// Override with CENZONTLE_BASE_URL env var or provider config `api_base`.
+pub const DEFAULT_BASE_URL: &str = "https://api-cenzontle.zuclubit.com";
 const PROVIDER_NAME: &str = "cenzontle";
 
 /// Tier → context window / max output heuristics (Cenzontle doesn't always return these).
