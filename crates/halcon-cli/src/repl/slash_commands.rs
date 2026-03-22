@@ -6,9 +6,7 @@ use std::sync::Arc;
 use futures::StreamExt;
 
 use halcon_core::traits::Planner;
-use halcon_core::types::{
-    ChatMessage, MessageContent, ModelChunk, ModelRequest, Role, Session,
-};
+use halcon_core::types::{ChatMessage, MessageContent, ModelChunk, ModelRequest, Role, Session};
 
 use super::{commands, console, orchestrator, planner, replay_runner, Repl};
 
@@ -249,6 +247,11 @@ impl Repl {
             limits_override: None,
             depends_on: vec![],
             priority: 0,
+            system_prompt_prefix: None,
+            role: halcon_core::types::AgentRole::default(),
+            team_id: None,
+            mailbox_id: None,
+            estimated_tokens: crate::repl::orchestrator::estimate_task_tokens(instruction, 0),
         }];
 
         let orchestrator_id = uuid::Uuid::new_v4();
@@ -271,17 +274,20 @@ impl Repl {
             .routing
             .fallback_models
             .iter()
-            .filter_map(|name| {
-                self.registry.get(name).cloned().map(|p| (name.clone(), p))
-            })
+            .filter_map(|name| self.registry.get(name).cloned().map(|p| (name.clone(), p)))
             .collect();
 
-        let guardrails: &[Box<dyn halcon_security::Guardrail>] =
-            if self.config.security.guardrails.enabled && self.config.security.guardrails.builtins {
-                halcon_security::builtin_guardrails()
-            } else {
-                &[]
-            };
+        let guardrails: &[Box<dyn halcon_security::Guardrail>] = if self
+            .config
+            .security
+            .guardrails
+            .enabled
+            && self.config.security.guardrails.builtins
+        {
+            halcon_security::builtin_guardrails()
+        } else {
+            &[]
+        };
 
         eprintln!("Orchestrating: {}", instruction);
         let start = std::time::Instant::now();
@@ -304,6 +310,9 @@ impl Repl {
             guardrails,
             self.config.tools.confirm_destructive,
             self.config.security.tbac_enabled,
+            None, // perm_awaiter: slash commands run outside TUI
+            std::sync::Arc::new(self.config.policy.clone()),
+            Some(&self.registry), // provider registry for per-task provider override
         )
         .await
         {
@@ -335,10 +344,7 @@ impl Repl {
                 }
             }
             Err(e) => {
-                crate::render::feedback::user_error(
-                    &format!("orchestration failed — {e}"),
-                    None,
-                );
+                crate::render::feedback::user_error(&format!("orchestration failed — {e}"), None);
             }
         }
     }
@@ -396,7 +402,13 @@ impl Repl {
         let memory = db.memory_stats().ok();
         let speculation = Some(self.speculator.metrics());
 
-        console::render_metrics(&sys, cache.as_ref(), memory.as_ref(), speculation.as_ref(), &mut out);
+        console::render_metrics(
+            &sys,
+            cache.as_ref(),
+            memory.as_ref(),
+            speculation.as_ref(),
+            &mut out,
+        );
     }
 
     pub(crate) async fn handle_logs(&self, filter: Option<&str>) {
@@ -473,8 +485,16 @@ impl Repl {
             }
             commands::InspectTarget::Context => {
                 let _ = writeln!(out, "--- Context Pipeline ---");
-                let _ = writeln!(out, "Dynamic tool selection: {}", self.config.context.dynamic_tool_selection);
-                let _ = writeln!(out, "Max context tokens:    {}", self.config.general.max_tokens);
+                let _ = writeln!(
+                    out,
+                    "Dynamic tool selection: {}",
+                    self.config.context.dynamic_tool_selection
+                );
+                let _ = writeln!(
+                    out,
+                    "Max context tokens:    {}",
+                    self.config.general.max_tokens
+                );
                 if let Some(ref cm) = self.context_manager {
                     let _ = writeln!(out, "Context sources:       {}", cm.source_count());
                     for (name, priority) in cm.sources() {
@@ -484,23 +504,44 @@ impl Repl {
                     let _ = writeln!(out, "Context sources:       0");
                 }
                 let _ = writeln!(out, "Governance:");
-                let _ = writeln!(out, "  Max tokens/source: {}", self.config.context.governance.default_max_tokens_per_source);
-                let _ = writeln!(out, "  TTL (secs):        {}", self.config.context.governance.default_ttl_secs);
+                let _ = writeln!(
+                    out,
+                    "  Max tokens/source: {}",
+                    self.config.context.governance.default_max_tokens_per_source
+                );
+                let _ = writeln!(
+                    out,
+                    "  TTL (secs):        {}",
+                    self.config.context.governance.default_ttl_secs
+                );
                 let snap = self.context_metrics.snapshot();
                 let _ = writeln!(out, "Context Metrics:");
-                let _ = writeln!(out, "  Assemblies:      {} | Total tokens: {:.1}K",
+                let _ = writeln!(
+                    out,
+                    "  Assemblies:      {} | Total tokens: {:.1}K",
                     snap.assemblies,
-                    snap.total_tokens_assembled as f64 / 1000.0);
-                let _ = writeln!(out, "  Tools filtered:  {} | Governance truncations: {}",
-                    snap.tools_filtered,
-                    snap.governance_truncations);
+                    snap.total_tokens_assembled as f64 / 1000.0
+                );
+                let _ = writeln!(
+                    out,
+                    "  Tools filtered:  {} | Governance truncations: {}",
+                    snap.tools_filtered, snap.governance_truncations
+                );
             }
             commands::InspectTarget::Tasks => {
                 let _ = writeln!(out, "--- Task Framework ---");
                 if self.config.task_framework.enabled {
                     let _ = writeln!(out, "Status:      enabled");
-                    let _ = writeln!(out, "Persist:     {}", self.config.task_framework.persist_tasks);
-                    let _ = writeln!(out, "Max retries: {}", self.config.task_framework.default_max_retries);
+                    let _ = writeln!(
+                        out,
+                        "Persist:     {}",
+                        self.config.task_framework.persist_tasks
+                    );
+                    let _ = writeln!(
+                        out,
+                        "Max retries: {}",
+                        self.config.task_framework.default_max_retries
+                    );
                     if let Some(ref timeline) = self.last_timeline {
                         let _ = writeln!(out, "Last timeline: {} bytes", timeline.len());
                     } else {
@@ -527,17 +568,69 @@ impl Repl {
             }
             commands::InspectTarget::Reasoning => {
                 let _ = writeln!(out, "--- Reasoning Engine ---");
-                let _ = writeln!(out, "Reasoning engine has been removed (dead code).");
+                if let Some(ref engine) = self.reasoning_engine {
+                    let summary = engine.inspect_summary();
+                    let _ = write!(out, "{summary}");
+                    // Model quality cache from Phase 3 (session-level tracker).
+                    let cache_size = self.model_quality_cache.len();
+                    if cache_size > 0 {
+                        let _ = writeln!(
+                            out,
+                            "Quality cache:        {} model(s) tracked this session",
+                            cache_size
+                        );
+                    } else {
+                        let _ = writeln!(
+                            out,
+                            "Quality cache:        empty (no completions yet this session)"
+                        );
+                    }
+                } else {
+                    let _ = writeln!(out, "Enabled:              false");
+                    let _ = writeln!(
+                        out,
+                        "Activate with:        --full or set reasoning.enabled = true in config"
+                    );
+                    let _ = writeln!(
+                        out,
+                        "Quality cache:        {} model(s) tracked this session",
+                        self.model_quality_cache.len()
+                    );
+                }
             }
             commands::InspectTarget::Orchestration => {
                 let _ = writeln!(out, "--- Orchestration ---");
-                let _ = writeln!(out, "Enabled:          {}", self.config.orchestrator.enabled);
+                let _ = writeln!(
+                    out,
+                    "Enabled:          {}",
+                    self.config.orchestrator.enabled
+                );
                 if self.config.orchestrator.enabled {
-                    let _ = writeln!(out, "Max concurrent:   {}", self.config.orchestrator.max_concurrent_agents);
-                    let _ = writeln!(out, "Sub-agent timeout: {}s", self.config.orchestrator.sub_agent_timeout_secs);
-                    let _ = writeln!(out, "Shared budget:    {}", self.config.orchestrator.shared_budget);
-                    let _ = writeln!(out, "Communication:    {}", self.config.orchestrator.enable_communication);
-                    let _ = writeln!(out, "Min delegation confidence: {:.2}", self.config.orchestrator.min_delegation_confidence);
+                    let _ = writeln!(
+                        out,
+                        "Max concurrent:   {}",
+                        self.config.orchestrator.max_concurrent_agents
+                    );
+                    let _ = writeln!(
+                        out,
+                        "Sub-agent timeout: {}s",
+                        self.config.orchestrator.sub_agent_timeout_secs
+                    );
+                    let _ = writeln!(
+                        out,
+                        "Shared budget:    {}",
+                        self.config.orchestrator.shared_budget
+                    );
+                    let _ = writeln!(
+                        out,
+                        "Communication:    {}",
+                        self.config.orchestrator.enable_communication
+                    );
+                    let _ = writeln!(
+                        out,
+                        "Min delegation confidence: {:.2}",
+                        self.config.orchestrator.min_delegation_confidence
+                    );
                 }
             }
             commands::InspectTarget::Resilience => {
@@ -547,19 +640,58 @@ impl Repl {
                     let diag = self.resilience.diagnostics();
                     let _ = writeln!(out, "Registered providers: {}", diag.len());
                     for d in &diag {
-                        let _ = writeln!(out, "  - {} ({:?}, failures: {})", d.provider, d.breaker_state, d.failure_count);
+                        let _ = writeln!(
+                            out,
+                            "  - {} ({:?}, failures: {})",
+                            d.provider, d.breaker_state, d.failure_count
+                        );
                     }
                     let _ = writeln!(out, "Circuit breaker:");
-                    let _ = writeln!(out, "  Failure threshold: {}", self.config.resilience.circuit_breaker.failure_threshold);
-                    let _ = writeln!(out, "  Window:            {}s", self.config.resilience.circuit_breaker.window_secs);
-                    let _ = writeln!(out, "  Open duration:     {}s", self.config.resilience.circuit_breaker.open_duration_secs);
+                    let _ = writeln!(
+                        out,
+                        "  Failure threshold: {}",
+                        self.config.resilience.circuit_breaker.failure_threshold
+                    );
+                    let _ = writeln!(
+                        out,
+                        "  Window:            {}s",
+                        self.config.resilience.circuit_breaker.window_secs
+                    );
+                    let _ = writeln!(
+                        out,
+                        "  Open duration:     {}s",
+                        self.config.resilience.circuit_breaker.open_duration_secs
+                    );
                     let _ = writeln!(out, "Health scoring:");
-                    let _ = writeln!(out, "  Window:    {} min", self.config.resilience.health.window_minutes);
-                    let _ = writeln!(out, "  Degraded:  <= {}", self.config.resilience.health.degraded_threshold);
-                    let _ = writeln!(out, "  Unhealthy: <= {}", self.config.resilience.health.unhealthy_threshold);
+                    let _ = writeln!(
+                        out,
+                        "  Window:    {} min",
+                        self.config.resilience.health.window_minutes
+                    );
+                    let _ = writeln!(
+                        out,
+                        "  Degraded:  <= {}",
+                        self.config.resilience.health.degraded_threshold
+                    );
+                    let _ = writeln!(
+                        out,
+                        "  Unhealthy: <= {}",
+                        self.config.resilience.health.unhealthy_threshold
+                    );
                     let _ = writeln!(out, "Backpressure:");
-                    let _ = writeln!(out, "  Max concurrent/provider: {}", self.config.resilience.backpressure.max_concurrent_per_provider);
-                    let _ = writeln!(out, "  Queue timeout:           {}s", self.config.resilience.backpressure.queue_timeout_secs);
+                    let _ = writeln!(
+                        out,
+                        "  Max concurrent/provider: {}",
+                        self.config
+                            .resilience
+                            .backpressure
+                            .max_concurrent_per_provider
+                    );
+                    let _ = writeln!(
+                        out,
+                        "  Queue timeout:           {}s",
+                        self.config.resilience.backpressure.queue_timeout_secs
+                    );
                 }
             }
             commands::InspectTarget::CostMetrics => {
@@ -568,13 +700,22 @@ impl Repl {
                 let _ = writeln!(out, "Provider: {}", self.provider);
                 let _ = writeln!(out, "Model:    {}", self.model);
                 let _ = writeln!(out, "Budget limits:");
-                let _ = writeln!(out, "  Max rounds:      {}", self.config.agent.limits.max_rounds);
-                let _ = writeln!(out, "  Max tool output: {} chars", self.config.agent.limits.max_tool_output_chars);
+                let _ = writeln!(
+                    out,
+                    "  Max rounds:      {}",
+                    self.config.agent.limits.max_rounds
+                );
+                let _ = writeln!(
+                    out,
+                    "  Max tool output: {} chars",
+                    self.config.agent.limits.max_tool_output_chars
+                );
             }
             commands::InspectTarget::SdlcServers => {
                 let _ = writeln!(out, "--- SDLC Context Servers ---");
                 if let Some(ref cm) = self.context_manager {
-                    let sdlc_servers: Vec<_> = cm.sources()
+                    let sdlc_servers: Vec<_> = cm
+                        .sources()
                         .filter(|(name, _)| name.ends_with("Server"))
                         .collect();
 
@@ -587,21 +728,48 @@ impl Repl {
                             let _ = writeln!(out, "  {} (priority: {})", name, priority);
                         }
                         let _ = writeln!(out, "\nTo inspect server content:");
-                        let _ = writeln!(out, "  Use /why or /context to see assembled context from all sources");
+                        let _ = writeln!(
+                            out,
+                            "  Use /why or /context to see assembled context from all sources"
+                        );
                     }
                 } else {
                     let _ = writeln!(out, "Context manager not initialized.");
-                    let _ = writeln!(out, "  SDLC servers require context.enabled = true in config.toml");
+                    let _ = writeln!(
+                        out,
+                        "  SDLC servers require context.enabled = true in config.toml"
+                    );
                 }
                 let _ = writeln!(out, "\nExpected SDLC servers (8):");
-                let _ = writeln!(out, "  1. RequirementsServer    — Requirements.md, acceptance criteria");
-                let _ = writeln!(out, "  2. ArchitectureServer    — Architecture.md, design docs");
-                let _ = writeln!(out, "  3. CodebaseServer        — Code structure, key files");
-                let _ = writeln!(out, "  4. WorkflowServer        — CI/CD, deployment, workflows");
+                let _ = writeln!(
+                    out,
+                    "  1. RequirementsServer    — Requirements.md, acceptance criteria"
+                );
+                let _ = writeln!(
+                    out,
+                    "  2. ArchitectureServer    — Architecture.md, design docs"
+                );
+                let _ = writeln!(
+                    out,
+                    "  3. CodebaseServer        — Code structure, key files"
+                );
+                let _ = writeln!(
+                    out,
+                    "  4. WorkflowServer        — CI/CD, deployment, workflows"
+                );
                 let _ = writeln!(out, "  5. TestResultsServer     — Test reports, coverage");
-                let _ = writeln!(out, "  6. RuntimeMetricsServer  — Performance, resource usage");
-                let _ = writeln!(out, "  7. SecurityServer        — Security policies, vulnerabilities");
-                let _ = writeln!(out, "  8. SupportServer         — Known issues, FAQ, troubleshooting");
+                let _ = writeln!(
+                    out,
+                    "  6. RuntimeMetricsServer  — Performance, resource usage"
+                );
+                let _ = writeln!(
+                    out,
+                    "  7. SecurityServer        — Security policies, vulnerabilities"
+                );
+                let _ = writeln!(
+                    out,
+                    "  8. SupportServer         — Known issues, FAQ, troubleshooting"
+                );
             }
         }
     }
@@ -620,7 +788,10 @@ impl Repl {
                 Err(_) => {
                     // Try prefix match against recent sessions.
                     let sessions = db.list_sessions(50).unwrap_or_default();
-                    match sessions.iter().find(|s| s.id.to_string().starts_with(id_str)) {
+                    match sessions
+                        .iter()
+                        .find(|s| s.id.to_string().starts_with(id_str))
+                    {
                         Some(s) => s.id,
                         None => {
                             crate::render::feedback::user_error(
@@ -736,13 +907,27 @@ impl Repl {
                 limits_override: None,
                 depends_on: vec![],
                 priority: step.step_index,
+                system_prompt_prefix: None,
+                role: halcon_core::types::AgentRole::default(),
+                team_id: None,
+                mailbox_id: None,
+                estimated_tokens: crate::repl::orchestrator::estimate_task_tokens(
+                    &step.description,
+                    0,
+                ),
             })
             .collect();
 
         // Run via orchestrator (reuse existing orchestrator wiring).
         eprintln!("Executing plan {plan_id_str} ({} steps)", tasks.len());
-        self.run_orchestrate(&format!("Execute plan steps for: {}", plan_steps.first().map(|s| s.goal.as_str()).unwrap_or("unknown")))
-            .await;
+        self.run_orchestrate(&format!(
+            "Execute plan steps for: {}",
+            plan_steps
+                .first()
+                .map(|s| s.goal.as_str())
+                .unwrap_or("unknown")
+        ))
+        .await;
     }
 
     pub(crate) async fn handle_resume(&mut self, session_id_str: &str) {
@@ -752,7 +937,10 @@ impl Repl {
                 // Try prefix match.
                 if let Some(db) = &self.db {
                     let sessions = db.list_sessions(50).unwrap_or_default();
-                    match sessions.iter().find(|s| s.id.to_string().starts_with(session_id_str)) {
+                    match sessions
+                        .iter()
+                        .find(|s| s.id.to_string().starts_with(session_id_str))
+                    {
                         Some(s) => s.id,
                         None => {
                             crate::render::feedback::user_error(
@@ -838,7 +1026,17 @@ impl Repl {
         };
 
         match adb
-            .update_agent_task_status(task_id_str, "cancelled", 0, 0, 0.0, 0, 0, Some("Cancelled by user"), None)
+            .update_agent_task_status(
+                task_id_str,
+                "cancelled",
+                0,
+                0,
+                0.0,
+                0,
+                0,
+                Some("Cancelled by user"),
+                None,
+            )
             .await
         {
             Ok(()) => {
@@ -857,7 +1055,10 @@ impl Repl {
                 // Try prefix match.
                 if let Some(db) = &self.db {
                     let sessions = db.list_sessions(50).unwrap_or_default();
-                    match sessions.iter().find(|s| s.id.to_string().starts_with(session_id_str)) {
+                    match sessions
+                        .iter()
+                        .find(|s| s.id.to_string().starts_with(session_id_str))
+                    {
                         Some(s) => s.id,
                         None => {
                             crate::render::feedback::user_error(
@@ -881,14 +1082,8 @@ impl Repl {
 
         eprintln!("Replaying session {}...", &session_id.to_string()[..8]);
 
-        match replay_runner::run_replay(
-            session_id,
-            adb,
-            &self.tool_registry,
-            &self.event_tx,
-            true,
-        )
-        .await
+        match replay_runner::run_replay(session_id, adb, &self.tool_registry, &self.event_tx, true)
+            .await
         {
             Ok(result) => {
                 let mut out = std::io::stderr().lock();
@@ -1002,10 +1197,7 @@ impl Repl {
                 );
             }
             Err(e) => {
-                crate::render::feedback::user_error(
-                    &format!("failed to save snapshot: {e}"),
-                    None,
-                );
+                crate::render::feedback::user_error(&format!("failed to save snapshot: {e}"), None);
             }
         }
     }
@@ -1020,7 +1212,10 @@ impl Repl {
 
         let resolve_id = |prefix: &str| -> Option<uuid::Uuid> {
             uuid::Uuid::parse_str(prefix).ok().or_else(|| {
-                sessions.iter().find(|s| s.id.to_string().starts_with(prefix)).map(|s| s.id)
+                sessions
+                    .iter()
+                    .find(|s| s.id.to_string().starts_with(prefix))
+                    .map(|s| s.id)
             })
         };
 
@@ -1039,14 +1234,20 @@ impl Repl {
         let sa = match db.load_session(sa_id) {
             Ok(Some(s)) => s,
             _ => {
-                crate::render::feedback::user_error(&format!("failed to load session: {id_a}"), None);
+                crate::render::feedback::user_error(
+                    &format!("failed to load session: {id_a}"),
+                    None,
+                );
                 return;
             }
         };
         let sb = match db.load_session(sb_id) {
             Ok(Some(s)) => s,
             _ => {
-                crate::render::feedback::user_error(&format!("failed to load session: {id_b}"), None);
+                crate::render::feedback::user_error(
+                    &format!("failed to load session: {id_b}"),
+                    None,
+                );
                 return;
             }
         };
@@ -1095,6 +1296,11 @@ impl Repl {
                 limits_override: None,
                 depends_on: vec![],
                 priority: 0,
+                system_prompt_prefix: None,
+                role: halcon_core::types::AgentRole::default(),
+                team_id: None,
+                mailbox_id: None,
+                estimated_tokens: crate::repl::orchestrator::estimate_task_tokens(instruction, 0),
             })
             .collect();
 
@@ -1118,17 +1324,20 @@ impl Repl {
             .routing
             .fallback_models
             .iter()
-            .filter_map(|name| {
-                self.registry.get(name).cloned().map(|p| (name.clone(), p))
-            })
+            .filter_map(|name| self.registry.get(name).cloned().map(|p| (name.clone(), p)))
             .collect();
 
-        let guardrails: &[Box<dyn halcon_security::Guardrail>] =
-            if self.config.security.guardrails.enabled && self.config.security.guardrails.builtins {
-                halcon_security::builtin_guardrails()
-            } else {
-                &[]
-            };
+        let guardrails: &[Box<dyn halcon_security::Guardrail>] = if self
+            .config
+            .security
+            .guardrails
+            .enabled
+            && self.config.security.guardrails.builtins
+        {
+            halcon_security::builtin_guardrails()
+        } else {
+            &[]
+        };
 
         eprintln!("Researching: {query}");
 
@@ -1150,6 +1359,9 @@ impl Repl {
             guardrails,
             self.config.tools.confirm_destructive,
             self.config.security.tbac_enabled,
+            None, // perm_awaiter: slash commands run outside TUI
+            std::sync::Arc::new(self.config.policy.clone()),
+            Some(&self.registry), // provider registry for per-task provider override
         )
         .await
         {
@@ -1158,9 +1370,7 @@ impl Repl {
                     .sub_results
                     .iter()
                     .zip(decomposed.iter())
-                    .map(|(sub, (label, _))| {
-                        (label.clone(), sub.output_text.clone(), sub.success)
-                    })
+                    .map(|(sub, (label, _))| (label.clone(), sub.output_text.clone(), sub.success))
                     .collect();
 
                 let mut out = std::io::stderr().lock();
@@ -1251,7 +1461,10 @@ impl Repl {
                     newest_entry: None,
                 });
                 let hit_rate = if stats.total_entries > 0 {
-                    format!("{:.1}%", stats.total_hits as f64 / stats.total_entries as f64 * 100.0)
+                    format!(
+                        "{:.1}%",
+                        stats.total_hits as f64 / stats.total_entries as f64 * 100.0
+                    )
                 } else {
                     "N/A".into()
                 };
@@ -1314,7 +1527,10 @@ impl Repl {
         for m in &sys.models {
             if m.p95_latency_ms > 2000 {
                 recommendations.push((
-                    format!("{}/{}: P95 latency {}ms", m.provider, m.model, m.p95_latency_ms),
+                    format!(
+                        "{}/{}: P95 latency {}ms",
+                        m.provider, m.model, m.p95_latency_ms
+                    ),
                     "Consider a faster model or increase timeout".to_string(),
                 ));
             }
@@ -1322,7 +1538,8 @@ impl Repl {
                 recommendations.push((
                     format!(
                         "{}/{}: success rate {:.0}%",
-                        m.provider, m.model,
+                        m.provider,
+                        m.model,
                         m.success_rate * 100.0
                     ),
                     "Check API key, rate limits, or switch provider".to_string(),
@@ -1397,7 +1614,10 @@ impl Repl {
 fn session_to_kv(session: &Session) -> Vec<(String, String)> {
     vec![
         ("Session".into(), session.id.to_string()[..8].to_string()),
-        ("Model".into(), format!("{}/{}", session.provider, session.model)),
+        (
+            "Model".into(),
+            format!("{}/{}", session.provider, session.model),
+        ),
         ("Messages".into(), session.messages.len().to_string()),
         ("Rounds".into(), session.agent_rounds.to_string()),
         ("Tools".into(), session.tool_invocations.to_string()),

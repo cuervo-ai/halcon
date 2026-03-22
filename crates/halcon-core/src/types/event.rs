@@ -5,16 +5,31 @@ use uuid::Uuid;
 use super::agent::{AgentResult, AgentType};
 use super::model::TokenUsage;
 use super::tool::PermissionLevel;
+use crate::context::{current_session_id, current_span_id, current_trace_id, SpanId, TraceId};
 
 /// Domain events emitted throughout the system.
 ///
 /// Subscribers receive these via `tokio::sync::broadcast` channel.
 /// Used for: logging, audit trail, UI updates, metrics.
+///
+/// `session_id`, `trace_id`, and `span_id` are automatically injected
+/// from task-local `EXECUTION_CTX` when `DomainEvent::new()` is called
+/// inside a `EXECUTION_CTX.scope(...)` block. Outside a scope they are
+/// `None`/default (backward-compatible — no callsite changes required).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DomainEvent {
     pub id: Uuid,
     pub timestamp: DateTime<Utc>,
     pub payload: EventPayload,
+    /// Session that produced this event — auto-injected from task-local EXECUTION_CTX.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<Uuid>,
+    /// W3C Trace-Context trace identifier (128-bit hex).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trace_id: Option<TraceId>,
+    /// W3C Trace-Context span identifier (64-bit hex).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub span_id: Option<SpanId>,
 }
 
 impl DomainEvent {
@@ -23,6 +38,10 @@ impl DomainEvent {
             id: Uuid::new_v4(),
             timestamp: Utc::now(),
             payload,
+            // Auto-inject from task-local context (None when called outside a scope).
+            session_id: current_session_id(),
+            trace_id: current_trace_id(),
+            span_id: current_span_id(),
         }
     }
 }
@@ -79,10 +98,37 @@ pub enum EventPayload {
         tool: String,
         level: PermissionLevel,
     },
+    /// Generic circuit breaker transition — **deprecated**.
+    ///
+    /// Kept for deserialization of historical audit_log rows only.
+    /// All new code must emit one of:
+    /// - `CircuitBreakerOpened`   (Closed → Open)
+    /// - `CircuitBreakerRecovered` (HalfOpen → Closed)
+    /// - `CircuitBreakerHalfOpen`  (Open → HalfOpen)
+    ///
+    /// Using this variant in new code produces incorrect alerting because
+    /// monitoring systems cannot distinguish a trip from a recovery.
+    #[deprecated(
+        since = "0.3.0",
+        note = "use CircuitBreakerOpened / CircuitBreakerRecovered / CircuitBreakerHalfOpen"
+    )]
     CircuitBreakerTripped {
         provider: String,
         from_state: String,
         to_state: String,
+    },
+    /// Closed → Open: circuit breaker has tripped due to repeated failures.
+    CircuitBreakerOpened {
+        provider: String,
+        failure_count: u32,
+    },
+    /// HalfOpen → Closed: circuit breaker has fully recovered after successful probes.
+    CircuitBreakerRecovered {
+        provider: String,
+    },
+    /// Open → HalfOpen: circuit breaker is allowing a probe request.
+    CircuitBreakerHalfOpen {
+        provider: String,
     },
     HealthChanged {
         provider: String,
@@ -133,6 +179,11 @@ pub enum EventPayload {
         query: String,
         result_count: usize,
         top_score: f64,
+    },
+    OrchestratorStarted {
+        orchestrator_id: Uuid,
+        task_count: usize,
+        wave_count: usize,
     },
     SubAgentSpawned {
         orchestrator_id: Uuid,
@@ -305,7 +356,9 @@ mod tests {
         let json = serde_json::to_string(&payload).unwrap();
         assert!(json.contains("\"type\":\"task_created\""));
         let roundtrip: EventPayload = serde_json::from_str(&json).unwrap();
-        assert!(matches!(roundtrip, EventPayload::TaskCreated { ref title, .. } if title == "Read config file"));
+        assert!(
+            matches!(roundtrip, EventPayload::TaskCreated { ref title, .. } if title == "Read config file")
+        );
     }
 
     #[test]
@@ -319,7 +372,10 @@ mod tests {
         let json = serde_json::to_string(&payload).unwrap();
         assert!(json.contains("\"type\":\"task_status_changed\""));
         let roundtrip: EventPayload = serde_json::from_str(&json).unwrap();
-        assert!(matches!(roundtrip, EventPayload::TaskStatusChanged { retry_count: 1, .. }));
+        assert!(matches!(
+            roundtrip,
+            EventPayload::TaskStatusChanged { retry_count: 1, .. }
+        ));
     }
 
     #[test]
@@ -333,7 +389,14 @@ mod tests {
         let json = serde_json::to_string(&payload).unwrap();
         assert!(json.contains("\"type\":\"task_completed\""));
         let roundtrip: EventPayload = serde_json::from_str(&json).unwrap();
-        assert!(matches!(roundtrip, EventPayload::TaskCompleted { duration_ms: 1234, artifact_count: 2, .. }));
+        assert!(matches!(
+            roundtrip,
+            EventPayload::TaskCompleted {
+                duration_ms: 1234,
+                artifact_count: 2,
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -347,7 +410,14 @@ mod tests {
         let json = serde_json::to_string(&payload).unwrap();
         assert!(json.contains("\"type\":\"task_failed\""));
         let roundtrip: EventPayload = serde_json::from_str(&json).unwrap();
-        assert!(matches!(roundtrip, EventPayload::TaskFailed { retry_eligible: true, retry_count: 2, .. }));
+        assert!(matches!(
+            roundtrip,
+            EventPayload::TaskFailed {
+                retry_eligible: true,
+                retry_count: 2,
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -361,7 +431,9 @@ mod tests {
         };
         let json = serde_json::to_string(&payload).unwrap();
         let roundtrip: EventPayload = serde_json::from_str(&json).unwrap();
-        assert!(matches!(roundtrip, EventPayload::ToolExecuted { ref tool, success: true, .. } if tool == "bash"));
+        assert!(
+            matches!(roundtrip, EventPayload::ToolExecuted { ref tool, success: true, .. } if tool == "bash")
+        );
     }
 
     #[test]
@@ -374,7 +446,10 @@ mod tests {
         let json = serde_json::to_string(&payload).unwrap();
         assert!(json.contains("\"plan_id\":null"));
         let roundtrip: EventPayload = serde_json::from_str(&json).unwrap();
-        assert!(matches!(roundtrip, EventPayload::TaskCreated { plan_id: None, .. }));
+        assert!(matches!(
+            roundtrip,
+            EventPayload::TaskCreated { plan_id: None, .. }
+        ));
     }
 
     // --- Phase 40: Reasoning engine event tests ---
@@ -389,7 +464,9 @@ mod tests {
         let json = serde_json::to_string(&payload).unwrap();
         assert!(json.contains("\"type\":\"reasoning_started\""));
         let roundtrip: EventPayload = serde_json::from_str(&json).unwrap();
-        assert!(matches!(roundtrip, EventPayload::ReasoningStarted { ref complexity, .. } if complexity == "Moderate"));
+        assert!(
+            matches!(roundtrip, EventPayload::ReasoningStarted { ref complexity, .. } if complexity == "Moderate")
+        );
     }
 
     #[test]
@@ -402,7 +479,9 @@ mod tests {
         let json = serde_json::to_string(&payload).unwrap();
         assert!(json.contains("\"type\":\"strategy_selected\""));
         let roundtrip: EventPayload = serde_json::from_str(&json).unwrap();
-        assert!(matches!(roundtrip, EventPayload::StrategySelected { confidence, .. } if (confidence - 0.85).abs() < f64::EPSILON));
+        assert!(
+            matches!(roundtrip, EventPayload::StrategySelected { confidence, .. } if (confidence - 0.85).abs() < f64::EPSILON)
+        );
     }
 
     #[test]
@@ -415,7 +494,10 @@ mod tests {
         let json = serde_json::to_string(&payload).unwrap();
         assert!(json.contains("\"type\":\"evaluation_completed\""));
         let roundtrip: EventPayload = serde_json::from_str(&json).unwrap();
-        assert!(matches!(roundtrip, EventPayload::EvaluationCompleted { success: true, .. }));
+        assert!(matches!(
+            roundtrip,
+            EventPayload::EvaluationCompleted { success: true, .. }
+        ));
     }
 
     #[test]
@@ -428,7 +510,9 @@ mod tests {
         let json = serde_json::to_string(&payload).unwrap();
         assert!(json.contains("\"type\":\"experience_recorded\""));
         let roundtrip: EventPayload = serde_json::from_str(&json).unwrap();
-        assert!(matches!(roundtrip, EventPayload::ExperienceRecorded { ref task_type, .. } if task_type == "Debugging"));
+        assert!(
+            matches!(roundtrip, EventPayload::ExperienceRecorded { ref task_type, .. } if task_type == "Debugging")
+        );
     }
 
     #[test]
@@ -441,6 +525,9 @@ mod tests {
         let json = serde_json::to_string(&payload).unwrap();
         assert!(json.contains("\"type\":\"reasoning_retry\""));
         let roundtrip: EventPayload = serde_json::from_str(&json).unwrap();
-        assert!(matches!(roundtrip, EventPayload::ReasoningRetry { attempt: 2, .. }));
+        assert!(matches!(
+            roundtrip,
+            EventPayload::ReasoningRetry { attempt: 2, .. }
+        ));
     }
 }

@@ -387,7 +387,10 @@ mod tests {
             id: Uuid::new_v4(),
             name: "test-agent".to_string(),
             agent_kind: AgentKind::Llm,
-            capabilities: vec![AgentCapability::CodeGeneration, AgentCapability::FileOperations],
+            capabilities: vec![
+                AgentCapability::CodeGeneration,
+                AgentCapability::FileOperations,
+            ],
             protocols: vec![ProtocolSupport::Native],
             metadata: HashMap::new(),
             max_concurrency: 3,
@@ -748,7 +751,10 @@ mod tests {
 
     #[test]
     fn capability_display() {
-        assert_eq!(AgentCapability::CodeGeneration.to_string(), "code_generation");
+        assert_eq!(
+            AgentCapability::CodeGeneration.to_string(),
+            "code_generation"
+        );
         assert_eq!(AgentCapability::WebSearch.to_string(), "web_search");
         assert_eq!(
             AgentCapability::Custom("foo".into()).to_string(),

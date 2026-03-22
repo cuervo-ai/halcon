@@ -11,8 +11,8 @@
 
 #[cfg(test)]
 mod sota_tests {
-    use halcon_core::types::{AppConfig, PermissionLevel};
     use halcon_core::traits::{ExecutionPlan, PlanStep};
+    use halcon_core::types::{AppConfig, PermissionLevel};
 
     /// Test 1: Verify all SOTA features are configured
     #[test]
@@ -20,17 +20,29 @@ mod sota_tests {
         let config = AppConfig::default();
 
         // Task Framework
-        assert!(config.task_framework.enabled, "Task framework should be enabled by default");
+        assert!(
+            config.task_framework.enabled,
+            "Task framework should be enabled by default"
+        );
         assert_eq!(config.task_framework.default_max_retries, 2);
 
         // Context Management
-        assert!(config.context.dynamic_tool_selection, "Dynamic tool selection should be enabled");
+        assert!(
+            config.context.dynamic_tool_selection,
+            "Dynamic tool selection should be enabled"
+        );
 
         // Orchestration
-        assert!(config.orchestrator.enabled, "Orchestrator should be enabled by default");
+        assert!(
+            config.orchestrator.enabled,
+            "Orchestrator should be enabled by default"
+        );
 
         // Reflexion
-        assert!(config.reflexion.enabled, "Reflexion should be enabled by default");
+        assert!(
+            config.reflexion.enabled,
+            "Reflexion should be enabled by default"
+        );
 
         // Planning - available (enabled state can be toggled)
         assert!(
@@ -42,7 +54,7 @@ mod sota_tests {
     /// Test 2: Context tier budget distribution
     #[test]
     fn context_tier_budget_validation() {
-        use halcon_context::{TokenAccountant, Tier};
+        use halcon_context::{Tier, TokenAccountant};
 
         let max_context = 10_000;
         let accountant = TokenAccountant::new(max_context);
@@ -135,7 +147,10 @@ mod sota_tests {
         let config = AppConfig::default();
 
         // Planning configuration should be available (adaptive can be toggled)
-        assert!(config.planning.timeout_secs > 0, "Planning timeout should be positive");
+        assert!(
+            config.planning.timeout_secs > 0,
+            "Planning timeout should be positive"
+        );
 
         // Planning timeout should be reasonable
         assert!(
@@ -150,11 +165,17 @@ mod sota_tests {
         let config = AppConfig::default();
 
         // Models config should have defaults
-        assert!(!config.models.providers.is_empty(), "Should have at least one provider configured");
+        assert!(
+            !config.models.providers.is_empty(),
+            "Should have at least one provider configured"
+        );
 
         // Resilience should be configured
         assert!(config.resilience.enabled, "Resilience should be enabled");
-        assert!(config.resilience.circuit_breaker.failure_threshold > 0, "Circuit breaker should be configured");
+        assert!(
+            config.resilience.circuit_breaker.failure_threshold > 0,
+            "Circuit breaker should be configured"
+        );
     }
 
     /// Test 6: Plan data structures with all fields
@@ -172,6 +193,7 @@ mod sota_tests {
                     confidence: 0.9,
                     expected_args: None,
                     outcome: None,
+                    ..Default::default()
                 },
                 PlanStep {
                     description: "Parse JSON".to_string(),
@@ -180,12 +202,14 @@ mod sota_tests {
                     confidence: 0.8,
                     expected_args: None,
                     outcome: None,
+                    ..Default::default()
                 },
             ],
             requires_confirmation: false,
             plan_id: Uuid::new_v4(),
             replan_count: 0,
             parent_plan_id: None,
+            ..Default::default()
         };
 
         assert_eq!(plan.steps.len(), 2);
@@ -200,8 +224,14 @@ mod sota_tests {
         let config = AppConfig::default();
 
         // Memory should be configured
-        assert!(config.memory.max_entries > 0, "Max memory entries should be positive");
-        assert!(config.memory.retrieval_top_k > 0, "Retrieval top-k should be positive");
+        assert!(
+            config.memory.max_entries > 0,
+            "Max memory entries should be positive"
+        );
+        assert!(
+            config.memory.retrieval_top_k > 0,
+            "Retrieval top-k should be positive"
+        );
     }
 
     /// Test 8: Cache configuration
@@ -210,7 +240,10 @@ mod sota_tests {
         let config = AppConfig::default();
 
         // Cache should be configured
-        assert!(config.cache.max_entries > 0, "Cache max entries should be positive");
+        assert!(
+            config.cache.max_entries > 0,
+            "Cache max entries should be positive"
+        );
     }
 
     /// Test 9: Agent limits configured
@@ -219,8 +252,14 @@ mod sota_tests {
         let config = AppConfig::default();
 
         // Agent limits should have defaults
-        assert!(config.agent.limits.max_rounds > 0, "Max rounds should be positive");
-        assert!(config.agent.limits.tool_timeout_secs > 0, "Tool timeout should be configured");
+        assert!(
+            config.agent.limits.max_rounds > 0,
+            "Max rounds should be positive"
+        );
+        assert!(
+            config.agent.limits.tool_timeout_secs > 0,
+            "Tool timeout should be configured"
+        );
     }
 
     /// Test 10: MCP integration available
@@ -228,11 +267,8 @@ mod sota_tests {
     fn mcp_integration_available() {
         let config = AppConfig::default();
 
-        // MCP should be configurable (may have 0 reconnects as default)
-        assert!(
-            config.mcp.max_reconnect_attempts >= 0,
-            "MCP config should exist"
-        );
+        // MCP config should be present and initialized
+        let _ = config.mcp.max_reconnect_attempts; // field exists
 
         // Servers list should be available
         assert!(
@@ -246,8 +282,14 @@ mod sota_tests {
     fn security_guardrails_enabled() {
         let config = AppConfig::default();
 
-        assert!(config.security.pii_detection, "PII detection should be enabled");
-        assert!(config.security.audit_enabled, "Audit trail should be enabled");
+        assert!(
+            config.security.pii_detection,
+            "PII detection should be enabled"
+        );
+        assert!(
+            config.security.audit_enabled,
+            "Audit trail should be enabled"
+        );
     }
 
     /// Test 12: Storage persistence configured
@@ -256,8 +298,14 @@ mod sota_tests {
         let config = AppConfig::default();
 
         // Verify storage config makes sense
-        assert!(config.storage.max_sessions > 0, "Max sessions should be positive");
-        assert!(config.storage.max_session_age_days > 0, "Session max age should be positive");
+        assert!(
+            config.storage.max_sessions > 0,
+            "Max sessions should be positive"
+        );
+        assert!(
+            config.storage.max_session_age_days > 0,
+            "Session max age should be positive"
+        );
     }
 
     /// Test 13: Display configuration
@@ -273,6 +321,7 @@ mod sota_tests {
     #[test]
     fn plan_step_with_tools() {
         let step = PlanStep {
+            step_id: uuid::Uuid::new_v4(),
             description: "Execute bash command".to_string(),
             tool_name: Some("bash".to_string()),
             parallel: false,
@@ -301,6 +350,7 @@ mod sota_tests {
                     confidence: 0.9,
                     expected_args: None,
                     outcome: None,
+                    ..Default::default()
                 },
                 PlanStep {
                     description: "Search pattern".to_string(),
@@ -309,6 +359,7 @@ mod sota_tests {
                     confidence: 0.85,
                     expected_args: None,
                     outcome: None,
+                    ..Default::default()
                 },
                 PlanStep {
                     description: "Analyze results".to_string(),
@@ -317,12 +368,14 @@ mod sota_tests {
                     confidence: 0.8,
                     expected_args: None,
                     outcome: None,
+                    ..Default::default()
                 },
             ],
             requires_confirmation: false,
             plan_id: Uuid::new_v4(),
             replan_count: 0,
             parent_plan_id: None,
+            ..Default::default()
         };
 
         // Verify plan structure

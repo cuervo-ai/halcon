@@ -25,9 +25,7 @@ pub fn truncate_output(text: &str, max_bytes: usize) -> String {
     let omitted = text.len() - head_end - (text.len() - tail_start);
     let mut result = String::with_capacity(max_bytes + 80);
     result.push_str(&text[..head_end]);
-    result.push_str(&format!(
-        "\n\n... [{omitted} bytes truncated] ...\n\n"
-    ));
+    result.push_str(&format!("\n\n... [{omitted} bytes truncated] ...\n\n"));
     result.push_str(&text[tail_start..]);
     result
 }

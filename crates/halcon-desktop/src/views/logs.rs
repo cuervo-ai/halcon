@@ -59,7 +59,9 @@ pub fn render(ui: &mut Ui, state: &mut AppState) {
                     halcon_api::types::observability::LogLevel::Error => HalconTheme::ERROR,
                     halcon_api::types::observability::LogLevel::Warn => HalconTheme::WARNING,
                     halcon_api::types::observability::LogLevel::Info => HalconTheme::INFO,
-                    halcon_api::types::observability::LogLevel::Debug => HalconTheme::TEXT_SECONDARY,
+                    halcon_api::types::observability::LogLevel::Debug => {
+                        HalconTheme::TEXT_SECONDARY
+                    }
                     halcon_api::types::observability::LogLevel::Trace => HalconTheme::TEXT_MUTED,
                 };
 
@@ -82,11 +84,7 @@ pub fn render(ui: &mut Ui, state: &mut AppState) {
                             .size(11.0)
                             .color(HalconTheme::TEXT_SECONDARY),
                     );
-                    ui.label(
-                        RichText::new(&entry.message)
-                            .monospace()
-                            .size(11.0),
-                    );
+                    ui.label(RichText::new(&entry.message).monospace().size(11.0));
                 });
             }
         });

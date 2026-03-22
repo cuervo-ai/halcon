@@ -41,14 +41,13 @@ impl Tool for NativeCrawlTool {
     }
 
     async fn execute(&self, input: ToolInput) -> Result<ToolOutput> {
-        let url = input.arguments["url"]
-            .as_str()
-            .ok_or_else(|| HalconError::InvalidInput("native_crawl requires 'url' string".into()))?;
+        let url = input.arguments["url"].as_str().ok_or_else(|| {
+            HalconError::InvalidInput("native_crawl requires 'url' string".into())
+        })?;
 
         // Validate URL
-        let parsed_url = url::Url::parse(url).map_err(|e| {
-            HalconError::InvalidInput(format!("Invalid URL: {}", e))
-        })?;
+        let parsed_url = url::Url::parse(url)
+            .map_err(|e| HalconError::InvalidInput(format!("Invalid URL: {}", e)))?;
 
         if !parsed_url.scheme().starts_with("http") {
             return Err(HalconError::InvalidInput(
@@ -68,8 +67,9 @@ impl Tool for NativeCrawlTool {
                              1. Check ~/.halcon/config.toml for [search] section\n\
                              2. Set search.enabled = true\n\
                              3. Restart halcon\n\n\
-                             Cannot index URLs without search engine.".to_string(),
-                    is_error: false,
+                             Cannot index URLs without search engine."
+                        .to_string(),
+                    is_error: true,
                     metadata: Some(json!({
                         "status": "not_initialized",
                         "url": url,

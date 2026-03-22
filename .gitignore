@@ -175,5 +175,26 @@ scripts/seed_search_index.sh
 # Cache directories
 .fastembed_cache/
 
-# Workers directory
-workers/
+# crates/*/src/workers/ are committed; root /workers/ is now tracked too
+img/hero.mov
+img/*.mov
+img/*.mp4
+
+# ── Halcon local state (DB, configs, plugins — user data) ───────────
+# Use .halcon/* (not .halcon/) so git recurses and the negation below works
+.halcon/*
+!.halcon/HALCON.md
+# Also exclude nested .halcon/ dirs generated inside crates during tests
+crates/**/.halcon/
+# Stale cuervo-* artifact directories (superseded by halcon-* crates)
+crates/cuervo-cli/
+crates/cuervo-storage/
+# HALCON.local.md — per-checkout local instructions, never committed (Feature 1)
+HALCON.local.md
+
+# Dev session scratch/prototype files (root-level)
+test.txt
+game.js
+index.html
+output.html
+style.css

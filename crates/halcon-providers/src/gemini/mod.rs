@@ -14,7 +14,7 @@ use async_trait::async_trait;
 use eventsource_stream::Eventsource as _;
 use futures::stream::{self, BoxStream};
 use futures::StreamExt;
-use tracing::{debug, warn};
+use tracing::{debug, instrument, warn};
 use uuid::Uuid;
 
 use halcon_core::error::{HalconError, Result};
@@ -140,6 +140,24 @@ impl GeminiProvider {
                                     },
                                 });
                             }
+                            ContentBlock::Image { source } => {
+                                use halcon_core::types::ImageSource;
+                                let desc = match source {
+                                    ImageSource::Base64 { media_type, .. } => {
+                                        format!("[Image: base64 {} data]", media_type.as_mime_str())
+                                    }
+                                    ImageSource::Url { url } => format!("[Image URL: {url}]"),
+                                    ImageSource::LocalPath { path } => {
+                                        format!("[Local image: {path}]")
+                                    }
+                                };
+                                parts.push(GeminiPart::Text { text: desc });
+                            }
+                            ContentBlock::AudioTranscript { text, .. } => {
+                                parts.push(GeminiPart::Text {
+                                    text: format!("[Audio transcript]: {text}"),
+                                });
+                            }
                         }
                     }
 
@@ -181,15 +199,14 @@ impl GeminiProvider {
             }]
         };
 
-        let generation_config =
-            if request.temperature.is_some() || request.max_tokens.is_some() {
-                Some(GeminiGenerationConfig {
-                    temperature: request.temperature,
-                    max_output_tokens: request.max_tokens,
-                })
-            } else {
-                None
-            };
+        let generation_config = if request.temperature.is_some() || request.max_tokens.is_some() {
+            Some(GeminiGenerationConfig {
+                temperature: request.temperature,
+                max_output_tokens: request.max_tokens,
+            })
+        } else {
+            None
+        };
 
         GeminiRequest {
             contents,
@@ -295,6 +312,7 @@ impl ModelProvider for GeminiProvider {
         &self.models
     }
 
+    #[instrument(skip_all, fields(provider = "gemini", model = %request.model, msgs = request.messages.len()))]
     async fn invoke(
         &self,
         request: &ModelRequest,
@@ -321,10 +339,7 @@ impl ModelProvider for GeminiProvider {
 
             let result = tokio::time::timeout(
                 Duration::from_secs(timeout_secs),
-                self.client
-                    .post(&url)
-                    .json(&gemini_request)
-                    .send(),
+                self.client.post(&url).json(&gemini_request).send(),
             )
             .await;
 
@@ -361,9 +376,7 @@ impl ModelProvider for GeminiProvider {
             let status = response.status();
 
             if status.as_u16() == 401 || status.as_u16() == 403 {
-                return Err(HalconError::AuthFailed(
-                    "Gemini: invalid API key".into(),
-                ));
+                return Err(HalconError::AuthFailed("Gemini: invalid API key".into()));
             }
 
             if status.as_u16() == 429 {
@@ -421,6 +434,8 @@ impl ModelProvider for GeminiProvider {
                         ContentBlock::ToolUse { input, .. } => {
                             crate::openai_compat::estimate_value_size(input)
                         }
+                        ContentBlock::Image { .. } => 1024,
+                        ContentBlock::AudioTranscript { text, .. } => text.len(),
                     })
                     .sum(),
             })
@@ -438,6 +453,14 @@ impl ModelProvider for GeminiProvider {
             estimated_input_tokens: estimated_tokens,
             estimated_cost_usd: estimated_tokens as f64 * cost_per_input,
         }
+    }
+
+    fn tool_format(&self) -> halcon_core::types::ToolFormat {
+        halcon_core::types::ToolFormat::GeminiFunctionDeclarations
+    }
+
+    fn tokenizer_hint(&self) -> halcon_core::types::TokenizerHint {
+        halcon_core::types::TokenizerHint::GeminiSentencePiece
     }
 }
 
@@ -619,7 +642,9 @@ mod tests {
         };
         let mapped = GeminiProvider::map_stream_chunk(&chunk);
         assert_eq!(mapped.len(), 1);
-        assert!(matches!(&mapped[0], ModelChunk::Usage(u) if u.input_tokens == 25 && u.output_tokens == 100));
+        assert!(
+            matches!(&mapped[0], ModelChunk::Usage(u) if u.input_tokens == 25 && u.output_tokens == 100)
+        );
     }
 
     #[test]

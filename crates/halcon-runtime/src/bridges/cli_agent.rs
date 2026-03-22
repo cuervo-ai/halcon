@@ -71,9 +71,9 @@ impl RuntimeAgent for CliProcessAgent {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| RuntimeError::Execution(format!("failed to spawn '{}': {e}", self.command)))?;
+        let mut child = cmd.spawn().map_err(|e| {
+            RuntimeError::Execution(format!("failed to spawn '{}': {e}", self.command))
+        })?;
 
         // Write instruction to stdin
         if let Some(mut stdin) = child.stdin.take() {

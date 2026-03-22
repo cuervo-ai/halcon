@@ -37,14 +37,16 @@ allow = [
     "Unicode-DFS-2016",
     "CC0-1.0",
     "0BSD",
+    "OFL-1.1",
+    "Unicode-3.0",
+    "LicenseRef-UFL-1.0",
+    "CDLA-Permissive-2.0",
 ]
-# Lint level for crates which do not have a detectable license
-unlicensed = "deny"
-# Lint level for crates which have a copyleft license (GPL, LGPL, AGPL, etc.)
-copyleft = "warn"
-# Some crates have multiple licenses, and we prefer specific ones
-allow-osi-fsf-free = "neither"
-default = "deny"
+
+# Crates without a detectable license or with licenses not in the allow list
+# are denied by default in cargo-deny v2 (allow-list mode).
+# Copyleft licenses (GPL, LGPL, AGPL) are not in the allow list → denied.
+unused-allowed-license = "allow"
 
 [[licenses.clarify]]
 name = "ring"
@@ -67,14 +69,7 @@ deny = [
     # { name = "openssl", version = "*" },
 ]
 # Allow certain crates to appear multiple times
-skip = [
-    # Common version conflicts in the ecosystem
-    { name = "bitflags", version = "1" },
-    { name = "syn", version = "1" },
-    { name = "proc-macro2", version = "1" },
-    { name = "quote", version = "1" },
-    { name = "unicode-ident", version = "1" },
-]
+skip = []
 skip-tree = []
 
 [sources]
@@ -85,6 +80,4 @@ unknown-registry = "deny"
 # in the allow list is encountered
 unknown-git = "warn"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-allow-git = [
-    "https://github.com/cross-rs/cross",
-]
+allow-git = []

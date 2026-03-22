@@ -40,11 +40,33 @@ pub struct OpenAIChatMessage {
     pub tool_call_id: Option<String>,
 }
 
-/// Message content: either a plain string or structured parts.
+/// Message content: either a plain string or structured parts (vision).
 #[derive(Debug, Clone, Serialize)]
 #[serde(untagged)]
 pub enum OpenAIMessageContent {
     Text(String),
+    /// Multi-part message containing text and/or image_url blocks (OpenAI Vision API).
+    Parts(Vec<OpenAIContentPart>),
+}
+
+/// A single part in a multi-part message.
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type")]
+pub enum OpenAIContentPart {
+    #[serde(rename = "text")]
+    Text { text: String },
+    #[serde(rename = "image_url")]
+    ImageUrl { image_url: OpenAIImageUrl },
+}
+
+/// OpenAI vision image URL (base64 data URI or remote URL).
+#[derive(Debug, Clone, Serialize)]
+pub struct OpenAIImageUrl {
+    /// Either `"data:image/jpeg;base64,..."` or a remote `https://...` URL.
+    pub url: String,
+    /// Resolution hint: `"auto"`, `"low"`, or `"high"`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub detail: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -105,6 +127,14 @@ pub struct OpenAIDelta {
     pub content: Option<String>,
     #[serde(default)]
     pub tool_calls: Option<Vec<OpenAIToolCallDelta>>,
+    /// DeepSeek Reasoner chain-of-thought tokens.
+    ///
+    /// During the thinking phase `reasoning_content` is populated while `content`
+    /// is empty/null. When thinking finishes, `content` carries the final answer.
+    /// If the entire response is produced in `reasoning_content` with no `content`
+    /// phase, we fall back to emitting it as regular text so the response is visible.
+    #[serde(default)]
+    pub reasoning_content: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -125,10 +155,21 @@ pub struct OpenAIFunctionDelta {
     pub arguments: Option<String>,
 }
 
+/// Breakdown of completion tokens, as returned by OpenAI/DeepSeek with `include_usage=true`.
+#[derive(Debug, Deserialize, Default)]
+pub struct CompletionTokensDetails {
+    /// Tokens consumed by chain-of-thought reasoning (o1, o3-mini, deepseek-reasoner).
+    #[serde(default)]
+    pub reasoning_tokens: Option<u32>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct OpenAIUsage {
     pub prompt_tokens: u32,
     pub completion_tokens: u32,
+    /// Breakdown present when reasoning models (o1, o3-mini, deepseek-reasoner) are used.
+    #[serde(default)]
+    pub completion_tokens_details: Option<CompletionTokensDetails>,
 }
 
 // --- Error response ---
@@ -254,10 +295,7 @@ mod tests {
                 r#"{{"id":"chatcmpl-abc","choices":[{{"index":0,"delta":{{}},"finish_reason":"{reason}"}}]}}"#,
             );
             let chunk: OpenAISseChunk = serde_json::from_str(&json).unwrap();
-            assert_eq!(
-                chunk.choices[0].finish_reason.as_deref(),
-                Some(expected)
-            );
+            assert_eq!(chunk.choices[0].finish_reason.as_deref(), Some(expected));
         }
     }
 
@@ -279,5 +317,34 @@ mod tests {
             resp.error.error_type.as_deref(),
             Some("invalid_request_error")
         );
+    }
+
+    #[test]
+    fn deserialize_usage_with_completion_tokens_details() {
+        // DeepSeek Reasoner and OpenAI o1/o3-mini send reasoning_tokens inside completion_tokens_details.
+        let json = r#"{
+            "prompt_tokens": 50,
+            "completion_tokens": 1500,
+            "completion_tokens_details": {"reasoning_tokens": 1200}
+        }"#;
+        let usage: OpenAIUsage = serde_json::from_str(json).unwrap();
+        assert_eq!(usage.prompt_tokens, 50);
+        assert_eq!(usage.completion_tokens, 1500);
+        let details = usage.completion_tokens_details.unwrap();
+        assert_eq!(details.reasoning_tokens, Some(1200));
+    }
+
+    #[test]
+    fn deserialize_usage_without_completion_tokens_details() {
+        // Standard providers omit the field — must deserialise cleanly.
+        let json = r#"{"prompt_tokens":10,"completion_tokens":20}"#;
+        let usage: OpenAIUsage = serde_json::from_str(json).unwrap();
+        assert!(usage.completion_tokens_details.is_none());
+    }
+
+    #[test]
+    fn completion_tokens_details_defaults_reasoning_tokens_to_none() {
+        let details = CompletionTokensDetails::default();
+        assert!(details.reasoning_tokens.is_none());
     }
 }

@@ -12,7 +12,7 @@ use ratatui::Frame;
 
 use crate::render::theme;
 use crate::tui::constants;
-use crate::tui::events::SessionInfo;
+use crate::tui::events::{PluginSuggestionItem, SessionInfo};
 
 /// The kind of overlay currently displayed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -33,6 +33,51 @@ pub enum OverlayKind {
     ///
     /// Provides masked password input (●●●●) with optional 5-minute session cache.
     SudoPasswordEntry { tool: String, command: String },
+    /// Project onboarding wizard — multi-step HALCON.md generator.
+    ///
+    /// Steps:
+    /// - 0 = analyzing project
+    /// - 1 = review detected info
+    /// - 2 = preview generated content
+    /// - 3 = confirm save
+    /// - 4 = done
+    InitWizard {
+        step: u8,
+        preview: String,
+        save_path: String,
+        dry_run: bool,
+    },
+    /// Plugin recommendation overlay — tiered suggestion list.
+    PluginSuggest {
+        suggestions: Vec<PluginSuggestionItem>,
+        selected: usize,
+        dry_run: bool,
+    },
+    /// Update-available notification overlay.
+    ///
+    /// Shown at TUI startup when `get_pending_update_info()` returns Some.
+    /// Enter = install now + quit; Esc = dismiss + toast reminder.
+    UpdateAvailable {
+        current: String,
+        remote: String,
+        notes: Option<String>,
+        published_at: Option<String>,
+        size_bytes: u64,
+    },
+    /// Model selector overlay — shows available models for the active provider.
+    ///
+    /// Navigation: Up/Down = move selection; Enter = confirm; Esc = cancel.
+    /// Opened via Ctrl+M or `/model select` slash command.
+    ModelSelector {
+        /// List of (provider, model_id, display_label) tuples.
+        models: Vec<(String, String, String)>,
+        /// Currently highlighted index.
+        selected: usize,
+        /// Current active model (pre-selected on open).
+        current_model: String,
+        /// Optional error context shown at top (e.g. previous model failed).
+        error_context: Option<String>,
+    },
 }
 
 /// State for the overlay system.
@@ -50,6 +95,11 @@ pub struct OverlayState {
     pub filtered_items: Vec<OverlayItem>,
     /// Whether advanced permission options are shown (Phase 6: Progressive disclosure).
     pub show_advanced_permissions: bool,
+    /// Deadline for the active permission modal countdown (TUI-side enforcement).
+    /// When `Some`, the TUI auto-denies at this instant and closes the modal.
+    pub permission_deadline: Option<std::time::Instant>,
+    /// Total seconds for the current permission countdown (for progress bar fraction).
+    pub permission_total_secs: u64,
 }
 
 /// An item in the command palette list.
@@ -69,6 +119,8 @@ impl OverlayState {
             selected: 0,
             filtered_items: Vec::new(),
             show_advanced_permissions: false,
+            permission_deadline: None,
+            permission_total_secs: 0,
         }
     }
 
@@ -88,6 +140,21 @@ impl OverlayState {
         self.cursor = 0;
         self.selected = 0;
         self.filtered_items.clear();
+        self.permission_deadline = None;
+        self.permission_total_secs = 0;
+    }
+
+    /// Set the permission modal countdown deadline (for external/programmatic use).
+    ///
+    /// In normal TUI interactive mode, `permission_deadline` is left as `None` so
+    /// the agent waits indefinitely for user input. This method exists as an escape
+    /// hatch for non-interactive scenarios where a hard deadline is needed.
+    pub fn set_permission_deadline(&mut self, timeout_secs: u64) {
+        if timeout_secs > 0 {
+            self.permission_deadline =
+                Some(std::time::Instant::now() + std::time::Duration::from_secs(timeout_secs));
+            self.permission_total_secs = timeout_secs;
+        }
     }
 
     /// Whether an overlay is currently active.
@@ -203,7 +270,7 @@ pub fn default_commands() -> Vec<OverlayItem> {
         },
         OverlayItem {
             label: "/model".into(),
-            description: "Show active provider and model info".into(),
+            description: "Open model selector — change active model (Ctrl+M)".into(),
             action: "model".into(),
         },
         OverlayItem {
@@ -236,6 +303,37 @@ pub fn default_commands() -> Vec<OverlayItem> {
             description: "Exit the TUI".into(),
             action: "quit".into(),
         },
+        // --- Extended / Setup ---
+        OverlayItem {
+            label: "/inspect".into(),
+            description: "Inspect full session state (provider, model, cost, metrics)".into(),
+            action: "inspect".into(),
+        },
+        OverlayItem {
+            label: "/init".into(),
+            description: "Open project setup wizard (generates HALCON.md)".into(),
+            action: "init".into(),
+        },
+        OverlayItem {
+            label: "/tools".into(),
+            description: "Show tool usage statistics for this session".into(),
+            action: "tools".into(),
+        },
+        OverlayItem {
+            label: "/plugins".into(),
+            description: "Show loaded plugin information".into(),
+            action: "plugins".into(),
+        },
+        OverlayItem {
+            label: "/dry-run".into(),
+            description: "Toggle dry-run mode — destructive tools are skipped".into(),
+            action: "dry-run".into(),
+        },
+        OverlayItem {
+            label: "/reasoning".into(),
+            description: "Show reasoning engine and UCB1 strategy status".into(),
+            action: "reasoning".into(),
+        },
     ]
 }
 
@@ -248,8 +346,7 @@ pub fn filter_commands(items: &[OverlayItem], query: &str) -> Vec<OverlayItem> {
     items
         .iter()
         .filter(|item| {
-            item.label.to_lowercase().contains(&q)
-                || item.description.to_lowercase().contains(&q)
+            item.label.to_lowercase().contains(&q) || item.description.to_lowercase().contains(&q)
         })
         .cloned()
         .collect()
@@ -389,10 +486,16 @@ pub fn render_permission_prompt(frame: &mut Frame, area: Rect, tool: &str) {
         )),
         Line::from(""),
         Line::from(vec![
-            Span::styled("  [Y] ", Style::default().fg(c_accent).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "  [Y] ",
+                Style::default().fg(c_accent).add_modifier(Modifier::BOLD),
+            ),
             Span::styled("Approve", Style::default().fg(c_text)),
             Span::styled("    ", Style::default()),
-            Span::styled("[N] ", Style::default().fg(c_warning).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "[N] ",
+                Style::default().fg(c_warning).add_modifier(Modifier::BOLD),
+            ),
             Span::styled("Reject", Style::default().fg(c_text)),
             Span::styled("    ", Style::default()),
             Span::styled("[Esc] ", Style::default().fg(c_text)),
@@ -537,17 +640,35 @@ pub fn render_context_servers(
     } else {
         // Table header
         lines.push(Line::from(vec![
-            Span::styled("NAME", Style::default().fg(c_accent).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "NAME",
+                Style::default().fg(c_accent).add_modifier(Modifier::BOLD),
+            ),
             Span::raw("            "),
-            Span::styled("PRIORITY", Style::default().fg(c_accent).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "PRIORITY",
+                Style::default().fg(c_accent).add_modifier(Modifier::BOLD),
+            ),
             Span::raw("  "),
-            Span::styled("STATUS", Style::default().fg(c_accent).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "STATUS",
+                Style::default().fg(c_accent).add_modifier(Modifier::BOLD),
+            ),
             Span::raw("      "),
-            Span::styled("TOKENS", Style::default().fg(c_accent).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "TOKENS",
+                Style::default().fg(c_accent).add_modifier(Modifier::BOLD),
+            ),
             Span::raw("    "),
-            Span::styled("QUERIES", Style::default().fg(c_accent).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "QUERIES",
+                Style::default().fg(c_accent).add_modifier(Modifier::BOLD),
+            ),
             Span::raw("    "),
-            Span::styled("LAST QUERY", Style::default().fg(c_accent).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "LAST QUERY",
+                Style::default().fg(c_accent).add_modifier(Modifier::BOLD),
+            ),
         ]));
         lines.push(Line::from(Span::styled(
             "─".repeat(rect.width.saturating_sub(4) as usize),
@@ -596,7 +717,10 @@ pub fn render_context_servers(
             lines.push(Line::from(vec![
                 Span::styled(format!("{:<20}", server.name), Style::default().fg(c_text)),
                 Span::raw("  "),
-                Span::styled(format!("{:>3}", server.priority), Style::default().fg(c_accent)),
+                Span::styled(
+                    format!("{:>3}", server.priority),
+                    Style::default().fg(c_accent),
+                ),
                 Span::raw("  "),
                 status_span,
                 Span::raw("    "),
@@ -604,7 +728,10 @@ pub fn render_context_servers(
                 Span::raw("    "),
                 Span::styled(format!("{:>7}", queries_str), Style::default().fg(c_accent)),
                 Span::raw("    "),
-                Span::styled(format!("{:>10}", last_query_str), Style::default().fg(c_muted)),
+                Span::styled(
+                    format!("{:>10}", last_query_str),
+                    Style::default().fg(c_muted),
+                ),
             ]));
         }
     }
@@ -624,13 +751,21 @@ pub fn render_context_servers(
         .border_style(Style::default().fg(c_border))
         .title(" Context Servers ");
 
-    let paragraph = Paragraph::new(lines).block(block).wrap(Wrap { trim: false });
+    let paragraph = Paragraph::new(lines)
+        .block(block)
+        .wrap(Wrap { trim: false });
 
     frame.render_widget(paragraph, rect);
 }
 
 /// Render the search overlay with real match count and current position.
-pub fn render_search(frame: &mut Frame, area: Rect, query: &str, match_count: usize, current: usize) {
+pub fn render_search(
+    frame: &mut Frame,
+    area: Rect,
+    query: &str,
+    match_count: usize,
+    current: usize,
+) {
     let p = &theme::active().palette;
     let c_border = p.border_ratatui();
     let c_accent = p.accent_ratatui();
@@ -685,8 +820,12 @@ pub fn render_session_list(
     let c_success = p.success_ratatui();
 
     // Center the overlay: 80% width, 70% height.
-    let width = (area.width * 4 / 5).max(60).min(area.width.saturating_sub(4));
-    let height = (area.height * 7 / 10).max(10).min(area.height.saturating_sub(4));
+    let width = (area.width * 4 / 5)
+        .max(60)
+        .min(area.width.saturating_sub(4));
+    let height = (area.height * 7 / 10)
+        .max(10)
+        .min(area.height.saturating_sub(4));
     let rect = Rect::new(
         area.x + (area.width.saturating_sub(width)) / 2,
         area.y + (area.height.saturating_sub(height)) / 2,
@@ -705,9 +844,10 @@ pub fn render_session_list(
     frame.render_widget(block, rect);
 
     if sessions.is_empty() {
-        let msg = Paragraph::new(Line::from(vec![
-            Span::styled("  No sessions found", Style::default().fg(c_muted)),
-        ]));
+        let msg = Paragraph::new(Line::from(vec![Span::styled(
+            "  No sessions found",
+            Style::default().fg(c_muted),
+        )]));
         frame.render_widget(msg, inner);
         return;
     }
@@ -716,26 +856,45 @@ pub fn render_session_list(
     let list_height = inner.height.saturating_sub(2) as usize; // reserve 2 rows: header + footer
 
     let header_area = Rect::new(inner.x, inner.y, inner.width, 1);
-    let list_area = Rect::new(inner.x, inner.y + 1, inner.width, inner.height.saturating_sub(2));
-    let footer_area = Rect::new(inner.x, inner.y + inner.height.saturating_sub(1), inner.width, 1);
+    let list_area = Rect::new(
+        inner.x,
+        inner.y + 1,
+        inner.width,
+        inner.height.saturating_sub(2),
+    );
+    let footer_area = Rect::new(
+        inner.x,
+        inner.y + inner.height.saturating_sub(1),
+        inner.width,
+        1,
+    );
 
     // Header
-    let header_line = Line::from(vec![
-        Span::styled(
-            format!("  {:<10} {:<25} {:>5}  {:>8}  date", "ID", "model", "R", "cost"),
-            Style::default().fg(c_muted).add_modifier(Modifier::DIM),
+    let header_line = Line::from(vec![Span::styled(
+        format!(
+            "  {:<10} {:<25} {:>5}  {:>8}  date",
+            "ID", "model", "R", "cost"
         ),
-    ]);
+        Style::default().fg(c_muted).add_modifier(Modifier::DIM),
+    )]);
     frame.render_widget(Paragraph::new(header_line), header_area);
 
     // Viewport: show list_height rows starting from selected if beyond.
-    let scroll = if selected >= list_height { selected - list_height + 1 } else { 0 };
+    let scroll = if selected >= list_height {
+        selected - list_height + 1
+    } else {
+        0
+    };
 
     let mut rows: Vec<Line> = Vec::new();
     for (i, session) in sessions.iter().enumerate().skip(scroll).take(list_height) {
         let is_selected = i == selected;
 
-        let short_id = if session.id.len() >= 8 { &session.id[..8] } else { &session.id };
+        let short_id = if session.id.len() >= 8 {
+            &session.id[..8]
+        } else {
+            &session.id
+        };
         let model_str = if session.model.len() > 24 {
             format!("{:.24}", session.model)
         } else {
@@ -756,7 +915,10 @@ pub fn render_session_list(
         );
 
         let style = if is_selected {
-            Style::default().fg(c_accent).bg(c_highlight).add_modifier(Modifier::BOLD)
+            Style::default()
+                .fg(c_accent)
+                .bg(c_highlight)
+                .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(c_text)
         };
@@ -779,6 +941,674 @@ pub fn render_session_list(
         Span::styled(" close", Style::default().fg(c_muted)),
     ]);
     frame.render_widget(Paragraph::new(footer), footer_area);
+}
+
+/// Render the project onboarding init wizard overlay.
+///
+/// 4-zone centered overlay with step-by-step guidance:
+/// - Step 0: analyzing
+/// - Step 1: review detected project info
+/// - Step 2: preview generated HALCON.md
+/// - Step 3: confirm save
+/// - Step 4: done
+pub fn render_init_wizard(
+    frame: &mut Frame,
+    area: Rect,
+    step: u8,
+    preview: &str,
+    save_path: &str,
+    dry_run: bool,
+    spinner_frame: usize,
+) {
+    let p = &theme::active().palette;
+    let c_border = p.border_ratatui();
+    let c_accent = p.accent.to_ratatui_color();
+    let c_muted = p.text_label.to_ratatui_color();
+    let c_success = p.success.to_ratatui_color();
+
+    let popup_width = area.width.saturating_sub(8).min(72);
+    let popup_height = area.height.saturating_sub(6).min(22);
+    let x = area.x + (area.width.saturating_sub(popup_width)) / 2;
+    let y = area.y + (area.height.saturating_sub(popup_height)) / 2;
+    let popup_area = Rect {
+        x,
+        y,
+        width: popup_width,
+        height: popup_height,
+    };
+
+    frame.render_widget(Clear, popup_area);
+
+    let title_text = if dry_run {
+        format!(
+            " ◈ HALCON — Configurar Proyecto  [dry-run]  Paso {}/4 ",
+            step.min(4)
+        )
+    } else {
+        format!(" ◈ HALCON — Configurar Proyecto  Paso {}/4 ", step.min(4))
+    };
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(c_border))
+        .title(Span::styled(
+            title_text,
+            Style::default().fg(c_accent).add_modifier(Modifier::BOLD),
+        ));
+
+    let inner = block.inner(popup_area);
+    frame.render_widget(block, popup_area);
+
+    // Build content lines based on step
+    let lines: Vec<Line> = match step {
+        0 => {
+            let frames = ['⠁', '⠃', '⠇', '⠧', '⠷', '⠿', '⠾', '⠼', '⠸', '⠰'];
+            let ch = frames[spinner_frame % frames.len()];
+            vec![
+                Line::from(""),
+                Line::from(Span::styled(
+                    format!("  {} Analizando proyecto…", ch),
+                    Style::default().fg(c_accent).add_modifier(Modifier::BOLD),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    "  Detectando tipo, metadata y estructura…",
+                    Style::default().fg(c_muted),
+                )),
+                Line::from(""),
+                Line::from(Span::styled(
+                    "  ↳ Progreso en tiempo real en el feed de actividad",
+                    Style::default().fg(c_muted),
+                )),
+            ]
+        }
+        1 => {
+            // Parse the generated HALCON.md preview for key project metadata
+            let mut proj_name = String::new();
+            let mut proj_type = String::new();
+            let mut proj_version = String::new();
+            let mut git_branch = String::new();
+            let mut description = String::new();
+            let mut workspace_count = 0usize;
+
+            for line in preview.lines() {
+                let line = line.trim();
+                if proj_name.is_empty() && line.starts_with("# HALCON — ") {
+                    proj_name = line.trim_start_matches("# HALCON — ").to_string();
+                } else if line.starts_with("**Tipo**: ") {
+                    proj_type = line.trim_start_matches("**Tipo**: ").to_string();
+                } else if line.starts_with("**Versión**: ") {
+                    proj_version = line.trim_start_matches("**Versión**: ").to_string();
+                } else if line.starts_with("**Branch**: ") {
+                    git_branch = line.trim_start_matches("**Branch**: ").to_string();
+                } else if line.starts_with("**Descripción**: ") {
+                    description = line.trim_start_matches("**Descripción**: ").to_string();
+                    if description.len() > 55 {
+                        description = format!(
+                            "{}…",
+                            &description[..{
+                                let mut _fcb = (55).min(description.len());
+                                while _fcb > 0 && !description.is_char_boundary(_fcb) {
+                                    _fcb -= 1;
+                                }
+                                _fcb
+                            }]
+                        );
+                    }
+                } else if line.starts_with("- `") && line.ends_with('`') {
+                    workspace_count += 1;
+                }
+            }
+
+            let mut ls = vec![
+                Line::from(Span::styled(
+                    "  ✓ Análisis completo:",
+                    Style::default().fg(c_success).add_modifier(Modifier::BOLD),
+                )),
+                Line::from(""),
+            ];
+
+            if !proj_name.is_empty() {
+                let name_disp: String = proj_name.chars().take(50).collect();
+                ls.push(Line::from(vec![
+                    Span::styled("  Proyecto:  ", Style::default().fg(c_muted)),
+                    Span::styled(
+                        name_disp,
+                        Style::default().fg(c_accent).add_modifier(Modifier::BOLD),
+                    ),
+                ]));
+            }
+            if !proj_type.is_empty() {
+                ls.push(Line::from(vec![
+                    Span::styled("  Tipo:      ", Style::default().fg(c_muted)),
+                    Span::styled(proj_type.clone(), Style::default().fg(c_accent)),
+                ]));
+            }
+            if workspace_count > 0 {
+                ls.push(Line::from(vec![
+                    Span::styled("  Crates:    ", Style::default().fg(c_muted)),
+                    Span::styled(
+                        format!("{} miembros", workspace_count),
+                        Style::default().fg(c_muted),
+                    ),
+                ]));
+            }
+            if !proj_version.is_empty() && proj_version != "(desconocida)" {
+                ls.push(Line::from(vec![
+                    Span::styled("  Versión:   ", Style::default().fg(c_muted)),
+                    Span::styled(proj_version, Style::default().fg(c_muted)),
+                ]));
+            }
+            if !git_branch.is_empty() {
+                ls.push(Line::from(vec![
+                    Span::styled("  Branch:    ", Style::default().fg(c_muted)),
+                    Span::styled(git_branch, Style::default().fg(c_muted)),
+                ]));
+            }
+            if !description.is_empty() && description != "(sin descripción)" {
+                ls.push(Line::from(vec![
+                    Span::styled("  Desc:      ", Style::default().fg(c_muted)),
+                    Span::styled(description, Style::default().fg(c_muted)),
+                ]));
+            }
+            ls.push(Line::from(""));
+            if !save_path.is_empty() {
+                let path_display: String = save_path.chars().take(58).collect();
+                ls.push(Line::from(vec![
+                    Span::styled("  Guardar en: ", Style::default().fg(c_muted)),
+                    Span::styled(path_display, Style::default().fg(c_success)),
+                ]));
+                ls.push(Line::from(""));
+            }
+            ls.push(Line::from(Span::styled(
+                "  [Enter] Ver preview   [Esc] Cancelar",
+                Style::default().fg(c_muted),
+            )));
+            ls
+        }
+        2 => {
+            let mut ls = vec![
+                Line::from(Span::styled(
+                    "  Preview HALCON.md:",
+                    Style::default().fg(c_accent).add_modifier(Modifier::BOLD),
+                )),
+                Line::from(""),
+            ];
+            let max_lines = inner.height.saturating_sub(4) as usize;
+            for l in preview.lines().take(max_lines) {
+                let display: String = l
+                    .chars()
+                    .take(popup_width.saturating_sub(4) as usize)
+                    .collect();
+                ls.push(Line::from(Span::styled(
+                    format!("  {display}"),
+                    Style::default().fg(c_muted),
+                )));
+            }
+            ls.push(Line::from(""));
+            let confirm_text = if dry_run {
+                "  [Enter] Continuar (dry-run)   [Esc] Cancelar"
+            } else {
+                "  [Enter] Guardar   [Esc] Cancelar"
+            };
+            ls.push(Line::from(Span::styled(
+                confirm_text,
+                Style::default().fg(c_muted),
+            )));
+            ls
+        }
+        3 => {
+            let path_display: String = save_path.chars().take(60).collect();
+            vec![
+                Line::from(Span::styled(
+                    "  Confirmar guardado:",
+                    Style::default().fg(c_accent).add_modifier(Modifier::BOLD),
+                )),
+                Line::from(""),
+                Line::from(vec![
+                    Span::styled("  Ruta: ", Style::default().fg(c_muted)),
+                    Span::styled(path_display, Style::default().fg(c_success)),
+                ]),
+                Line::from(""),
+                Line::from(Span::styled(
+                    if dry_run {
+                        "  [Enter] Simular (dry-run)   [Esc] Cancelar"
+                    } else {
+                        "  [Enter] Escribir archivo   [Esc] Cancelar"
+                    },
+                    Style::default().fg(c_muted),
+                )),
+            ]
+        }
+        _ => vec![
+            Line::from(""),
+            Line::from(Span::styled(
+                "  ✓ ¡Listo! HALCON.md guardado.",
+                Style::default().fg(c_success).add_modifier(Modifier::BOLD),
+            )),
+            Line::from(""),
+            Line::from(Span::styled(
+                "  [Enter/Esc] Cerrar",
+                Style::default().fg(c_muted),
+            )),
+        ],
+    };
+
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
+}
+
+/// Render the plugin recommendation overlay.
+///
+/// Shows tiered plugin suggestions with keyboard navigation:
+/// - ↑/↓ — move selection
+/// - [A] — show /plugins auto hint
+/// - [Esc] — close
+pub fn render_plugin_suggest(
+    frame: &mut Frame,
+    area: Rect,
+    suggestions: &[PluginSuggestionItem],
+    selected: usize,
+    dry_run: bool,
+) {
+    let p = &theme::active().palette;
+    let c_border = p.border_ratatui();
+    let c_accent = p.accent_ratatui();
+    let c_text = p.text_ratatui();
+    let c_muted = p.muted_ratatui();
+    let c_success = p.success_ratatui();
+    let c_warning = p.warning_ratatui();
+    let c_running = p.running_ratatui();
+
+    let popup_width = area.width.saturating_sub(8).min(70);
+    let popup_height = area.height.saturating_sub(6).min(24);
+    let x = area.x + (area.width.saturating_sub(popup_width)) / 2;
+    let y = area.y + (area.height.saturating_sub(popup_height)) / 2;
+    let popup_area = Rect {
+        x,
+        y,
+        width: popup_width,
+        height: popup_height,
+    };
+
+    frame.render_widget(Clear, popup_area);
+
+    let title = if dry_run {
+        " ◈ HALCON — Plugin Recommendations [dry-run] "
+    } else {
+        " ◈ HALCON — Plugin Recommendations "
+    };
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(c_border))
+        .title(Span::styled(
+            title,
+            Style::default().fg(c_accent).add_modifier(Modifier::BOLD),
+        ));
+
+    let inner = block.inner(popup_area);
+    frame.render_widget(block, popup_area);
+
+    let mut lines: Vec<Line> = Vec::new();
+
+    if suggestions.is_empty() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "  No plugins recommended for this project.",
+            Style::default().fg(c_muted),
+        )));
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "  [Esc] Close",
+            Style::default().fg(c_muted),
+        )));
+    } else {
+        // Group by tier
+        let mut last_tier = String::new();
+        for (i, item) in suggestions.iter().enumerate() {
+            if item.tier != last_tier {
+                // Tier header
+                lines.push(Line::from(""));
+                let tier_symbol = match item.tier.as_str() {
+                    "Essential" => "◆",
+                    "Recommended" => "◇",
+                    "Optional" => "▷",
+                    _ => "○",
+                };
+                let tier_color = match item.tier.as_str() {
+                    "Essential" => c_running,
+                    "Recommended" => c_accent,
+                    "Optional" => c_muted,
+                    _ => c_muted,
+                };
+                lines.push(Line::from(Span::styled(
+                    format!("  {} {}", tier_symbol, item.tier),
+                    Style::default().fg(tier_color).add_modifier(Modifier::BOLD),
+                )));
+                last_tier = item.tier.clone();
+            }
+
+            let is_selected = i == selected;
+            let prefix = if is_selected { "  ❯ " } else { "    " };
+            let name_style = if is_selected {
+                Style::default().fg(c_accent).add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(c_text)
+            };
+
+            lines.push(Line::from(vec![
+                Span::styled(prefix, name_style),
+                Span::styled(&item.plugin_id, name_style),
+                if item.already_installed {
+                    Span::styled(" [installed]", Style::default().fg(c_success))
+                } else {
+                    Span::raw("")
+                },
+            ]));
+            // Rationale line
+            let rationale_display: String = item
+                .rationale
+                .chars()
+                .take(popup_width.saturating_sub(6) as usize)
+                .collect();
+            lines.push(Line::from(Span::styled(
+                format!("      {}", rationale_display),
+                Style::default().fg(c_muted),
+            )));
+        }
+
+        lines.push(Line::from(""));
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled("  [A] Auto-install all  ", Style::default().fg(c_warning)),
+            Span::styled("[↑↓] Navigate  ", Style::default().fg(c_muted)),
+            Span::styled("[Esc] Close", Style::default().fg(c_muted)),
+        ]));
+    }
+
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
+}
+
+/// Render the update-available notification overlay.
+///
+/// Shows current vs new version, optional release notes, download size, and
+/// two actions: [Enter] install now, [Esc] dismiss.
+pub fn render_update_available(
+    frame: &mut Frame,
+    area: Rect,
+    current: &str,
+    remote: &str,
+    notes: &Option<String>,
+    published_at: &Option<String>,
+    size_bytes: u64,
+) {
+    let p = &theme::active().palette;
+    let c_border = p.border_ratatui();
+    let c_accent = p.accent_ratatui();
+    let c_text = p.text_ratatui();
+    let c_muted = p.muted_ratatui();
+    let c_success = p.success_ratatui();
+    let c_warning = p.warning_ratatui();
+
+    // Compute popup height: base + notes lines
+    let notes_lines = notes
+        .as_deref()
+        .map(|n| n.lines().count().min(10) as u16)
+        .unwrap_or(0);
+    let popup_height = (10 + notes_lines).min(area.height.saturating_sub(4));
+    let popup_width = area.width.saturating_sub(8).min(68);
+    let x = area.x + (area.width.saturating_sub(popup_width)) / 2;
+    let y = area.y + (area.height.saturating_sub(popup_height)) / 2;
+    let popup_area = Rect {
+        x,
+        y,
+        width: popup_width,
+        height: popup_height,
+    };
+
+    frame.render_widget(Clear, popup_area);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(c_warning))
+        .title(Span::styled(
+            " ⚡ Actualización disponible ",
+            Style::default().fg(c_warning).add_modifier(Modifier::BOLD),
+        ));
+    let inner = block.inner(popup_area);
+    frame.render_widget(block, popup_area);
+
+    let mut lines: Vec<Line> = Vec::new();
+    lines.push(Line::from(""));
+
+    // Version info
+    let date_str = published_at
+        .as_deref()
+        .and_then(|d| d.get(..10))
+        .map(|d| format!("  (publicado {d})"))
+        .unwrap_or_default();
+    lines.push(Line::from(vec![
+        Span::styled("  Versión actual:  ", Style::default().fg(c_muted)),
+        Span::styled(format!("v{current}"), Style::default().fg(c_text)),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("  Nueva versión:   ", Style::default().fg(c_muted)),
+        Span::styled(
+            format!("v{remote}"),
+            Style::default().fg(c_success).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(date_str, Style::default().fg(c_muted)),
+    ]));
+
+    if size_bytes > 0 {
+        let mb = size_bytes as f64 / 1_048_576.0;
+        lines.push(Line::from(vec![
+            Span::styled("  Tamaño:          ", Style::default().fg(c_muted)),
+            Span::styled(format!("{mb:.1} MB"), Style::default().fg(c_text)),
+        ]));
+    }
+
+    lines.push(Line::from(""));
+
+    // Release notes (capped)
+    if let Some(ref note_text) = notes {
+        lines.push(Line::from(Span::styled(
+            "  Notas de versión:",
+            Style::default().fg(c_accent).add_modifier(Modifier::BOLD),
+        )));
+        for note_line in note_text.lines().take(10) {
+            lines.push(Line::from(Span::styled(
+                format!("    {note_line}"),
+                Style::default().fg(c_text),
+            )));
+        }
+        lines.push(Line::from(""));
+    }
+
+    // Divider + actions
+    lines.push(Line::from(Span::styled(
+        "  ─────────────────────────────────────────",
+        Style::default().fg(c_muted),
+    )));
+    lines.push(Line::from(vec![
+        Span::styled("  [", Style::default().fg(c_muted)),
+        Span::styled(
+            "Enter",
+            Style::default().fg(c_success).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled("] Instalar ahora    [", Style::default().fg(c_muted)),
+        Span::styled(
+            "Esc",
+            Style::default().fg(c_muted).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled("] Posponer", Style::default().fg(c_muted)),
+    ]));
+
+    let paragraph = ratatui::widgets::Paragraph::new(lines).wrap(Wrap { trim: false });
+    frame.render_widget(paragraph, inner);
+}
+
+/// Render the model selector overlay.
+///
+/// Shows a list of available models with keyboard navigation.
+/// Optionally shows an error banner at the top when switching after a failure.
+pub fn render_model_selector(
+    frame: &mut Frame,
+    area: Rect,
+    models: &[(String, String, String)],
+    selected: usize,
+    current_model: &str,
+    error_context: Option<&str>,
+) {
+    let p = &theme::active().palette;
+    let c_border = p.border_ratatui();
+    let c_accent = p.accent_ratatui();
+    let c_text = p.text_ratatui();
+    let c_muted = p.muted_ratatui();
+    let c_running = p.running_ratatui();
+    let c_success = p.success_ratatui();
+    let c_warning = p.warning_ratatui();
+    let c_highlight = p.bg_highlight_ratatui();
+
+    let popup_width = area.width.saturating_sub(8).min(72);
+    let extra_height = if error_context.is_some() { 3u16 } else { 0u16 };
+    let list_height = (models.len() as u16).max(3).min(15);
+    let popup_height = (list_height + 6 + extra_height).min(area.height.saturating_sub(4));
+    let x = area.x + (area.width.saturating_sub(popup_width)) / 2;
+    let y = area.y + (area.height.saturating_sub(popup_height)) / 2;
+    let popup_area = Rect {
+        x,
+        y,
+        width: popup_width,
+        height: popup_height,
+    };
+
+    frame.render_widget(Clear, popup_area);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(c_border))
+        .title(Span::styled(
+            " ◈ Seleccionar Modelo  (Ctrl+M) ",
+            Style::default().fg(c_accent).add_modifier(Modifier::BOLD),
+        ));
+
+    let inner = block.inner(popup_area);
+    frame.render_widget(block, popup_area);
+
+    let mut lines: Vec<Line> = Vec::new();
+
+    // Error banner (shown when switching after a failure).
+    if let Some(err) = error_context {
+        lines.push(Line::from(vec![
+            Span::styled(
+                "⚠ ",
+                Style::default().fg(c_warning).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!(
+                    "Error anterior: {}",
+                    &err[..err.len().min(popup_width as usize - 14)]
+                ),
+                Style::default().fg(c_warning),
+            ),
+        ]));
+        lines.push(Line::from(Span::styled(
+            "  Selecciona un modelo distinto o presiona Esc para conservar el actual.",
+            Style::default().fg(c_muted),
+        )));
+        lines.push(Line::from(""));
+    }
+
+    // Header.
+    lines.push(Line::from(vec![
+        Span::styled(
+            "  PROVEEDOR",
+            Style::default().fg(c_accent).add_modifier(Modifier::BOLD),
+        ),
+        Span::raw("   "),
+        Span::styled(
+            "MODELO",
+            Style::default().fg(c_accent).add_modifier(Modifier::BOLD),
+        ),
+    ]));
+    lines.push(Line::from(Span::styled(
+        "─".repeat(popup_width.saturating_sub(4) as usize),
+        Style::default().fg(c_muted),
+    )));
+
+    if models.is_empty() {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            "  No hay modelos disponibles.",
+            Style::default().fg(c_muted),
+        )));
+        lines.push(Line::from(Span::styled(
+            "  Conecta un proveedor en ~/.halcon/config.toml",
+            Style::default().fg(c_muted),
+        )));
+    } else {
+        let scroll = if selected
+            >= (inner.height as usize).saturating_sub(4 + extra_height as usize)
+        {
+            selected
+                .saturating_sub((inner.height as usize).saturating_sub(5 + extra_height as usize))
+        } else {
+            0
+        };
+
+        for (i, (provider, model_id, label)) in models.iter().enumerate().skip(scroll) {
+            if lines.len() >= inner.height.saturating_sub(2) as usize {
+                break;
+            }
+            let is_selected = i == selected;
+            let is_current = model_id == current_model || label == current_model;
+
+            let prefix = if is_selected { "  ▸ " } else { "    " };
+            let active_marker = if is_current { " ✓" } else { "" };
+
+            let style = if is_selected {
+                Style::default()
+                    .fg(c_running)
+                    .bg(c_highlight)
+                    .add_modifier(Modifier::BOLD)
+            } else if is_current {
+                Style::default().fg(c_success)
+            } else {
+                Style::default().fg(c_text)
+            };
+
+            let provider_col = format!("{:<14}", &provider[..provider.len().min(14)]);
+            let label_display: String = label
+                .chars()
+                .take(popup_width.saturating_sub(22) as usize)
+                .collect();
+
+            lines.push(Line::from(vec![
+                Span::styled(prefix, style),
+                Span::styled(provider_col, style),
+                Span::styled(label_display, style),
+                Span::styled(
+                    active_marker,
+                    Style::default().fg(c_success).add_modifier(Modifier::BOLD),
+                ),
+            ]));
+        }
+    }
+
+    // Footer.
+    lines.push(Line::from(""));
+    lines.push(Line::from(vec![
+        Span::styled("  [↑↓] Navegar  ", Style::default().fg(c_muted)),
+        Span::styled(
+            "[Enter]",
+            Style::default().fg(c_success).add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(" Confirmar  ", Style::default().fg(c_muted)),
+        Span::styled("[Esc]", Style::default().fg(c_accent)),
+        Span::styled(" Cancelar", Style::default().fg(c_muted)),
+    ]));
+
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), inner);
 }
 
 #[cfg(test)]
@@ -879,8 +1709,12 @@ mod tests {
         assert_eq!(OverlayKind::Help, OverlayKind::Help);
         assert_ne!(OverlayKind::Help, OverlayKind::Search);
         assert_eq!(
-            OverlayKind::PermissionPrompt { tool: "bash".into() },
-            OverlayKind::PermissionPrompt { tool: "bash".into() },
+            OverlayKind::PermissionPrompt {
+                tool: "bash".into()
+            },
+            OverlayKind::PermissionPrompt {
+                tool: "bash".into()
+            },
         );
     }
 
@@ -923,7 +1757,9 @@ mod tests {
     fn filter_by_description() {
         let cmds = default_commands();
         let filtered = filter_commands(&cmds, "keybind");
-        assert!(filtered.iter().any(|i| i.description.to_lowercase().contains("keybind")));
+        assert!(filtered
+            .iter()
+            .any(|i| i.description.to_lowercase().contains("keybind")));
     }
 
     #[test]
@@ -939,5 +1775,73 @@ mod tests {
         let filtered_lower = filter_commands(&cmds, "quit");
         let filtered_upper = filter_commands(&cmds, "QUIT");
         assert_eq!(filtered_lower.len(), filtered_upper.len());
+    }
+
+    // --- Slash-autocomplete contract tests ---
+
+    #[test]
+    fn default_commands_contains_extended_commands() {
+        let cmds = default_commands();
+        let labels: Vec<&str> = cmds.iter().map(|c| c.label.as_str()).collect();
+        assert!(labels.contains(&"/init"), "missing /init");
+        assert!(labels.contains(&"/tools"), "missing /tools");
+        assert!(labels.contains(&"/plugins"), "missing /plugins");
+        assert!(labels.contains(&"/dry-run"), "missing /dry-run");
+        assert!(labels.contains(&"/reasoning"), "missing /reasoning");
+        assert!(labels.contains(&"/inspect"), "missing /inspect");
+    }
+
+    #[test]
+    fn filter_slash_prefix_returns_matching_commands() {
+        let cmds = default_commands();
+        // Simulates what happens when the user types "/pa" — should match /pause and /panel
+        let filtered = filter_commands(&cmds, "pa");
+        assert!(
+            filtered.iter().any(|i| i.label == "/pause"),
+            "/pause must match 'pa'"
+        );
+        assert!(
+            filtered.iter().any(|i| i.label == "/panel"),
+            "/panel must match 'pa'"
+        );
+        // Should NOT match /quit
+        assert!(
+            !filtered.iter().any(|i| i.label == "/quit"),
+            "/quit must not match 'pa'"
+        );
+    }
+
+    #[test]
+    fn filter_empty_prefix_returns_all_commands() {
+        let cmds = default_commands();
+        // "/" with no suffix → empty query → all commands shown
+        let filtered = filter_commands(&cmds, "");
+        assert_eq!(
+            filtered.len(),
+            cmds.len(),
+            "empty query must return all commands"
+        );
+    }
+
+    #[test]
+    fn all_default_commands_have_non_empty_action() {
+        for cmd in default_commands() {
+            assert!(
+                !cmd.action.is_empty(),
+                "command '{}' has an empty action string",
+                cmd.label,
+            );
+        }
+    }
+
+    #[test]
+    fn all_default_commands_label_starts_with_slash() {
+        for cmd in default_commands() {
+            assert!(
+                cmd.label.starts_with('/'),
+                "command label '{}' does not start with '/'",
+                cmd.label,
+            );
+        }
     }
 }

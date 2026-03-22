@@ -66,12 +66,8 @@ impl ContextVisualization {
             let from_color = self.gauge_color(self.last_l0_pct);
             let to_color = self.gauge_color(data.l0_pct);
 
-            self.transitions.start(
-                "l0_gauge",
-                from_color,
-                to_color,
-                Duration::from_millis(500),
-            );
+            self.transitions
+                .start("l0_gauge", from_color, to_color, Duration::from_millis(500));
         }
 
         // Detect L0 overflow and start warning pulse
@@ -112,11 +108,7 @@ impl ContextVisualization {
         let empty = gauge_width.saturating_sub(filled);
 
         let color = self.gauge_color(pct);
-        let bar = format!(
-            "[{}{}]",
-            "█".repeat(filled),
-            "░".repeat(empty)
-        );
+        let bar = format!("[{}{}]", "█".repeat(filled), "░".repeat(empty));
 
         vec![
             Span::styled(
@@ -140,7 +132,8 @@ impl ContextVisualization {
         let l0_color = if self.highlights.is_pulsing("l0_overflow") {
             self.highlights.current("l0_overflow", p.warning)
         } else {
-            self.transitions.current("l0_gauge", self.gauge_color(self.data.l0_pct))
+            self.transitions
+                .current("l0_gauge", self.gauge_color(self.data.l0_pct))
         };
 
         lines.push(Line::from(vec![
@@ -178,8 +171,7 @@ impl ContextVisualization {
         lines.push(Line::from(vec![
             Span::styled(
                 "L2 Cold: ",
-                Style::default()
-                    .fg(self.gauge_color(self.data.l2_pct).to_ratatui_color()),
+                Style::default().fg(self.gauge_color(self.data.l2_pct).to_ratatui_color()),
             ),
             Span::raw(format!("{} entries", self.data.l2_entries)),
         ]));
@@ -190,8 +182,7 @@ impl ContextVisualization {
         lines.push(Line::from(vec![
             Span::styled(
                 "L3 Sem:  ",
-                Style::default()
-                    .fg(self.gauge_color(self.data.l3_pct).to_ratatui_color()),
+                Style::default().fg(self.gauge_color(self.data.l3_pct).to_ratatui_color()),
             ),
             Span::raw(format!("{} entries", self.data.l3_entries)),
         ]));
@@ -202,8 +193,7 @@ impl ContextVisualization {
         lines.push(Line::from(vec![
             Span::styled(
                 "L4 Arch: ",
-                Style::default()
-                    .fg(self.gauge_color(self.data.l4_pct).to_ratatui_color()),
+                Style::default().fg(self.gauge_color(self.data.l4_pct).to_ratatui_color()),
             ),
             Span::raw(format!("{} entries", self.data.l4_entries)),
         ]));

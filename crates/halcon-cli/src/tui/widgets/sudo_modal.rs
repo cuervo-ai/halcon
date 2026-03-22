@@ -152,10 +152,7 @@ impl SudoModal {
                 .add_modifier(Modifier::BOLD),
         )));
         lines.push(Line::from(vec![
-            Span::styled(
-                "  ▶ ",
-                Style::default().fg(p.accent_ratatui()),
-            ),
+            Span::styled("  ▶ ", Style::default().fg(p.accent_ratatui())),
             Span::styled(pw_display, pw_style),
             // Blinking cursor indicator
             Span::styled("│", Style::default().fg(p.accent_ratatui())),
@@ -172,7 +169,9 @@ impl SudoModal {
         lines.push(Line::from(vec![
             Span::styled(
                 remember_check,
-                Style::default().fg(remember_color).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(remember_color)
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
                 " Remember for 5 minutes  ",
@@ -192,16 +191,34 @@ impl SudoModal {
         lines.push(Line::from(""));
 
         let mut action_row1 = vec![
-            Span::styled("[Enter]", Style::default().fg(p.success_ratatui()).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "[Enter]",
+                Style::default()
+                    .fg(p.success_ratatui())
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(" Submit     ", Style::default().fg(p.text_ratatui())),
-            Span::styled("[Esc]", Style::default().fg(p.error_ratatui()).add_modifier(Modifier::BOLD)),
+            Span::styled(
+                "[Esc]",
+                Style::default()
+                    .fg(p.error_ratatui())
+                    .add_modifier(Modifier::BOLD),
+            ),
             Span::styled(" Cancel", Style::default().fg(p.text_ratatui())),
         ];
 
         if show_use_cached && self.context.has_cached {
             action_row1.push(Span::styled("     ", Style::default()));
-            action_row1.push(Span::styled("[C]", Style::default().fg(p.cached_ratatui()).add_modifier(Modifier::BOLD)));
-            action_row1.push(Span::styled(" Use cached", Style::default().fg(p.text_ratatui())));
+            action_row1.push(Span::styled(
+                "[C]",
+                Style::default()
+                    .fg(p.cached_ratatui())
+                    .add_modifier(Modifier::BOLD),
+            ));
+            action_row1.push(Span::styled(
+                " Use cached",
+                Style::default().fg(p.text_ratatui()),
+            ));
         }
 
         lines.push(Line::from(action_row1));
@@ -240,11 +257,17 @@ mod tests {
 
     #[test]
     fn sudo_modal_context_preview_truncates() {
-        let long_cmd = "sudo apt install ".to_string() + &"x".repeat(100);
+        let long_cmd = format!("sudo apt install {}", "x".repeat(100));
         let ctx = SudoModalContext::new("bash", &long_cmd, false);
         let preview = ctx.command_preview();
-        assert!(preview.len() <= 82, "Preview should be at most 80 chars + ellipsis");
-        assert!(preview.ends_with('…'), "Long commands should end with ellipsis");
+        assert!(
+            preview.len() <= 82,
+            "Preview should be at most 80 chars + ellipsis"
+        );
+        assert!(
+            preview.ends_with('…'),
+            "Long commands should end with ellipsis"
+        );
     }
 
     #[test]

@@ -44,6 +44,12 @@ pub struct FeatureStatus {
     pub context_pipeline_active: bool,
     pub tool_count: usize,
     pub background_tools_enabled: bool,
+    /// Whether the multimodal subsystem (image/audio/video analysis) is active.
+    pub multimodal_enabled: bool,
+    /// Whether LoopCritic adversarial evaluation is active (adds ~1-3s per loop).
+    pub loop_critic_enabled: bool,
+    /// Whether a project-level HALCON.md was found in the working directory.
+    pub project_config: bool,
 }
 
 impl Default for FeatureStatus {
@@ -55,6 +61,9 @@ impl Default for FeatureStatus {
             context_pipeline_active: true,
             tool_count: 23,
             background_tools_enabled: true,
+            multimodal_enabled: false,
+            loop_critic_enabled: false,
+            project_config: false,
         }
     }
 }
@@ -129,8 +138,8 @@ pub fn render_startup_with_features(
             let color = match i {
                 0 | 4 => &col0,
                 1 | 3 => &col1,
-                2     => &col0,
-                _     => &col2,
+                2 => &col0,
+                _ => &col2,
             };
             let _ = writeln!(out, "  {color}{line}{r}");
         }
@@ -141,24 +150,27 @@ pub fn render_startup_with_features(
     }
 
     // Precision tagline — version + identity statement.
-    let blade   = t.palette.primary.fg();
-    let dim     = t.palette.text_dim.fg();
-    let muted   = t.palette.muted.fg();
-    let _ = writeln!(out, "  {blade}v{version}{r}  {dim}AI-native engineering CLI{r}");
+    let blade = t.palette.primary.fg();
+    let dim = t.palette.text_dim.fg();
+    let muted = t.palette.muted.fg();
+    let _ = writeln!(
+        out,
+        "  {blade}v{version}{r}  {dim}AI-native engineering CLI{r}"
+    );
 
     // HALCÓN divider — thin, precise.
     let rule_width = width.min(54);
     components::hr(rule_width, &mut out);
 
     // Environment info — minimal, scannable.
-    let connected_icon  = if provider_connected { "◆" } else { "◇" };
-    let provider_color  = if provider_connected {
+    let connected_icon = if provider_connected { "◆" } else { "◇" };
+    let provider_color = if provider_connected {
         t.palette.success.fg()
     } else {
         t.palette.warning.fg()
     };
     let provider_val = format!("{provider_color}{connected_icon}{r} {provider}");
-    let session_val  = format!("{session_id} ({session_type})");
+    let session_val = format!("{session_id} ({session_type})");
 
     let routing_val = routing
         .filter(|rd| !rd.fallback_chain.is_empty())
@@ -174,15 +186,13 @@ pub fn render_startup_with_features(
         kv.push(("Routing".to_string(), rv.clone()));
     }
 
-    let kv_refs: Vec<(&str, &str)> = kv.iter()
-        .map(|(k, v)| (k.as_str(), v.as_str()))
-        .collect();
+    let kv_refs: Vec<(&str, &str)> = kv.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
     components::kv_table(&kv_refs, 2, &mut out);
 
     // Capability strip — compact, one line, no labels. Only what matters.
     if width >= 60 {
         let _ = writeln!(out);
-        let on  = t.palette.primary.fg();
+        let on = t.palette.primary.fg();
         let off = t.palette.muted.fg();
 
         // Each dot: on = falcon blue filled, off = muted empty
@@ -202,11 +212,13 @@ pub fn render_startup_with_features(
 
         let _ = writeln!(
             out,
-            "  {}  {}  {}  {}  {muted}{tools_lbl}{r}",
+            "  {}  {}  {}  {}  {}  {}  {muted}{tools_lbl}{r}",
             dot(features.tui_active, "TUI"),
             dot(features.context_pipeline_active, "L0-L4"),
             dot(features.reasoning_enabled, "Reasoning"),
             dot(features.orchestrator_enabled, "Orchestrator"),
+            dot(features.multimodal_enabled, "Multimodal"),
+            dot(features.project_config, "project cfg"),
         );
     }
 
@@ -225,9 +237,7 @@ pub fn render_minimal(version: &str, provider: &str, model: &str, fallback_count
         Some(n) if n > 0 => format!(" | failover: {n} fallbacks"),
         _ => String::new(),
     };
-    eprintln!(
-        "{accent}halcon{r} {dim}v{version}{r} | {provider}/{model}{suffix}",
-    );
+    eprintln!("{accent}halcon{r} {dim}v{version}{r} | {provider}/{model}{suffix}",);
 }
 
 #[cfg(test)]
@@ -292,15 +302,17 @@ mod tests {
         let routing = RoutingDisplay {
             mode: "failover".into(),
             strategy: "balanced".into(),
-            fallback_chain: vec![
-                "anthropic".into(),
-                "deepseek".into(),
-                "openai".into(),
-            ],
+            fallback_chain: vec!["anthropic".into(), "deepseek".into(), "openai".into()],
         };
         render_startup(
-            "0.1.0", "anthropic", true, "claude-sonnet",
-            "abc12345", "new", 0, Some(&routing),
+            "0.1.0",
+            "anthropic",
+            true,
+            "claude-sonnet",
+            "abc12345",
+            "new",
+            0,
+            Some(&routing),
         );
     }
 
@@ -313,8 +325,14 @@ mod tests {
         };
         // Empty chain should not add a Routing row — same as None.
         render_startup(
-            "0.1.0", "echo", false, "echo",
-            "00000000", "new", 0, Some(&routing),
+            "0.1.0",
+            "echo",
+            false,
+            "echo",
+            "00000000",
+            "new",
+            0,
+            Some(&routing),
         );
     }
 
@@ -340,6 +358,9 @@ mod tests {
             context_pipeline_active: true,
             tool_count: 23,
             background_tools_enabled: true,
+            multimodal_enabled: true,
+            loop_critic_enabled: true,
+            project_config: true,
         };
         render_startup_with_features(
             "0.2.0",
@@ -363,6 +384,9 @@ mod tests {
             context_pipeline_active: true,
             tool_count: 20,
             background_tools_enabled: false,
+            multimodal_enabled: false,
+            loop_critic_enabled: false,
+            project_config: false,
         };
         render_startup_with_features(
             "0.2.0",
@@ -408,7 +432,10 @@ fn render_oklch_spectrum(
     let accent = palette.accent.fg();
 
     // Spectrum Bar 1: Hue dimension (40 steps, 9° each = 0° to 351°)
-    let _ = writeln!(out, "  {dim}╔═══════════════════════════════════════════╗{reset}");
+    let _ = writeln!(
+        out,
+        "  {dim}╔═══════════════════════════════════════════╗{reset}"
+    );
     let _ = write!(out, "  {dim}║{reset} ");
 
     // Pre-compute all 40 hue colors
@@ -426,7 +453,10 @@ fn render_oklch_spectrum(
     }
 
     let _ = writeln!(out, " {dim}║{reset}");
-    let _ = writeln!(out, "  {dim}╚═══════════════════════════════════════════╝{reset}");
+    let _ = writeln!(
+        out,
+        "  {dim}╚═══════════════════════════════════════════╝{reset}"
+    );
     let _ = writeln!(out);
 
     // Spectrum Bar 2: Lightness dimension (20 steps from dark to light)
@@ -467,12 +497,12 @@ fn render_oklch_spectrum(
     let _ = write!(out, "  {dim}║{reset} ");
 
     let colors = [
-        &palette.error,      // Red
-        &palette.warning,    // Yellow
-        &palette.success,    // Green
-        &palette.cyan,       // Cyan
-        &palette.neon_blue,  // Blue
-        &palette.violet,     // Violet
+        &palette.error,     // Red
+        &palette.warning,   // Yellow
+        &palette.success,   // Green
+        &palette.cyan,      // Cyan
+        &palette.neon_blue, // Blue
+        &palette.violet,    // Violet
     ];
 
     for color in &colors {

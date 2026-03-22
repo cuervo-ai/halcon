@@ -1,4 +1,6 @@
+pub mod context;
 pub mod error;
+pub mod security;
 pub mod traits;
 pub mod types;
 
@@ -104,7 +106,8 @@ mod tests {
             "created_at": "2026-01-01T00:00:00Z",
             "updated_at": "2026-01-01T00:00:00Z"
         }"#;
-        let session: Session = serde_json::from_str(json).expect("should deserialize without new fields");
+        let session: Session =
+            serde_json::from_str(json).expect("should deserialize without new fields");
         assert_eq!(session.tool_invocations, 0);
         assert_eq!(session.agent_rounds, 0);
         assert_eq!(session.total_latency_ms, 0);

@@ -91,9 +91,7 @@ const SKIP_DIRS: &[&str] = &[
     "venv",
 ];
 
-const SOURCE_EXTENSIONS: &[&str] = &[
-    "rs", "py", "js", "ts", "jsx", "tsx", "mjs", "mts", "go",
-];
+const SOURCE_EXTENSIONS: &[&str] = &["rs", "py", "js", "ts", "jsx", "tsx", "mjs", "mts", "go"];
 
 fn extract_until_brace_or_semi(line: &str) -> String {
     let end = line
@@ -297,9 +295,7 @@ fn extract_js(content: &str, path: &str) -> Vec<SymbolMatch> {
             });
             continue;
         }
-        if (t.starts_with("export const ") || t.starts_with("export let "))
-            && !t.contains("=>")
-        {
+        if (t.starts_with("export const ") || t.starts_with("export let ")) && !t.contains("=>") {
             syms.push(SymbolMatch {
                 file: path.into(),
                 line: ln + 1,
@@ -411,9 +407,7 @@ fn scan_recursive(
         if path.is_dir() {
             let name = entry.file_name();
             let name_str = name.to_string_lossy();
-            if !name_str.starts_with('.')
-                && !SKIP_DIRS.contains(&name_str.as_ref())
-            {
+            if !name_str.starts_with('.') && !SKIP_DIRS.contains(&name_str.as_ref()) {
                 dirs.push(path);
             }
         } else if path.is_file() {
@@ -472,11 +466,9 @@ impl Tool for SymbolSearchTool {
     }
 
     async fn execute(&self, input: ToolInput) -> Result<ToolOutput> {
-        let query = input.arguments["query"]
-            .as_str()
-            .ok_or_else(|| {
-                HalconError::InvalidInput("symbol_search requires 'query' string".into())
-            })?;
+        let query = input.arguments["query"].as_str().ok_or_else(|| {
+            HalconError::InvalidInput("symbol_search requires 'query' string".into())
+        })?;
 
         let base_path = input.arguments["path"]
             .as_str()
@@ -648,9 +640,7 @@ fn extract_name_from_sig(sig: &str) -> String {
     for kw in &keywords {
         if let Some(rest) = trimmed.strip_prefix(kw) {
             // Name is the first word (up to '(' or '<' or ' ' or end).
-            let name_end = rest
-                .find(['(', '<', ' ', ':'])
-                .unwrap_or(rest.len());
+            let name_end = rest.find(['(', '<', ' ', ':']).unwrap_or(rest.len());
             return rest[..name_end].to_string();
         }
     }

@@ -171,7 +171,7 @@ mod tests {
     fn test_sota_targets_fail() {
         let agg = AggregateEvaluation {
             mean_ndcg_at_5: 0.75,
-            mean_ndcg_at_10: 0.75, // Below 0.8
+            mean_ndcg_at_10: 0.75,     // Below 0.8
             mean_precision_at_5: 0.65, // Below 0.7
             mean_precision_at_10: 0.60,
             mean_recall_at_10: 0.50,

@@ -61,6 +61,7 @@ impl StreamRenderer {
             }
             ModelChunk::ToolUseDelta { .. } => Ok(false),
             ModelChunk::ToolUse { .. } => Ok(false),
+            ModelChunk::ThinkingDelta(_) => Ok(false),
             ModelChunk::Error(msg) => {
                 self.flush_code_block()?;
                 let mut out = io::stdout().lock();
@@ -78,6 +79,12 @@ impl StreamRenderer {
     }
 
     fn process_delta(&mut self, text: &str) -> io::Result<()> {
+        // UTF-8 SAFETY: all byte offsets here are derived from ASCII-only patterns:
+        //   "```"  is 3 × 0x60 (backtick, 1 byte each) → fence_pos + 3 always valid
+        //   '\n'   is 0x0A (1 byte)                     → nl + 1 always valid
+        // No multi-byte char can produce 0x60 or 0x0A as a continuation byte
+        // (UTF-8 continuation bytes are always in the range 0x80–0xBF), so
+        // find("```") and find('\n') always land on valid char boundaries.
         let mut remaining = text;
 
         while !remaining.is_empty() {
@@ -92,9 +99,12 @@ impl StreamRenderer {
                             out.flush()?;
                         }
                         // Extract language label (rest of line after ```).
+                        // fence_pos + 3 safe: "```" is exactly 3 ASCII bytes (see above).
                         let after = &remaining[fence_pos + 3..];
                         if let Some(nl) = after.find('\n') {
+                            // after[..nl] safe: nl is byte offset of '\n' (1-byte ASCII char).
                             self.code_lang = after[..nl].trim().to_string();
+                            // after[nl+1..] safe: '\n' is 1 byte, so nl+1 is next char start.
                             remaining = &after[nl + 1..];
                         } else {
                             // Language label might span across chunks.
@@ -116,8 +126,9 @@ impl StreamRenderer {
                         // Append code up to the closing fence.
                         self.code_buf.push_str(&remaining[..fence_pos]);
                         self.flush_code_block()?;
-                        // Skip past closing ``` and optional trailing newline.
+                        // fence_pos + 3 safe: "```" is 3 ASCII bytes (see above).
                         let after = &remaining[fence_pos + 3..];
+                        // strip_prefix('\n') uses the standard library which is char-aware.
                         remaining = after.strip_prefix('\n').unwrap_or(after);
                         self.state = State::Prose;
                     } else {
@@ -257,8 +268,10 @@ mod tests {
     #[test]
     fn multiple_code_blocks_in_sequence() {
         let mut r = StreamRenderer::new();
-        r.push(&ModelChunk::TextDelta("```rust\nfn a() {}\n```\ntext\n```py\npass\n```\n".into()))
-            .unwrap();
+        r.push(&ModelChunk::TextDelta(
+            "```rust\nfn a() {}\n```\ntext\n```py\npass\n```\n".into(),
+        ))
+        .unwrap();
         assert_eq!(r.state, State::Prose);
         assert!(r.full_text().contains("fn a() {}"));
         assert!(r.full_text().contains("pass"));
@@ -276,5 +289,83 @@ mod tests {
     fn default_creates_fresh_renderer() {
         let r = StreamRenderer::default();
         assert_eq!(r.full_text(), "");
+    }
+
+    // ── UTF-8 / streaming safety tests ───────────────────────────────────────
+
+    /// Unicode prose (CJK, emoji, diacritics) must accumulate correctly.
+    #[test]
+    fn unicode_prose_accumulates_correctly() {
+        let mut r = StreamRenderer::new();
+        r.push(&ModelChunk::TextDelta("Hello 世界! 🦀🚀".into()))
+            .unwrap();
+        r.push(&ModelChunk::TextDelta(" Café résumé.".into()))
+            .unwrap();
+        assert_eq!(r.full_text(), "Hello 世界! 🦀🚀 Café résumé.");
+    }
+
+    /// Code block containing multi-byte chars must buffer and flush correctly.
+    #[test]
+    fn code_block_with_unicode_content() {
+        let mut r = StreamRenderer::new();
+        r.push(&ModelChunk::TextDelta(
+            "```python\nprint('こんにちは 🌍')\n```\n".into(),
+        ))
+        .unwrap();
+        assert_eq!(r.state, State::Prose);
+        // full_text must contain the original content intact
+        assert!(r.full_text().contains("こんにちは"));
+        assert!(r.full_text().contains("🌍"));
+    }
+
+    /// Streaming a code block split across multiple chunks with Unicode.
+    /// Tests that the fence detector doesn't panic when ``` appears after CJK text.
+    #[test]
+    fn unicode_code_block_split_across_chunks() {
+        let mut r = StreamRenderer::new();
+        r.push(&ModelChunk::TextDelta("これは説明です\n```rust\n".into()))
+            .unwrap();
+        assert_eq!(r.state, State::CodeBlock);
+        r.push(&ModelChunk::TextDelta("let x = \"日本語\"; // 🦀\n".into()))
+            .unwrap();
+        assert_eq!(r.state, State::CodeBlock);
+        r.push(&ModelChunk::TextDelta("```\n".into())).unwrap();
+        assert_eq!(r.state, State::Prose);
+        assert!(r.full_text().contains("日本語"));
+    }
+
+    /// Box-drawing characters (common in tree output) must not corrupt the stream state.
+    #[test]
+    fn box_drawing_chars_in_prose() {
+        let mut r = StreamRenderer::new();
+        let tree = "├── src/\n│   ├── main.rs\n│   └── lib.rs\n└── Cargo.toml\n";
+        r.push(&ModelChunk::TextDelta(tree.into())).unwrap();
+        assert_eq!(r.state, State::Prose);
+        assert_eq!(r.full_text(), tree);
+    }
+
+    /// RTL text and combining marks must pass through unchanged.
+    #[test]
+    fn rtl_and_combining_marks_pass_through() {
+        let mut r = StreamRenderer::new();
+        let rtl = "مرحبا بالعالم";
+        let combining = "e\u{0301}"; // é (decomposed)
+        r.push(&ModelChunk::TextDelta(format!("{rtl} {combining}").into()))
+            .unwrap();
+        assert!(r.full_text().contains(rtl));
+        assert!(r.full_text().contains(combining));
+    }
+
+    /// Simulate partial UTF-8 streaming: multi-byte chars split across chunks
+    /// at a logical boundary (not mid-byte — the provider always sends complete chars).
+    #[test]
+    fn unicode_prose_split_between_chars() {
+        let mut r = StreamRenderer::new();
+        // Split between complete Unicode chars
+        r.push(&ModelChunk::TextDelta("Hello ".into())).unwrap();
+        r.push(&ModelChunk::TextDelta("世".into())).unwrap();
+        r.push(&ModelChunk::TextDelta("界".into())).unwrap();
+        r.push(&ModelChunk::TextDelta(" 🦀".into())).unwrap();
+        assert_eq!(r.full_text(), "Hello 世界 🦀");
     }
 }

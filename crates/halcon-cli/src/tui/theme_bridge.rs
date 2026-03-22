@@ -57,9 +57,7 @@ pub fn style_for_state(state: AgentVisualState) -> Style {
 /// Style for the status bar background.
 pub fn status_bar_style() -> Style {
     let p = &theme::active().palette;
-    Style::default()
-        .fg(color(&p.text))
-        .bg(color(&p.bg_panel))
+    Style::default().fg(color(&p.text)).bg(color(&p.bg_panel))
 }
 
 /// Border style based on focus state.

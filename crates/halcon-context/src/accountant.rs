@@ -29,10 +29,7 @@ pub enum BudgetResult {
     /// Tokens were successfully allocated.
     Allocated,
     /// Insufficient budget in the requested tier.
-    InsufficientBudget {
-        available: u32,
-        requested: u32,
-    },
+    InsufficientBudget { available: u32, requested: u32 },
 }
 
 /// Default budget fractions: L0=40%, L1=25%, L2=15%, L3=15%, L4=5%.
@@ -169,10 +166,8 @@ impl TokenAccountant {
                     .filter(|&j| j != i)
                     .max_by_key(|&j| self.tier_budgets[j].saturating_sub(self.tier_used[j]));
                 if let Some(d) = donor {
-                    let donor_available =
-                        self.tier_budgets[d].saturating_sub(self.tier_used[d]);
-                    let donor_min_headroom =
-                        self.tier_budgets[d].saturating_sub(min_per_tier);
+                    let donor_available = self.tier_budgets[d].saturating_sub(self.tier_used[d]);
+                    let donor_min_headroom = self.tier_budgets[d].saturating_sub(min_per_tier);
                     let steal = deficit.min(donor_available).min(donor_min_headroom);
                     self.tier_budgets[d] -= steal;
                     self.tier_budgets[i] += steal;
@@ -190,10 +185,17 @@ pub fn estimate_message_tokens(msg: &ChatMessage) -> u32 {
             .iter()
             .map(|b| match b {
                 ContentBlock::Text { text } => estimate_tokens(text) as u32,
-                ContentBlock::ToolUse { input, .. } => {
-                    estimate_tokens(&input.to_string()) as u32
-                }
+                ContentBlock::ToolUse { input, .. } => estimate_tokens(&input.to_string()) as u32,
                 ContentBlock::ToolResult { content, .. } => estimate_tokens(content) as u32,
+                ContentBlock::Image { source } => {
+                    use halcon_core::types::ImageSource;
+                    match source {
+                        ImageSource::Base64 { .. } => 85 + 170, // 1-tile minimum
+                        ImageSource::Url { .. } => 1_000,       // conservative estimate
+                        ImageSource::LocalPath { .. } => 1_000,
+                    }
+                }
+                ContentBlock::AudioTranscript { text, .. } => estimate_tokens(text) as u32,
             })
             .sum(),
     }
@@ -301,8 +303,14 @@ mod tests {
             role: Role::User,
             content: MessageContent::Text("hello world".to_string()),
         };
-        // 11 chars / 4 = 3 tokens (ceil)
-        assert_eq!(estimate_message_tokens(&msg), 3);
+        // tiktoken cl100k_base: "hello" = 1 token, " world" = 1 token → 2 tokens.
+        // The old heuristic (11 chars / 4 = ceil → 3) is no longer used.
+        // We check that the value is in the expected tiktoken range.
+        let tokens = estimate_message_tokens(&msg);
+        assert!(
+            tokens >= 1 && tokens <= 4,
+            "tiktoken 'hello world' should be 1–4 tokens, got {tokens}"
+        );
     }
 
     #[test]

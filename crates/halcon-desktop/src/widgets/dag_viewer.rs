@@ -31,8 +31,10 @@ pub fn render_dag(ui: &mut Ui, nodes: &[DagNode]) {
         .unwrap_or(1);
     let total_height = max_nodes_in_wave as f32 * v_spacing;
 
-    let (response, painter) =
-        ui.allocate_painter(Vec2::new(total_width + 40.0, total_height + 40.0), egui::Sense::hover());
+    let (response, painter) = ui.allocate_painter(
+        Vec2::new(total_width + 40.0, total_height + 40.0),
+        egui::Sense::hover(),
+    );
     let origin = response.rect.min + Vec2::new(20.0, 20.0);
 
     // Compute positions.

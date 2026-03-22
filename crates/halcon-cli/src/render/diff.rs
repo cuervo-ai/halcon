@@ -79,7 +79,11 @@ pub fn render_file_diff(diff: &FileDiff, out: &mut impl Write) {
     let r = theme::reset();
     let muted = t.palette.muted.fg();
     let accent = t.palette.accent.fg();
-    let bold = if color::color_enabled() { "\x1b[1m" } else { "" };
+    let bold = if color::color_enabled() {
+        "\x1b[1m"
+    } else {
+        ""
+    };
     let h = color::box_horiz();
 
     // File header.
@@ -105,11 +109,15 @@ pub fn render_file_diff(diff: &FileDiff, out: &mut impl Write) {
         String::new()
     };
 
-    let parts: Vec<&str> = [added_str.as_str(), deleted_str.as_str(), modified_str.as_str()]
-        .iter()
-        .filter(|s| !s.is_empty())
-        .copied()
-        .collect();
+    let parts: Vec<&str> = [
+        added_str.as_str(),
+        deleted_str.as_str(),
+        modified_str.as_str(),
+    ]
+    .iter()
+    .filter(|s| !s.is_empty())
+    .copied()
+    .collect();
     if !parts.is_empty() {
         let _ = writeln!(out, "  {muted}    {}{r}", parts.join(" "));
     }
@@ -187,7 +195,12 @@ pub fn compute_ai_diff(path: &str, old_text: &str, new_text: &str) -> FileDiff {
     compute_diff_with_kind(path, old_text, new_text, true)
 }
 
-fn compute_diff_with_kind(path: &str, old_text: &str, new_text: &str, ai_generated: bool) -> FileDiff {
+fn compute_diff_with_kind(
+    path: &str,
+    old_text: &str,
+    new_text: &str,
+    ai_generated: bool,
+) -> FileDiff {
     let old_lines: Vec<&str> = old_text.lines().collect();
     let new_lines: Vec<&str> = new_text.lines().collect();
 
@@ -232,9 +245,8 @@ fn compute_diff_with_kind(path: &str, old_text: &str, new_text: &str, ai_generat
 
         // Consume differing lines.
         while oi < old_lines.len() || ni < new_lines.len() {
-            let same = oi < old_lines.len()
-                && ni < new_lines.len()
-                && old_lines[oi] == new_lines[ni];
+            let same =
+                oi < old_lines.len() && ni < new_lines.len() && old_lines[oi] == new_lines[ni];
 
             if same {
                 // Check if we have enough trailing context.
@@ -435,7 +447,11 @@ mod tests {
         assert_eq!(diff.added, 1);
         assert_eq!(diff.deleted, 0);
         assert!(!diff.hunks.is_empty());
-        let has_added = diff.hunks.iter().flat_map(|h| &h.lines).any(|l| l.kind == ChangeKind::Added);
+        let has_added = diff
+            .hunks
+            .iter()
+            .flat_map(|h| &h.lines)
+            .any(|l| l.kind == ChangeKind::Added);
         assert!(has_added);
     }
 

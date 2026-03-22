@@ -8,8 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 use super::{
-    ObservabilityStore, QueryMetrics, RegressionAlert, RegressionSeverity,
-    TimeSeriesMetrics,
+    ObservabilityStore, QueryMetrics, RegressionAlert, RegressionSeverity, TimeSeriesMetrics,
 };
 use crate::Result;
 
@@ -184,8 +183,8 @@ impl HealthStatus {
     /// Get color code for UI rendering.
     pub fn color_code(&self) -> &'static str {
         match self {
-            Self::Healthy => "#22c55e", // green-500
-            Self::Warning => "#f59e0b", // amber-500
+            Self::Healthy => "#22c55e",  // green-500
+            Self::Warning => "#f59e0b",  // amber-500
             Self::Degraded => "#f97316", // orange-500
             Self::Critical => "#ef4444", // red-500
         }

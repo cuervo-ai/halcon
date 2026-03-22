@@ -5,9 +5,21 @@
 //! - `ClassicSink`: delegates to existing render functions (zero behavior change)
 //! - `SilentSink`: accumulates text without terminal output (for sub-agents/tests)
 
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Mutex;
 
 use halcon_core::types::ContentBlock;
+
+// ─── Thinking preview constants ───────────────────────────────────────────────
+
+/// Maximum byte length of the thinking preview buffer.
+/// Intentionally a byte limit (not char limit) so the buffer size is bounded in memory.
+/// The fill logic uses char-aware truncation to never split a UTF-8 sequence.
+const THINKING_PREVIEW_MAX_BYTES: usize = 160;
+
+/// Spinner label prefix for thinking progress updates.
+/// Kept as a constant so it can be updated in one place (e.g., for i18n).
+const THINKING_LABEL: &str = "Razonando...";
 
 use super::feedback;
 use super::spinner::Spinner;
@@ -21,6 +33,18 @@ use super::tool as tool_render;
 pub trait RenderSink: Send + Sync {
     /// Push streaming text from the model response.
     fn stream_text(&self, text: &str);
+
+    /// Push chain-of-thought / thinking tokens from a reasoning model.
+    ///
+    /// Rendered with visual distinction (dim/muted) to separate the model's internal
+    /// reasoning process from the final answer. Default falls through to `stream_text`
+    /// for sinks that don't distinguish thinking from text (e.g. silent/test sinks).
+    fn stream_thinking(&self, text: &str) {
+        // Default: render identically to text (backward-compatible).
+        // Override in ClassicSink (dim ANSI) and TuiSink (StreamThinking event).
+        self.stream_text(text);
+    }
+
     /// A fenced code block completed during streaming.
     #[allow(dead_code)]
     fn stream_code_block(&self, lang: &str, code: &str);
@@ -64,11 +88,26 @@ pub trait RenderSink: Send + Sync {
 
     /// Display task status update (Phase 39).
     /// Default no-op for backward compatibility.
-    fn task_status(&self, _title: &str, _status: &str, _duration_ms: Option<u64>, _artifact_count: usize) {}
+    fn task_status(
+        &self,
+        _title: &str,
+        _status: &str,
+        _duration_ms: Option<u64>,
+        _artifact_count: usize,
+    ) {
+    }
 
     /// Display reasoning engine status (Phase 40).
     /// Default no-op for backward compatibility.
-    fn reasoning_status(&self, _task_type: &str, _complexity: &str, _strategy: &str, _score: f64, _success: bool) {}
+    fn reasoning_status(
+        &self,
+        _task_type: &str,
+        _complexity: &str,
+        _strategy: &str,
+        _score: f64,
+        _success: bool,
+    ) {
+    }
 
     // --- Phase 42B: Cockpit feedback methods (9 new) ---
 
@@ -77,7 +116,15 @@ pub trait RenderSink: Send + Sync {
     /// An agent round is starting.
     fn round_started(&self, _round: usize, _provider: &str, _model: &str) {}
     /// An agent round has ended with metrics.
-    fn round_ended(&self, _round: usize, _input_tokens: u32, _output_tokens: u32, _cost: f64, _duration_ms: u64) {}
+    fn round_ended(
+        &self,
+        _round: usize,
+        _input_tokens: u32,
+        _output_tokens: u32,
+        _cost: f64,
+        _duration_ms: u64,
+    ) {
+    }
     /// Model selection occurred.
     fn model_selected(&self, _model: &str, _provider: &str, _reason: &str) {}
     /// Provider fallback triggered.
@@ -92,6 +139,15 @@ pub trait RenderSink: Send + Sync {
     fn speculative_result(&self, _tool: &str, _hit: bool) {}
     /// Awaiting user permission for a tool (Phase I-6C: extended signature).
     fn permission_awaiting(&self, _tool: &str, _args: &serde_json::Value, _risk_level: &str) {}
+    /// Returns the TUI event sender if this sink is backed by a TUI.
+    /// Used by the orchestrator to create sub-agent sinks that can route
+    /// PermissionAwaiting events to the main TUI overlay.
+    #[cfg(feature = "tui")]
+    fn tui_event_sender(
+        &self,
+    ) -> Option<tokio::sync::mpsc::UnboundedSender<crate::tui::events::UiEvent>> {
+        None
+    }
 
     // Phase 43C: Feedback completeness — zero silent operations.
 
@@ -129,13 +185,26 @@ pub trait RenderSink: Send + Sync {
     fn hicon_correction(&self, _strategy: &str, _reason: &str, _round: usize) {}
 
     /// Bayesian anomaly detector found an anomaly.
-    fn hicon_anomaly(&self, _anomaly_type: &str, _severity: &str, _details: &str, _confidence: f64) {}
+    fn hicon_anomaly(
+        &self,
+        _anomaly_type: &str,
+        _severity: &str,
+        _details: &str,
+        _confidence: f64,
+    ) {
+    }
 
     /// Metacognitive loop measured coherence (Phi).
     fn hicon_coherence(&self, _phi: f64, _round: usize, _status: &str) {}
 
     /// ARIMA predictor warns about budget overflow.
-    fn hicon_budget_warning(&self, _predicted_overflow_rounds: u32, _current_tokens: u64, _projected_tokens: u64) {}
+    fn hicon_budget_warning(
+        &self,
+        _predicted_overflow_rounds: u32,
+        _current_tokens: u64,
+        _projected_tokens: u64,
+    ) {
+    }
 
     // --- Phase E: Agent loop integration methods ---
 
@@ -146,7 +215,14 @@ pub trait RenderSink: Send + Sync {
     fn token_budget_update(&self, _used: u64, _limit: u64, _rate_per_minute: f64) {}
 
     /// Provider health status change (healthy/degraded/unhealthy).
-    fn provider_health_update(&self, _provider: &str, _status: &str, _failure_rate: f64, _latency_p95_ms: u64) {}
+    fn provider_health_update(
+        &self,
+        _provider: &str,
+        _status: &str,
+        _failure_rate: f64,
+        _latency_p95_ms: u64,
+    ) {
+    }
 
     /// Circuit breaker state transition for a provider.
     fn circuit_breaker_update(&self, _provider: &str, _state: &str, _failure_count: u32) {}
@@ -172,6 +248,65 @@ pub trait RenderSink: Send + Sync {
     /// After calling this, use `permissions.get_sudo_password()` to await the result.
     fn sudo_password_request(&self, _tool: &str, _command: &str, _has_cached: bool) {}
 
+    // --- Dev Ecosystem Phase 5: IDE connection status methods ---
+
+    /// Notify that the embedded LSP TCP server is listening on `port`.
+    ///
+    /// In TUI mode: emits `UiEvent::IdeConnected { port }` so the status bar
+    /// shows the `○ LSP:<port>` indicator.
+    fn dev_gateway_ready(&self, _port: u16) {}
+
+    /// Notify that an IDE editor has opened buffers (or buffer count changed).
+    ///
+    /// In TUI mode: emits `UiEvent::IdeBuffersUpdated { count, git_branch }`.
+    fn ide_buffers_updated(&self, _count: usize, _git_branch: Option<&str>) {}
+
+    /// Notify that the LSP server has stopped or no longer has open buffers.
+    ///
+    /// In TUI mode: emits `UiEvent::IdeDisconnected`.
+    fn ide_disconnected(&self) {}
+
+    // --- Multi-Agent Orchestration Visibility ---
+
+    /// Orchestrator is launching a wave of sub-agents.
+    fn orchestrator_wave(&self, _wave: usize, _total_waves: usize, _task_count: usize) {}
+    /// A sub-agent has been spawned for a delegated step.
+    fn sub_agent_spawned(
+        &self,
+        _step: usize,
+        _total: usize,
+        _description: &str,
+        _agent_type: &str,
+    ) {
+    }
+    /// A sub-agent completed.
+    fn sub_agent_completed(
+        &self,
+        _step: usize,
+        _total: usize,
+        _success: bool,
+        _latency_ms: u64,
+        _tools_used: &[String],
+        _rounds: usize,
+        _summary: &str,
+        _error_hint: &str,
+    ) {
+    }
+
+    // --- Multimodal Analysis Feedback ---
+
+    /// Notify that multimodal analysis is starting for `count` files.
+    fn media_analysis_started(&self, _count: usize) {}
+    /// Notify that a single file has been analyzed (filename + token estimate).
+    fn media_analysis_complete(&self, _filename: &str, _tokens: u32) {}
+
+    // --- Phase-Aware Skeleton/Spinner ---
+
+    /// Signal that an expensive agent phase has started (planning, reasoning, reflecting).
+    fn phase_started(&self, _phase: &str, _label: &str) {}
+    /// Signal that the current agent phase has ended.
+    fn phase_ended(&self) {}
+
     /// Display plan progress with per-step timing data.
     /// Default delegates to `plan_progress` for backward compatibility.
     fn plan_progress_with_timing(
@@ -184,6 +319,26 @@ pub trait RenderSink: Send + Sync {
     ) {
         self.plan_progress(goal, steps, current_step);
     }
+
+    // --- Phase 94: Project Onboarding ---
+
+    /// Notify that a project-level HALCON.md was found at startup.
+    /// Default: no-op (silent, banner already shows ◆ project cfg).
+    fn project_config_loaded(&self, _path: &str) {}
+
+    /// Suggest the user runs /init to configure this project.
+    /// Default: no-op.
+    fn onboarding_suggestion(&self, _root: &str, _project_type: &str) {}
+
+    // --- Phase 95: Plugin Auto-Implantation ---
+
+    /// Notify that plugins are available for recommendation.
+    /// Default: no-op.
+    fn plugin_suggestion(&self, _total: usize, _essential: usize) {}
+
+    /// Notify that a plugin was bootstrapped (installed or failed).
+    /// Default: no-op.
+    fn plugin_bootstrapped(&self, _plugin_id: &str, _success: bool) {}
 }
 
 // ---------------------------------------------------------------------------
@@ -199,6 +354,9 @@ pub struct ClassicSink {
     renderer: Mutex<StreamRenderer>,
     spinner: Mutex<Option<Spinner>>,
     expert: bool,
+    thinking_chars: AtomicUsize,
+    thinking_preview: Mutex<String>,
+    had_thinking: AtomicBool,
 }
 
 impl ClassicSink {
@@ -207,6 +365,9 @@ impl ClassicSink {
             renderer: Mutex::new(StreamRenderer::new()),
             spinner: Mutex::new(None),
             expert: false,
+            thinking_chars: AtomicUsize::new(0),
+            thinking_preview: Mutex::new(String::new()),
+            had_thinking: AtomicBool::new(false),
         }
     }
 
@@ -216,6 +377,9 @@ impl ClassicSink {
             renderer: Mutex::new(StreamRenderer::new()),
             spinner: Mutex::new(None),
             expert,
+            thinking_chars: AtomicUsize::new(0),
+            thinking_preview: Mutex::new(String::new()),
+            had_thinking: AtomicBool::new(false),
         }
     }
 }
@@ -228,9 +392,56 @@ impl Default for ClassicSink {
 
 impl RenderSink for ClassicSink {
     fn stream_text(&self, text: &str) {
-        let mut r = self.renderer.lock().unwrap();
+        let mut r = self.renderer.lock().unwrap_or_else(|p| p.into_inner());
         let chunk = halcon_core::types::ModelChunk::TextDelta(text.to_string());
         let _ = r.push(&chunk);
+    }
+
+    fn stream_thinking(&self, text: &str) {
+        // Silently accumulate thinking tokens instead of flooding terminal.
+        // Update the spinner label live so user sees progress without noise.
+        let prev = self.thinking_chars.fetch_add(text.len(), Ordering::Relaxed);
+        let total = prev + text.len();
+        {
+            let mut p = self.thinking_preview.lock().unwrap_or_else(|poison| {
+                tracing::error!(
+                    target: "halcon::render",
+                    sink = "ClassicSink",
+                    field = "thinking_preview",
+                    "Mutex poisoned — recovering guard. Previous holder panicked."
+                );
+                poison.into_inner()
+            });
+            if p.len() < THINKING_PREVIEW_MAX_BYTES {
+                // Use char-aware truncation to avoid splitting a UTF-8 multi-byte sequence.
+                // p.len() and THINKING_PREVIEW_MAX_BYTES are byte lengths; chars() iterates
+                // Unicode scalar values so we never produce an invalid slice.
+                let remaining_bytes = THINKING_PREVIEW_MAX_BYTES - p.len();
+                let safe: String = text
+                    .chars()
+                    .scan(0usize, |acc, c| {
+                        *acc += c.len_utf8();
+                        if *acc <= remaining_bytes {
+                            Some(c)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                p.push_str(&safe);
+            }
+        }
+        let label = if total >= 1000 {
+            format!("{} {:.1}K chars", THINKING_LABEL, total as f64 / 1000.0)
+        } else {
+            format!("{} {total} chars", THINKING_LABEL)
+        };
+        if let Ok(guard) = self.spinner.lock() {
+            if let Some(ref s) = *guard {
+                s.update_label(label);
+            }
+        }
+        self.had_thinking.store(true, Ordering::Relaxed);
     }
 
     fn stream_code_block(&self, _lang: &str, _code: &str) {
@@ -240,7 +451,7 @@ impl RenderSink for ClassicSink {
     }
 
     fn stream_tool_marker(&self, name: &str) {
-        let mut r = self.renderer.lock().unwrap();
+        let mut r = self.renderer.lock().unwrap_or_else(|p| p.into_inner());
         let chunk = halcon_core::types::ModelChunk::ToolUseStart {
             index: 0,
             id: String::new(),
@@ -250,13 +461,13 @@ impl RenderSink for ClassicSink {
     }
 
     fn stream_done(&self) {
-        let mut r = self.renderer.lock().unwrap();
+        let mut r = self.renderer.lock().unwrap_or_else(|p| p.into_inner());
         let chunk = halcon_core::types::ModelChunk::Done(halcon_core::types::StopReason::EndTurn);
         let _ = r.push(&chunk);
     }
 
     fn stream_error(&self, msg: &str) {
-        let mut r = self.renderer.lock().unwrap();
+        let mut r = self.renderer.lock().unwrap_or_else(|p| p.into_inner());
         let chunk = halcon_core::types::ModelChunk::Error(msg.to_string());
         let _ = r.push(&chunk);
     }
@@ -275,16 +486,52 @@ impl RenderSink for ClassicSink {
 
     fn spinner_start(&self, label: &str) {
         let spinner = Spinner::start(label);
-        let mut guard = self.spinner.lock().unwrap();
+        let mut guard = self.spinner.lock().unwrap_or_else(|p| p.into_inner());
         *guard = Some(spinner);
     }
 
     fn spinner_stop(&self) {
-        let mut guard = self.spinner.lock().unwrap();
+        let mut guard = self.spinner.lock().unwrap_or_else(|p| p.into_inner());
         if let Some(ref s) = *guard {
             s.stop();
         }
         *guard = None;
+
+        // Emit thinking summary line in expert mode (after spinner is cleared).
+        if self.had_thinking.swap(false, Ordering::Relaxed) {
+            let char_count = self.thinking_chars.swap(0, Ordering::Relaxed);
+            let preview = {
+                let mut p = self
+                    .thinking_preview
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner());
+                std::mem::take(&mut *p)
+            };
+            if self.expert {
+                let c = super::theme::active().palette.muted.fg();
+                let r = super::theme::reset();
+                let kchars = if char_count >= 1000 {
+                    format!("{:.1}K", char_count as f64 / 1000.0)
+                } else {
+                    char_count.to_string()
+                };
+                let snippet = if preview.len() > 100 {
+                    format!(
+                        "{}...",
+                        &preview[..{
+                            let mut _fcb = (100).min(preview.len());
+                            while _fcb > 0 && !preview.is_char_boundary(_fcb) {
+                                _fcb -= 1;
+                            }
+                            _fcb
+                        }]
+                    )
+                } else {
+                    preview
+                };
+                eprintln!("{c}  ⟨ razonando · {kchars} chars ⟩  \"{snippet}\"{r}");
+            }
+        }
     }
 
     fn warning(&self, message: &str, hint: Option<&str>) {
@@ -304,12 +551,12 @@ impl RenderSink for ClassicSink {
     }
 
     fn stream_reset(&self) {
-        let mut r = self.renderer.lock().unwrap();
+        let mut r = self.renderer.lock().unwrap_or_else(|p| p.into_inner());
         *r = StreamRenderer::new();
     }
 
     fn stream_full_text(&self) -> String {
-        let r = self.renderer.lock().unwrap();
+        let r = self.renderer.lock().unwrap_or_else(|p| p.into_inner());
         r.full_text().to_string()
     }
 
@@ -319,15 +566,29 @@ impl RenderSink for ClassicSink {
         eprintln!("\n{p}── Round {round} ─ {provider}/{model} ──{r}");
     }
 
-    fn round_ended(&self, round: usize, input_tokens: u32, output_tokens: u32, cost: f64, duration_ms: u64) {
-        if !self.expert { return; }
+    fn round_ended(
+        &self,
+        round: usize,
+        input_tokens: u32,
+        output_tokens: u32,
+        cost: f64,
+        duration_ms: u64,
+    ) {
+        if !self.expert {
+            return;
+        }
         let p = super::theme::active().palette.muted.fg();
         let r = super::theme::reset();
-        eprintln!("{p}  Round {round}: ↑{input_tokens} ↓{output_tokens} ${cost:.4} ({:.1}s){r}", duration_ms as f64 / 1000.0);
+        eprintln!(
+            "{p}  Round {round}: ↑{input_tokens} ↓{output_tokens} ${cost:.4} ({:.1}s){r}",
+            duration_ms as f64 / 1000.0
+        );
     }
 
     fn model_selected(&self, model: &str, provider: &str, reason: &str) {
-        if !self.expert { return; }
+        if !self.expert {
+            return;
+        }
         let p = super::theme::active().palette.planning.fg();
         let r = super::theme::reset();
         eprintln!("{p}  [model] {provider}/{model} — {reason}{r}");
@@ -340,7 +601,9 @@ impl RenderSink for ClassicSink {
     }
 
     fn loop_guard_action(&self, action: &str, reason: &str) {
-        if !self.expert { return; }
+        if !self.expert {
+            return;
+        }
         let p = super::theme::active().palette.warning.fg();
         let r = super::theme::reset();
         eprintln!("{p}  [guard] {action}: {reason}{r}");
@@ -357,7 +620,9 @@ impl RenderSink for ClassicSink {
     }
 
     fn cache_status(&self, hit: bool, source: &str) {
-        if !self.expert { return; }
+        if !self.expert {
+            return;
+        }
         let pal = &super::theme::active().palette;
         let p = if hit { pal.cached.fg() } else { pal.muted.fg() };
         let r = super::theme::reset();
@@ -366,7 +631,9 @@ impl RenderSink for ClassicSink {
     }
 
     fn speculative_result(&self, tool: &str, hit: bool) {
-        if !self.expert { return; }
+        if !self.expert {
+            return;
+        }
         let pal = &super::theme::active().palette;
         let p = if hit { pal.cached.fg() } else { pal.muted.fg() };
         let r = super::theme::reset();
@@ -381,29 +648,47 @@ impl RenderSink for ClassicSink {
     }
 
     fn reflection_started(&self) {
-        if !self.expert { return; }
+        if !self.expert {
+            return;
+        }
         let c = super::theme::active().palette.reasoning.fg();
         let r = super::theme::reset();
         eprintln!("{c}  [reflecting] analyzing round outcome...{r}");
     }
 
     fn reflection_complete(&self, analysis: &str, score: f64) {
-        if !self.expert { return; }
+        if !self.expert {
+            return;
+        }
         let c = super::theme::active().palette.reasoning.fg();
         let r = super::theme::reset();
-        let preview = if analysis.len() > 80 { &analysis[..80] } else { analysis };
+        let preview = if analysis.len() > 80 {
+            &analysis[..{
+                let mut _fcb = (80).min(analysis.len());
+                while _fcb > 0 && !analysis.is_char_boundary(_fcb) {
+                    _fcb -= 1;
+                }
+                _fcb
+            }]
+        } else {
+            analysis
+        };
         eprintln!("{c}  [reflection] {preview} (score: {score:.2}){r}");
     }
 
     fn consolidation_status(&self, action: &str) {
-        if !self.expert { return; }
+        if !self.expert {
+            return;
+        }
         let c = super::theme::active().palette.compacting.fg();
         let r = super::theme::reset();
         eprintln!("{c}  [memory] {action}{r}");
     }
 
     fn consolidation_complete(&self, merged: usize, pruned: usize, duration_ms: u64) {
-        if !self.expert { return; }
+        if !self.expert {
+            return;
+        }
         let c = super::theme::active().palette.success.fg();
         let r = super::theme::reset();
         let duration_s = duration_ms as f64 / 1000.0;
@@ -427,7 +712,9 @@ impl RenderSink for ClassicSink {
         l4_entries: usize,
         total_tokens: u32,
     ) {
-        if !self.expert { return; }
+        if !self.expert {
+            return;
+        }
         let c = super::theme::active().palette.cached.fg();
         let r = super::theme::reset();
         eprintln!(
@@ -436,7 +723,9 @@ impl RenderSink for ClassicSink {
     }
 
     fn reasoning_update(&self, strategy: &str, task_type: &str, complexity: &str) {
-        if !self.expert { return; }
+        if !self.expert {
+            return;
+        }
         let c = super::theme::active().palette.reasoning.fg();
         let r = super::theme::reset();
         eprintln!("{c}  [reasoning] {complexity} {task_type} → {strategy}{r}");
@@ -477,7 +766,10 @@ impl RenderSink for ClassicSink {
         elapsed_ms: u64,
     ) {
         use halcon_core::traits::TaskStatus;
-        let completed = tracked_steps.iter().filter(|s| s.status.is_terminal()).count();
+        let completed = tracked_steps
+            .iter()
+            .filter(|s| s.status.is_terminal())
+            .count();
         let total = tracked_steps.len();
         eprintln!(
             "\n  PLAN: {goal} ({completed}/{total}, {:.1}s)",
@@ -517,12 +809,22 @@ impl RenderSink for ClassicSink {
         eprintln!();
     }
 
-    fn task_status(&self, title: &str, status: &str, duration_ms: Option<u64>, artifact_count: usize) {
+    fn task_status(
+        &self,
+        title: &str,
+        status: &str,
+        duration_ms: Option<u64>,
+        artifact_count: usize,
+    ) {
         let timing = duration_ms
             .map(|ms| format!(" ({:.1}s", ms as f64 / 1000.0))
             .unwrap_or_default();
         let artifacts = if artifact_count > 0 {
-            format!(", {} artifact{}", artifact_count, if artifact_count == 1 { "" } else { "s" })
+            format!(
+                ", {} artifact{}",
+                artifact_count,
+                if artifact_count == 1 { "" } else { "s" }
+            )
         } else {
             String::new()
         };
@@ -536,8 +838,19 @@ impl RenderSink for ClassicSink {
         eprintln!("  [task] {title} — {status}{suffix}");
     }
 
-    fn reasoning_status(&self, task_type: &str, complexity: &str, strategy: &str, score: f64, success: bool) {
-        let outcome = if success { "Success" } else { "Below threshold" };
+    fn reasoning_status(
+        &self,
+        task_type: &str,
+        complexity: &str,
+        strategy: &str,
+        score: f64,
+        success: bool,
+    ) {
+        let outcome = if success {
+            "Success"
+        } else {
+            "Below threshold"
+        };
         eprintln!("  [reasoning] {task_type} ({complexity}) -> {strategy}");
         eprintln!("  [evaluation] Score: {score:.2} — {outcome}");
     }
@@ -558,9 +871,108 @@ impl RenderSink for ClassicSink {
         eprintln!("  [hicon] Round {round}: Φ coherence = {phi:.3} ({status})");
     }
 
-    fn hicon_budget_warning(&self, predicted_overflow_rounds: u32, current_tokens: u64, projected_tokens: u64) {
-        eprintln!("  [hicon] Budget warning: Overflow predicted in {predicted_overflow_rounds} rounds");
-        eprintln!("         Current: {current_tokens} tokens → Projected: {projected_tokens} tokens");
+    fn hicon_budget_warning(
+        &self,
+        predicted_overflow_rounds: u32,
+        current_tokens: u64,
+        projected_tokens: u64,
+    ) {
+        eprintln!(
+            "  [hicon] Budget warning: Overflow predicted in {predicted_overflow_rounds} rounds"
+        );
+        eprintln!(
+            "         Current: {current_tokens} tokens → Projected: {projected_tokens} tokens"
+        );
+    }
+
+    fn orchestrator_wave(&self, wave: usize, total_waves: usize, task_count: usize) {
+        let c = super::theme::active().palette.running.fg();
+        let r = super::theme::reset();
+        eprintln!("{c}  [orchestrator] Wave {wave}/{total_waves} — {task_count} sub-agents{r}");
+    }
+
+    fn sub_agent_spawned(&self, step: usize, total: usize, description: &str, agent_type: &str) {
+        let c = super::theme::active().palette.running.fg();
+        let r = super::theme::reset();
+        let desc: String = description.chars().take(60).collect();
+        eprintln!("{c}  [sub-agent] ⟳ [{step}/{total}] {desc}  ({agent_type}){r}");
+    }
+
+    fn sub_agent_completed(
+        &self,
+        step: usize,
+        total: usize,
+        success: bool,
+        latency_ms: u64,
+        tools_used: &[String],
+        _rounds: usize,
+        _summary: &str,
+        error_hint: &str,
+    ) {
+        let pal = &super::theme::active().palette;
+        let (c, icon) = if success {
+            (pal.success.fg(), '✓')
+        } else {
+            (pal.destructive.fg(), '✗')
+        };
+        let r = super::theme::reset();
+        let tools_str = if tools_used.is_empty() {
+            String::new()
+        } else {
+            format!(" · {}", tools_used.join(" "))
+        };
+        eprintln!(
+            "{c}  [sub-agent] {icon} [{step}/{total}]{tools_str} ({:.1}s){r}",
+            latency_ms as f64 / 1000.0
+        );
+        if !success && !error_hint.is_empty() {
+            let ec = pal.destructive.fg();
+            eprintln!("{ec}  [sub-agent] error: {error_hint}{r}");
+        }
+    }
+
+    fn media_analysis_started(&self, count: usize) {
+        let c = super::theme::active().palette.running.fg();
+        let r = super::theme::reset();
+        eprintln!(
+            "{c}  [media] Analyzing {count} file{}…{r}",
+            if count == 1 { "" } else { "s" }
+        );
+    }
+
+    fn media_analysis_complete(&self, filename: &str, tokens: u32) {
+        let c = super::theme::active().palette.cached.fg();
+        let r = super::theme::reset();
+        eprintln!("{c}  [media] {filename}: {tokens} tokens{r}");
+    }
+
+    fn phase_started(&self, phase: &str, label: &str) {
+        let c = super::theme::active().palette.planning.fg();
+        let r = super::theme::reset();
+        eprintln!("{c}  [{phase}] {label}{r}");
+    }
+    // phase_ended is a no-op for ClassicSink (no skeleton to remove)
+
+    fn project_config_loaded(&self, path: &str) {
+        eprintln!("[project] config: {path}");
+    }
+
+    fn onboarding_suggestion(&self, root: &str, project_type: &str) {
+        eprintln!(
+            "[onboarding] No project HALCON.md in {root} ({project_type})\n\
+             → Type /init to generate one and unlock full agent context."
+        );
+    }
+
+    fn plugin_suggestion(&self, total: usize, essential: usize) {
+        eprintln!(
+            "[plugins] {total} plugins recommended ({essential} essential) — /plugins suggest"
+        );
+    }
+
+    fn plugin_bootstrapped(&self, plugin_id: &str, success: bool) {
+        let status = if success { '✓' } else { '✗' };
+        eprintln!("[plugins] {status} {plugin_id}");
     }
 }
 
@@ -585,7 +997,7 @@ impl SilentSink {
     /// Get the accumulated text.
     #[allow(dead_code)]
     pub fn text(&self) -> String {
-        self.text.lock().unwrap().clone()
+        self.text.lock().unwrap_or_else(|p| p.into_inner()).clone()
     }
 }
 
@@ -597,11 +1009,17 @@ impl Default for SilentSink {
 
 impl RenderSink for SilentSink {
     fn stream_text(&self, text: &str) {
-        self.text.lock().unwrap().push_str(text);
+        self.text
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .push_str(text);
     }
 
     fn stream_code_block(&self, _lang: &str, code: &str) {
-        self.text.lock().unwrap().push_str(code);
+        self.text
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .push_str(code);
     }
 
     fn stream_tool_marker(&self, _name: &str) {}
@@ -621,11 +1039,11 @@ impl RenderSink for SilentSink {
     }
 
     fn stream_reset(&self) {
-        self.text.lock().unwrap().clear();
+        self.text.lock().unwrap_or_else(|p| p.into_inner()).clear();
     }
 
     fn stream_full_text(&self) -> String {
-        self.text.lock().unwrap().clone()
+        self.text.lock().unwrap_or_else(|p| p.into_inner()).clone()
     }
 }
 
@@ -638,37 +1056,34 @@ impl RenderSink for SilentSink {
 ///
 /// The TUI render loop receives these events and updates the 3-zone layout.
 /// Text accumulation is tracked locally for `stream_full_text()`.
+///
+/// Uses an UNBOUNDED channel so that critical events like `PermissionAwaiting` are
+/// never dropped when the LLM generates large outputs (bounded try_send would silently
+/// drop them, causing the modal to never show and tools to auto-deny after 60s).
 pub struct TuiSink {
-    tx: tokio::sync::mpsc::Sender<crate::tui::events::UiEvent>,
+    tx: tokio::sync::mpsc::UnboundedSender<crate::tui::events::UiEvent>,
     text: Mutex<String>,
+    thinking_chars: Mutex<usize>,
+    thinking_preview: Mutex<String>,
+    had_thinking: AtomicBool,
 }
 
 #[cfg(feature = "tui")]
 impl TuiSink {
-    pub fn new(tx: tokio::sync::mpsc::Sender<crate::tui::events::UiEvent>) -> Self {
+    pub fn new(tx: tokio::sync::mpsc::UnboundedSender<crate::tui::events::UiEvent>) -> Self {
         Self {
             tx,
             text: Mutex::new(String::new()),
+            thinking_chars: Mutex::new(0),
+            thinking_preview: Mutex::new(String::new()),
+            had_thinking: AtomicBool::new(false),
         }
     }
 
     fn send(&self, event: crate::tui::events::UiEvent) {
-        // FIX: Improved error handling with event type context for debugging.
-        // Buffer increased from 1024 to 16384 in repl/mod.rs to reduce saturation.
-        if let Err(e) = self.tx.try_send(event) {
-            match e {
-                tokio::sync::mpsc::error::TrySendError::Full(ev) => {
-                    // Log event type for diagnostics (helps identify which events saturate)
-                    let event_type = std::mem::discriminant(&ev);
-                    tracing::warn!(
-                        event_discriminant = ?event_type,
-                        "TUI event channel saturated (buffer full), dropping event"
-                    );
-                }
-                tokio::sync::mpsc::error::TrySendError::Closed(_) => {
-                    tracing::error!("TUI event channel closed, receiver terminated");
-                }
-            }
+        // Unbounded send never blocks or drops — critical for PermissionAwaiting events.
+        if let Err(_) = self.tx.send(event) {
+            tracing::error!("TUI event channel closed, receiver terminated");
         }
     }
 }
@@ -676,12 +1091,85 @@ impl TuiSink {
 #[cfg(feature = "tui")]
 impl RenderSink for TuiSink {
     fn stream_text(&self, text: &str) {
-        self.text.lock().unwrap().push_str(text);
+        // Emit ThinkingComplete before first answer token (if thinking occurred).
+        if self.had_thinking.swap(false, Ordering::Relaxed) {
+            let char_count = {
+                let mut c = self
+                    .thinking_chars
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner());
+                let n = *c;
+                *c = 0;
+                n
+            };
+            let preview = {
+                let mut p = self
+                    .thinking_preview
+                    .lock()
+                    .unwrap_or_else(|p| p.into_inner());
+                std::mem::take(&mut *p)
+            };
+            self.send(crate::tui::events::UiEvent::ThinkingComplete {
+                preview,
+                char_count,
+            });
+        }
+        self.text
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .push_str(text);
         self.send(crate::tui::events::UiEvent::StreamChunk(text.to_string()));
     }
 
+    fn stream_thinking(&self, text: &str) {
+        // Backward compat: still send StreamThinking for thinking_buffer fallback.
+        self.send(crate::tui::events::UiEvent::StreamThinking(
+            text.to_string(),
+        ));
+        // Also accumulate locally and emit ThinkingProgress with total char count.
+        let new_count = {
+            let mut c = self
+                .thinking_chars
+                .lock()
+                .unwrap_or_else(|p| p.into_inner());
+            *c += text.len();
+            *c
+        };
+        {
+            let mut p = self.thinking_preview.lock().unwrap_or_else(|poison| {
+                tracing::error!(
+                    target: "halcon::render",
+                    sink = "TuiSink",
+                    field = "thinking_preview",
+                    "Mutex poisoned — recovering guard. Previous holder panicked."
+                );
+                poison.into_inner()
+            });
+            if p.len() < THINKING_PREVIEW_MAX_BYTES {
+                let remaining_bytes = THINKING_PREVIEW_MAX_BYTES - p.len();
+                let safe: String = text
+                    .chars()
+                    .scan(0usize, |acc, c| {
+                        *acc += c.len_utf8();
+                        if *acc <= remaining_bytes {
+                            Some(c)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                p.push_str(&safe);
+            }
+        }
+        self.had_thinking.store(true, Ordering::Relaxed);
+        self.send(crate::tui::events::UiEvent::ThinkingProgress { chars: new_count });
+    }
+
     fn stream_code_block(&self, lang: &str, code: &str) {
-        self.text.lock().unwrap().push_str(code);
+        self.text
+            .lock()
+            .unwrap_or_else(|p| p.into_inner())
+            .push_str(code);
         self.send(crate::tui::events::UiEvent::StreamCodeBlock {
             lang: lang.to_string(),
             code: code.to_string(),
@@ -689,7 +1177,9 @@ impl RenderSink for TuiSink {
     }
 
     fn stream_tool_marker(&self, name: &str) {
-        self.send(crate::tui::events::UiEvent::StreamToolMarker(name.to_string()));
+        self.send(crate::tui::events::UiEvent::StreamToolMarker(
+            name.to_string(),
+        ));
     }
 
     fn stream_done(&self) {
@@ -709,9 +1199,12 @@ impl RenderSink for TuiSink {
 
     fn tool_output(&self, block: &ContentBlock, duration_ms: u64) {
         let (name, content, is_error) = match block {
-            ContentBlock::ToolResult { tool_use_id, content, is_error, .. } => {
-                (tool_use_id.clone(), content.clone(), *is_error)
-            }
+            ContentBlock::ToolResult {
+                tool_use_id,
+                content,
+                is_error,
+                ..
+            } => (tool_use_id.clone(), content.clone(), *is_error),
             _ => (String::new(), String::new(), false),
         };
         self.send(crate::tui::events::UiEvent::ToolOutput {
@@ -757,11 +1250,11 @@ impl RenderSink for TuiSink {
     }
 
     fn stream_reset(&self) {
-        self.text.lock().unwrap().clear();
+        self.text.lock().unwrap_or_else(|p| p.into_inner()).clear();
     }
 
     fn stream_full_text(&self) -> String {
-        self.text.lock().unwrap().clone()
+        self.text.lock().unwrap_or_else(|p| p.into_inner()).clone()
     }
 
     fn session_started(&self, session_id: &str) {
@@ -778,7 +1271,14 @@ impl RenderSink for TuiSink {
         });
     }
 
-    fn round_ended(&self, round: usize, input_tokens: u32, output_tokens: u32, cost: f64, duration_ms: u64) {
+    fn round_ended(
+        &self,
+        round: usize,
+        input_tokens: u32,
+        output_tokens: u32,
+        cost: f64,
+        duration_ms: u64,
+    ) {
         self.send(crate::tui::events::UiEvent::RoundEnded {
             round,
             input_tokens,
@@ -834,11 +1334,20 @@ impl RenderSink for TuiSink {
     }
 
     fn permission_awaiting(&self, tool: &str, args: &serde_json::Value, risk_level: &str) {
+        let timeout_secs = timeout_for_risk(risk_level);
         self.send(crate::tui::events::UiEvent::PermissionAwaiting {
             tool: tool.to_string(),
             args: args.clone(),
             risk_level: risk_level.to_string(),
+            timeout_secs,
+            reply_tx: None, // main agent: TuiApp uses its stored perm_tx
         });
+    }
+
+    fn tui_event_sender(
+        &self,
+    ) -> Option<tokio::sync::mpsc::UnboundedSender<crate::tui::events::UiEvent>> {
+        Some(self.tx.clone())
     }
 
     fn reflection_started(&self) {
@@ -933,7 +1442,12 @@ impl RenderSink for TuiSink {
         });
     }
 
-    fn hicon_budget_warning(&self, predicted_overflow_rounds: u32, current_tokens: u64, projected_tokens: u64) {
+    fn hicon_budget_warning(
+        &self,
+        predicted_overflow_rounds: u32,
+        current_tokens: u64,
+        projected_tokens: u64,
+    ) {
         self.send(crate::tui::events::UiEvent::HiconBudgetWarning {
             predicted_overflow_rounds,
             current_tokens,
@@ -953,12 +1467,23 @@ impl RenderSink for TuiSink {
         });
     }
 
-    fn provider_health_update(&self, provider: &str, status: &str, failure_rate: f64, latency_p95_ms: u64) {
+    fn provider_health_update(
+        &self,
+        provider: &str,
+        status: &str,
+        failure_rate: f64,
+        latency_p95_ms: u64,
+    ) {
         use crate::tui::events::ProviderHealthStatus;
         let health_status = match status {
             "healthy" => ProviderHealthStatus::Healthy,
-            "degraded" => ProviderHealthStatus::Degraded { failure_rate, latency_p95_ms },
-            _ => ProviderHealthStatus::Unhealthy { reason: status.to_string() },
+            "degraded" => ProviderHealthStatus::Degraded {
+                failure_rate,
+                latency_p95_ms,
+            },
+            _ => ProviderHealthStatus::Unhealthy {
+                reason: status.to_string(),
+            },
         };
         self.send(crate::tui::events::UiEvent::ProviderHealthUpdate {
             provider: provider.to_string(),
@@ -989,9 +1514,18 @@ impl RenderSink for TuiSink {
                 "executing" => AgentState::Executing,
                 "tool_wait" => AgentState::ToolWait,
                 "reflecting" => AgentState::Reflecting,
-                "complete" => AgentState::Complete,
-                "failed" => AgentState::Failed,
-                _ => AgentState::Idle,
+                "synthesizing" | "synthesising" => AgentState::Synthesizing,
+                "evaluating" => AgentState::Executing, // no TUI Evaluating variant — show as Executing
+                "complete" | "completed" => AgentState::Complete,
+                "failed" | "halted" => AgentState::Failed,
+                "paused" => AgentState::Paused,
+                unknown => {
+                    tracing::warn!(
+                        state = unknown,
+                        "parse_state: unknown FSM state string — defaulting to Idle"
+                    );
+                    AgentState::Idle
+                }
             }
         };
         self.send(crate::tui::events::UiEvent::AgentStateTransition {
@@ -1001,7 +1535,13 @@ impl RenderSink for TuiSink {
         });
     }
 
-    fn task_status(&self, title: &str, status: &str, duration_ms: Option<u64>, artifact_count: usize) {
+    fn task_status(
+        &self,
+        title: &str,
+        status: &str,
+        duration_ms: Option<u64>,
+        artifact_count: usize,
+    ) {
         self.send(crate::tui::events::UiEvent::TaskStatus {
             title: title.to_string(),
             status: status.to_string(),
@@ -1010,7 +1550,14 @@ impl RenderSink for TuiSink {
         });
     }
 
-    fn reasoning_status(&self, task_type: &str, complexity: &str, strategy: &str, score: f64, success: bool) {
+    fn reasoning_status(
+        &self,
+        task_type: &str,
+        complexity: &str,
+        strategy: &str,
+        score: f64,
+        success: bool,
+    ) {
         self.send(crate::tui::events::UiEvent::ReasoningStatus {
             task_type: task_type.to_string(),
             complexity: complexity.to_string(),
@@ -1110,6 +1657,117 @@ impl RenderSink for TuiSink {
             has_cached,
         });
     }
+
+    // --- Dev Ecosystem Phase 5: IDE connection status ---
+
+    fn dev_gateway_ready(&self, port: u16) {
+        self.send(crate::tui::events::UiEvent::IdeConnected { port });
+    }
+
+    fn ide_buffers_updated(&self, count: usize, git_branch: Option<&str>) {
+        self.send(crate::tui::events::UiEvent::IdeBuffersUpdated {
+            count,
+            git_branch: git_branch.map(String::from),
+        });
+    }
+
+    fn ide_disconnected(&self) {
+        self.send(crate::tui::events::UiEvent::IdeDisconnected);
+    }
+
+    fn orchestrator_wave(&self, wave_index: usize, total_waves: usize, task_count: usize) {
+        self.send(crate::tui::events::UiEvent::OrchestratorWave {
+            wave_index,
+            total_waves,
+            task_count,
+        });
+    }
+
+    fn sub_agent_spawned(
+        &self,
+        step_index: usize,
+        total: usize,
+        description: &str,
+        agent_type: &str,
+    ) {
+        self.send(crate::tui::events::UiEvent::SubAgentSpawned {
+            step_index,
+            total_steps: total,
+            description: description.chars().take(60).collect(),
+            agent_type: agent_type.to_string(),
+        });
+    }
+
+    fn media_analysis_started(&self, count: usize) {
+        self.send(crate::tui::events::UiEvent::MediaAnalysisStarted { count });
+    }
+
+    fn media_analysis_complete(&self, filename: &str, tokens: u32) {
+        self.send(crate::tui::events::UiEvent::MediaAnalysisComplete {
+            filename: filename.to_string(),
+            tokens,
+        });
+    }
+
+    fn sub_agent_completed(
+        &self,
+        step_index: usize,
+        total: usize,
+        success: bool,
+        latency_ms: u64,
+        tools_used: &[String],
+        rounds: usize,
+        summary: &str,
+        error_hint: &str,
+    ) {
+        self.send(crate::tui::events::UiEvent::SubAgentCompleted {
+            step_index,
+            total_steps: total,
+            success,
+            latency_ms,
+            tools_used: tools_used.to_vec(),
+            rounds,
+            summary: summary.to_string(),
+            error_hint: error_hint.to_string(),
+        });
+    }
+
+    fn phase_started(&self, phase: &str, label: &str) {
+        self.send(crate::tui::events::UiEvent::PhaseStarted {
+            phase: phase.to_string(),
+            label: label.to_string(),
+        });
+    }
+
+    fn phase_ended(&self) {
+        self.send(crate::tui::events::UiEvent::PhaseEnded);
+    }
+
+    fn project_config_loaded(&self, path: &str) {
+        self.send(crate::tui::events::UiEvent::ProjectConfigLoaded {
+            path: path.to_string(),
+        });
+    }
+
+    fn onboarding_suggestion(&self, root: &str, project_type: &str) {
+        self.send(crate::tui::events::UiEvent::OnboardingAvailable {
+            root: root.to_string(),
+            project_type: project_type.to_string(),
+        });
+    }
+
+    fn plugin_suggestion(&self, total: usize, essential: usize) {
+        self.send(crate::tui::events::UiEvent::Info(format!(
+            "[plugins] {total} recommended ({essential} essential) — /plugins suggest"
+        )));
+    }
+
+    fn plugin_bootstrapped(&self, plugin_id: &str, success: bool) {
+        let status = if success { "✓" } else { "✗" };
+        self.send(crate::tui::events::UiEvent::Info(format!(
+            "[plugins] {status} {plugin_id}"
+        )));
+    }
 }
 
 #[cfg(test)]
@@ -1179,7 +1837,7 @@ mod tests {
 
     #[test]
     fn tui_sink_sends_stream_chunks() {
-        let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let sink = TuiSink::new(tx);
         sink.stream_text("hello ");
         sink.stream_text("world");
@@ -1193,36 +1851,40 @@ mod tests {
 
     #[test]
     fn tui_sink_sends_warning() {
-        let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let sink = TuiSink::new(tx);
         sink.warning("test", Some("hint"));
         let ev = rx.try_recv().unwrap();
-        assert!(matches!(ev, crate::tui::events::UiEvent::Warning { ref message, ref hint }
-            if message == "test" && hint.as_deref() == Some("hint")));
+        assert!(
+            matches!(ev, crate::tui::events::UiEvent::Warning { ref message, ref hint }
+            if message == "test" && hint.as_deref() == Some("hint"))
+        );
     }
 
     #[test]
     fn tui_sink_sends_spinner_events() {
-        let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let sink = TuiSink::new(tx);
         sink.spinner_start("Thinking...");
         sink.spinner_stop();
         let ev1 = rx.try_recv().unwrap();
-        assert!(matches!(ev1, crate::tui::events::UiEvent::SpinnerStart(ref s) if s == "Thinking..."));
+        assert!(
+            matches!(ev1, crate::tui::events::UiEvent::SpinnerStart(ref s) if s == "Thinking...")
+        );
         let ev2 = rx.try_recv().unwrap();
         assert!(matches!(ev2, crate::tui::events::UiEvent::SpinnerStop));
     }
 
     #[test]
     fn tui_sink_is_not_silent() {
-        let (tx, _rx) = tokio::sync::mpsc::channel(1024);
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         let sink = TuiSink::new(tx);
         assert!(!sink.is_silent());
     }
 
     #[test]
     fn tui_sink_stream_reset() {
-        let (tx, _rx) = tokio::sync::mpsc::channel(1024);
+        let (tx, _rx) = tokio::sync::mpsc::unbounded_channel();
         let sink = TuiSink::new(tx);
         sink.stream_text("data");
         assert_eq!(sink.stream_full_text(), "data");
@@ -1232,7 +1894,7 @@ mod tests {
 
     #[test]
     fn tui_sink_sends_info() {
-        let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let sink = TuiSink::new(tx);
         sink.info("round separator");
         let ev = rx.try_recv().unwrap();
@@ -1241,7 +1903,7 @@ mod tests {
 
     #[test]
     fn tui_sink_sends_tool_denied() {
-        let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let sink = TuiSink::new(tx);
         sink.tool_denied("bash");
         let ev = rx.try_recv().unwrap();
@@ -1252,16 +1914,15 @@ mod tests {
     fn classic_sink_plan_progress_no_panic() {
         use halcon_core::traits::PlanStep;
         let sink = ClassicSink::new();
-        let steps = vec![
-            PlanStep {
-                description: "Read file".into(),
-                tool_name: Some("file_read".into()),
-                parallel: false,
-                confidence: 0.9,
-                expected_args: None,
-                outcome: None,
-            },
-        ];
+        let steps = vec![PlanStep {
+            step_id: uuid::Uuid::new_v4(),
+            description: "Read file".into(),
+            tool_name: Some("file_read".into()),
+            parallel: false,
+            confidence: 0.9,
+            expected_args: None,
+            outcome: None,
+        }];
         // Should not panic.
         sink.plan_progress("Test goal", &steps, 0);
     }
@@ -1269,21 +1930,22 @@ mod tests {
     #[test]
     fn tui_sink_sends_plan_progress() {
         use halcon_core::traits::PlanStep;
-        let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let sink = TuiSink::new(tx);
-        let steps = vec![
-            PlanStep {
-                description: "Read file".into(),
-                tool_name: Some("file_read".into()),
-                parallel: false,
-                confidence: 0.9,
-                expected_args: None,
-                outcome: None,
-            },
-        ];
+        let steps = vec![PlanStep {
+            step_id: uuid::Uuid::new_v4(),
+            description: "Read file".into(),
+            tool_name: Some("file_read".into()),
+            parallel: false,
+            confidence: 0.9,
+            expected_args: None,
+            outcome: None,
+        }];
         sink.plan_progress("Test goal", &steps, 0);
         let ev = rx.try_recv().unwrap();
-        assert!(matches!(ev, crate::tui::events::UiEvent::PlanProgress { ref goal, current_step: 0, .. } if goal == "Test goal"));
+        assert!(
+            matches!(ev, crate::tui::events::UiEvent::PlanProgress { ref goal, current_step: 0, .. } if goal == "Test goal")
+        );
     }
 
     #[test]
@@ -1308,7 +1970,13 @@ mod tests {
     fn classic_sink_reasoning_status_no_panic() {
         let sink = ClassicSink::new();
         // Should not panic with various inputs.
-        sink.reasoning_status("CodeModification", "Moderate", "PlanExecuteReflect", 0.85, true);
+        sink.reasoning_status(
+            "CodeModification",
+            "Moderate",
+            "PlanExecuteReflect",
+            0.85,
+            true,
+        );
         sink.reasoning_status("General", "Simple", "DirectExecution", 0.35, false);
     }
 
@@ -1379,28 +2047,39 @@ mod tests {
 
     #[test]
     fn tui_sink_sends_round_started() {
-        let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let sink = TuiSink::new(tx);
         sink.round_started(1, "deepseek", "deepseek-chat");
         let ev = rx.try_recv().unwrap();
-        assert!(matches!(ev, crate::tui::events::UiEvent::RoundStarted { round: 1, .. }));
+        assert!(matches!(
+            ev,
+            crate::tui::events::UiEvent::RoundStarted { round: 1, .. }
+        ));
     }
 
     #[test]
     fn tui_sink_sends_round_ended() {
-        let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let sink = TuiSink::new(tx);
         sink.round_ended(2, 800, 300, 0.004, 2500);
         let ev = rx.try_recv().unwrap();
-        assert!(matches!(ev, crate::tui::events::UiEvent::RoundEnded { round: 2, .. }));
+        assert!(matches!(
+            ev,
+            crate::tui::events::UiEvent::RoundEnded { round: 2, .. }
+        ));
     }
 
     #[test]
     fn cockpit_event_variant_construction() {
         let ev = crate::tui::events::UiEvent::CompactionComplete {
-            old_msgs: 50, new_msgs: 10, tokens_saved: 4000,
+            old_msgs: 50,
+            new_msgs: 10,
+            tokens_saved: 4000,
         };
-        assert!(matches!(ev, crate::tui::events::UiEvent::CompactionComplete { old_msgs: 50, .. }));
+        assert!(matches!(
+            ev,
+            crate::tui::events::UiEvent::CompactionComplete { old_msgs: 50, .. }
+        ));
     }
 
     // --- Phase 42E: Expert mode gating tests ---
@@ -1531,7 +2210,11 @@ mod tests {
         let simple = ClassicSink::new();
         let silent = SilentSink::new();
 
-        for sink in [&expert as &dyn RenderSink, &simple as &dyn RenderSink, &silent as &dyn RenderSink] {
+        for sink in [
+            &expert as &dyn RenderSink,
+            &simple as &dyn RenderSink,
+            &silent as &dyn RenderSink,
+        ] {
             // Phase 43C
             sink.reflection_started();
             sink.reflection_complete("analysis text", 0.85);
@@ -1595,112 +2278,141 @@ mod tests {
 
     #[test]
     fn tui_sink_sends_dry_run_active() {
-        let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let sink = TuiSink::new(tx);
         sink.dry_run_active(true);
         let ev = rx.try_recv().unwrap();
-        assert!(matches!(ev, crate::tui::events::UiEvent::DryRunActive(true)));
+        assert!(matches!(
+            ev,
+            crate::tui::events::UiEvent::DryRunActive(true)
+        ));
     }
 
     #[test]
     fn tui_sink_sends_token_budget_update() {
-        let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let sink = TuiSink::new(tx);
         sink.token_budget_update(500, 1000, 120.5);
         let ev = rx.try_recv().unwrap();
-        assert!(matches!(ev, crate::tui::events::UiEvent::TokenBudgetUpdate { used: 500, limit: 1000, .. }));
+        assert!(matches!(
+            ev,
+            crate::tui::events::UiEvent::TokenBudgetUpdate {
+                used: 500,
+                limit: 1000,
+                ..
+            }
+        ));
     }
 
     #[test]
     fn tui_sink_sends_provider_health_update() {
-        let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let sink = TuiSink::new(tx);
         sink.provider_health_update("anthropic", "degraded", 0.3, 5000);
         let ev = rx.try_recv().unwrap();
-        assert!(matches!(ev, crate::tui::events::UiEvent::ProviderHealthUpdate {
+        assert!(
+            matches!(ev, crate::tui::events::UiEvent::ProviderHealthUpdate {
             ref provider,
             status: crate::tui::events::ProviderHealthStatus::Degraded { .. },
-        } if provider == "anthropic"));
+        } if provider == "anthropic")
+        );
     }
 
     #[test]
     fn tui_sink_sends_circuit_breaker_update() {
-        let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let sink = TuiSink::new(tx);
         sink.circuit_breaker_update("openai", "open", 5);
         let ev = rx.try_recv().unwrap();
-        assert!(matches!(ev, crate::tui::events::UiEvent::CircuitBreakerUpdate {
+        assert!(
+            matches!(ev, crate::tui::events::UiEvent::CircuitBreakerUpdate {
             ref provider,
             state: crate::tui::events::CircuitBreakerState::Open,
             failure_count: 5,
-        } if provider == "openai"));
+        } if provider == "openai")
+        );
     }
 
     #[test]
     fn tui_sink_sends_agent_state_transition() {
-        let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let sink = TuiSink::new(tx);
         sink.agent_state_transition("idle", "executing", "start");
         let ev = rx.try_recv().unwrap();
-        assert!(matches!(ev, crate::tui::events::UiEvent::AgentStateTransition {
-            from: crate::tui::events::AgentState::Idle,
-            to: crate::tui::events::AgentState::Executing,
-            ..
-        }));
+        assert!(matches!(
+            ev,
+            crate::tui::events::UiEvent::AgentStateTransition {
+                from: crate::tui::events::AgentState::Idle,
+                to: crate::tui::events::AgentState::Executing,
+                ..
+            }
+        ));
     }
 
     #[test]
     fn tui_sink_provider_health_healthy() {
-        let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let sink = TuiSink::new(tx);
         sink.provider_health_update("test", "healthy", 0.0, 0);
         let ev = rx.try_recv().unwrap();
-        assert!(matches!(ev, crate::tui::events::UiEvent::ProviderHealthUpdate {
-            status: crate::tui::events::ProviderHealthStatus::Healthy,
-            ..
-        }));
+        assert!(matches!(
+            ev,
+            crate::tui::events::UiEvent::ProviderHealthUpdate {
+                status: crate::tui::events::ProviderHealthStatus::Healthy,
+                ..
+            }
+        ));
     }
 
     #[test]
     fn tui_sink_provider_health_unhealthy() {
-        let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let sink = TuiSink::new(tx);
         sink.provider_health_update("test", "down: connection refused", 1.0, 0);
         let ev = rx.try_recv().unwrap();
-        assert!(matches!(ev, crate::tui::events::UiEvent::ProviderHealthUpdate {
-            status: crate::tui::events::ProviderHealthStatus::Unhealthy { .. },
-            ..
-        }));
+        assert!(matches!(
+            ev,
+            crate::tui::events::UiEvent::ProviderHealthUpdate {
+                status: crate::tui::events::ProviderHealthStatus::Unhealthy { .. },
+                ..
+            }
+        ));
     }
 
     #[test]
     fn tui_sink_circuit_breaker_closed() {
-        let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let sink = TuiSink::new(tx);
         sink.circuit_breaker_update("test", "closed", 0);
         let ev = rx.try_recv().unwrap();
-        assert!(matches!(ev, crate::tui::events::UiEvent::CircuitBreakerUpdate {
-            state: crate::tui::events::CircuitBreakerState::Closed,
-            ..
-        }));
+        assert!(matches!(
+            ev,
+            crate::tui::events::UiEvent::CircuitBreakerUpdate {
+                state: crate::tui::events::CircuitBreakerState::Closed,
+                ..
+            }
+        ));
     }
 
     #[test]
     fn tui_sink_circuit_breaker_half_open() {
-        let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let sink = TuiSink::new(tx);
         sink.circuit_breaker_update("test", "half_open", 2);
         let ev = rx.try_recv().unwrap();
-        assert!(matches!(ev, crate::tui::events::UiEvent::CircuitBreakerUpdate {
-            state: crate::tui::events::CircuitBreakerState::HalfOpen,
-            failure_count: 2,
-            ..
-        }));
+        assert!(matches!(
+            ev,
+            crate::tui::events::UiEvent::CircuitBreakerUpdate {
+                state: crate::tui::events::CircuitBreakerState::HalfOpen,
+                failure_count: 2,
+                ..
+            }
+        ));
     }
 
     #[test]
     fn tui_sink_agent_state_all_transitions() {
-        let (tx, mut rx) = tokio::sync::mpsc::channel(1024);
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
         let sink = TuiSink::new(tx);
         let transitions = [
             ("idle", "planning"),
@@ -1717,7 +2429,9 @@ mod tests {
         }
         // Drain all events and verify count.
         let mut count = 0;
-        while rx.try_recv().is_ok() { count += 1; }
+        while rx.try_recv().is_ok() {
+            count += 1;
+        }
         assert_eq!(count, transitions.len());
     }
 
@@ -1727,7 +2441,11 @@ mod tests {
         let simple = ClassicSink::new();
         let silent = SilentSink::new();
 
-        for sink in [&expert as &dyn RenderSink, &simple as &dyn RenderSink, &silent as &dyn RenderSink] {
+        for sink in [
+            &expert as &dyn RenderSink,
+            &simple as &dyn RenderSink,
+            &silent as &dyn RenderSink,
+        ] {
             sink.dry_run_active(true);
             sink.dry_run_active(false);
             sink.token_budget_update(1000, 50000, 200.0);
@@ -1738,5 +2456,141 @@ mod tests {
             sink.agent_state_transition("idle", "executing", "start");
             sink.agent_state_transition("executing", "complete", "done");
         }
+    }
+
+    // ── R-01 regression: UTF-8 safety in stream_thinking ─────────────────────
+
+    #[test]
+    fn thinking_preview_does_not_panic_on_multibyte_chars() {
+        // "ñ" is 2 bytes in UTF-8.  Fill the preview buffer to just before the limit
+        // with ASCII, then push a 2-byte char that would straddle the boundary if
+        // we used byte-slicing.  The fix uses char-aware truncation so this must
+        // never panic.
+        let sink = ClassicSink::new();
+        // Fill preview to 159 bytes (1 byte short of limit) with ASCII 'a'.
+        let almost_full: String = "a".repeat(159);
+        sink.stream_thinking(&almost_full);
+        // Now push a 2-byte char — byte-slicing would panic trying to fit 1 byte.
+        sink.stream_thinking("ñ"); // 2 UTF-8 bytes — only 1 byte room remains
+                                   // If we reach here without panic, the fix is correct.
+    }
+
+    #[test]
+    fn thinking_preview_handles_emoji_boundary() {
+        // Emoji like "🦅" is 4 bytes. If only 3 bytes remain in the buffer, byte-slicing panics.
+        let sink = ClassicSink::new();
+        let almost_full: String = "a".repeat(157); // 3 bytes before limit
+        sink.stream_thinking(&almost_full);
+        sink.stream_thinking("🦅"); // 4 UTF-8 bytes — would panic with old byte-slice code
+                                    // Must complete without panic.
+    }
+
+    #[test]
+    fn thinking_preview_exact_char_boundary_fills_correctly() {
+        // Verify that a multi-byte char fitting exactly into remaining space is included.
+        let sink = ClassicSink::new();
+        let almost_full: String = "a".repeat(158); // 2 bytes before limit
+        sink.stream_thinking(&almost_full);
+        sink.stream_thinking("ñ"); // exactly 2 bytes — should fit
+                                   // Preview must include "ñ" at end.
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SubAgentSink — routes permission events to the parent UI from orchestrated
+// sub-agents that run headless (no direct TUI channel).
+//
+// The orchestrator creates a SubAgentSink for each sub-agent when a
+// PermissionAwaiter callback is provided (e.g. TUI mode). The callback is
+// type-erased so this struct has no TUI-specific dependencies and compiles
+// regardless of feature flags.
+//
+// All output methods are no-ops — sub-agents are headless for text output.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Risk-adaptive TUI countdown timeout for permission modals.
+///
+/// Returns the number of seconds the TUI should show the modal before auto-denying.
+/// The backend waits indefinitely; only the TUI side enforces this deadline.
+pub fn timeout_for_risk(risk_level: &str) -> u64 {
+    match risk_level {
+        "Critical" => 300, // 5 min — rm-rf, system changes: read carefully
+        "High" => 180,     // 3 min — file_write, bash with side effects
+        "Medium" => 120,   // 2 min — file_edit, git operations
+        _ => 60,           // 1 min — config changes, minor writes (Low)
+    }
+}
+
+/// Callback invoked when a sub-agent needs permission confirmation.
+///
+/// Receives: `tool_name`, `args_json`, `risk_level`, `timeout_secs`, `reply_sender`.
+/// In TUI mode the callback sends a `UiEvent::PermissionAwaiting` to the TUI.
+/// The `reply_sender` is the channel the sub-agent's `PermissionChecker` waits on.
+pub type PermissionAwaiter = std::sync::Arc<
+    dyn Fn(
+            &str,
+            &serde_json::Value,
+            &str,
+            u64,
+            tokio::sync::mpsc::UnboundedSender<halcon_core::types::PermissionDecision>,
+        ) + Send
+        + Sync,
+>;
+
+/// Render sink for sub-agents running under a parent UI.
+///
+/// Routes permission events to the parent via a `PermissionAwaiter` callback.
+/// All output methods are no-ops since sub-agents produce no visible output.
+pub struct SubAgentSink {
+    perm_awaiter: PermissionAwaiter,
+    perm_reply_tx: tokio::sync::mpsc::UnboundedSender<halcon_core::types::PermissionDecision>,
+}
+
+impl SubAgentSink {
+    pub fn new(
+        perm_awaiter: PermissionAwaiter,
+        perm_reply_tx: tokio::sync::mpsc::UnboundedSender<halcon_core::types::PermissionDecision>,
+    ) -> Self {
+        Self {
+            perm_awaiter,
+            perm_reply_tx,
+        }
+    }
+}
+
+impl RenderSink for SubAgentSink {
+    fn stream_text(&self, _text: &str) {}
+    fn stream_code_block(&self, _lang: &str, _code: &str) {}
+    fn stream_tool_marker(&self, _name: &str) {}
+    fn stream_done(&self) {}
+    fn stream_error(&self, _msg: &str) {}
+    fn tool_start(&self, _name: &str, _input: &serde_json::Value) {}
+    fn tool_output(&self, _block: &ContentBlock, _duration_ms: u64) {}
+    fn tool_denied(&self, _name: &str) {}
+    fn spinner_start(&self, _label: &str) {}
+    fn spinner_stop(&self) {}
+    fn warning(&self, _message: &str, _hint: Option<&str>) {}
+    fn error(&self, _message: &str, _hint: Option<&str>) {}
+    fn info(&self, _message: &str) {}
+    fn is_silent(&self) -> bool {
+        true
+    }
+    fn stream_reset(&self) {}
+    fn stream_full_text(&self) -> String {
+        String::new()
+    }
+
+    fn permission_awaiting(&self, tool: &str, args: &serde_json::Value, risk_level: &str) {
+        let timeout_secs = timeout_for_risk(risk_level);
+        // Invoke the callback which notifies the parent UI and embeds the reply_tx
+        // so the TUI can route the user's decision back to this sub-agent's
+        // PermissionChecker (which is waiting on perm_reply_tx's paired receiver).
+        (self.perm_awaiter)(
+            tool,
+            args,
+            risk_level,
+            timeout_secs,
+            self.perm_reply_tx.clone(),
+        );
     }
 }

@@ -8,8 +8,8 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use halcon_core::types::{ChatMessage, ContentBlock, MessageContent, Role};
 use halcon_core::types::validation::strip_orphaned_tool_results;
+use halcon_core::types::{ChatMessage, ContentBlock, MessageContent, Role};
 
 use crate::accountant::{estimate_message_tokens, BudgetResult, Tier, TokenAccountant};
 use crate::assembler::estimate_tokens;
@@ -165,10 +165,7 @@ impl ContextPipeline {
                 if let Some(next) = self.l0.messages().front() {
                     if Self::message_has_tool_results_for(&tool_use_ids, next) {
                         if let Some(companion) = self.l0.pop_oldest() {
-                            let seg = extract_segment_from_message(
-                                &companion,
-                                self.round_counter,
-                            );
+                            let seg = extract_segment_from_message(&companion, self.round_counter);
                             self.push_to_l1(seg);
                         }
                     }
@@ -207,15 +204,25 @@ impl ContextPipeline {
         let mut messages = Vec::new();
 
         // Extract the most recent user query once (used by L3 and L4 retrieval).
-        let user_query = self.l0.messages().iter().rev()
+        let user_query = self
+            .l0
+            .messages()
+            .iter()
+            .rev()
             .find(|m| m.role == Role::User)
             .and_then(|m| m.content.as_text())
             .unwrap_or("");
 
         // L4 cold archive (oldest, lowest priority — query-filtered retrieval).
         if !self.l4.is_empty() {
-            let l4_query = if user_query.is_empty() { None } else { Some(user_query) };
-            let l4_chunks = self.l4.retrieve(l4_query, self.accountant.available(Tier::L4Cold));
+            let l4_query = if user_query.is_empty() {
+                None
+            } else {
+                Some(user_query)
+            };
+            let l4_chunks = self
+                .l4
+                .retrieve(l4_query, self.accountant.available(Tier::L4Cold));
             if !l4_chunks.is_empty() {
                 let l4_text: String = l4_chunks
                     .iter()
@@ -224,16 +231,16 @@ impl ContextPipeline {
                     .join("\n\n");
                 messages.push(ChatMessage {
                     role: Role::User,
-                    content: MessageContent::Text(format!(
-                        "[Archived Memory (L4)]\n{l4_text}"
-                    )),
+                    content: MessageContent::Text(format!("[Archived Memory (L4)]\n{l4_text}")),
                 });
             }
         }
 
         // L3 semantic context (relevance-ranked).
         if !self.l3.is_empty() && !user_query.is_empty() {
-            let l3_chunks = self.l3.retrieve(user_query, self.accountant.available(Tier::L3Semantic));
+            let l3_chunks = self
+                .l3
+                .retrieve(user_query, self.accountant.available(Tier::L3Semantic));
             if !l3_chunks.is_empty() {
                 let l3_text: String = l3_chunks
                     .iter()
@@ -242,15 +249,15 @@ impl ContextPipeline {
                     .join("\n\n");
                 messages.push(ChatMessage {
                     role: Role::User,
-                    content: MessageContent::Text(format!(
-                        "[Semantic Memory (L3)]\n{l3_text}"
-                    )),
+                    content: MessageContent::Text(format!("[Semantic Memory (L3)]\n{l3_text}")),
                 });
             }
         }
 
         // L2 cold context (oldest, lower priority — decompressed on demand)
-        let l2_chunks = self.l2.retrieve(self.accountant.available(Tier::L2Compressed));
+        let l2_chunks = self
+            .l2
+            .retrieve(self.accountant.available(Tier::L2Compressed));
         if !l2_chunks.is_empty() {
             let l2_text: String = l2_chunks
                 .iter()
@@ -259,9 +266,7 @@ impl ContextPipeline {
                 .join("\n\n");
             messages.push(ChatMessage {
                 role: Role::User,
-                content: MessageContent::Text(format!(
-                    "[Compressed History (L2)]\n{l2_text}"
-                )),
+                content: MessageContent::Text(format!("[Compressed History (L2)]\n{l2_text}")),
             });
         }
 
@@ -374,7 +379,10 @@ impl ContextPipeline {
                     "L4 archive token budget allocated to accountant"
                 );
             }
-            BudgetResult::InsufficientBudget { available, requested } => {
+            BudgetResult::InsufficientBudget {
+                available,
+                requested,
+            } => {
                 // This is normal when loading a cross-session archive produced in a
                 // session with a LARGER context window (e.g. Anthropic 200K archive
                 // loaded into a DeepSeek 64K session). The archive content is still
@@ -628,7 +636,10 @@ mod tests {
         let mut pipeline = ContextPipeline::new(&default_config());
         // Overflow L0 to populate L1
         for i in 0..10 {
-            pipeline.add_message(text_msg(Role::User, &format!("message {i} with some content")));
+            pipeline.add_message(text_msg(
+                Role::User,
+                &format!("message {i} with some content"),
+            ));
         }
         let msgs = pipeline.build_messages();
         // First message should be L1 summary
@@ -717,14 +728,25 @@ mod tests {
             pipeline.add_message(text_msg(Role::User, &format!("message {i}")));
         }
         let l1_len_before = pipeline.l1().len();
-        assert!(l1_len_before > 0, "L1 should have segments after L0 overflow");
+        assert!(
+            l1_len_before > 0,
+            "L1 should have segments after L0 overflow"
+        );
 
         // Apply reset_hot_only().
         pipeline.reset_hot_only();
 
         // L0 cleared, L1 preserved.
-        assert_eq!(pipeline.l0().len(), 0, "L0 should be empty after reset_hot_only");
-        assert_eq!(pipeline.l1().len(), l1_len_before, "L1 should be unchanged after reset_hot_only");
+        assert_eq!(
+            pipeline.l0().len(),
+            0,
+            "L0 should be empty after reset_hot_only"
+        );
+        assert_eq!(
+            pipeline.l1().len(),
+            l1_len_before,
+            "L1 should be unchanged after reset_hot_only"
+        );
     }
 
     /// Fix C: after reset_hot_only, new messages can be added to L0.
@@ -747,7 +769,10 @@ mod tests {
         assert_eq!(pipeline.l0().len(), 2);
         let msgs = pipeline.build_messages();
         assert!(msgs.iter().any(|m| {
-            m.content.as_text().map(|t| t.contains("Summary")).unwrap_or(false)
+            m.content
+                .as_text()
+                .map(|t| t.contains("Summary"))
+                .unwrap_or(false)
         }));
     }
 
@@ -874,9 +899,11 @@ mod tests {
         assert!(!msgs.is_empty());
         // If L2 has data, first message might be compressed history
         if pipeline.l2().len() > 0 {
-            let has_l2 = msgs
-                .iter()
-                .any(|m| m.content.as_text().map_or(false, |t| t.contains("[Compressed History")));
+            let has_l2 = msgs.iter().any(|m| {
+                m.content
+                    .as_text()
+                    .map_or(false, |t| t.contains("[Compressed History"))
+            });
             assert!(has_l2, "Expected L2 compressed history in messages");
         }
     }
@@ -955,7 +982,11 @@ mod tests {
 
         // Simulate a long conversation with alternating roles.
         for i in 0..500 {
-            let role = if i % 2 == 0 { Role::User } else { Role::Assistant };
+            let role = if i % 2 == 0 {
+                Role::User
+            } else {
+                Role::Assistant
+            };
             let content = format!(
                 "Round {}: discussing Rust async patterns with tokio, error handling \
                  with thiserror, and testing strategies for production systems. \
@@ -1008,10 +1039,7 @@ mod tests {
 
         // 7. Token estimate is reasonable.
         let total_tokens = pipeline.estimated_tokens();
-        assert!(
-            total_tokens > 0,
-            "Estimated tokens should be positive"
-        );
+        assert!(total_tokens > 0, "Estimated tokens should be positive");
     }
 
     #[test]
@@ -1035,16 +1063,14 @@ mod tests {
             ));
             // Tool result (sometimes large).
             let tool_output = if round % 5 == 0 {
-                (0..100).map(|i| format!("test result line {i}")).collect::<Vec<_>>().join("\n")
+                (0..100)
+                    .map(|i| format!("test result line {i}"))
+                    .collect::<Vec<_>>()
+                    .join("\n")
             } else {
                 format!("test result: {} passed, 0 failed", round * 10)
             };
-            pipeline.add_tool_result(
-                "bash",
-                &format!("tool_{round}"),
-                &tool_output,
-                false,
-            );
+            pipeline.add_tool_result("bash", &format!("tool_{round}"), &tool_output, false);
             // Assistant response.
             pipeline.add_message(text_msg(
                 Role::Assistant,
@@ -1082,9 +1108,9 @@ mod tests {
             ));
             // After each message, L0 tokens should not exceed L0 budget.
             let l0_tokens = pipeline.l0().token_count();
-            let l0_budget = pipeline.accountant().tier_budget(
-                crate::accountant::Tier::L0Hot,
-            );
+            let l0_budget = pipeline
+                .accountant()
+                .tier_budget(crate::accountant::Tier::L0Hot);
             // Allow some slack for the sync cycle.
             assert!(
                 l0_tokens <= l0_budget + 50,
@@ -1165,7 +1191,10 @@ mod tests {
                     .as_text()
                     .map_or(false, |t| t.contains("[Semantic Memory (L3)]"))
             });
-            assert!(has_l3, "Expected L3 semantic memory in messages when query matches stored content");
+            assert!(
+                has_l3,
+                "Expected L3 semantic memory in messages when query matches stored content"
+            );
         }
     }
 
@@ -1287,7 +1316,11 @@ mod tests {
         let mut pipeline = ContextPipeline::new(&config);
 
         for i in 0..1000 {
-            let role = if i % 2 == 0 { Role::User } else { Role::Assistant };
+            let role = if i % 2 == 0 {
+                Role::User
+            } else {
+                Role::Assistant
+            };
             pipeline.add_message(text_msg(
                 role,
                 &format!(
@@ -1342,8 +1375,14 @@ mod tests {
         // Push enough messages to cascade to L4.
         for i in 0..50 {
             pipeline.add_message(text_msg(
-                if i % 2 == 0 { Role::User } else { Role::Assistant },
-                &format!("Message {i} with enough content to fill multiple tiers and cascade evictions"),
+                if i % 2 == 0 {
+                    Role::User
+                } else {
+                    Role::Assistant
+                },
+                &format!(
+                    "Message {i} with enough content to fill multiple tiers and cascade evictions"
+                ),
             ));
         }
 
@@ -1419,7 +1458,10 @@ mod tests {
         let result = pipeline.refresh_instructions(dir.path());
         assert!(result.is_some());
         let reserved_after = pipeline.accountant().system_prompt_reserved();
-        assert!(reserved_after > reserved_before, "Reservation should grow: before={reserved_before}, after={reserved_after}");
+        assert!(
+            reserved_after > reserved_before,
+            "Reservation should grow: before={reserved_before}, after={reserved_after}"
+        );
     }
 
     #[test]
@@ -1504,7 +1546,12 @@ mod tests {
         let violations = halcon_core::types::validation::validate_message_sequence(&msgs, false);
         let orphans: Vec<_> = violations
             .iter()
-            .filter(|v| matches!(v, halcon_core::types::validation::ProtocolViolation::OrphanedToolResult { .. }))
+            .filter(|v| {
+                matches!(
+                    v,
+                    halcon_core::types::validation::ProtocolViolation::OrphanedToolResult { .. }
+                )
+            })
             .collect();
         assert!(
             orphans.is_empty(),
@@ -1539,7 +1586,12 @@ mod tests {
         let violations = halcon_core::types::validation::validate_message_sequence(&msgs, false);
         let orphans: Vec<_> = violations
             .iter()
-            .filter(|v| matches!(v, halcon_core::types::validation::ProtocolViolation::OrphanedToolResult { .. }))
+            .filter(|v| {
+                matches!(
+                    v,
+                    halcon_core::types::validation::ProtocolViolation::OrphanedToolResult { .. }
+                )
+            })
             .collect();
         assert!(
             orphans.is_empty(),
@@ -1560,15 +1612,24 @@ mod tests {
         for round in 0..100 {
             pipeline.add_message(text_msg(Role::User, &format!("do round {round}")));
             pipeline.add_message(tool_use_msg(&format!("t{round}"), "bash"));
-            pipeline.add_message(tool_result_msg(&format!("t{round}"), &format!("result {round}")));
+            pipeline.add_message(tool_result_msg(
+                &format!("t{round}"),
+                &format!("result {round}"),
+            ));
             pipeline.add_message(text_msg(Role::Assistant, &format!("done round {round}")));
 
             // Check invariant after every round.
             let msgs = pipeline.build_messages();
-            let violations = halcon_core::types::validation::validate_message_sequence(&msgs, false);
+            let violations =
+                halcon_core::types::validation::validate_message_sequence(&msgs, false);
             let orphans: Vec<_> = violations
                 .iter()
-                .filter(|v| matches!(v, halcon_core::types::validation::ProtocolViolation::OrphanedToolResult { .. }))
+                .filter(|v| {
+                    matches!(
+                        v,
+                        halcon_core::types::validation::ProtocolViolation::OrphanedToolResult { .. }
+                    )
+                })
                 .collect();
             assert!(
                 orphans.is_empty(),

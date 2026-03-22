@@ -33,10 +33,7 @@ mod inner {
             token_budget: usize,
         ) -> Result<FileContent, Error> {
             let path = info.path.clone();
-            let is_tsv = path
-                .extension()
-                .and_then(|e| e.to_str())
-                == Some("tsv");
+            let is_tsv = path.extension().and_then(|e| e.to_str()) == Some("tsv");
 
             tokio::task::spawn_blocking(move || extract_csv(&path, is_tsv, token_budget))
                 .await
@@ -97,10 +94,11 @@ mod inner {
             }
 
             // Check budget.
-            let row_str: String = record
-                .iter()
-                .collect::<Vec<_>>()
-                .join(if is_tsv { "\t" } else { "," });
+            let row_str: String =
+                record
+                    .iter()
+                    .collect::<Vec<_>>()
+                    .join(if is_tsv { "\t" } else { "," });
 
             if output.len() + row_str.len() + 1 > max_chars {
                 truncated = true;
@@ -265,7 +263,11 @@ mod inner {
         async fn extract_csv_with_quoted_delimiters() {
             let dir = tempfile::TempDir::new().unwrap();
             let path = dir.path().join("quoted.csv");
-            std::fs::write(&path, "name,desc\n\"Alice\",\"hello, world\"\n\"Bob\",\"foo, bar\"\n").unwrap();
+            std::fs::write(
+                &path,
+                "name,desc\n\"Alice\",\"hello, world\"\n\"Bob\",\"foo, bar\"\n",
+            )
+            .unwrap();
 
             let info = make_info(&path, 50);
             let result = CsvHandler.extract(&info, 1000).await.unwrap();

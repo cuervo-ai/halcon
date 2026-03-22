@@ -179,7 +179,9 @@ impl ColdStore {
         let entry = self.entries.remove(0);
         let bytes = self.entry_bytes(&entry.storage);
         self.total_compressed_bytes = self.total_compressed_bytes.saturating_sub(bytes);
-        self.total_original_tokens = self.total_original_tokens.saturating_sub(entry.original_tokens);
+        self.total_original_tokens = self
+            .total_original_tokens
+            .saturating_sub(entry.original_tokens);
 
         // Fix up delta base indices (all shifted by -1).
         for e in &mut self.entries {
@@ -307,7 +309,12 @@ impl ColdStore {
             .iter()
             .enumerate()
             .rev()
-            .find(|(_, e)| matches!(e.storage, EntryStorage::Compressed(_) | EntryStorage::Raw(_)))
+            .find(|(_, e)| {
+                matches!(
+                    e.storage,
+                    EntryStorage::Compressed(_) | EntryStorage::Raw(_)
+                )
+            })
             .map(|(i, _)| i)
     }
 

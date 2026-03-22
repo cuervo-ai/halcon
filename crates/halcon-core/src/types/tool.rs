@@ -80,21 +80,16 @@ pub enum RuleScope {
 }
 
 /// Pattern matching type for tool names and arguments.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PatternType {
     /// Exact string match (O(1) hash lookup).
+    #[default]
     Exact,
     /// Glob pattern (e.g., "bash ls*").
     Glob,
     /// Regex pattern (most flexible, highest overhead).
     Regex,
-}
-
-impl Default for PatternType {
-    fn default() -> Self {
-        PatternType::Exact
-    }
 }
 
 /// Persistent permission rule with scoping and pattern matching.

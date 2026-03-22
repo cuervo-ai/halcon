@@ -1,0 +1,34 @@
+name = "halcon-releases"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+# ─── Variables ────────────────────────────────────────────────────────────────
+# GITHUB_TOKEN must be set as a Secret in the Cloudflare dashboard (never plaintext)
+[vars]
+GITHUB_REPO = "cuervo-ai/halcon-cli"
+CACHE_TTL   = "300"
+
+# ─── KV namespace binding for manifest caching ────────────────────────────────
+# Create with: npx wrangler kv namespace create RELEASES_KV
+# Then replace the id below with the real namespace ID
+[[kv_namespaces]]
+binding = "RELEASES_KV"
+id      = "d1ff7daf831c453bb57d214a87d6566e"
+
+# ─── Routes ───────────────────────────────────────────────────────────────────
+# releases.cli.cuervo.cloud → binary manifests, checksums, artifact proxy
+# cli.cuervo.cloud          → install.sh / install.ps1 (proxied from Pages)
+#
+# Both custom domains are managed by this Worker.
+# Cloudflare automatically creates DNS records when custom domains are attached.
+# Routes require a pre-existing DNS record — do NOT use for cli.cuervo.cloud
+# Custom domains tell Cloudflare to auto-create the DNS record + TLS cert.
+[[routes]]
+pattern   = "releases.cli.cuervo.cloud/*"
+zone_name = "cuervo.cloud"
+
+[[routes]]
+pattern   = "cli.cuervo.cloud/*"
+zone_name = "cuervo.cloud"

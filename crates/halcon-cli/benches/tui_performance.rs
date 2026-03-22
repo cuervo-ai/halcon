@@ -5,7 +5,7 @@
 //! - Virtual scrolling keeps rendering <2ms
 //! - LRU cache improves span parsing
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use std::collections::VecDeque;
 use std::time::Duration;
 
@@ -66,7 +66,11 @@ fn bench_frame_rate_interval(c: &mut Criterion) {
             black_box(interval);
             // Verify FPS calculation: 16ms = 62.5 FPS (close to 60)
             let fps = 1000.0 / interval.as_millis() as f64;
-            assert!(fps >= 60.0 && fps <= 65.0, "Should be ~60 FPS (got {})", fps);
+            assert!(
+                fps >= 60.0 && fps <= 65.0,
+                "Should be ~60 FPS (got {})",
+                fps
+            );
         });
     });
 }

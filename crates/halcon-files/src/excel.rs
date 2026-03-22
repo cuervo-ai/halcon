@@ -72,11 +72,8 @@ mod inner {
                 let mut rows_shown = 0;
 
                 for (i, row) in range.rows().enumerate() {
-                    let row_str: String = row
-                        .iter()
-                        .map(format_cell)
-                        .collect::<Vec<_>>()
-                        .join("\t");
+                    let row_str: String =
+                        row.iter().map(format_cell).collect::<Vec<_>>().join("\t");
 
                     if output.len() + row_str.len() + 2 > max_chars {
                         truncated = true;

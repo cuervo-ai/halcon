@@ -61,9 +61,9 @@ impl MessageRouter {
         if let Some(to) = &msg.to {
             // Unicast
             let mailboxes = self.mailboxes.read().await;
-            let tx = mailboxes.get(to).ok_or_else(|| {
-                RuntimeError::Federation(format!("no mailbox for agent {to}"))
-            })?;
+            let tx = mailboxes
+                .get(to)
+                .ok_or_else(|| RuntimeError::Federation(format!("no mailbox for agent {to}")))?;
             tx.send(msg)
                 .await
                 .map_err(|_| RuntimeError::Federation("mailbox send failed".to_string()))
@@ -147,11 +147,8 @@ mod tests {
         let mailbox = router.create_mailbox(agent_id).await;
 
         for i in 0..5u128 {
-            let msg = FederationMessage::new(
-                id(100 + i),
-                Some(agent_id),
-                FederationMessageKind::Ping,
-            );
+            let msg =
+                FederationMessage::new(id(100 + i), Some(agent_id), FederationMessageKind::Ping);
             router.send(msg).await.unwrap();
         }
 
@@ -204,8 +201,14 @@ mod tests {
 
         let r1 = rx1.recv().await.unwrap();
         let r2 = rx2.recv().await.unwrap();
-        assert!(matches!(r1.kind, FederationMessageKind::ContextUpdate { .. }));
-        assert!(matches!(r2.kind, FederationMessageKind::ContextUpdate { .. }));
+        assert!(matches!(
+            r1.kind,
+            FederationMessageKind::ContextUpdate { .. }
+        ));
+        assert!(matches!(
+            r2.kind,
+            FederationMessageKind::ContextUpdate { .. }
+        ));
     }
 
     #[tokio::test]

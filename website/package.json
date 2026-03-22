@@ -11,7 +11,8 @@
     "astro": "astro",
     "format": "prettier --write .",
     "lint": "eslint . --ext .js,.jsx,.ts,.tsx,.astro",
-    "check": "astro check && tsc --noEmit"
+    "check": "astro check && tsc --noEmit",
+    "test:perf": "playwright test --config playwright.config.ts"
   },
   "dependencies": {
     "@astrojs/check": "^0.9.4",
@@ -31,7 +32,9 @@
   },
   "devDependencies": {
     "@astrojs/sitemap": "^3.2.0",
+    "@playwright/test": "^1.49.0",
     "@tailwindcss/typography": "^0.5.13",
+    "@types/node": "^22.0.0",
     "autoprefixer": "^10.4.19"
   },
   "engines": {

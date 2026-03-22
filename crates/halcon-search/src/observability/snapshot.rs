@@ -156,11 +156,7 @@ impl SnapshotStore {
                         snapshot_id, timestamp, snapshot_json
                     ) VALUES (?1, ?2, ?3)
                     "#,
-                    rusqlite::params![
-                        snapshot.id,
-                        snapshot.timestamp.to_rfc3339(),
-                        snapshot_json,
-                    ],
+                    rusqlite::params![snapshot.id, snapshot.timestamp.to_rfc3339(), snapshot_json,],
                 )?;
 
                 Ok::<(), rusqlite::Error>(())

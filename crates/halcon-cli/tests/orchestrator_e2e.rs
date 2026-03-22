@@ -84,15 +84,7 @@ fn full_flag_enables_all_dependencies() {
     let tmp = TempDir::new().unwrap();
 
     let output = halcon_cmd(&tmp)
-        .args([
-            "-p",
-            "echo",
-            "-m",
-            "echo",
-            "chat",
-            "--full",
-            "test task",
-        ])
+        .args(["-p", "echo", "-m", "echo", "chat", "--full", "test task"])
         .output()
         .expect("Failed to execute command");
 

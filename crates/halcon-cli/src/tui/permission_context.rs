@@ -313,7 +313,10 @@ mod tests {
         assert_eq!(PermissionContext::parse_risk("low"), RiskLevel::Low);
         assert_eq!(PermissionContext::parse_risk("LOW"), RiskLevel::Low);
         assert_eq!(PermissionContext::parse_risk("High"), RiskLevel::High);
-        assert_eq!(PermissionContext::parse_risk("CRITICAL"), RiskLevel::Critical);
+        assert_eq!(
+            PermissionContext::parse_risk("CRITICAL"),
+            RiskLevel::Critical
+        );
     }
 
     #[test]
@@ -474,20 +477,30 @@ mod tests {
     #[test]
     fn risk_level_recommended_option_low_medium() {
         assert_eq!(RiskLevel::Low.recommended_option(), PermissionOption::Yes);
-        assert_eq!(RiskLevel::Medium.recommended_option(), PermissionOption::Yes);
+        assert_eq!(
+            RiskLevel::Medium.recommended_option(),
+            PermissionOption::Yes
+        );
     }
 
     #[test]
     fn risk_level_recommended_option_high_critical() {
         assert_eq!(RiskLevel::High.recommended_option(), PermissionOption::No);
-        assert_eq!(RiskLevel::Critical.recommended_option(), PermissionOption::No);
+        assert_eq!(
+            RiskLevel::Critical.recommended_option(),
+            PermissionOption::No
+        );
     }
 
     #[test]
     fn progressive_disclosure_filters_advanced() {
         let low = RiskLevel::Low;
         let all_opts = low.available_options();
-        let basic_opts: Vec<_> = all_opts.iter().filter(|o| !o.is_advanced()).cloned().collect();
+        let basic_opts: Vec<_> = all_opts
+            .iter()
+            .filter(|o| !o.is_advanced())
+            .cloned()
+            .collect();
 
         // Basic options: Yes, No, Cancel = 3 options
         assert_eq!(basic_opts.len(), 3);

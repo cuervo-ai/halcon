@@ -1,12 +1,217 @@
 //! Color science utilities built on momoto-core and momoto-metrics.
 //!
 //! Provides WCAG/APCA contrast evaluation, accessible palette generation,
-//! and perceptual color distance calculations.
+//! perceptual color distance calculations, CVD simulation, and semantic APCA.
 
+use momoto_core::color::cvd::{cvd_delta_e, simulate_cvd, suggest_cvd_safe_alternative, CVDType};
 use momoto_core::ContrastMetric;
+use momoto_intelligence::UsageContext;
 use momoto_metrics::{APCAMetric, WCAGMetric};
 
 use super::theme::{Palette, ThemeColor};
+
+// ============================================================================
+// CVD validation
+// ============================================================================
+
+/// Report of CVD (Color Vision Deficiency) validation for the full palette.
+#[derive(Debug, Clone, Default)]
+pub struct CvdReport {
+    /// (token_a, token_b, delta_e) pairs that fail for Protanopia.
+    pub protan_failures: Vec<(&'static str, &'static str, f64)>,
+    /// (token_a, token_b, delta_e) pairs that fail for Deuteranopia.
+    pub deutan_failures: Vec<(&'static str, &'static str, f64)>,
+    /// (token_a, token_b, delta_e) pairs that fail for Tritanopia.
+    pub tritan_failures: Vec<(&'static str, &'static str, f64)>,
+    /// True iff all three types have zero failures.
+    pub all_safe: bool,
+}
+
+/// Verify a color pair is distinguishable under a given CVD type.
+///
+/// `min_delta` is in the CVD ΔE scale (0–100); recommended threshold: 15.0.
+pub fn validate_cvd_pair(a: &ThemeColor, b: &ThemeColor, cvd: CVDType, min_delta: f64) -> bool {
+    let sim_a = simulate_cvd(a.color(), cvd);
+    let sim_b = simulate_cvd(b.color(), cvd);
+    // Reuse delta_e logic via cvd_delta_e relative to each color vs simulated-combined
+    // Instead, compute delta_e between the two simulated colors in OKLCH space.
+    use momoto_core::OKLCH;
+    let lch_a = OKLCH::from_color(&sim_a);
+    let lch_b = OKLCH::from_color(&sim_b);
+    let dl = lch_a.l - lch_b.l;
+    let da = lch_a.c * lch_a.h.to_radians().cos() - lch_b.c * lch_b.h.to_radians().cos();
+    let db = lch_a.c * lch_a.h.to_radians().sin() - lch_b.c * lch_b.h.to_radians().sin();
+    let de = 100.0 * (dl * dl + da * da + db * db).sqrt();
+    de >= min_delta
+}
+
+/// Validate critical palette pairs under all three CVD types.
+///
+/// Checks: (success, error), (running, planning), health trio (running, reasoning, delegated).
+/// Returns a `CvdReport` with failures per CVD type.
+pub fn validate_all_cvd(palette: &Palette) -> CvdReport {
+    const MIN_DELTA: f64 = 15.0;
+
+    let critical_pairs: &[(&str, &ThemeColor, &str, &ThemeColor)] = &[
+        ("success", &palette.success, "error", &palette.error),
+        ("running", &palette.running, "planning", &palette.planning),
+        ("running", &palette.running, "reasoning", &palette.reasoning),
+        (
+            "planning",
+            &palette.planning,
+            "delegated",
+            &palette.delegated,
+        ),
+        ("warning", &palette.warning, "error", &palette.error),
+    ];
+
+    let mut report = CvdReport::default();
+
+    for cvd in [
+        CVDType::Protanopia,
+        CVDType::Deuteranopia,
+        CVDType::Tritanopia,
+    ] {
+        for &(name_a, color_a, name_b, color_b) in critical_pairs {
+            if !validate_cvd_pair(color_a, color_b, cvd, MIN_DELTA) {
+                // Compute actual delta for reporting
+                use momoto_core::OKLCH;
+                let sim_a = simulate_cvd(color_a.color(), cvd);
+                let sim_b = simulate_cvd(color_b.color(), cvd);
+                let lch_a = OKLCH::from_color(&sim_a);
+                let lch_b = OKLCH::from_color(&sim_b);
+                let dl = lch_a.l - lch_b.l;
+                let da =
+                    lch_a.c * lch_a.h.to_radians().cos() - lch_b.c * lch_b.h.to_radians().cos();
+                let db =
+                    lch_a.c * lch_a.h.to_radians().sin() - lch_b.c * lch_b.h.to_radians().sin();
+                let de = 100.0 * (dl * dl + da * da + db * db).sqrt();
+                match cvd {
+                    CVDType::Protanopia => report.protan_failures.push((name_a, name_b, de)),
+                    CVDType::Deuteranopia => report.deutan_failures.push((name_a, name_b, de)),
+                    CVDType::Tritanopia => report.tritan_failures.push((name_a, name_b, de)),
+                }
+            }
+        }
+    }
+
+    report.all_safe = report.protan_failures.is_empty()
+        && report.deutan_failures.is_empty()
+        && report.tritan_failures.is_empty();
+
+    report
+}
+
+// ============================================================================
+// Semantic APCA
+// ============================================================================
+
+/// Compute APCA Lc and check against the threshold for a given UsageContext.
+///
+/// Returns `(lc_value, passes_threshold)`.
+///
+/// Thresholds per UsageContext (APCA W3):
+/// - BodyText    → |Lc| ≥ 75
+/// - LargeText   → |Lc| ≥ 60
+/// - Interactive → |Lc| ≥ 60
+/// - Decorative  → |Lc| ≥ 30
+/// - IconsGraphics / Disabled → |Lc| ≥ 30
+pub fn apca_for_usage(fg: &ThemeColor, bg: &ThemeColor, usage: UsageContext) -> (f64, bool) {
+    let lc = apca_contrast(fg, bg);
+    let threshold = match usage {
+        UsageContext::BodyText => 75.0,
+        UsageContext::LargeText => 60.0,
+        UsageContext::Interactive => 60.0,
+        UsageContext::Decorative => 30.0,
+        UsageContext::IconsGraphics => 30.0,
+        UsageContext::Disabled => 30.0,
+    };
+    (lc, lc.abs() >= threshold)
+}
+
+/// Validate all semantic palette tokens with APCA + UsageContext.
+///
+/// Token → UsageContext mapping:
+/// - text, text_dim → BodyText (Lc ≥ 75)
+/// - running, planning, reasoning, delegated, retrying → Interactive (Lc ≥ 60)
+/// - text_label → LargeText (Lc ≥ 60)
+/// - border, spinner_color → Decorative (Lc ≥ 30)
+///
+/// Returns `Vec<(token_name, lc_actual, lc_required, passes)>`.
+pub fn validate_with_apca_usage(palette: &Palette) -> Vec<(&'static str, f64, f64, bool)> {
+    let bg = &palette.bg_panel;
+    let checks: &[(&str, &ThemeColor, UsageContext)] = &[
+        ("text", &palette.text, UsageContext::BodyText),
+        ("text_dim", &palette.text_dim, UsageContext::BodyText),
+        ("running", &palette.running, UsageContext::Interactive),
+        ("planning", &palette.planning, UsageContext::Interactive),
+        ("reasoning", &palette.reasoning, UsageContext::Interactive),
+        ("delegated", &palette.delegated, UsageContext::Interactive),
+        ("retrying", &palette.retrying, UsageContext::Interactive),
+        ("text_label", &palette.text_label, UsageContext::LargeText),
+        ("border", &palette.border, UsageContext::Decorative),
+        (
+            "spinner_color",
+            &palette.spinner_color,
+            UsageContext::Decorative,
+        ),
+    ];
+
+    checks
+        .iter()
+        .map(|&(name, color, usage)| {
+            let (lc, passes) = apca_for_usage(color, bg, usage);
+            let threshold = match usage {
+                UsageContext::BodyText => 75.0,
+                UsageContext::LargeText => 60.0,
+                UsageContext::Interactive => 60.0,
+                UsageContext::Decorative => 30.0,
+                UsageContext::IconsGraphics => 30.0,
+                UsageContext::Disabled => 30.0,
+            };
+            (name, lc, threshold, passes)
+        })
+        .collect()
+}
+
+/// Suggest a CVD-safe foreground color for a given CVD type.
+///
+/// Wraps `suggest_cvd_safe_alternative` with WCAG AA threshold (4.5).
+pub fn suggest_cvd_safe(fg: &ThemeColor, bg: &ThemeColor, cvd: CVDType) -> ThemeColor {
+    let safe_color = suggest_cvd_safe_alternative(fg.color(), bg.color(), cvd, 4.5);
+    let rgb = safe_color.to_srgb8();
+    ThemeColor::rgb(rgb[0], rgb[1], rgb[2])
+}
+
+// ============================================================================
+// Harmony quality
+// ============================================================================
+
+/// Compute a chromatic harmony quality score for the palette's semantic colors.
+///
+/// Uses momoto-intelligence's `harmony_score` on the cockpit + semantic tokens
+/// expressed as OKLCH values. Returns a value in [0, 1].
+pub fn harmony_score_for_palette(palette: &Palette) -> f64 {
+    use momoto_core::OKLCH;
+    use momoto_intelligence::harmony_score;
+
+    let colors: Vec<OKLCH> = [
+        &palette.primary,
+        &palette.accent,
+        &palette.success,
+        &palette.warning,
+        &palette.error,
+        &palette.running,
+        &palette.planning,
+        &palette.reasoning,
+        &palette.delegated,
+    ]
+    .iter()
+    .map(|tc| tc.to_oklch())
+    .collect();
+
+    harmony_score(&colors)
+}
 
 /// Calculate the WCAG 2.1 contrast ratio between two theme colors.
 ///
@@ -165,14 +370,31 @@ pub fn validate_cockpit_palette(palette: &Palette) -> Vec<(&'static str, f64, f6
 /// are perceptually distinct with delta-E >= 15 (JND = Just Noticeable Difference).
 ///
 /// Returns a Vec of (name_a, name_b, delta_e) for pairs that are too similar.
-pub fn validate_tui_perceptual_distance(palette: &Palette) -> Vec<(&'static str, &'static str, f64)> {
+pub fn validate_tui_perceptual_distance(
+    palette: &Palette,
+) -> Vec<(&'static str, &'static str, f64)> {
     // Panel section colors must be distinguishable
     let panel_checks: &[(&str, &ThemeColor, &str, &ThemeColor)] = &[
         ("planning", &palette.planning, "running", &palette.running),
         ("running", &palette.running, "reasoning", &palette.reasoning),
-        ("reasoning", &palette.reasoning, "delegated", &palette.delegated),
-        ("planning", &palette.planning, "reasoning", &palette.reasoning),
-        ("planning", &palette.planning, "delegated", &palette.delegated),
+        (
+            "reasoning",
+            &palette.reasoning,
+            "delegated",
+            &palette.delegated,
+        ),
+        (
+            "planning",
+            &palette.planning,
+            "reasoning",
+            &palette.reasoning,
+        ),
+        (
+            "planning",
+            &palette.planning,
+            "delegated",
+            &palette.delegated,
+        ),
         ("running", &palette.running, "delegated", &palette.delegated),
     ];
 
@@ -207,7 +429,7 @@ pub fn validate_tui_perceptual_distance(palette: &Palette) -> Vec<(&'static str,
     //
     // Remaining failures are due to sRGB gamut crushing chroma on bright colors (L>0.80).
     // Achieving 12/12 would require wider gamut (Display-P3, Rec.2020) unavailable in terminals.
-    let min_delta_e = 0.3;  // Phase 45B threshold
+    let min_delta_e = 0.3; // Phase 45B threshold
     let mut failures = Vec::new();
 
     // Check panel sections
@@ -231,8 +453,8 @@ pub fn validate_tui_perceptual_distance(palette: &Palette) -> Vec<(&'static str,
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use super::super::theme;  // Import theme module from parent (render)
+    use super::super::theme;
+    use super::*; // Import theme module from parent (render)
 
     #[test]
     fn black_white_contrast_near_21() {
@@ -266,7 +488,7 @@ mod tests {
     #[test]
     fn palette_from_hue_produces_valid_colors() {
         let p = palette_from_hue(210.0); // blue hue
-        // All colors should have valid sRGB values (no panics).
+                                         // All colors should have valid sRGB values (no panics).
         let _ = p.primary.r();
         let _ = p.accent.g();
         let _ = p.warning.b();
@@ -315,7 +537,10 @@ mod tests {
         let red = ThemeColor::oklch(0.5, 0.2, 25.0);
         let blue = ThemeColor::oklch(0.5, 0.2, 260.0);
         let d = perceptual_distance(&red, &blue);
-        assert!(d > 0.1, "different colors should have distance > 0.1, got {d}");
+        assert!(
+            d > 0.1,
+            "different colors should have distance > 0.1, got {d}"
+        );
     }
 
     #[test]
@@ -393,8 +618,8 @@ mod tests {
 
         // These are the most important pairs for panel usability
         let critical_pairs = [
-            ("running", &p.running, "reasoning", &p.reasoning),  // passes: 0.333
-            ("planning", &p.planning, "reasoning", &p.reasoning),  // passes: 0.308
+            ("running", &p.running, "reasoning", &p.reasoning), // passes: 0.333
+            ("planning", &p.planning, "reasoning", &p.reasoning), // passes: 0.308
         ];
 
         for (name_a, color_a, name_b, color_b) in critical_pairs {
@@ -414,8 +639,8 @@ mod tests {
 
         // success vs error and success vs warning are most critical
         let critical_pairs = [
-            ("success", &p.success, "error", &p.error),    // passes: 0.322
-            ("success", &p.success, "warning", &p.warning),  // passes: 0.323
+            ("success", &p.success, "error", &p.error), // passes: 0.322
+            ("success", &p.success, "warning", &p.warning), // passes: 0.323
         ];
 
         for (name_a, color_a, name_b, color_b) in critical_pairs {
@@ -545,7 +770,10 @@ mod tests {
 
         // Document known sRGB gamut limitations (informational, not strict failure)
         if !strict_failures.is_empty() {
-            eprintln!("ℹ️  Known sRGB gamut limitations ({}/12 pairs < 0.3):", strict_failures.len());
+            eprintln!(
+                "ℹ️  Known sRGB gamut limitations ({}/12 pairs < 0.3):",
+                strict_failures.len()
+            );
             for (name_a, name_b, delta) in &strict_failures {
                 eprintln!("   - {} vs {}: {:.3}", name_a, name_b, delta);
             }

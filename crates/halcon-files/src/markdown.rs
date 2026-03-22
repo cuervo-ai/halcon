@@ -136,7 +136,8 @@ mod inner {
         async fn extract_markdown_with_headings() {
             let dir = tempfile::TempDir::new().unwrap();
             let path = dir.path().join("README.md");
-            let content = "# Title\n\nSome text.\n\n## Section 1\n\nMore text.\n\n### Subsection\n\nDetails.";
+            let content =
+                "# Title\n\nSome text.\n\n## Section 1\n\nMore text.\n\n### Subsection\n\nDetails.";
             tokio::fs::write(&path, content).await.unwrap();
 
             let info = make_info(&path, content.len() as u64);

@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1200"
+     viewBox="0 0 900 1200" role="img"
+     aria-label="Halcon CLI — Halcon CLI — Runtime Diagnostics">
+  <defs>
+    <linearGradient id="headerGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%"   stop-color="#c41400" stop-opacity="0.9"/>
+      <stop offset="100%" stop-color="#e85200"  stop-opacity="0.7"/>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="2" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+  </defs>
+
+  <!-- Window frame -->
+  <rect width="900" height="1200" rx="10" ry="10"
+        fill="#070401" stroke="#e85200" stroke-width="1.5" stroke-opacity="0.6"/>
+
+  <!-- Title bar -->
+  <rect width="900" height="40" rx="10" ry="10" fill="url(#headerGrad)" fill-opacity="0.25"/>
+  <rect y="10" width="900" height="30" fill="url(#headerGrad)" fill-opacity="0.25"/>
+
+  <!-- Window controls -->
+  <circle cx="20"  cy="22" r="6" fill="#ee343b"    filter="url(#glow)"/>
+  <circle cx="38"  cy="22" r="6" fill="#fdd506" filter="url(#glow)"/>
+  <circle cx="56"  cy="22" r="6" fill="#57cb60"  filter="url(#glow)"/>
+
+  <!-- Title -->
+  <text x="450" y="26" text-anchor="middle"
+        font-family="'Rajdhani','Montserrat',sans-serif" font-size="13px"
+        font-weight="600" fill="#f0e8d8" opacity="0.85">Halcon CLI — Runtime Diagnostics</text>
+
+  <!-- Separator line -->
+  <line x1="0" y1="40" x2="900" y2="40"
+        stroke="#e85200" stroke-width="0.8" stroke-opacity="0.4"/>
+
+  <!-- Prompt line -->
+  <text x="20" y="56"
+        font-family="'JetBrains Mono','Fira Code',monospace" font-size="13px">
+    <tspan fill="#c4b49a">~ </tspan><tspan fill="#e85200" font-weight="bold">❯ </tspan><tspan fill="#f0e8d8">halcon doctor</tspan>
+  </text>
+
+  <!-- Output -->
+  <text x="20" y="73" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"></text>
+    <text x="20" y="93" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"></text>
+    <text x="20" y="113" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  ╭─ Halcon Doctor ──────────────────────────────────────╮</tspan></text>
+    <text x="20" y="133" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"></text>
+    <text x="20" y="153" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  Configuration</tspan></text>
+    <text x="20" y="173" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >    All settings valid</tspan></text>
+    <text x="20" y="193" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"></text>
+    <text x="20" y="213" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  Providers</tspan></text>
+    <text x="20" y="233" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >    Primary: anthropic/claude-sonnet-4-6</tspan></text>
+    <text x="20" y="253" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >    anthropic/claude-haiku-4-5-20251001: [OK] (100% success, 10848ms avg, 205 calls)</tspan></text>
+    <text x="20" y="273" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >    anthropic/claude-opus-4-6: [OK] (96% success, 26530ms avg, 178 calls)</tspan></text>
+    <text x="20" y="293" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >    anthropic/claude-sonnet-4-6: [OK] (99% success, 9151ms avg, 139 calls)</tspan></text>
+    <text x="20" y="313" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >    claude_code/claude-opus-4-6: [OK] (100% success, 1943ms avg, 4 calls)</tspan></text>
+    <text x="20" y="333" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >    claude_code/claude-sonnet-4-6: [DEGRADED] (94% success, 9728ms avg, 32 calls)</tspan></text>
+    <text x="20" y="353" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >    deepseek/deepseek-chat: [OK] (98% success, 13398ms avg, 2065 calls)</tspan></text>
+    <text x="20" y="373" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >    deepseek/deepseek-coder: [OK] (100% success, 16977ms avg, 148 calls)</tspan></text>
+    <text x="20" y="393" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >    deepseek/deepseek-reasoner: [OK] (98% success, 6643ms avg, 43 calls)</tspan></text>
+    <text x="20" y="413" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >    ollama/claude-haiku-4-5-20251001: [OK] (100% success, 22802ms avg, 17 calls)</tspan></text>
+    <text x="20" y="433" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >    ollama/deepseek-coder-v2:latest: [OK] (97% success, 37395ms avg, 233 calls)</tspan></text>
+    <text x="20" y="453" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >    openai/gpt-4o: [OK] (95% success, 9831ms avg, 38 calls)</tspan></text>
+    <text x="20" y="473" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >    openai/gpt-4o-mini: [OK] (99% success, 8042ms avg, 141 calls)</tspan></text>
+    <text x="20" y="493" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >    openai/o1: [DEGRADED] (87% success, 19801ms avg, 130 calls)</tspan></text>
+    <text x="20" y="513" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >    openai/o3-mini: [OK] (97% success, 5381ms avg, 123 calls)</tspan></text>
+    <text x="20" y="533" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"></text>
+    <text x="20" y="553" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  Health Scores</tspan></text>
+    <text x="20" y="573" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >    anthropic: [OK] (score 100, err 0%, 0ms avg, p95 0ms, tmout 0%, 0 calls)</tspan></text>
+    <text x="20" y="593" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >    claude_code: [OK] (score 100, err 0%, 0ms avg, p95 0ms, tmout 0%, 0 calls)</tspan></text>
+    <text x="20" y="613" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >    deepseek: [OK] (score 100, err 0%, 0ms avg, p95 0ms, tmout 0%, 0 calls)</tspan></text>
+    <text x="20" y="633" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >    ollama: [OK] (score 100, err 0%, 0ms avg, p95 0ms, tmout 0%, 0 calls)</tspan></text>
+    <text x="20" y="653" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >    openai: [OK] (score 100, err 0%, 0ms avg, p95 0ms, tmout 0%, 0 calls)</tspan></text>
+    <text x="20" y="673" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"></text>
+    <text x="20" y="693" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  Cache</tspan></text>
+    <text x="20" y="713" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >    Entries: 167  |  0 total hits</tspan></text>
+    <text x="20" y="733" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >    Oldest: 2026-02-23 23:32</tspan></text>
+    <text x="20" y="753" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"></text>
+    <text x="20" y="773" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  Metrics</tspan></text>
+    <text x="20" y="793" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >    Total invocations: 3496  |  Cost: $9.6240</tspan></text>
+    <text x="20" y="813" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >    Total tokens: 26912569</tspan></text>
+    <text x="20" y="833" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"></text>
+    <text x="20" y="853" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  Tool Metrics</tspan></text>
+    <text x="20" y="873" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >    file_read: 150 calls, 10ms avg, 84% success</tspan></text>
+    <text x="20" y="893" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >    read_multiple_files: 147 calls, 33ms avg, 87% success</tspan></text>
+    <text x="20" y="913" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >    directory_tree: 135 calls, 695ms avg, 96% success</tspan></text>
+    <text x="20" y="933" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >    bash: 80 calls, 2686ms avg, 88% success</tspan></text>
+    <text x="20" y="953" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >    file_write: 54 calls, 7ms avg, 100% success</tspan></text>
+    <text x="20" y="973" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"></text>
+    <text x="20" y="993" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  Orchestrator</tspan></text>
+    <text x="20" y="1013" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >    Status: [enabled]</tspan></text>
+    <text x="20" y="1033" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >    Max concurrent agents: 3</tspan></text>
+    <text x="20" y="1053" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >    Sub-agent timeout: 270s</tspan></text>
+    <text x="20" y="1073" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >    Shared budget: true</tspan></text>
+    <text x="20" y="1093" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >    Recent runs (7d): 20</tspan></text>
+    <text x="20" y="1113" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"></text>
+    <text x="20" y="1133" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >  Replay &amp; Checkpoints</tspan></text>
+    <text x="20" y="1153" font-family="'JetBrains Mono','Fira Code','Cascadia Code',monospace" font-size="13px" xml:space="preserve"><tspan fill="#f0e8d8" >    Sessions with fingerprints: 0</tspan></text>
+
+  <!-- Bottom glow accent -->
+  <rect y="1197" width="900" height="3" rx="0"
+        fill="url(#headerGrad)" opacity="0.5"/>
+</svg>

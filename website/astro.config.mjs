@@ -27,6 +27,9 @@ export default defineConfig({
   vite: {
     build: {
       rollupOptions: {
+        // /sim/*.js files live in /public — served as static assets at runtime,
+        // not bundled. Rollup must treat them as external references.
+        external: [/^\/sim\//],
         output: {
           manualChunks: {
             'react-vendor': ['react', 'react-dom'],

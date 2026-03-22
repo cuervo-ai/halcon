@@ -297,14 +297,7 @@ mod tests {
         let start = Utc::now();
         let end = start + chrono::Duration::hours(1);
 
-        let metrics = QueryMetrics::from_data(
-            &durations,
-            0,
-            &result_counts,
-            None,
-            start,
-            end,
-        );
+        let metrics = QueryMetrics::from_data(&durations, 0, &result_counts, None, start, end);
 
         assert_eq!(metrics.total_queries, 3);
         assert_eq!(metrics.successful_queries, 3);
@@ -320,14 +313,7 @@ mod tests {
         let start = Utc::now();
         let end = start + chrono::Duration::hours(1);
 
-        let metrics = QueryMetrics::from_data(
-            &[],
-            0,
-            &[],
-            None,
-            start,
-            end,
-        );
+        let metrics = QueryMetrics::from_data(&[], 0, &[], None, start, end);
 
         assert_eq!(metrics.total_queries, 0);
         assert_eq!(metrics.successful_queries, 0);
@@ -341,14 +327,7 @@ mod tests {
         let start = Utc::now();
         let end = start + chrono::Duration::hours(1);
 
-        let metrics = QueryMetrics::from_data(
-            &[],
-            10,
-            &[],
-            None,
-            start,
-            end,
-        );
+        let metrics = QueryMetrics::from_data(&[], 10, &[], None, start, end);
 
         assert_eq!(metrics.total_queries, 10);
         assert_eq!(metrics.successful_queries, 0);

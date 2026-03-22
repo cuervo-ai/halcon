@@ -13,8 +13,8 @@
 //! - Precision@5 ≥ 0.70
 //! - MAP ≥ 0.60
 
-use crate::metrics::{compute_ndcg, compute_precision, compute_recall, compute_map};
-use crate::ragas::{RagasEvaluation, AggregateRagasMetrics};
+use crate::metrics::{compute_map, compute_ndcg, compute_precision, compute_recall};
+use crate::ragas::{AggregateRagasMetrics, RagasEvaluation};
 use serde::{Deserialize, Serialize};
 
 /// Complete evaluation for a single query combining all metrics.
@@ -185,7 +185,10 @@ impl AggregateComprehensiveEvaluation {
         let overall_quality_score = sum_quality / num_queries as f64;
 
         // Count queries meeting all SOTA targets
-        let sota_passing = evaluations.iter().filter(|e| e.meets_all_sota_targets()).count();
+        let sota_passing = evaluations
+            .iter()
+            .filter(|e| e.meets_all_sota_targets())
+            .count();
         let sota_pass_rate = sota_passing as f64 / num_queries as f64;
 
         Self {
@@ -238,14 +241,30 @@ Status: {}
 "#,
             self.num_queries,
             self.ragas.avg_context_precision,
-            if self.ragas.avg_context_precision >= 0.90 { "✅" } else { "❌" },
+            if self.ragas.avg_context_precision >= 0.90 {
+                "✅"
+            } else {
+                "❌"
+            },
             self.ragas.avg_context_recall,
-            if self.ragas.avg_context_recall >= 0.85 { "✅" } else { "❌" },
+            if self.ragas.avg_context_recall >= 0.85 {
+                "✅"
+            } else {
+                "❌"
+            },
             self.ragas.avg_f1_score,
             self.avg_ndcg_at_10,
-            if self.avg_ndcg_at_10 >= 0.80 { "✅" } else { "❌" },
+            if self.avg_ndcg_at_10 >= 0.80 {
+                "✅"
+            } else {
+                "❌"
+            },
             self.avg_precision_at_5,
-            if self.avg_precision_at_5 >= 0.70 { "✅" } else { "❌" },
+            if self.avg_precision_at_5 >= 0.70 {
+                "✅"
+            } else {
+                "❌"
+            },
             self.avg_recall_at_10,
             self.avg_map,
             if self.avg_map >= 0.60 { "✅" } else { "❌" },
@@ -314,7 +333,11 @@ mod tests {
         relevance.insert("doc3".to_string(), 0.0);
         relevance.insert("doc4".to_string(), 0.0);
 
-        let chunks = vec!["chunk1".to_string(), "chunk2".to_string(), "chunk3".to_string()];
+        let chunks = vec![
+            "chunk1".to_string(),
+            "chunk2".to_string(),
+            "chunk3".to_string(),
+        ];
         let relevant_chunks = vec!["chunk1".to_string(), "chunk2".to_string()];
 
         let eval = ComprehensiveEvaluation::evaluate(
@@ -396,7 +419,8 @@ mod tests {
         let chunks = vec!["c1".to_string()];
         let relevant = vec!["c1".to_string()];
 
-        let eval = ComprehensiveEvaluation::evaluate(query, &retrieved, &relevance, &chunks, &relevant);
+        let eval =
+            ComprehensiveEvaluation::evaluate(query, &retrieved, &relevance, &chunks, &relevant);
         let aggregate = AggregateComprehensiveEvaluation::from_evaluations(&[eval]);
 
         let report = aggregate.summary_report();

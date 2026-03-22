@@ -55,9 +55,9 @@ impl Tool for GitCommitTool {
             });
         }
 
-        let message = input.arguments["message"]
-            .as_str()
-            .ok_or_else(|| HalconError::InvalidInput("git_commit requires 'message' string".into()))?;
+        let message = input.arguments["message"].as_str().ok_or_else(|| {
+            HalconError::InvalidInput("git_commit requires 'message' string".into())
+        })?;
 
         if message.trim().is_empty() {
             return Err(HalconError::InvalidInput(
@@ -66,7 +66,8 @@ impl Tool for GitCommitTool {
         }
 
         // Commit with the message. Using Command::arg() for each argument — safe from injection.
-        let output = helpers::run_git_command(working_dir, &["commit", "-m", message], None).await?;
+        let output =
+            helpers::run_git_command(working_dir, &["commit", "-m", message], None).await?;
 
         if output.exit_code != 0 {
             let stderr = output.stderr.trim();
@@ -74,7 +75,8 @@ impl Tool for GitCommitTool {
             if stderr.contains("nothing to commit") || output.stdout.contains("nothing to commit") {
                 return Ok(ToolOutput {
                     tool_use_id: input.tool_use_id,
-                    content: "git_commit error: nothing to commit (staging area is empty)".to_string(),
+                    content: "git_commit error: nothing to commit (staging area is empty)"
+                        .to_string(),
                     is_error: true,
                     metadata: None,
                 });
@@ -88,10 +90,15 @@ impl Tool for GitCommitTool {
         }
 
         // Extract commit hash from output or via rev-parse.
-        let hash_output = helpers::run_git_command(working_dir, &["rev-parse", "HEAD"], None).await?;
+        let hash_output =
+            helpers::run_git_command(working_dir, &["rev-parse", "HEAD"], None).await?;
         let commit_hash = hash_output.stdout.trim().to_string();
 
-        let content = format!("Committed: {}\nHash: {}", message, &commit_hash[..8.min(commit_hash.len())]);
+        let content = format!(
+            "Committed: {}\nHash: {}",
+            message,
+            &commit_hash[..8.min(commit_hash.len())]
+        );
 
         Ok(ToolOutput {
             tool_use_id: input.tool_use_id,
@@ -182,7 +189,11 @@ mod tests {
             .execute(make_input(path, json!({"message": "Add file"})))
             .await
             .unwrap();
-        assert!(!output.is_error, "commit should succeed: {}", output.content);
+        assert!(
+            !output.is_error,
+            "commit should succeed: {}",
+            output.content
+        );
         assert!(output.content.contains("Add file"));
 
         let meta = output.metadata.unwrap();
@@ -239,7 +250,11 @@ mod tests {
             .execute(make_input(path, json!({"message": message})))
             .await
             .unwrap();
-        assert!(!output.is_error, "special chars should work: {}", output.content);
+        assert!(
+            !output.is_error,
+            "special chars should work: {}",
+            output.content
+        );
 
         let meta = output.metadata.unwrap();
         assert_eq!(meta["message"].as_str().unwrap(), message);

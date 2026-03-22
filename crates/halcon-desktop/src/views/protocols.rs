@@ -18,10 +18,7 @@ pub fn render(ui: &mut Ui, state: &AppState) {
         .collect();
 
     if protocol_events.is_empty() {
-        ui.label(
-            RichText::new("No protocol messages captured yet")
-                .color(HalconTheme::TEXT_MUTED),
-        );
+        ui.label(RichText::new("No protocol messages captured yet").color(HalconTheme::TEXT_MUTED));
         ui.add_space(8.0);
         ui.label("Protocol messages (MCP, A2A, Federation) will appear here as they flow through the runtime.");
         return;

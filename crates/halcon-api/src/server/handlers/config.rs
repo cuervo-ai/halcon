@@ -45,9 +45,7 @@ pub async fn update_config(
 }
 
 /// Convert an `AppConfig` (halcon-core) to the API DTO.
-pub fn config_to_dto(
-    config: &halcon_core::types::AppConfig,
-) -> RuntimeConfigResponse {
+pub fn config_to_dto(config: &halcon_core::types::AppConfig) -> RuntimeConfigResponse {
     let providers = config
         .models
         .providers
@@ -115,7 +113,7 @@ pub fn config_to_dto(
         },
         security: SecurityConfigDto {
             pii_detection: config.security.pii_detection,
-            pii_action: config.security.pii_action.clone(),
+            pii_action: config.security.pii_action.to_string(),
             audit_enabled: config.security.audit_enabled,
             guardrails_enabled: config.security.guardrails.enabled,
             guardrails_builtins: config.security.guardrails.builtins,
@@ -216,8 +214,7 @@ pub fn apply_dto_update(
     if let Some(ref t) = update.tools {
         config.tools.confirm_destructive = t.confirm_destructive;
         config.tools.timeout_secs = t.timeout_secs;
-        config.tools.allowed_directories =
-            t.allowed_directories.iter().map(Into::into).collect();
+        config.tools.allowed_directories = t.allowed_directories.iter().map(Into::into).collect();
         config.tools.blocked_patterns = t.blocked_patterns.clone();
         config.tools.dry_run = t.dry_run;
         config.tools.sandbox.enabled = t.sandbox.enabled;
@@ -230,7 +227,7 @@ pub fn apply_dto_update(
 
     if let Some(ref s) = update.security {
         config.security.pii_detection = s.pii_detection;
-        config.security.pii_action = s.pii_action.clone();
+        config.security.pii_action = s.pii_action.parse().unwrap_or_default();
         config.security.audit_enabled = s.audit_enabled;
         config.security.guardrails.enabled = s.guardrails_enabled;
         config.security.guardrails.builtins = s.guardrails_builtins;
@@ -251,8 +248,7 @@ pub fn apply_dto_update(
         config.resilience.enabled = r.enabled;
         config.resilience.circuit_breaker.failure_threshold = r.circuit_breaker.failure_threshold;
         config.resilience.circuit_breaker.window_secs = r.circuit_breaker.window_secs;
-        config.resilience.circuit_breaker.open_duration_secs =
-            r.circuit_breaker.open_duration_secs;
+        config.resilience.circuit_breaker.open_duration_secs = r.circuit_breaker.open_duration_secs;
         config.resilience.circuit_breaker.half_open_probes = r.circuit_breaker.half_open_probes;
         config.resilience.health.window_minutes = r.health.window_minutes;
         config.resilience.health.degraded_threshold = r.health.degraded_threshold;

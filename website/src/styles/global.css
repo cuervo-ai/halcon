@@ -11,6 +11,29 @@
 
 /* ─── Design Tokens ───────────────────────────────────────────────────────── */
 :root {
+  /* ── Logo scaling — responsive via CSS custom property ── */
+  --logo-size: 2.75rem;      /* mobile: 44px  */
+  --navbar-h:  3.75rem;      /* mobile: 60px  */
+
+  /* ── Elevation system (5 levels) ── */
+  /* Material-style shadow stack derived from fire brand color */
+  --elevation-0: none;
+  --elevation-1: 0 1px 3px rgba(0,0,0,0.38), 0 1px 2px rgba(232,82,0,0.06);
+  --elevation-2: 0 4px 12px rgba(0,0,0,0.48), 0 2px 4px rgba(232,82,0,0.08), 0 1px 0 rgba(255,255,255,0.03);
+  --elevation-3: 0 8px 24px rgba(0,0,0,0.55), 0 4px 8px rgba(232,82,0,0.10), 0 1px 0 rgba(255,255,255,0.04);
+  --elevation-4: 0 16px 48px rgba(0,0,0,0.62), 0 8px 16px rgba(232,82,0,0.12), 0 1px 0 rgba(255,255,255,0.05);
+  --elevation-5: 0 24px 80px rgba(0,0,0,0.70), 0 12px 24px rgba(232,82,0,0.15), 0 1px 0 rgba(255,255,255,0.06);
+
+  /* ── Material emulation tokens ── */
+  --material-glass-blur:      24px;
+  --material-specular-top:    rgba(255,255,255,0.042);
+  --material-specular-edge:   rgba(255,255,255,0.018);
+  --material-noise-opacity:   0.028;
+  --material-surface-tint:    rgba(232,82,0,0.035);
+
+  /* ── Density ── */
+  --density: 1;             /* 1 = default, 0.85 = compact, 1.15 = comfortable */
+
   /* ── Backgrounds — warm near-black from logo analysis ── */
   --c-base:      #070401;
   --c-surface:   #110803;
@@ -125,20 +148,85 @@ code, pre, .font-mono { font-family: var(--font-mono); }
   background-clip: text;
 }
 
-/* ─── Navbar Glassmorphism ────────────────────────────────────────────────── */
+/* ─── Logo responsive size ────────────────────────────────────────────────── */
+@media (min-width: 640px)  { :root { --logo-size: 3rem;    --navbar-h: 4rem;    } }
+@media (min-width: 1024px) { :root { --logo-size: 3.5rem;  --navbar-h: 4.75rem; } }
+@media (min-width: 1536px) { :root { --logo-size: 3.75rem; --navbar-h: 4.75rem; } }
+
+/* ─── Navbar — 3-Stage Precision Falcon ──────────────────────────────────── */
+/*
+ * Stage 1 (transparent): hero sections breathe freely
+ * Stage 2 (glass): user begins to commit, brand asserts itself
+ * Stage 3 (opaque): full authority, elevated material depth
+ */
+
+/* Legacy aliases — keep for any components still referencing them */
 .navbar-glass {
   background: rgba(7, 4, 1, 0.72);
   border-bottom: 1px solid rgba(200, 80, 0, 0.08);
   backdrop-filter: blur(20px) saturate(180%);
   -webkit-backdrop-filter: blur(20px) saturate(180%);
 }
-
 .navbar-glass-scrolled {
   background: rgba(7, 4, 1, 0.94);
   border-bottom: 1px solid rgba(220, 100, 0, 0.22);
   backdrop-filter: blur(28px) saturate(200%);
   -webkit-backdrop-filter: blur(28px) saturate(200%);
   box-shadow: 0 4px 32px rgba(200, 60, 0, 0.12), 0 1px 0 rgba(245,160,0,0.05);
+}
+
+/* Stage 1 — transparent with hero veil (0-12px scroll) */
+/* The hero veil is a subtle top-edge gradient so nav text reads over any hero content.
+   It adds zero cognitive weight — invisible unless the hero has a very light element near top. */
+.navbar-stage-1 {
+  background: linear-gradient(
+    to bottom,
+    rgba(7, 4, 1, 0.38) 0%,
+    transparent 100%
+  );
+  border-bottom: 1px solid transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+
+/* Stage 2 — glass (12-60px scroll) */
+.navbar-stage-2 {
+  background: rgba(7, 4, 1, 0.72);
+  border-bottom: 1px solid rgba(200, 80, 0, 0.10);
+  backdrop-filter: blur(var(--material-glass-blur)) saturate(180%);
+  -webkit-backdrop-filter: blur(var(--material-glass-blur)) saturate(180%);
+  /* Specular highlight at top edge (material emulation) */
+  box-shadow: inset 0 1px 0 var(--material-specular-top), var(--elevation-1);
+}
+
+/* Stage 3 — opaque elevated (>60px scroll) */
+.navbar-stage-3 {
+  background: rgba(9, 5, 1, 0.97);
+  border-bottom: 1px solid rgba(220, 100, 0, 0.28);
+  backdrop-filter: blur(32px) saturate(220%);
+  -webkit-backdrop-filter: blur(32px) saturate(220%);
+  /* Multi-layer elevation: fire glow + specular highlight + depth shadow
+     Layer order (back to front):
+       1. depth shadow (ambient dark)
+       2. fire tint glow (brand elevation)
+       3. bottom border glow (fire)
+       4. specular highlight top (material surface)
+       5. gold accent hairline (premium detail)            */
+  box-shadow:
+    0 8px 48px rgba(0, 0, 0, 0.55),
+    0 4px 24px rgba(200, 60, 0, 0.18),
+    0 1px 0 rgba(232, 82, 0, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.055),
+    inset 0 -1px 0 rgba(232, 82, 0, 0.06),
+    inset 0 0 80px rgba(200, 60, 0, 0.025);
+}
+
+/* Reduced-motion: instant transitions (no interpolated blur) */
+@media (prefers-reduced-motion: reduce) {
+  .navbar-stage-1, .navbar-stage-2, .navbar-stage-3 {
+    transition: none !important;
+  }
 }
 
 /* ─── Glassmorphism Cards ─────────────────────────────────────────────────── */
@@ -299,6 +387,88 @@ code, pre, .font-mono { font-family: var(--font-mono); }
   100% { opacity: 1; transform: scale(1)    translateY(0);    filter: brightness(1) blur(0px); }
 }
 
+/* Logo glow — continuous perceptual breathing. Amplitude kept low (0.12→0.35 opacity)
+   so it reads as "alive" not "distracting". Duration 3.8s = natural breathing rhythm. */
+@keyframes logo-glow-breathe {
+  0%, 100% {
+    opacity: 0.12;
+    transform: scale(0.92);
+    filter: blur(8px);
+  }
+  50% {
+    opacity: 0.35;
+    transform: scale(1.08);
+    filter: blur(12px);
+  }
+}
+
+/* Drawer slide-in from right */
+@keyframes drawer-enter {
+  from { transform: translateX(100%); opacity: 0.5; }
+  to   { transform: translateX(0);    opacity: 1; }
+}
+
+@keyframes drawer-exit {
+  from { transform: translateX(0);    opacity: 1; }
+  to   { transform: translateX(100%); opacity: 0; }
+}
+
+/* Backdrop fade */
+@keyframes backdrop-in  { from { opacity: 0; } to { opacity: 1; } }
+@keyframes backdrop-out { from { opacity: 1; } to { opacity: 0; } }
+
+/* ─── Material Glass Components ───────────────────────────────────────────── */
+/* Multi-layer material emulation: base + surface tint + specular + noise grain */
+.material-glass {
+  background:
+    var(--material-surface-tint),
+    rgba(7, 4, 1, 0.80);
+  backdrop-filter: blur(var(--material-glass-blur)) saturate(180%);
+  -webkit-backdrop-filter: blur(var(--material-glass-blur)) saturate(180%);
+  border: 1px solid rgba(200, 80, 0, 0.12);
+  box-shadow:
+    inset 0 1px 0 var(--material-specular-top),
+    inset 1px 0 0 var(--material-specular-edge),
+    var(--elevation-2);
+}
+
+/* Logo container — responsive size, consistent aspect ratio */
+.logo-container {
+  width: var(--logo-size);
+  height: var(--logo-size);
+  min-width: var(--logo-size);
+  aspect-ratio: 1 / 1;
+  position: relative;
+  border-radius: 0.5rem;       /* soft-square for halcon-logo-bg.png */
+  overflow: visible;            /* allow glow bleed */
+  flex-shrink: 0;
+}
+
+.logo-img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 0.5rem;
+  position: relative;
+  z-index: 1;
+}
+
+/* Glow layer — behind the image, breathes continuously */
+.logo-glow {
+  position: absolute;
+  inset: -6px;
+  border-radius: 0.75rem;
+  background: radial-gradient(circle, rgba(232,82,0,0.70) 0%, transparent 70%);
+  animation: logo-glow-breathe 3.8s ease-in-out infinite;
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* Reduced-motion: static glow, no animation */
+@media (prefers-reduced-motion: reduce) {
+  .logo-glow { animation: none; opacity: 0.18; }
+}
+
 /* ─── Utility ─────────────────────────────────────────────────────────────── */
 .animate-fade-in-up  { animation: fade-in-up  0.65s ease both; }
 .animate-scale-in    { animation: scale-in    0.50s ease both; }
@@ -306,6 +476,7 @@ code, pre, .font-mono { font-family: var(--font-mono); }
 .animate-pulse-glow  { animation: pulse-glow  2.0s  ease-in-out infinite; }
 .animate-glow-pulse  { animation: glow-pulse  2.5s  ease-in-out infinite; }
 .animate-logo-appear { animation: logo-appear 1.3s  cubic-bezier(0.4,0,0.2,1) both; }
+.animate-logo-glow   { animation: logo-glow-breathe 3.8s ease-in-out infinite; }
 
 /* Tab panels */
 .tab-panel        { display: none; }

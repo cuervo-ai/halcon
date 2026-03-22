@@ -41,12 +41,13 @@ pub async fn run_git_command(
         cmd.env("GIT_TERMINAL_PROMPT", "0");
         cmd.env("GIT_PAGER", "cat");
 
-        let output = cmd.output().await.map_err(|e| {
-            HalconError::ToolExecutionFailed {
+        let output = cmd
+            .output()
+            .await
+            .map_err(|e| HalconError::ToolExecutionFailed {
                 tool: "git".into(),
                 message: format!("failed to execute git: {e}"),
-            }
-        })?;
+            })?;
 
         let mut stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -78,7 +79,12 @@ pub async fn run_git_command(
 
 /// Check if the working directory is inside a git repository.
 pub async fn is_git_repo(working_dir: &str) -> bool {
-    let output = run_git_command(working_dir, &["rev-parse", "--is-inside-work-tree"], Some(5)).await;
+    let output = run_git_command(
+        working_dir,
+        &["rev-parse", "--is-inside-work-tree"],
+        Some(5),
+    )
+    .await;
     matches!(output, Ok(ref o) if o.exit_code == 0 && o.stdout.trim() == "true")
 }
 

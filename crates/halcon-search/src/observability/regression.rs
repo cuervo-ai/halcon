@@ -115,11 +115,7 @@ pub struct RegressionAlert {
 
 impl RegressionAlert {
     /// Create a new regression alert.
-    pub fn new(
-        regression_type: RegressionType,
-        baseline_value: f64,
-        current_value: f64,
-    ) -> Self {
+    pub fn new(regression_type: RegressionType, baseline_value: f64, current_value: f64) -> Self {
         let drop_percent = (baseline_value - current_value) / baseline_value;
         // For increases (latency, failure rate), drop_percent is negative
         // Use absolute value for severity calculation
@@ -234,10 +230,9 @@ impl RegressionDetector {
 
         // Quality score regression
         if self.config.detect_quality_drop {
-            if let (Some(baseline), Some(current_score)) = (
-                timeseries.avg_quality_score(),
-                current.avg_quality_score,
-            ) {
+            if let (Some(baseline), Some(current_score)) =
+                (timeseries.avg_quality_score(), current.avg_quality_score)
+            {
                 if self.is_regression(baseline, current_score, self.config.min_drop_threshold) {
                     alerts.push(RegressionAlert::new(
                         RegressionType::QualityDrop,
@@ -266,10 +261,9 @@ impl RegressionDetector {
 
         // Recall regression
         if self.config.detect_recall_drop {
-            if let (Some(baseline), Some(current_recall)) = (
-                timeseries.avg_context_recall(),
-                current.avg_context_recall,
-            ) {
+            if let (Some(baseline), Some(current_recall)) =
+                (timeseries.avg_context_recall(), current.avg_context_recall)
+            {
                 if self.is_regression(baseline, current_recall, self.config.min_drop_threshold) {
                     alerts.push(RegressionAlert::new(
                         RegressionType::RecallDrop,
@@ -282,10 +276,9 @@ impl RegressionDetector {
 
         // NDCG regression
         if self.config.detect_ndcg_drop {
-            if let (Some(baseline), Some(current_ndcg)) = (
-                timeseries.avg_ndcg_at_10(),
-                current.avg_ndcg_at_10,
-            ) {
+            if let (Some(baseline), Some(current_ndcg)) =
+                (timeseries.avg_ndcg_at_10(), current.avg_ndcg_at_10)
+            {
                 if self.is_regression(baseline, current_ndcg, self.config.min_drop_threshold) {
                     alerts.push(RegressionAlert::new(
                         RegressionType::NdcgDrop,
@@ -298,13 +291,20 @@ impl RegressionDetector {
 
         // Latency increase regression
         if self.config.detect_latency_increase {
-            let baseline_latency: f64 = timeseries.all().iter()
+            let baseline_latency: f64 = timeseries
+                .all()
+                .iter()
                 .map(|m| m.avg_duration_ms)
-                .sum::<f64>() / timeseries.len() as f64;
+                .sum::<f64>()
+                / timeseries.len() as f64;
 
             let current_latency = current.avg_duration_ms;
 
-            if self.is_increase(baseline_latency, current_latency, self.config.latency_increase_threshold) {
+            if self.is_increase(
+                baseline_latency,
+                current_latency,
+                self.config.latency_increase_threshold,
+            ) {
                 alerts.push(RegressionAlert::new(
                     RegressionType::LatencyIncrease,
                     baseline_latency,
@@ -315,9 +315,12 @@ impl RegressionDetector {
 
         // Failure rate increase regression
         if self.config.detect_failure_rate_increase {
-            let baseline_failure_rate: f64 = timeseries.all().iter()
+            let baseline_failure_rate: f64 = timeseries
+                .all()
+                .iter()
                 .map(|m| m.failure_rate())
-                .sum::<f64>() / timeseries.len() as f64;
+                .sum::<f64>()
+                / timeseries.len() as f64;
 
             let current_failure_rate = current.failure_rate();
 
@@ -400,10 +403,22 @@ mod tests {
 
     #[test]
     fn test_regression_severity_from_drop_percent() {
-        assert_eq!(RegressionSeverity::from_drop_percent(0.02), RegressionSeverity::Low);
-        assert_eq!(RegressionSeverity::from_drop_percent(0.06), RegressionSeverity::Medium);
-        assert_eq!(RegressionSeverity::from_drop_percent(0.12), RegressionSeverity::High);
-        assert_eq!(RegressionSeverity::from_drop_percent(0.25), RegressionSeverity::Critical);
+        assert_eq!(
+            RegressionSeverity::from_drop_percent(0.02),
+            RegressionSeverity::Low
+        );
+        assert_eq!(
+            RegressionSeverity::from_drop_percent(0.06),
+            RegressionSeverity::Medium
+        );
+        assert_eq!(
+            RegressionSeverity::from_drop_percent(0.12),
+            RegressionSeverity::High
+        );
+        assert_eq!(
+            RegressionSeverity::from_drop_percent(0.25),
+            RegressionSeverity::Critical
+        );
     }
 
     #[test]
@@ -416,9 +431,18 @@ mod tests {
 
     #[test]
     fn test_regression_type_description() {
-        assert_eq!(RegressionType::QualityDrop.description(), "Overall quality score decreased");
-        assert_eq!(RegressionType::PrecisionDrop.description(), "Context precision decreased");
-        assert_eq!(RegressionType::LatencyIncrease.description(), "Query latency increased");
+        assert_eq!(
+            RegressionType::QualityDrop.description(),
+            "Overall quality score decreased"
+        );
+        assert_eq!(
+            RegressionType::PrecisionDrop.description(),
+            "Context precision decreased"
+        );
+        assert_eq!(
+            RegressionType::LatencyIncrease.description(),
+            "Query latency increased"
+        );
     }
 
     #[test]
@@ -455,11 +479,29 @@ mod tests {
         for i in 0..3 {
             let start = now + Duration::hours(i);
             let end = start + Duration::hours(1);
-            let metrics = make_metrics(start, end, 100.0, 0.01, Some(0.90), Some(0.92), Some(0.88), Some(0.85));
+            let metrics = make_metrics(
+                start,
+                end,
+                100.0,
+                0.01,
+                Some(0.90),
+                Some(0.92),
+                Some(0.88),
+                Some(0.85),
+            );
             ts.push(metrics);
         }
 
-        let current = make_metrics(now, now + Duration::hours(1), 100.0, 0.01, Some(0.80), Some(0.82), Some(0.78), Some(0.75));
+        let current = make_metrics(
+            now,
+            now + Duration::hours(1),
+            100.0,
+            0.01,
+            Some(0.80),
+            Some(0.82),
+            Some(0.78),
+            Some(0.75),
+        );
         let alerts = detector.detect(&ts, &current);
 
         assert_eq!(alerts.len(), 0); // Not enough baseline
@@ -475,12 +517,30 @@ mod tests {
         for i in 0..5 {
             let start = now + Duration::hours(i);
             let end = start + Duration::hours(1);
-            let metrics = make_metrics(start, end, 100.0, 0.01, Some(0.90), Some(0.92), Some(0.88), Some(0.85));
+            let metrics = make_metrics(
+                start,
+                end,
+                100.0,
+                0.01,
+                Some(0.90),
+                Some(0.92),
+                Some(0.88),
+                Some(0.85),
+            );
             ts.push(metrics);
         }
 
         // Current: quality score 0.80 (11% drop)
-        let current = make_metrics(now, now + Duration::hours(1), 100.0, 0.01, Some(0.80), Some(0.92), Some(0.88), Some(0.85));
+        let current = make_metrics(
+            now,
+            now + Duration::hours(1),
+            100.0,
+            0.01,
+            Some(0.80),
+            Some(0.92),
+            Some(0.88),
+            Some(0.85),
+        );
         let alerts = detector.detect(&ts, &current);
 
         assert_eq!(alerts.len(), 1);
@@ -498,12 +558,30 @@ mod tests {
         for i in 0..5 {
             let start = now + Duration::hours(i);
             let end = start + Duration::hours(1);
-            let metrics = make_metrics(start, end, 100.0, 0.01, Some(0.90), Some(0.92), Some(0.88), Some(0.85));
+            let metrics = make_metrics(
+                start,
+                end,
+                100.0,
+                0.01,
+                Some(0.90),
+                Some(0.92),
+                Some(0.88),
+                Some(0.85),
+            );
             ts.push(metrics);
         }
 
         // Current: precision 0.86 (6.5% drop)
-        let current = make_metrics(now, now + Duration::hours(1), 100.0, 0.01, Some(0.90), Some(0.86), Some(0.88), Some(0.85));
+        let current = make_metrics(
+            now,
+            now + Duration::hours(1),
+            100.0,
+            0.01,
+            Some(0.90),
+            Some(0.86),
+            Some(0.88),
+            Some(0.85),
+        );
         let alerts = detector.detect(&ts, &current);
 
         assert_eq!(alerts.len(), 1);
@@ -521,12 +599,30 @@ mod tests {
         for i in 0..5 {
             let start = now + Duration::hours(i);
             let end = start + Duration::hours(1);
-            let metrics = make_metrics(start, end, 100.0, 0.01, Some(0.90), Some(0.92), Some(0.88), Some(0.85));
+            let metrics = make_metrics(
+                start,
+                end,
+                100.0,
+                0.01,
+                Some(0.90),
+                Some(0.92),
+                Some(0.88),
+                Some(0.85),
+            );
             ts.push(metrics);
         }
 
         // Current: 150ms (50% increase)
-        let current = make_metrics(now, now + Duration::hours(1), 150.0, 0.01, Some(0.90), Some(0.92), Some(0.88), Some(0.85));
+        let current = make_metrics(
+            now,
+            now + Duration::hours(1),
+            150.0,
+            0.01,
+            Some(0.90),
+            Some(0.92),
+            Some(0.88),
+            Some(0.85),
+        );
         let alerts = detector.detect(&ts, &current);
 
         assert_eq!(alerts.len(), 1);
@@ -544,16 +640,37 @@ mod tests {
         for i in 0..5 {
             let start = now + Duration::hours(i);
             let end = start + Duration::hours(1);
-            let metrics = make_metrics(start, end, 100.0, 0.01, Some(0.90), Some(0.92), Some(0.88), Some(0.85));
+            let metrics = make_metrics(
+                start,
+                end,
+                100.0,
+                0.01,
+                Some(0.90),
+                Some(0.92),
+                Some(0.88),
+                Some(0.85),
+            );
             ts.push(metrics);
         }
 
         // Current: 15% failure rate (14% increase)
-        let current = make_metrics(now, now + Duration::hours(1), 100.0, 0.15, Some(0.90), Some(0.92), Some(0.88), Some(0.85));
+        let current = make_metrics(
+            now,
+            now + Duration::hours(1),
+            100.0,
+            0.15,
+            Some(0.90),
+            Some(0.92),
+            Some(0.88),
+            Some(0.85),
+        );
         let alerts = detector.detect(&ts, &current);
 
         assert_eq!(alerts.len(), 1);
-        assert_eq!(alerts[0].regression_type, RegressionType::FailureRateIncrease);
+        assert_eq!(
+            alerts[0].regression_type,
+            RegressionType::FailureRateIncrease
+        );
         assert_eq!(alerts[0].severity, RegressionSeverity::Critical);
     }
 
@@ -567,12 +684,30 @@ mod tests {
         for i in 0..5 {
             let start = now + Duration::hours(i);
             let end = start + Duration::hours(1);
-            let metrics = make_metrics(start, end, 100.0, 0.01, Some(0.90), Some(0.92), Some(0.88), Some(0.85));
+            let metrics = make_metrics(
+                start,
+                end,
+                100.0,
+                0.01,
+                Some(0.90),
+                Some(0.92),
+                Some(0.88),
+                Some(0.85),
+            );
             ts.push(metrics);
         }
 
         // Current: quality, precision, recall, NDCG all dropped
-        let current = make_metrics(now, now + Duration::hours(1), 100.0, 0.01, Some(0.80), Some(0.82), Some(0.78), Some(0.75));
+        let current = make_metrics(
+            now,
+            now + Duration::hours(1),
+            100.0,
+            0.01,
+            Some(0.80),
+            Some(0.82),
+            Some(0.78),
+            Some(0.75),
+        );
         let alerts = detector.detect(&ts, &current);
 
         assert_eq!(alerts.len(), 4); // Quality, Precision, Recall, NDCG
@@ -588,12 +723,30 @@ mod tests {
         for i in 0..5 {
             let start = now + Duration::hours(i);
             let end = start + Duration::hours(1);
-            let metrics = make_metrics(start, end, 100.0, 0.01, Some(0.90), Some(0.92), Some(0.88), Some(0.85));
+            let metrics = make_metrics(
+                start,
+                end,
+                100.0,
+                0.01,
+                Some(0.90),
+                Some(0.92),
+                Some(0.88),
+                Some(0.85),
+            );
             ts.push(metrics);
         }
 
         // Current: slightly better (no regression)
-        let current = make_metrics(now, now + Duration::hours(1), 95.0, 0.01, Some(0.91), Some(0.93), Some(0.89), Some(0.86));
+        let current = make_metrics(
+            now,
+            now + Duration::hours(1),
+            95.0,
+            0.01,
+            Some(0.91),
+            Some(0.93),
+            Some(0.89),
+            Some(0.86),
+        );
         let alerts = detector.detect(&ts, &current);
 
         assert_eq!(alerts.len(), 0);
@@ -621,12 +774,30 @@ mod tests {
         for i in 0..3 {
             let start = now + Duration::hours(i);
             let end = start + Duration::hours(1);
-            let metrics = make_metrics(start, end, 100.0, 0.01, Some(0.90), Some(0.92), Some(0.88), Some(0.85));
+            let metrics = make_metrics(
+                start,
+                end,
+                100.0,
+                0.01,
+                Some(0.90),
+                Some(0.92),
+                Some(0.88),
+                Some(0.85),
+            );
             ts.push(metrics);
         }
 
         // 8% drop in quality and precision (below 10% threshold)
-        let current = make_metrics(now, now + Duration::hours(1), 100.0, 0.01, Some(0.83), Some(0.85), Some(0.88), Some(0.85));
+        let current = make_metrics(
+            now,
+            now + Duration::hours(1),
+            100.0,
+            0.01,
+            Some(0.83),
+            Some(0.85),
+            Some(0.88),
+            Some(0.85),
+        );
         let alerts = detector.detect(&ts, &current);
 
         assert_eq!(alerts.len(), 0); // No alerts due to higher threshold

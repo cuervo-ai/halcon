@@ -8,12 +8,10 @@ pub fn migrate_legacy_dir() {
     let home = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
     let old = home.join(".cuervo");
     let new = home.join(".halcon");
-    if old.exists() && !new.exists() {
-        if std::fs::rename(&old, &new).is_ok() {
-            let _ = std::fs::rename(new.join("cuervo.db"), new.join("halcon.db"));
-            let _ = std::fs::rename(new.join("CUERVO.md"), new.join("HALCON.md"));
-            tracing::info!("Migrated ~/.cuervo/ → ~/.halcon/");
-        }
+    if old.exists() && !new.exists() && std::fs::rename(&old, &new).is_ok() {
+        let _ = std::fs::rename(new.join("cuervo.db"), new.join("halcon.db"));
+        let _ = std::fs::rename(new.join("CUERVO.md"), new.join("HALCON.md"));
+        tracing::info!("Migrated ~/.cuervo/ → ~/.halcon/");
     }
 }
 
@@ -270,7 +268,12 @@ fn expand_env_value(val: &str) -> String {
         if let Some(end) = result[start..].find('}') {
             let var_name = &result[start + 2..start + end];
             let replacement = std::env::var(var_name).unwrap_or_default();
-            result = format!("{}{}{}", &result[..start], replacement, &result[start + end + 1..]);
+            result = format!(
+                "{}{}{}",
+                &result[..start],
+                replacement,
+                &result[start + end + 1..]
+            );
         } else {
             break; // Malformed pattern, stop.
         }
@@ -341,7 +344,10 @@ mod tests {
         assert_eq!(servers.len(), 1);
         let github = &servers["github"];
         assert_eq!(github.command, "npx");
-        assert_eq!(github.args, vec!["-y", "@modelcontextprotocol/server-github"]);
+        assert_eq!(
+            github.args,
+            vec!["-y", "@modelcontextprotocol/server-github"]
+        );
         assert_eq!(github.env.get("TOKEN").unwrap(), "abc123");
     }
 

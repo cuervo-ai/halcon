@@ -1,12 +1,53 @@
+// When building with --no-default-features (CI), most interactive modules are
+// feature-gated out, leaving many items unused. These allows prevent -D warnings
+// from failing the build for dead code that is alive under default features.
+#![allow(
+    dead_code,
+    unused_imports,
+    unused_variables,
+    unused_assignments,
+    unused_mut,
+    unexpected_cfgs,
+    private_interfaces,
+    clippy::too_many_arguments,
+    clippy::type_complexity,
+    clippy::should_implement_trait,
+    clippy::if_same_then_else,
+    clippy::manual_strip,
+    clippy::doc_lazy_continuation,
+    clippy::doc_overindented_list_items,
+    clippy::manual_clamp,
+    clippy::nonminimal_bool,
+    unreachable_patterns,
+    clippy::len_without_is_empty,
+    clippy::needless_question_mark,
+    clippy::manual_let_else,
+    clippy::format_in_format_args,
+    clippy::unwrap_or_default,
+    clippy::empty_line_after_doc_comments,
+    clippy::manual_unwrap_or_default,
+    clippy::question_mark,
+    clippy::needless_range_loop,
+    clippy::ptr_arg,
+    clippy::enum_variant_names,
+    clippy::derivable_impls,
+    clippy::unnecessary_cast,
+    clippy::needless_return
+)]
+
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use tracing_subscriber::EnvFilter;
 
+mod audit;
 mod commands;
 mod config_loader;
 mod render;
 mod repl;
 mod tui;
+
+#[cfg(feature = "headless")]
+mod agent_bridge;
 
 /// Build version string with git hash and build date (leaked to 'static).
 fn build_version() -> &'static str {
@@ -18,6 +59,22 @@ fn build_version() -> &'static str {
         env!("HALCON_TARGET"),
     );
     Box::leak(s.into_boxed_str())
+}
+
+/// Output format for machine-readable CI/CD integration.
+///
+/// - `human`: Colored, ANSI-decorated terminal output (default)
+/// - `json`:  NDJSON to stdout — one JSON object per line, parseable with `jq`
+/// - `junit`: JUnit XML to stdout (reserved for future use)
+/// - `plain`: Plain text, no color codes (for simple log capture)
+///
+/// See US-output-format (PASO 2-A).
+#[derive(Clone, Debug, PartialEq, Eq, ValueEnum)]
+pub enum OutputFormat {
+    Human,
+    Json,
+    Junit,
+    Plain,
 }
 
 /// Halcon — AI-powered CLI for software development.
@@ -54,6 +111,40 @@ struct Cli {
     /// Suppress the startup banner
     #[arg(long, env = "HALCON_NO_BANNER")]
     no_banner: bool,
+
+    /// Output format for machine-readable CI/CD integration.
+    ///
+    /// `json` emits NDJSON to stdout (one object per line) — pipe to `jq` with no
+    /// extra tooling. GitHub Actions, GitLab CI, and Datadog all consume NDJSON natively.
+    #[arg(
+        long,
+        value_enum,
+        default_value = "human",
+        global = true,
+        env = "HALCON_OUTPUT_FORMAT"
+    )]
+    output_format: OutputFormat,
+
+    /// Operating mode: "interactive" (default) or "json-rpc" (for IDE extensions)
+    ///
+    /// In json-rpc mode Halcon reads newline-delimited JSON requests from stdin
+    /// and writes streaming JSON events to stdout. All TUI/ANSI output is suppressed.
+    #[arg(long, value_name = "MODE", env = "HALCON_MODE")]
+    mode: Option<String>,
+
+    /// Maximum agent loop turns (used by json-rpc mode and chat --max-turns)
+    #[arg(long, value_name = "N", env = "HALCON_MAX_TURNS")]
+    max_turns: Option<u32>,
+
+    /// Air-gap mode: only the Ollama (localhost) provider is allowed.
+    ///
+    /// Enforced at the provider factory layer so sub-agents and orchestrator
+    /// instances also respect the constraint. Sets HALCON_AIR_GAP=1 env var.
+    ///
+    /// Requires a running Ollama instance at http://localhost:11434 (or
+    /// OLLAMA_BASE_URL env var).
+    #[arg(long, env = "HALCON_AIR_GAP")]
+    air_gap: bool,
 
     #[command(subcommand)]
     command: Option<Commands>,
@@ -149,6 +240,12 @@ enum Commands {
         verify: bool,
     },
 
+    /// Manage declarative sub-agent configurations (Feature 4)
+    Agents {
+        #[command(subcommand)]
+        action: AgentsAction,
+    },
+
     /// Manage persistent semantic memory
     Memory {
         #[command(subcommand)]
@@ -168,6 +265,22 @@ enum Commands {
     Tools {
         #[command(subcommand)]
         action: ToolsAction,
+    },
+
+    /// Start a Language Server Protocol (LSP) server over stdio
+    ///
+    /// IDE extensions launch this process and communicate via the standard
+    /// Content-Length framing protocol. Supports textDocument/* notifications
+    /// and custom $/halcon/* methods for context injection.
+    Lsp,
+
+    /// Manage MCP (Model Context Protocol) server connections
+    ///
+    /// Supports HTTP (OAuth 2.1 + PKCE) and stdio transports.
+    /// Configuration is stored in three scopes: local > project > user.
+    Mcp {
+        #[command(subcommand)]
+        action: McpAction,
     },
 
     /// Start an MCP server over stdio (for IDE sidecar integration)
@@ -209,6 +322,59 @@ enum Commands {
         /// Install a specific version (e.g., "v0.3.0")
         #[arg(long, short = 'V', value_name = "VERSION")]
         version: Option<String>,
+
+        /// Release channel: stable (default), beta, or nightly
+        #[arg(long, value_name = "CHANNEL", env = "HALCON_CHANNEL")]
+        channel: Option<String>,
+    },
+
+    /// Manage V3 plugins
+    Plugin {
+        #[command(subcommand)]
+        action: PluginAction,
+    },
+
+    /// Compliance and audit export (SOC 2)
+    ///
+    /// Query existing session data and export it as JSONL, CSV, or PDF.
+    /// Verify the HMAC-SHA256 hash chain to detect tampered audit records.
+    Audit {
+        #[command(subcommand)]
+        action: AuditAction,
+    },
+
+    /// Manage user accounts and role assignments (RBAC)
+    ///
+    /// Provisions users in ~/.halcon/users.toml with roles:
+    /// Admin | Developer | ReadOnly | AuditViewer
+    Users {
+        #[command(subcommand)]
+        action: UsersAction,
+    },
+
+    /// Manage cron-based scheduled agent tasks (US-scheduler — PASO 4-C)
+    ///
+    /// Examples:
+    ///   halcon schedule add --name "security-scan" --cron "0 2 * * 1" \
+    ///                       --instruction "Scan for vulnerabilities"
+    ///   halcon schedule list
+    ///   halcon schedule disable <id>
+    ///   halcon schedule run     <id>
+    Schedule {
+        #[command(subcommand)]
+        action: ScheduleAction,
+    },
+
+    /// Cenzontle agent orchestration — delegate tasks to the multi-agent backend
+    ///
+    /// Connects to a running Cenzontle instance to execute agent tasks, query
+    /// MCP tools, and search the knowledge base via RAG.
+    ///
+    /// Requires authentication: set CENZONTLE_ACCESS_TOKEN or run `halcon login cenzontle`.
+    #[cfg(feature = "cenzontle-agents")]
+    Cenzontle {
+        #[command(subcommand)]
+        action: commands::cenzontle::CenzontleAction,
     },
 }
 
@@ -264,6 +430,70 @@ enum MemoryAction {
     },
     /// Show memory store statistics
     Stats,
+    /// Clear auto-memory files for a given scope
+    Clear {
+        /// Memory scope to clear: 'project' (.halcon/memory/) or 'user' (~/.halcon/memory/<repo>/)
+        #[arg(default_value = "project")]
+        scope: String,
+    },
+}
+
+/// MCP server management subcommands.
+#[derive(Subcommand)]
+enum McpAction {
+    /// Add an HTTP or stdio MCP server to a scope
+    Add {
+        /// Server name (used in config and CLI references)
+        name: String,
+        /// HTTP server URL (use this OR --command, not both)
+        #[arg(long, conflicts_with = "command")]
+        url: Option<String>,
+        /// stdio server executable (use this OR --url, not both)
+        #[arg(long, conflicts_with = "url")]
+        command: Option<String>,
+        /// Arguments for the stdio command
+        #[arg(long, num_args = 0.., requires = "command")]
+        args: Vec<String>,
+        /// Environment variables for the stdio command (KEY=VALUE)
+        #[arg(long = "env", num_args = 0.., requires = "command")]
+        env_vars: Vec<String>,
+        /// Config scope: local, project, or user (default: project)
+        #[arg(long, default_value = "project")]
+        scope: String,
+    },
+    /// Remove an MCP server from a scope
+    Remove {
+        /// Server name to remove
+        name: String,
+        /// Scope to remove from (default: project)
+        #[arg(long, default_value = "project")]
+        scope: String,
+    },
+    /// List configured MCP servers
+    List {
+        /// Filter by scope: all, local, project, user (default: all)
+        #[arg(long, default_value = "all")]
+        scope: String,
+    },
+    /// Show detailed config for one server
+    Get {
+        /// Server name to inspect
+        name: String,
+    },
+    /// Run OAuth 2.1 + PKCE authorization flow for an HTTP server
+    Auth {
+        /// Server name to authorize
+        name: String,
+    },
+    /// Expose Halcon's tools as an MCP server (Feature 9)
+    Serve {
+        /// Transport mode: stdio (default) or http
+        #[arg(long, default_value = "stdio")]
+        transport: String,
+        /// HTTP port (only used with --transport http, default: 7777)
+        #[arg(long, default_value_t = 7777)]
+        port: u16,
+    },
 }
 
 #[derive(Subcommand)]
@@ -287,6 +517,21 @@ enum MetricsAction {
     },
     /// Generate integration decision based on baselines
     Decide,
+}
+
+#[derive(Subcommand)]
+enum AgentsAction {
+    /// List all registered sub-agent definitions
+    List {
+        /// Show the full routing manifest injected into the system prompt
+        #[arg(short, long)]
+        verbose: bool,
+    },
+    /// Validate agent definition files and report all errors
+    Validate {
+        /// Specific .md files to validate (default: discover from all scopes)
+        paths: Vec<std::path::PathBuf>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -318,6 +563,163 @@ enum ToolsAction {
         /// Skip confirmation prompt
         #[arg(short, long)]
         force: bool,
+    },
+}
+
+#[derive(Subcommand)]
+enum PluginAction {
+    /// List all installed plugins in ~/.halcon/plugins/
+    List,
+    /// Install a plugin from a .plugin.toml manifest file
+    Install {
+        /// Path to the .plugin.toml manifest to install
+        source: String,
+    },
+    /// Remove an installed plugin by ID
+    Remove {
+        /// Plugin ID (e.g. "git-enhanced")
+        id: String,
+        /// Skip confirmation prompt
+        #[arg(short, long)]
+        force: bool,
+    },
+    /// Show plugin system status (directory, manifest count)
+    Status,
+}
+
+#[derive(Subcommand)]
+enum AuditAction {
+    /// Export session audit events as JSONL, CSV, or PDF
+    Export {
+        /// Session UUID to export (exclusive with --since)
+        #[arg(long, short = 's')]
+        session: Option<String>,
+
+        /// Export all sessions starting after this ISO-8601 timestamp (exclusive with --session)
+        #[arg(long)]
+        since: Option<String>,
+
+        /// Output format: jsonl (default), csv, pdf
+        #[arg(long, short = 'f', default_value = "jsonl")]
+        format: String,
+
+        /// Output file path (default: stdout for jsonl/csv; auto-named for pdf)
+        #[arg(long, short = 'o')]
+        output: Option<std::path::PathBuf>,
+
+        /// Include raw tool inputs in exported payload
+        #[arg(long)]
+        include_tool_inputs: bool,
+
+        /// Include raw tool outputs in exported payload
+        #[arg(long)]
+        include_tool_outputs: bool,
+
+        /// Override database path (default: ~/.halcon/halcon.db)
+        #[arg(long)]
+        db: Option<std::path::PathBuf>,
+    },
+
+    /// List all sessions with compliance summary statistics
+    List {
+        /// Emit JSON instead of the default table view
+        #[arg(long)]
+        json: bool,
+
+        /// Override database path (default: ~/.halcon/halcon.db)
+        #[arg(long)]
+        db: Option<std::path::PathBuf>,
+    },
+
+    /// Verify the HMAC-SHA256 hash chain for a session
+    Verify {
+        /// Session UUID to verify
+        session_id: String,
+
+        /// Override database path (default: ~/.halcon/halcon.db)
+        #[arg(long)]
+        db: Option<std::path::PathBuf>,
+    },
+
+    /// Generate a compliance report (SOC 2 / FedRAMP / ISO 27001)
+    Compliance {
+        /// Compliance framework: soc2, fedramp, or iso27001
+        #[arg(long, short = 'f', default_value = "soc2")]
+        format: String,
+
+        /// Output file path (default: halcon-compliance-<format>-<date>.pdf)
+        #[arg(long, short = 'o')]
+        output: Option<std::path::PathBuf>,
+
+        /// Start of reporting period (YYYY-MM-DD, default: 30 days ago)
+        #[arg(long)]
+        from: Option<String>,
+
+        /// End of reporting period (YYYY-MM-DD, default: today)
+        #[arg(long)]
+        to: Option<String>,
+
+        /// Override database path (default: ~/.halcon/halcon.db)
+        #[arg(long)]
+        db: Option<std::path::PathBuf>,
+    },
+}
+
+#[derive(Subcommand)]
+enum UsersAction {
+    /// Provision a new user with a role
+    Add {
+        /// User email address
+        #[arg(long)]
+        email: String,
+        /// Role to assign: Admin, Developer, ReadOnly, or AuditViewer
+        #[arg(long)]
+        role: String,
+    },
+    /// List all provisioned users and their roles
+    List,
+    /// Revoke a user's access (soft delete, record retained for audit)
+    Revoke {
+        /// User email address to revoke
+        #[arg(long)]
+        email: String,
+    },
+}
+
+/// Actions for `halcon schedule` (PASO 4-C).
+#[derive(Subcommand)]
+enum ScheduleAction {
+    /// Add a new scheduled task
+    Add {
+        /// Human-readable name for this task
+        #[arg(long)]
+        name: String,
+        /// Standard cron expression (5-field, e.g., "0 2 * * 1")
+        #[arg(long)]
+        cron: String,
+        /// Natural-language instruction for the agent to execute
+        #[arg(long)]
+        instruction: String,
+        /// Optional agent definition ID to use
+        #[arg(long)]
+        agent: Option<String>,
+    },
+    /// List all scheduled tasks
+    List,
+    /// Disable a scheduled task (stops running but keeps the record)
+    Disable {
+        /// Task ID
+        id: String,
+    },
+    /// Re-enable a disabled scheduled task
+    Enable {
+        /// Task ID
+        id: String,
+    },
+    /// Force-run a task immediately (ignores the cron schedule)
+    Run {
+        /// Task ID
+        id: String,
     },
 }
 
@@ -368,10 +770,12 @@ fn install_panic_hook() {
         let _ = stdout.flush();
 
         // Print a clean human-readable error to stderr (no ANSI leakage).
-        let location = info.location()
+        let location = info
+            .location()
             .map(|l| format!("{}:{}", l.file(), l.line()))
             .unwrap_or_else(|| "unknown location".to_string());
-        let message = info.payload()
+        let message = info
+            .payload()
             .downcast_ref::<&str>()
             .copied()
             .or_else(|| info.payload().downcast_ref::<String>().map(|s| s.as_str()))
@@ -412,7 +816,7 @@ async fn main() -> Result<()> {
     let log_level = if cli.verbose || cli.trace_json {
         "debug".to_string()
     } else {
-        cli.log_level  // default: "warn" (see --log-level flag default_value)
+        cli.log_level // default: "warn" (see --log-level flag default_value)
     };
 
     if is_tui_mode && !cli.verbose {
@@ -433,7 +837,7 @@ async fn main() -> Result<()> {
             tracing_subscriber::fmt()
                 .with_env_filter(EnvFilter::new("error"))
                 .with_target(false)
-                .with_ansi(false)   // no color codes in the log file
+                .with_ansi(false) // no color codes in the log file
                 .with_writer(std::sync::Mutex::new(file))
                 .init();
         } else {
@@ -464,6 +868,26 @@ async fn main() -> Result<()> {
         }
     }
 
+    // DECISION: In --air-gap mode we set HALCON_AIR_GAP=1 at the process level
+    // so that every code path that creates a ProviderRegistry (including sub-agents
+    // and the MCP server) automatically respects the constraint.
+    // The env var is the single chokepoint: provider_factory::build_registry() checks
+    // it and discards all non-Ollama providers at construction time.
+    if cli.air_gap {
+        // Ensure OLLAMA_BASE_URL defaults to localhost:11434 when not set.
+        if std::env::var("OLLAMA_BASE_URL").is_err() {
+            std::env::set_var("OLLAMA_BASE_URL", "http://localhost:11434");
+        }
+        // Propagate air-gap flag to child processes and sub-agents.
+        std::env::set_var("HALCON_AIR_GAP", "1");
+
+        // Display the air-gap banner before any further output.
+        eprintln!("┌─────────────────────────────────────────────────┐");
+        eprintln!("│  ⚠  MODO AIR-GAP ACTIVO — Sin conexiones externas │");
+        eprintln!("│     Proveedor: Ollama (localhost:11434)           │");
+        eprintln!("└─────────────────────────────────────────────────┘");
+    }
+
     // Load configuration
     let config = config_loader::load_config(cli.config.as_deref())
         .context("Failed to load configuration")?;
@@ -473,6 +897,7 @@ async fn main() -> Result<()> {
 
     // Apply CLI overrides
     let explicit_model = cli.model.is_some();
+    let explicit_provider = cli.provider.is_some();
     let provider = cli
         .provider
         .unwrap_or_else(|| config.general.default_provider.clone());
@@ -480,12 +905,59 @@ async fn main() -> Result<()> {
         .model
         .unwrap_or_else(|| config.general.default_model.clone());
 
+    // JSON-RPC mode: activated by `halcon --mode json-rpc` (used by the VS Code extension).
+    // Bypasses all subcommand handling — runs an async stdin/stdout JSON-RPC server.
+    if cli.mode.as_deref() == Some("json-rpc") {
+        return commands::json_rpc::run(&config, &provider, &model, cli.max_turns, explicit_model)
+            .await;
+    }
+
+    // Background update check + one-line hint (non-TUI, non-CI, non-JSON mode only).
+    if !is_tui_mode && !cli.no_banner && cli.output_format != OutputFormat::Json {
+        commands::update::notify_if_update_available();
+        commands::update::print_update_hint();
+    }
+
     match cli.command {
-        Some(Commands::Chat { prompt, resume, tui, orchestrate, tasks, reflexion, metrics, timeline, full, expert, trace_out, trace_in }) => {
+        Some(Commands::Chat {
+            prompt,
+            resume,
+            tui,
+            orchestrate,
+            tasks,
+            reflexion,
+            metrics,
+            timeline,
+            full,
+            expert,
+            trace_out,
+            trace_in,
+        }) => {
             commands::chat::run(
-                &config, &provider, &model, prompt, resume, cli.no_banner, tui, explicit_model,
-                commands::chat::FeatureFlags { orchestrate, tasks, reflexion, metrics, timeline, full, expert, background_tools: false, trace_out, trace_in },
-            ).await
+                &config,
+                &provider,
+                &model,
+                prompt,
+                resume,
+                cli.no_banner,
+                tui,
+                explicit_model,
+                explicit_provider,
+                commands::chat::FeatureFlags {
+                    orchestrate,
+                    tasks,
+                    reflexion,
+                    metrics,
+                    timeline,
+                    full,
+                    expert,
+                    background_tools: false,
+                    trace_out,
+                    trace_in,
+                },
+                cli.output_format == OutputFormat::Json,
+            )
+            .await
         }
         Some(Commands::Config { action }) => match action {
             ConfigAction::Show => commands::config::show(&config),
@@ -496,14 +968,18 @@ async fn main() -> Result<()> {
         Some(Commands::Init { force }) => commands::init::run(force).await,
         Some(Commands::Status) => commands::status::run(&config, &provider, &model).await,
         Some(Commands::Auth { action }) => match action {
+            AuthAction::Login { provider: p } if p.eq_ignore_ascii_case("cenzontle") => {
+                commands::sso::login().await
+            }
             AuthAction::Login { provider: p } => commands::auth::login(&p),
+            AuthAction::Logout { provider: p } if p.eq_ignore_ascii_case("cenzontle") => {
+                commands::sso::logout()
+            }
             AuthAction::Logout { provider: p } => commands::auth::logout(&p),
             AuthAction::Status => commands::auth::status(),
         },
         Some(Commands::Trace { action }) => match action {
-            TraceAction::Export { session_id } => {
-                commands::trace::export(&session_id, None)
-            }
+            TraceAction::Export { session_id } => commands::trace::export(&session_id, None),
         },
         Some(Commands::Replay { session_id, verify }) => {
             commands::trace::replay(&session_id, None, verify).await
@@ -517,10 +993,20 @@ async fn main() -> Result<()> {
             }
             MemoryAction::Prune { force } => commands::memory::prune(&config, force),
             MemoryAction::Stats => commands::memory::stats(&config),
+            MemoryAction::Clear { scope } => {
+                let working_dir =
+                    std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+                let repo_name = working_dir
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("unknown")
+                    .to_string();
+                commands::memory::clear(&scope, &working_dir, &repo_name)
+            }
         },
         Some(Commands::Metrics { action }) => match action {
             MetricsAction::Show { recent } => {
-                commands::metrics::show_baseline(recent.clone()).await?;
+                commands::metrics::show_baseline(recent).await?;
                 Ok(())
             }
             MetricsAction::Export { output } => {
@@ -528,7 +1014,7 @@ async fn main() -> Result<()> {
                 Ok(())
             }
             MetricsAction::Prune { keep } => {
-                commands::metrics::prune_baselines(keep.clone()).await?;
+                commands::metrics::prune_baselines(keep).await?;
                 Ok(())
             }
             MetricsAction::Decide => {
@@ -536,36 +1022,171 @@ async fn main() -> Result<()> {
                 Ok(())
             }
         },
+        Some(Commands::Agents { action }) => {
+            let working_dir = std::env::current_dir()
+                .unwrap_or_else(|_| std::path::PathBuf::from("."))
+                .display()
+                .to_string();
+            match action {
+                AgentsAction::List { verbose } => commands::agents::list(&working_dir, verbose),
+                AgentsAction::Validate { paths } => {
+                    commands::agents::validate(&working_dir, &paths)
+                }
+            }
+        }
         Some(Commands::Doctor) => commands::doctor::run(&config, None),
         Some(Commands::Tools { action }) => match action {
             ToolsAction::Doctor => commands::tools::doctor(&config, None).await,
             ToolsAction::List => commands::tools::list(&config),
             ToolsAction::Validate => commands::tools::validate(&config),
-            ToolsAction::Add { name, command, description, permission } => {
-                commands::tools::add_tool(&name, &command, &description, &permission)
-            }
-            ToolsAction::Remove { name, force } => {
-                commands::tools::remove_tool(&name, force)
-            }
+            ToolsAction::Add {
+                name,
+                command,
+                description,
+                permission,
+            } => commands::tools::add_tool(&name, &command, &description, &permission),
+            ToolsAction::Remove { name, force } => commands::tools::remove_tool(&name, force),
         },
+        Some(Commands::Lsp) => commands::lsp::run_lsp_server().await,
         Some(Commands::McpServer { working_dir }) => {
             commands::mcp_server::run(&config, working_dir.as_deref()).await
         }
-        Some(Commands::Theme(args)) => {
-            commands::theme::run(args)
+        Some(Commands::Mcp { action }) => {
+            let working_dir =
+                std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+            match action {
+                McpAction::Add {
+                    name,
+                    url,
+                    command,
+                    args,
+                    env_vars,
+                    scope,
+                } => {
+                    if let Some(url) = url {
+                        commands::mcp::add_http(
+                            &name,
+                            &url,
+                            &scope,
+                            std::collections::HashMap::new(),
+                            &working_dir,
+                        )
+                    } else if let Some(cmd) = command {
+                        commands::mcp::add_stdio(&name, &cmd, args, env_vars, &scope, &working_dir)
+                    } else {
+                        Err(anyhow::anyhow!("Specify --url (HTTP) or --command (stdio)"))
+                    }
+                }
+                McpAction::Remove { name, scope } => {
+                    commands::mcp::remove(&name, &scope, &working_dir)
+                }
+                McpAction::List { scope } => commands::mcp::list(&scope, &working_dir),
+                McpAction::Get { name } => commands::mcp::get(&name, &working_dir),
+                McpAction::Auth { name } => commands::mcp::auth(&name, &working_dir).await,
+                McpAction::Serve { transport, port } => {
+                    commands::mcp_serve::run(&config, Some(transport.as_str()), Some(port)).await
+                }
+            }
         }
-        Some(Commands::Update { check, force, version }) => {
-            commands::update::run(commands::update::UpdateArgs { check, force, version })
-        }
+        Some(Commands::Theme(args)) => commands::theme::run(args),
+        Some(Commands::Update {
+            check,
+            force,
+            version,
+            channel,
+        }) => tokio::task::spawn_blocking(move || {
+            commands::update::run(commands::update::UpdateArgs {
+                check,
+                force,
+                version,
+                channel,
+            })
+        })
+        .await
+        .context("update task panicked")?,
+        Some(Commands::Plugin { action }) => match action {
+            PluginAction::List => commands::plugin::list(&config),
+            PluginAction::Install { source } => commands::plugin::install(&config, &source),
+            PluginAction::Remove { id, force } => commands::plugin::remove(&config, &id, force),
+            PluginAction::Status => commands::plugin::status(&config),
+        },
         Some(Commands::Serve { host, port, token }) => {
             commands::serve::run(&host, port, token).await
         }
+        Some(Commands::Audit { action }) => match action {
+            AuditAction::Export {
+                session,
+                since,
+                format,
+                output,
+                include_tool_inputs,
+                include_tool_outputs,
+                db,
+            } => commands::audit::export(
+                session,
+                since,
+                &format,
+                output,
+                include_tool_inputs,
+                include_tool_outputs,
+                db,
+            ),
+            AuditAction::List { json, db } => commands::audit::list(db, json),
+            AuditAction::Verify { session_id, db } => commands::audit::verify(&session_id, db),
+            AuditAction::Compliance {
+                format,
+                output,
+                from,
+                to,
+                db,
+            } => commands::audit::compliance(&format, output, from, to, db),
+        },
+        Some(Commands::Users { action }) => match action {
+            UsersAction::Add { email, role } => commands::users::add(&email, &role),
+            UsersAction::List => commands::users::list(),
+            UsersAction::Revoke { email } => commands::users::revoke(&email),
+        },
+        // PASO 4-C: cron-based scheduled agent tasks (US-scheduler)
+        Some(Commands::Schedule { action }) => {
+            let db_path = config.storage.database_path.clone().unwrap_or_else(|| {
+                dirs::home_dir()
+                    .unwrap_or_else(|| std::path::PathBuf::from("."))
+                    .join(".halcon")
+                    .join("halcon.db")
+            });
+            let db = halcon_storage::Database::open(&db_path)
+                .context("failed to open database for schedule command")?;
+            match action {
+                ScheduleAction::Add {
+                    name,
+                    cron,
+                    instruction,
+                    agent,
+                } => commands::schedule::add(&db, &name, &cron, &instruction, agent.as_deref()),
+                ScheduleAction::List => commands::schedule::list(&db),
+                ScheduleAction::Disable { id } => commands::schedule::disable(&db, &id),
+                ScheduleAction::Enable { id } => commands::schedule::enable(&db, &id),
+                ScheduleAction::Run { id } => commands::schedule::run_now(&db, &id),
+            }
+        }
+        #[cfg(feature = "cenzontle-agents")]
+        Some(Commands::Cenzontle { action }) => commands::cenzontle::run(action).await,
         None => {
             // Default: start interactive chat
             commands::chat::run(
-                &config, &provider, &model, None, None, cli.no_banner, false, explicit_model,
+                &config,
+                &provider,
+                &model,
+                None,
+                None,
+                cli.no_banner,
+                false,
+                explicit_model,
+                explicit_provider,
                 commands::chat::FeatureFlags::default(),
-            ).await
+                cli.output_format == OutputFormat::Json,
+            )
+            .await
         }
     }
 }

@@ -44,7 +44,14 @@ impl WebSearchTool {
     fn format_results(results: &halcon_search::types::SearchResults) -> String {
         if results.results.is_empty() {
             return format!(
-                "No results found for query: '{}'\n\nTry:\n- Different keywords\n- Broader terms\n- Check spelling\n\nNote: Index may be empty. Use native_crawl to populate.",
+                "SEARCH RETURNED NO RESULTS for query: '{}'\n\n\
+                 IMPORTANT: This is a LOCAL index search, NOT an internet search.\n\
+                 The local search index is empty or has no matching content.\n\n\
+                 You MUST inform the user that:\n\
+                 1. The local search index has no results for their query.\n\
+                 2. To search the internet, an external integration is required.\n\
+                 3. Based on your training knowledge, provide the best answer you can.\n\n\
+                 Do not leave the response empty — always synthesize an answer from your knowledge.",
                 results.query
             );
         }
@@ -55,7 +62,11 @@ impl WebSearchTool {
             "Found {} results in {}ms {}\n\n",
             results.total_count,
             results.elapsed_ms,
-            if results.from_cache { "⚡ (cached)" } else { "" }
+            if results.from_cache {
+                "⚡ (cached)"
+            } else {
+                ""
+            }
         ));
 
         output.push_str("| Rank | Score | Title | URL |\n");
@@ -63,7 +74,13 @@ impl WebSearchTool {
 
         for (i, result) in results.results.iter().enumerate() {
             let title = result.document.title.chars().take(60).collect::<String>();
-            let url = result.document.url.to_string().chars().take(70).collect::<String>();
+            let url = result
+                .document
+                .url
+                .to_string()
+                .chars()
+                .take(70)
+                .collect::<String>();
             output.push_str(&format!(
                 "| {} | {:.2} | {} | {} |\n",
                 i + 1,
@@ -98,7 +115,11 @@ impl Tool for WebSearchTool {
     }
 
     fn description(&self) -> &str {
-        "Search the web using local FTS5 index. Returns ranked results with BM25 scores, titles, and URLs. Fast (<100ms), cached, zero external API dependencies. Agent can continue gathering information while waiting for results."
+        "Search the LOCAL index (not the internet) using FTS5 full-text search with BM25 ranking. \
+         Returns ranked results from previously crawled/indexed pages. \
+         Zero external API dependencies. Fast (<100ms), cached. \
+         Agent can continue gathering information while waiting for results. \
+         Use native_crawl to populate the index before searching."
     }
 
     fn permission_level(&self) -> PermissionLevel {
@@ -111,11 +132,9 @@ impl Tool for WebSearchTool {
 
     async fn execute(&self, input: ToolInput) -> Result<ToolOutput> {
         // Extract and validate query
-        let query = input.arguments["query"]
-            .as_str()
-            .ok_or_else(|| {
-                HalconError::InvalidInput("web_search requires 'query' string".into())
-            })?;
+        let query = input.arguments["query"].as_str().ok_or_else(|| {
+            HalconError::InvalidInput("web_search requires 'query' string".into())
+        })?;
 
         if query.trim().is_empty() {
             return Err(HalconError::InvalidInput(
@@ -124,43 +143,48 @@ impl Tool for WebSearchTool {
         }
 
         // Get database reference (fail fast if not initialized)
-        let db = self.db.as_ref().ok_or_else(|| {
-            HalconError::ToolExecutionFailed {
+        let db = self
+            .db
+            .as_ref()
+            .ok_or_else(|| HalconError::ToolExecutionFailed {
                 tool: "web_search".to_string(),
                 message: "Database not initialized. Search index unavailable.".to_string(),
-            }
-        })?;
+            })?;
 
         // Create search engine (lightweight facade, no heavy initialization)
         let search_engine = halcon_search::SearchEngine::new(
             db.clone(),
             halcon_search::SearchEngineConfig::default(),
         )
-        .map_err(|e| {
-            HalconError::ToolExecutionFailed {
-                tool: "web_search".to_string(),
-                message: format!("Failed to initialize search engine: {}", e),
-            }
+        .map_err(|e| HalconError::ToolExecutionFailed {
+            tool: "web_search".to_string(),
+            message: format!("Failed to initialize search engine: {}", e),
         })?;
 
         // Execute search (async, non-blocking for agent)
         // SearchEngine uses tokio::spawn_blocking for SQLite I/O
         // Agent can process other tasks concurrently
-        let results = search_engine.search(query).await.map_err(|e| {
-            HalconError::ToolExecutionFailed {
-                tool: "web_search".to_string(),
-                message: format!("Search failed: {}", e),
-            }
-        })?;
+        let results =
+            search_engine
+                .search(query)
+                .await
+                .map_err(|e| HalconError::ToolExecutionFailed {
+                    tool: "web_search".to_string(),
+                    message: format!("Search failed: {}", e),
+                })?;
 
         // Format results for LLM consumption
         let content = Self::format_results(&results);
 
-        // Return structured output with rich metadata
+        // Return structured output with rich metadata.
+        // is_error: false even for empty results — "no results" is valid output, not a failure.
+        // Marking as error triggers parallel_batch_collapse which suppresses the synthesis round.
+        // The format_results() message already instructs the LLM to synthesize from knowledge.
+        let is_error = false;
         Ok(ToolOutput {
             tool_use_id: input.tool_use_id,
             content,
-            is_error: false,
+            is_error,
             metadata: Some(json!({
                 "query": query,
                 "result_count": results.total_count,
@@ -262,10 +286,21 @@ mod tests {
     }
 
     #[test]
-    fn description_mentions_local() {
+    fn description_mentions_local_not_internet() {
         let tool = WebSearchTool::new(None);
         let desc = tool.description();
-        assert!(desc.contains("local") || desc.contains("FTS5"));
+        assert!(
+            desc.contains("LOCAL") || desc.contains("local"),
+            "desc: {desc}"
+        );
+        assert!(
+            desc.contains("FTS5") || desc.contains("index"),
+            "desc: {desc}"
+        );
+        assert!(
+            desc.to_lowercase().contains("not the internet") || desc.contains("crawled"),
+            "description should clarify this is NOT a web search: {desc}"
+        );
     }
 
     #[test]

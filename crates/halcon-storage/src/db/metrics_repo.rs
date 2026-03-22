@@ -42,7 +42,13 @@ impl Database {
             .map_err(|e| HalconError::DatabaseError(e.to_string()))?;
 
         // Single compound query replaces 5 individual queries.
-        let (total_invocations, successful_invocations, avg_latency_ms, total_tokens, total_cost_usd): (u64, u64, f64, u64, f64) = conn
+        let (
+            total_invocations,
+            successful_invocations,
+            avg_latency_ms,
+            total_tokens,
+            total_cost_usd,
+        ): (u64, u64, f64, u64, f64) = conn
             .query_row(
                 "SELECT COUNT(*),
                         COALESCE(SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END), 0),
@@ -51,7 +57,15 @@ impl Database {
                         COALESCE(SUM(estimated_cost_usd), 0.0)
                  FROM invocation_metrics WHERE provider = ?1 AND model = ?2",
                 rusqlite::params![provider, model],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?)),
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                    ))
+                },
             )
             .map_err(|e| HalconError::DatabaseError(e.to_string()))?;
 
@@ -241,7 +255,12 @@ impl Database {
         let cutoff_str = cutoff.to_rfc3339();
 
         // Single compound query replaces 4 individual queries.
-        let (total_invocations, successful_invocations, timeout_count, avg_latency_ms): (u64, u64, u64, f64) = conn
+        let (total_invocations, successful_invocations, timeout_count, avg_latency_ms): (
+            u64,
+            u64,
+            u64,
+            f64,
+        ) = conn
             .query_row(
                 "SELECT COUNT(*),
                         COALESCE(SUM(CASE WHEN success = 1 THEN 1 ELSE 0 END), 0),
@@ -402,7 +421,8 @@ impl Database {
             .lock()
             .map_err(|e| HalconError::DatabaseError(e.to_string()))?;
 
-        let tx = conn.unchecked_transaction()
+        let tx = conn
+            .unchecked_transaction()
             .map_err(|e| HalconError::DatabaseError(format!("begin batch metrics tx: {e}")))?;
 
         {
@@ -424,7 +444,8 @@ impl Database {
                     metric.stop_reason,
                     metric.session_id,
                     metric.created_at.to_rfc3339(),
-                ]).map_err(|e| HalconError::DatabaseError(format!("batch metric insert: {e}")))?;
+                ])
+                .map_err(|e| HalconError::DatabaseError(format!("batch metric insert: {e}")))?;
             }
         }
 
@@ -434,7 +455,10 @@ impl Database {
     }
 
     /// Batch-insert multiple tool execution metrics in a single transaction.
-    pub fn batch_insert_tool_metrics(&self, metrics: &[crate::metrics::ToolExecutionMetric]) -> Result<()> {
+    pub fn batch_insert_tool_metrics(
+        &self,
+        metrics: &[crate::metrics::ToolExecutionMetric],
+    ) -> Result<()> {
         if metrics.is_empty() {
             return Ok(());
         }
@@ -443,7 +467,8 @@ impl Database {
             .lock()
             .map_err(|e| HalconError::DatabaseError(e.to_string()))?;
 
-        let tx = conn.unchecked_transaction()
+        let tx = conn
+            .unchecked_transaction()
             .map_err(|e| HalconError::DatabaseError(format!("begin batch tool tx: {e}")))?;
 
         {
@@ -461,7 +486,10 @@ impl Database {
                     metric.is_parallel as i32,
                     metric.input_summary,
                     metric.created_at.to_rfc3339(),
-                ]).map_err(|e| HalconError::DatabaseError(format!("batch tool metric insert: {e}")))?;
+                ])
+                .map_err(|e| {
+                    HalconError::DatabaseError(format!("batch tool metric insert: {e}"))
+                })?;
             }
         }
 
@@ -486,5 +514,199 @@ impl Database {
             .map_err(|e| HalconError::DatabaseError(format!("prune metrics: {e}")))?;
 
         Ok(deleted as u64)
+    }
+
+    /// Get recent tool executions for a specific tool (for API history endpoint).
+    ///
+    /// Returns rows ordered by `created_at DESC`, most recent first.
+    pub fn recent_tool_executions(
+        &self,
+        tool_name: &str,
+        limit: usize,
+    ) -> Result<Vec<ToolExecutionRow>> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| HalconError::DatabaseError(e.to_string()))?;
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT tool_name, duration_ms, success, is_parallel, input_summary, created_at
+                 FROM tool_execution_metrics
+                 WHERE tool_name = ?1
+                 ORDER BY created_at DESC
+                 LIMIT ?2",
+            )
+            .map_err(|e| {
+                HalconError::DatabaseError(format!("prepare recent_tool_executions: {e}"))
+            })?;
+
+        let rows = stmt
+            .query_map(rusqlite::params![tool_name, limit as i64], |row| {
+                let success_int: i32 = row.get(2)?;
+                let parallel_int: i32 = row.get(3)?;
+                Ok(ToolExecutionRow {
+                    tool_name: row.get(0)?,
+                    duration_ms: row.get::<_, i64>(1)? as u64,
+                    success: success_int != 0,
+                    is_parallel: parallel_int != 0,
+                    input_summary: row.get(4)?,
+                    created_at: row.get(5)?,
+                })
+            })
+            .map_err(|e| HalconError::DatabaseError(format!("query recent_tool_executions: {e}")))?
+            .filter_map(|r| r.ok())
+            .collect();
+
+        Ok(rows)
+    }
+
+    /// Count invocations in the last 60 seconds and return events per second.
+    ///
+    /// Used by `GET /api/v1/metrics` to populate `events_per_second`.
+    pub fn events_per_second_last_60s(&self) -> Result<f64> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| HalconError::DatabaseError(e.to_string()))?;
+
+        let cutoff = Utc::now() - chrono::Duration::seconds(60);
+        let cutoff_str = cutoff.to_rfc3339();
+
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM invocation_metrics WHERE created_at >= ?1",
+                rusqlite::params![cutoff_str],
+                |row| row.get(0),
+            )
+            .map_err(|e| HalconError::DatabaseError(format!("events_per_second_last_60s: {e}")))?;
+
+        Ok(count as f64 / 60.0)
+    }
+}
+
+/// A tool execution row returned from the `tool_execution_metrics` table.
+#[derive(Debug, Clone)]
+pub struct ToolExecutionRow {
+    pub tool_name: String,
+    pub duration_ms: u64,
+    pub success: bool,
+    pub is_parallel: bool,
+    pub input_summary: Option<String>,
+    pub created_at: String, // RFC3339
+}
+
+#[cfg(test)]
+mod new_query_tests {
+    use super::*;
+    use crate::metrics::ToolExecutionMetric;
+
+    fn test_db() -> Database {
+        Database::open_in_memory().expect("in-memory DB")
+    }
+
+    fn insert_tool_metric(db: &Database, name: &str, dur_ms: u64, success: bool, parallel: bool) {
+        let metric = ToolExecutionMetric {
+            tool_name: name.to_string(),
+            session_id: None,
+            duration_ms: dur_ms,
+            success,
+            is_parallel: parallel,
+            input_summary: Some(format!("args for {name}")),
+            created_at: Utc::now(),
+        };
+        db.insert_tool_metric(&metric).unwrap();
+    }
+
+    fn insert_invocation_metric(db: &Database) {
+        let metric = crate::metrics::InvocationMetric {
+            provider: "test".into(),
+            model: "m".into(),
+            latency_ms: 100,
+            input_tokens: 50,
+            output_tokens: 25,
+            estimated_cost_usd: 0.001,
+            success: true,
+            stop_reason: "end_turn".into(),
+            session_id: None,
+            created_at: Utc::now(),
+        };
+        db.insert_metric(&metric).unwrap();
+    }
+
+    // ─── recent_tool_executions tests ────────────────────────────────────────
+
+    #[test]
+    fn recent_tool_executions_returns_empty_for_unknown_tool() {
+        let db = test_db();
+        let rows = db.recent_tool_executions("nonexistent", 10).unwrap();
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn recent_tool_executions_returns_matching_rows() {
+        let db = test_db();
+        insert_tool_metric(&db, "bash", 42, true, false);
+        insert_tool_metric(&db, "bash", 100, false, false);
+        insert_tool_metric(&db, "read_file", 10, true, false);
+
+        let rows = db.recent_tool_executions("bash", 10).unwrap();
+        assert_eq!(rows.len(), 2, "should return both bash executions");
+        assert!(rows.iter().all(|r| r.tool_name == "bash"));
+    }
+
+    #[test]
+    fn recent_tool_executions_respects_limit() {
+        let db = test_db();
+        for _ in 0..10 {
+            insert_tool_metric(&db, "bash", 50, true, false);
+        }
+        let rows = db.recent_tool_executions("bash", 3).unwrap();
+        assert_eq!(rows.len(), 3, "limit=3 must cap results");
+    }
+
+    #[test]
+    fn recent_tool_executions_maps_success_flag() {
+        let db = test_db();
+        insert_tool_metric(&db, "bash", 50, false, false); // failure
+        let rows = db.recent_tool_executions("bash", 5).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert!(!rows[0].success, "failed execution must have success=false");
+    }
+
+    #[test]
+    fn recent_tool_executions_includes_input_summary() {
+        let db = test_db();
+        insert_tool_metric(&db, "bash", 30, true, false);
+        let rows = db.recent_tool_executions("bash", 5).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert!(rows[0].input_summary.is_some());
+        assert!(rows[0].input_summary.as_deref().unwrap().contains("bash"));
+    }
+
+    // ─── events_per_second_last_60s tests ────────────────────────────────────
+
+    #[test]
+    fn events_per_second_zero_when_no_invocations() {
+        let db = test_db();
+        let eps = db.events_per_second_last_60s().unwrap();
+        assert_eq!(eps, 0.0);
+    }
+
+    #[test]
+    fn events_per_second_counts_recent_invocations() {
+        let db = test_db();
+        insert_invocation_metric(&db);
+        insert_invocation_metric(&db);
+        let eps = db.events_per_second_last_60s().unwrap();
+        // 2 events / 60 seconds = 0.0333...
+        assert!((eps - 2.0 / 60.0).abs() < 1e-9, "eps = {eps}");
+    }
+
+    #[test]
+    fn events_per_second_is_non_negative() {
+        let db = test_db();
+        let eps = db.events_per_second_last_60s().unwrap();
+        assert!(eps >= 0.0);
     }
 }

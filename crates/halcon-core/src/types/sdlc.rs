@@ -1,7 +1,7 @@
-/// SDLC phase abstraction for context server activation.
-///
-/// Each phase corresponds to a different stage in the software development lifecycle,
-/// enabling context servers to provide phase-appropriate information.
+//! SDLC phase abstraction for context server activation.
+//!
+//! Each phase corresponds to a different stage in the software development lifecycle,
+//! enabling context servers to provide phase-appropriate information.
 
 use serde::{Deserialize, Serialize};
 

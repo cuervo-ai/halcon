@@ -12,10 +12,7 @@ use super::state::AppState;
 use crate::types::ws::{WsChannel, WsClientMessage, WsServerEvent};
 
 /// WebSocket upgrade handler.
-pub async fn ws_handler(
-    ws: WebSocketUpgrade,
-    State(state): State<AppState>,
-) -> impl IntoResponse {
+pub async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>) -> impl IntoResponse {
     ws.on_upgrade(move |socket| handle_ws_connection(socket, state))
 }
 
@@ -113,11 +110,38 @@ fn should_forward(event: &WsServerEvent, channels: &HashSet<WsChannel>) -> bool 
         WsServerEvent::Metric(_) => channels.contains(&WsChannel::Metrics),
         WsServerEvent::Protocol(_) => channels.contains(&WsChannel::Protocols),
 
-        WsServerEvent::ConfigChanged { .. }
-        | WsServerEvent::SystemHealthChanged { .. } => channels.contains(&WsChannel::System),
+        WsServerEvent::ConfigChanged { .. } | WsServerEvent::SystemHealthChanged { .. } => {
+            channels.contains(&WsChannel::System)
+        }
 
-        WsServerEvent::Error { .. }
-        | WsServerEvent::Pong
-        | WsServerEvent::Connected { .. } => true,
+        WsServerEvent::Error { .. } | WsServerEvent::Pong | WsServerEvent::Connected { .. } => true,
+
+        WsServerEvent::ChatStreamToken { .. }
+        | WsServerEvent::ThinkingProgress { .. }
+        | WsServerEvent::ConversationCompleted { .. }
+        | WsServerEvent::ChatSessionCreated { .. }
+        | WsServerEvent::ChatSessionDeleted { .. } => {
+            channels.contains(&WsChannel::Chat) || channels.contains(&WsChannel::All)
+        }
+        WsServerEvent::PermissionRequired { .. }
+        | WsServerEvent::PermissionResolved { .. }
+        | WsServerEvent::PermissionExpired { .. } => {
+            channels.contains(&WsChannel::Permissions) || channels.contains(&WsChannel::All)
+        }
+        WsServerEvent::SubAgentStarted { .. } | WsServerEvent::SubAgentCompleted { .. } => {
+            channels.contains(&WsChannel::SubAgents) || channels.contains(&WsChannel::All)
+        }
+        WsServerEvent::ExecutionFailed { .. } => {
+            channels.contains(&WsChannel::Execution) || channels.contains(&WsChannel::All)
+        }
+        // E1: Media analysis events are session-scoped and belong to the Chat channel.
+        // Previously they only matched WsChannel::All, which the desktop never
+        // subscribes to (All was removed to prevent duplicate delivery).  Routing
+        // them to Chat ensures the desktop receives attachment-progress events.
+        WsServerEvent::MediaAnalysisStarted { .. }
+        | WsServerEvent::MediaAnalysisProgress { .. }
+        | WsServerEvent::MediaAnalysisCompleted { .. } => {
+            channels.contains(&WsChannel::Chat) || channels.contains(&WsChannel::All)
+        }
     }
 }

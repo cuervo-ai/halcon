@@ -19,7 +19,7 @@ pub struct SearchDocument {
     pub freshness_score: f32,
     pub outlink_count: u32,
     pub language: Option<String>,
-    pub embedding: Option<Vec<u8>>,  // Serialized f32 vector (384 dims for bge-small)
+    pub embedding: Option<Vec<u8>>, // Serialized f32 vector (384 dims for bge-small)
 }
 
 impl Database {

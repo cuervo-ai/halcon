@@ -3,9 +3,16 @@
 //! Dynamically adjusts color palette to provide visual cues when provider
 //! health degrades. Uses perceptual OKLCH color shifts to maintain
 //! accessibility while signaling system state.
+//!
+//! CVD mode: when `cvd_mode` is set, critical states use hues that are
+//! distinguishable under the given color vision deficiency (blue/orange
+//! instead of red/green).
 
 use super::theme::{Palette, ThemeColor};
 use crate::repl::health::HealthLevel;
+
+#[cfg(feature = "color-science")]
+use momoto_core::color::cvd::CVDType;
 
 /// Adaptive palette that adjusts colors based on system health.
 #[derive(Debug, Clone)]
@@ -13,6 +20,9 @@ pub struct AdaptivePalette {
     base: Palette,
     health_level: HealthLevel,
     adjusted: Option<Palette>,
+    /// Optional CVD mode — when set, critical/degraded states use CVD-safe hues.
+    #[cfg(feature = "color-science")]
+    cvd_mode: Option<CVDType>,
 }
 
 impl AdaptivePalette {
@@ -22,7 +32,64 @@ impl AdaptivePalette {
             base,
             health_level: HealthLevel::Healthy,
             adjusted: None,
+            #[cfg(feature = "color-science")]
+            cvd_mode: None,
         }
+    }
+
+    /// Enable CVD mode for accessible critical/degraded states.
+    ///
+    /// When active, `apply_critical_palette` uses blue (H=225°) and orange
+    /// (H=38°) instead of red/green, which remain distinguishable under
+    /// all dichromat CVD types.
+    #[cfg(feature = "color-science")]
+    pub fn with_cvd_mode(mut self, cvd: CVDType) -> Self {
+        self.cvd_mode = Some(cvd);
+        // Recompute adjusted palette with new CVD mode
+        self.adjusted = match self.health_level {
+            HealthLevel::Healthy => None,
+            HealthLevel::Degraded => Some(self.apply_warning_tint()),
+            HealthLevel::Unhealthy => Some(self.apply_critical_palette()),
+        };
+        self
+    }
+
+    /// Validate that health state cockpit colors remain distinguishable under CVD.
+    ///
+    /// Returns true if all critical pairs (running,planning), (running,reasoning)
+    /// have a simulated ΔE ≥ 15 under the active CVD mode.
+    #[cfg(feature = "color-science")]
+    pub fn validate_health_cvd_safety(&self) -> bool {
+        let Some(cvd) = self.cvd_mode else {
+            return true;
+        };
+        let palette = self.palette();
+        use crate::render::color_science::validate_cvd_pair;
+        validate_cvd_pair(&palette.running, &palette.planning, cvd, 15.0)
+            && validate_cvd_pair(&palette.running, &palette.reasoning, cvd, 15.0)
+    }
+
+    /// Create an `AdaptivePalette` from a base palette, reading CVD mode from env.
+    ///
+    /// Reads `HALCON_CVD_MODE` environment variable:
+    /// - `"deuteranopia"` / `"deutan"` / `"d"` → Deuteranopia
+    /// - `"protanopia"`  / `"protan"`  / `"p"` → Protanopia
+    /// - `"tritanopia"`  / `"tritan"`  / `"t"` → Tritanopia
+    /// - `"off"` / unset / any other value      → no CVD mode (standard palette)
+    ///
+    /// # Example
+    /// ```no_run
+    /// // HALCON_CVD_MODE=deuteranopia halcon chat --tui
+    /// ```
+    #[cfg(feature = "color-science")]
+    pub fn from_env(base: Palette) -> Self {
+        let mut adaptive = Self::new(base);
+        if let Ok(val) = std::env::var("HALCON_CVD_MODE") {
+            if let Some(cvd) = CVDType::from_str(&val) {
+                adaptive = adaptive.with_cvd_mode(cvd);
+            }
+        }
+        adaptive
     }
 
     /// Update health level and recompute adjusted palette.
@@ -70,20 +137,36 @@ impl AdaptivePalette {
     }
 
     /// Apply critical palette: monochrome red-scale for maximum urgency (Unhealthy state).
+    ///
+    /// When `cvd_mode` is active, uses blue (H=225°) + orange (H=38°) instead
+    /// of red-only, ensuring distinguishability under all dichromat CVD types.
     #[cfg(feature = "color-science")]
     fn apply_critical_palette(&self) -> Palette {
         let mut adjusted = self.base.clone();
 
-        // All colors become shades of red (H=25°) with varying lightness
-        adjusted.running = ThemeColor::oklch(0.75, 0.18, 25.0);    // Light red
-        adjusted.planning = ThemeColor::oklch(0.55, 0.20, 25.0);   // Medium red
-        adjusted.reasoning = ThemeColor::oklch(0.45, 0.22, 25.0);  // Dark red
-        adjusted.delegated = ThemeColor::oklch(0.65, 0.19, 25.0);  // Mid-light red
+        if self.cvd_mode.is_some() {
+            // CVD-safe: blue + orange palette (universally distinguishable)
+            adjusted.running = ThemeColor::oklch(0.75, 0.18, 225.0); // Blue (safe)
+            adjusted.planning = ThemeColor::oklch(0.68, 0.20, 38.0); // Orange (safe)
+            adjusted.reasoning = ThemeColor::oklch(0.55, 0.16, 225.0); // Dark blue
+            adjusted.delegated = ThemeColor::oklch(0.62, 0.18, 38.0); // Dark orange
 
-        adjusted.success = ThemeColor::oklch(0.70, 0.15, 25.0);    // Muted red
-        adjusted.warning = ThemeColor::oklch(0.80, 0.20, 25.0);    // Bright red
-        adjusted.error = ThemeColor::oklch(0.60, 0.24, 25.0);      // Vivid red
-        adjusted.accent = ThemeColor::oklch(0.85, 0.16, 25.0);     // Very light red
+            adjusted.success = ThemeColor::oklch(0.72, 0.16, 225.0); // Blue-tinted
+            adjusted.warning = ThemeColor::oklch(0.82, 0.18, 38.0); // Orange alert
+            adjusted.error = ThemeColor::oklch(0.80, 0.20, 38.0); // Bright orange
+            adjusted.accent = ThemeColor::oklch(0.85, 0.14, 225.0); // Light blue
+        } else {
+            // Standard: monochrome red-scale for maximum urgency
+            adjusted.running = ThemeColor::oklch(0.75, 0.18, 25.0); // Light red
+            adjusted.planning = ThemeColor::oklch(0.55, 0.20, 25.0); // Medium red
+            adjusted.reasoning = ThemeColor::oklch(0.45, 0.22, 25.0); // Dark red
+            adjusted.delegated = ThemeColor::oklch(0.65, 0.19, 25.0); // Mid-light red
+
+            adjusted.success = ThemeColor::oklch(0.70, 0.15, 25.0); // Muted red
+            adjusted.warning = ThemeColor::oklch(0.80, 0.20, 25.0); // Bright red
+            adjusted.error = ThemeColor::oklch(0.60, 0.24, 25.0); // Vivid red
+            adjusted.accent = ThemeColor::oklch(0.85, 0.16, 25.0); // Very light red
+        }
 
         adjusted
     }
@@ -197,7 +280,10 @@ mod tests {
         let second_palette = adaptive.palette();
 
         // Should be identical (no recomputation)
-        assert_eq!(first_palette.running.srgb8(), second_palette.running.srgb8());
+        assert_eq!(
+            first_palette.running.srgb8(),
+            second_palette.running.srgb8()
+        );
     }
 
     #[test]

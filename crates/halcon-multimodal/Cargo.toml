@@ -1,0 +1,43 @@
+[package]
+name = "halcon-multimodal"
+version = "0.2.0"
+edition = "2021"
+description = "Multimodal subsystem for HALCÓN CLI: image, audio, video analysis"
+license = "Apache-2.0"
+publish = false
+
+[features]
+default = []
+# Vision via ONNX CLIP (requires ort + ndarray)
+vision-native = ["dep:ndarray"]
+# Audio via Whisper ONNX (requires whisper-rs with C bindings)
+audio-native = []
+# Combined feature gates
+multimodal-api = []
+multimodal-hybrid = ["multimodal-api"]
+
+[dependencies]
+halcon-core    = { path = "../halcon-core" }
+halcon-storage = { path = "../halcon-storage" }
+
+anyhow         = "1"
+async-trait    = "0.1"
+base64         = "0.22"
+chrono         = { version = "0.4", features = ["serde"] }
+futures        = "0.3"
+hex            = "0.4"
+rayon          = "1"
+reqwest        = { workspace = true }
+serde          = { version = "1", features = ["derive"] }
+serde_json     = "1"
+sha2           = "0.10"
+thiserror      = "2"
+tokio          = { version = "1", features = ["rt", "sync", "time", "fs", "process", "io-util"] }
+tracing        = "0.1"
+
+# Optional: ndarray for ONNX embedding math
+ndarray        = { version = "0.16", optional = true }
+
+[dev-dependencies]
+tokio          = { version = "1", features = ["rt-multi-thread", "macros"] }
+tempfile       = "3"

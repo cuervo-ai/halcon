@@ -27,11 +27,16 @@
 //! println!("{}", palette.explanation_summary());
 //! ```
 
+use momoto_core::space::hct::HCT;
 use momoto_core::{Color, OKLCH};
 use momoto_intelligence::{
-    AdvancedScore, AdvancedScorer, ComplianceTarget, QualityScore,
-    QualityScorer, Recommendation, RecommendationContext, RecommendationEngine,
-    RecommendationExplanation, TechnicalDetails, UsageContext,
+    generate_palette as harmony_gen, harmony_score as harmony_score_fn, ColorConstraint,
+    ConstraintKind, ConstraintSolver, HarmonyType, SolverConfig, SolverResult,
+};
+use momoto_intelligence::{
+    AdvancedScore, AdvancedScorer, ComplianceTarget, QualityScore, QualityScorer, Recommendation,
+    RecommendationContext, RecommendationEngine, RecommendationExplanation, TechnicalDetails,
+    UsageContext,
 };
 
 use super::terminal_caps::{ColorLevel, TerminalCapabilities};
@@ -146,17 +151,17 @@ impl IntelligentPaletteBuilder {
         // Step 5: Generate semantic colors with specific hues for universal meaning
         let warning = self.generate_semantic(
             bg_panel_color,
-            95.0,  // Yellow hue
-            0.88,  // High lightness
-            0.18,  // Medium chroma
+            95.0, // Yellow hue
+            0.88, // High lightness
+            0.18, // Medium chroma
             UsageContext::Interactive,
         )?;
 
         let error = self.generate_semantic(
             bg_panel_color,
-            25.0,  // Red hue
-            0.62,  // Medium lightness
-            0.22,  // Higher chroma for attention
+            25.0, // Red hue
+            0.62, // Medium lightness
+            0.22, // Higher chroma for attention
             UsageContext::Interactive,
         )?;
 
@@ -295,17 +300,27 @@ impl IntelligentPaletteBuilder {
         }
 
         // M3: Validate contrast for all card/text pairs
-        let contrast_validations = crate::render::contrast_validator::validate_palette_contrast(&palette);
+        let contrast_validations =
+            crate::render::contrast_validator::validate_palette_contrast(&palette);
         crate::render::contrast_validator::log_contrast_warnings(&contrast_validations);
 
         // Step 10: Generate explanations
         let explanation = momoto_intelligence::ExplanationBuilder::new()
-            .summary(format!("Intelligent palette generated from {:.0}° hue", base_hue))
-            .problem(format!("Generate accessible color palette from base hue {:.0}°", base_hue))
+            .summary(format!(
+                "Intelligent palette generated from {:.0}° hue",
+                base_hue
+            ))
+            .problem(format!(
+                "Generate accessible color palette from base hue {:.0}°",
+                base_hue
+            ))
             .benefit("All text colors meet WCAG AA contrast requirements")
             .benefit("Perceptually uniform OKLCH color space ensures consistent appearance")
             .benefit("Semantic tokens use universal color meanings (red=error, green=success)")
-            .benefit(format!("Overall palette quality: {:.0}%", quality_report.average_overall() * 100.0))
+            .benefit(format!(
+                "Overall palette quality: {:.0}%",
+                quality_report.average_overall() * 100.0
+            ))
             .build();
 
         Some(PaletteWithMetadata {
@@ -313,6 +328,8 @@ impl IntelligentPaletteBuilder {
             quality_report,
             explanation,
             base_hue,
+            harmony_score: 0.0,
+            solver_result: None,
         })
     }
 
@@ -382,7 +399,9 @@ impl IntelligentPaletteBuilder {
 
         // Validate user bg contrast
         let user_context = RecommendationContext::interactive();
-        let user_score = self.scorer.score(text_color, *bg_user.color(), user_context);
+        let user_score = self
+            .scorer
+            .score(text_color, *bg_user.color(), user_context);
 
         let bg_user = if user_score.compliance >= 0.9 {
             bg_user
@@ -396,7 +415,9 @@ impl IntelligentPaletteBuilder {
 
         // Validate assistant bg contrast
         let assistant_context = RecommendationContext::body_text();
-        let assistant_score = self.scorer.score(text_color, *bg_assistant.color(), assistant_context);
+        let assistant_score =
+            self.scorer
+                .score(text_color, *bg_assistant.color(), assistant_context);
 
         let bg_assistant = if assistant_score.compliance >= 0.9 {
             bg_assistant
@@ -406,13 +427,15 @@ impl IntelligentPaletteBuilder {
         };
 
         // Tool execution: cyan tint with validation (semantic color, not elevation-based)
-        let bg_tool = self.generate_semantic(
-            text_color,
-            195.0, // Cyan hue
-            0.18,
-            0.04,
-            UsageContext::LargeText,
-        ).unwrap_or_else(|| ThemeColor::oklch(0.18, 0.04, 195.0));
+        let bg_tool = self
+            .generate_semantic(
+                text_color,
+                195.0, // Cyan hue
+                0.18,
+                0.04,
+                UsageContext::LargeText,
+            )
+            .unwrap_or_else(|| ThemeColor::oklch(0.18, 0.04, 195.0));
 
         // Code blocks: darker than base for depth (L=0.10, below elevation system)
         let base_oklch = elevation.base().to_oklch();
@@ -515,9 +538,13 @@ impl IntelligentPaletteBuilder {
             let delta_h = {
                 let diff = fg_oklch.h - baseline_oklch.h;
                 // Normalize hue difference to -180..180 range
-                if diff > 180.0 { diff - 360.0 }
-                else if diff < -180.0 { diff + 360.0 }
-                else { diff }
+                if diff > 180.0 {
+                    diff - 360.0
+                } else if diff < -180.0 {
+                    diff + 360.0
+                } else {
+                    diff
+                }
             };
 
             // Score after with actual color
@@ -560,6 +587,188 @@ impl IntelligentPaletteBuilder {
         score_token("compacting", palette.compacting);
 
         advanced_scores
+    }
+
+    // =========================================================================
+    // Constraint Solver + Harmony Engine + HCT
+    // =========================================================================
+
+    /// Generate a palette via Harmony Engine → ConstraintSolver pipeline.
+    ///
+    /// 1. Selects hues from `harmony` type rooted at `base_hue`.
+    /// 2. Applies formal WCAG/APCA/gamut/lightness constraints via penalty solver.
+    /// 3. Returns palette with `harmony_score` and `solver_result` populated.
+    pub fn generate_constrained(
+        &self,
+        base_hue: f64,
+        harmony: HarmonyType,
+        dark_mode: bool,
+    ) -> Option<PaletteWithMetadata> {
+        // Step 1: Generate harmony palette in OKLCH space
+        let seed = OKLCH::new(0.65, 0.18, base_hue);
+        let harmony_palette = harmony_gen(seed, harmony);
+        let score = harmony_score_fn(&harmony_palette.colors);
+
+        // Step 2: Extract OKLCH candidates from harmony palette
+        let bg_l = if dark_mode { 0.17 } else { 0.95 };
+        let bg_panel = OKLCH::new(bg_l, 0.02, base_hue);
+
+        // Build color list: [bg_panel, text, accent, running, planning, error]
+        let mut colors: Vec<OKLCH> = vec![bg_panel];
+        let text_l = if dark_mode { 0.92 } else { 0.10 };
+        colors.push(OKLCH::new(text_l, 0.01, base_hue)); // text (idx 1)
+        for color in harmony_palette.colors.iter().take(4) {
+            // accent, running, planning, error
+            colors.push(*color);
+        }
+
+        // Step 3: Apply constraint solver
+        let solver_result = self.apply_solver_constraints(colors, bg_panel);
+
+        // Step 4: Reconstruct Palette using solved colors
+        let bg_color = solver_result.colors.first().copied().unwrap_or(bg_panel);
+        let text_color = solver_result
+            .colors
+            .get(1)
+            .copied()
+            .unwrap_or(OKLCH::new(text_l, 0.01, base_hue));
+        let accent_color = solver_result
+            .colors
+            .get(2)
+            .copied()
+            .unwrap_or(OKLCH::new(0.72, 0.15, base_hue));
+
+        let bg_tc = ThemeColor::oklch(bg_color.l, bg_color.c, bg_color.h);
+        let text_tc = ThemeColor::oklch(text_color.l, text_color.c, text_color.h);
+        let accent_tc = ThemeColor::oklch(accent_color.l, accent_color.c, accent_color.h);
+
+        // Fall back to generate_from_hue for any tokens not covered by solver
+        let base_meta = self.generate_from_hue(base_hue)?;
+
+        let mut palette = base_meta.palette;
+        palette.bg_panel = bg_tc;
+        palette.text = text_tc;
+        palette.accent = accent_tc;
+        palette.primary = accent_tc;
+
+        let quality_report = self.assess_palette(&palette);
+
+        let solver_report = SolverReport {
+            converged: solver_result.converged,
+            iterations: solver_result.iterations,
+            final_penalty: solver_result.final_penalty,
+            violations: solver_result
+                .violations
+                .iter()
+                .map(|v| v.description.clone())
+                .collect(),
+        };
+
+        Some(PaletteWithMetadata {
+            palette,
+            quality_report,
+            explanation: base_meta.explanation,
+            base_hue,
+            harmony_score: score,
+            solver_result: Some(solver_report),
+        })
+    }
+
+    /// Apply ConstraintSolver to a list of OKLCH colors.
+    ///
+    /// Constraints applied:
+    /// - MinAPCA(text idx=1, bg idx=0, Lc=75) — body text
+    /// - MinContrast(accent idx=2, bg idx=0, 4.5) — WCAG AA
+    /// - InGamut for every color
+    /// - LightnessRange(bg idx=0, 0.12, 0.22) for dark mode
+    fn apply_solver_constraints(&self, colors: Vec<OKLCH>, _bg_panel: OKLCH) -> SolverResult {
+        let constraints = vec![
+            // text (idx 1) vs bg (idx 0): APCA Lc ≥ 75
+            ColorConstraint {
+                color_idx: 1,
+                kind: ConstraintKind::MinAPCA {
+                    other_idx: 0,
+                    target: 75.0,
+                },
+            },
+            // accent (idx 2) vs bg (idx 0): WCAG AA
+            ColorConstraint {
+                color_idx: 2,
+                kind: ConstraintKind::MinContrast {
+                    other_idx: 0,
+                    target: 4.5,
+                },
+            },
+            // bg lightness in dark-panel range
+            ColorConstraint {
+                color_idx: 0,
+                kind: ConstraintKind::LightnessRange {
+                    min: 0.12,
+                    max: 0.22,
+                },
+            },
+            // gamut for all
+            ColorConstraint {
+                color_idx: 0,
+                kind: ConstraintKind::InGamut,
+            },
+            ColorConstraint {
+                color_idx: 1,
+                kind: ConstraintKind::InGamut,
+            },
+            ColorConstraint {
+                color_idx: 2,
+                kind: ConstraintKind::InGamut,
+            },
+        ];
+
+        let mut solver = ConstraintSolver::new(colors, constraints, SolverConfig::default());
+        solver.solve()
+    }
+
+    /// Generate a Material Design 3 tonal palette using HCT color space.
+    ///
+    /// Generates roles following MD3 tone guidelines:
+    /// - Primary: tone 40 (dark) / 80 (light)
+    /// - Secondary: tone 35 / 70
+    /// - Neutral: tone 17, 22, 90
+    /// - Error: hue 25°, tone 40 / 80
+    pub fn generate_hct_palette(&self, seed_hex: &str) -> Option<Palette> {
+        use momoto_core::color::cvd::parse_hex;
+
+        let seed_color = parse_hex(seed_hex)?;
+        let seed_hct = HCT::from_color(&seed_color);
+        let base_hue = seed_hct.hue;
+        let base_chroma = seed_hct.chroma.max(30.0); // Ensure minimum chroma
+
+        // Helper: HCT → ThemeColor
+        let hct_to_tc = |h: f64, c: f64, t: f64| -> ThemeColor {
+            let color = HCT::new(h, c, t).to_color();
+            let [r, g, b] = color.to_srgb8();
+            ThemeColor::rgb(r, g, b)
+        };
+
+        // Build a palette from HCT tonal roles
+        let base_meta = self.generate_from_hue(base_hue)?;
+        let mut palette = base_meta.palette;
+
+        // Primary tones (dark mode: tone 80, light would be 40)
+        palette.primary = hct_to_tc(base_hue, base_chroma, 80.0);
+        palette.accent = hct_to_tc(base_hue + 60.0, base_chroma * 0.8, 70.0);
+        palette.text = hct_to_tc(base_hue, 4.0, 90.0);
+        palette.text_dim = hct_to_tc(base_hue, 4.0, 70.0);
+        palette.bg_panel = hct_to_tc(base_hue, 4.0, 17.0);
+        palette.bg_highlight = hct_to_tc(base_hue, 4.0, 22.0);
+        palette.error = hct_to_tc(25.0, 84.0, 80.0);
+
+        // Cockpit semantic tokens using secondary hue (H+90°)
+        let sec_hue = base_hue + 90.0;
+        palette.running = hct_to_tc(195.0, 60.0, 75.0); // Cyan tonal
+        palette.planning = hct_to_tc(280.0, 55.0, 70.0); // Purple tonal
+        palette.reasoning = hct_to_tc(170.0, 50.0, 68.0); // Teal tonal
+        palette.delegated = hct_to_tc(sec_hue, 55.0, 65.0);
+
+        Some(palette)
     }
 
     /// Generate palette optimized for detected terminal color capabilities.
@@ -659,8 +868,8 @@ impl IntelligentPaletteBuilder {
         // Optimize semantic colors
         palette_meta.palette.primary = optimize_for_16(palette_meta.palette.primary);
         palette_meta.palette.accent = optimize_for_16(palette_meta.palette.accent);
-        palette_meta.palette.warning = ThemeColor::oklch(0.75, 0.18, 60.0);  // Yellow
-        palette_meta.palette.error = ThemeColor::oklch(0.60, 0.20, 0.0);     // Red
+        palette_meta.palette.warning = ThemeColor::oklch(0.75, 0.18, 60.0); // Yellow
+        palette_meta.palette.error = ThemeColor::oklch(0.60, 0.20, 0.0); // Red
         palette_meta.palette.success = ThemeColor::oklch(0.70, 0.18, 120.0); // Green
         palette_meta.palette.running = ThemeColor::oklch(0.70, 0.18, 120.0); // Green
         palette_meta.palette.planning = ThemeColor::oklch(0.70, 0.18, 240.0); // Blue
@@ -677,10 +886,10 @@ impl IntelligentPaletteBuilder {
     /// - Maintains accessibility contrast ratios
     fn generate_grayscale(&self, _base_hue: f64) -> Option<PaletteWithMetadata> {
         // Grayscale palette with varying lightness
-        let bg_panel = ThemeColor::oklch(0.18, 0.0, 0.0);     // Dark gray bg
-        let text = ThemeColor::oklch(0.90, 0.0, 0.0);         // Light gray text
-        let text_dim = ThemeColor::oklch(0.70, 0.0, 0.0);     // Mid-light gray
-        let text_label = ThemeColor::oklch(0.60, 0.0, 0.0);   // Medium gray
+        let bg_panel = ThemeColor::oklch(0.18, 0.0, 0.0); // Dark gray bg
+        let text = ThemeColor::oklch(0.90, 0.0, 0.0); // Light gray text
+        let text_dim = ThemeColor::oklch(0.70, 0.0, 0.0); // Mid-light gray
+        let text_label = ThemeColor::oklch(0.60, 0.0, 0.0); // Medium gray
 
         let palette = Palette {
             // Brand colors (unused in grayscale)
@@ -690,12 +899,12 @@ impl IntelligentPaletteBuilder {
             deep_blue: bg_panel,
 
             // Semantic colors (lightness-differentiated)
-            primary: ThemeColor::oklch(0.75, 0.0, 0.0),        // Light gray
-            accent: ThemeColor::oklch(0.85, 0.0, 0.0),         // Very light gray
-            warning: ThemeColor::oklch(0.70, 0.0, 0.0),        // Medium-light
-            error: ThemeColor::oklch(0.65, 0.0, 0.0),          // Medium
-            success: ThemeColor::oklch(0.75, 0.0, 0.0),        // Light
-            muted: ThemeColor::oklch(0.50, 0.0, 0.0),          // Mid-dark
+            primary: ThemeColor::oklch(0.75, 0.0, 0.0), // Light gray
+            accent: ThemeColor::oklch(0.85, 0.0, 0.0),  // Very light gray
+            warning: ThemeColor::oklch(0.70, 0.0, 0.0), // Medium-light
+            error: ThemeColor::oklch(0.65, 0.0, 0.0),   // Medium
+            success: ThemeColor::oklch(0.75, 0.0, 0.0), // Light
+            muted: ThemeColor::oklch(0.50, 0.0, 0.0),   // Mid-dark
 
             // Text colors
             text,
@@ -703,26 +912,26 @@ impl IntelligentPaletteBuilder {
             text_label,
 
             // Cockpit colors (lightness-differentiated)
-            running: ThemeColor::oklch(0.75, 0.0, 0.0),        // Light
-            planning: ThemeColor::oklch(0.70, 0.0, 0.0),       // Medium-light
-            reasoning: ThemeColor::oklch(0.65, 0.0, 0.0),      // Medium
-            delegated: ThemeColor::oklch(0.60, 0.0, 0.0),      // Medium-dark
-            destructive: ThemeColor::oklch(0.55, 0.0, 0.0),    // Dark
-            cached: ThemeColor::oklch(0.80, 0.0, 0.0),         // Very light
-            retrying: ThemeColor::oklch(0.68, 0.0, 0.0),       // Medium-light
-            compacting: ThemeColor::oklch(0.72, 0.0, 0.0),     // Light
+            running: ThemeColor::oklch(0.75, 0.0, 0.0), // Light
+            planning: ThemeColor::oklch(0.70, 0.0, 0.0), // Medium-light
+            reasoning: ThemeColor::oklch(0.65, 0.0, 0.0), // Medium
+            delegated: ThemeColor::oklch(0.60, 0.0, 0.0), // Medium-dark
+            destructive: ThemeColor::oklch(0.55, 0.0, 0.0), // Dark
+            cached: ThemeColor::oklch(0.80, 0.0, 0.0),  // Very light
+            retrying: ThemeColor::oklch(0.68, 0.0, 0.0), // Medium-light
+            compacting: ThemeColor::oklch(0.72, 0.0, 0.0), // Light
 
             // UI structure
-            border: ThemeColor::oklch(0.30, 0.0, 0.0),         // Dark gray
+            border: ThemeColor::oklch(0.30, 0.0, 0.0), // Dark gray
             bg_panel,
-            bg_highlight: ThemeColor::oklch(0.22, 0.0, 0.0),   // Slightly lighter
-            spinner_color: ThemeColor::oklch(0.75, 0.0, 0.0),  // Light gray
+            bg_highlight: ThemeColor::oklch(0.22, 0.0, 0.0), // Slightly lighter
+            spinner_color: ThemeColor::oklch(0.75, 0.0, 0.0), // Light gray
 
             // M1: Card backgrounds (grayscale lightness differentiation)
-            bg_user: ThemeColor::oklch(0.20, 0.0, 0.0),        // Slightly lighter than panel
-            bg_assistant: ThemeColor::oklch(0.19, 0.0, 0.0),   // Close to panel
-            bg_tool: ThemeColor::oklch(0.21, 0.0, 0.0),        // Slightly lighter
-            bg_code: ThemeColor::oklch(0.15, 0.0, 0.0),        // Darker than panel
+            bg_user: ThemeColor::oklch(0.20, 0.0, 0.0), // Slightly lighter than panel
+            bg_assistant: ThemeColor::oklch(0.19, 0.0, 0.0), // Close to panel
+            bg_tool: ThemeColor::oklch(0.21, 0.0, 0.0), // Slightly lighter
+            bg_code: ThemeColor::oklch(0.15, 0.0, 0.0), // Darker than panel
         };
 
         let quality_report = self.assess_palette(&palette);
@@ -736,9 +945,7 @@ impl IntelligentPaletteBuilder {
                 "Maximum compatibility".to_string(),
                 "Accessibility maintained via lightness contrast".to_string(),
             ],
-            trade_offs: vec![
-                "No hue-based semantic differentiation".to_string(),
-            ],
+            trade_offs: vec!["No hue-based semantic differentiation".to_string()],
             technical: TechnicalDetails::default(),
         };
 
@@ -746,7 +953,9 @@ impl IntelligentPaletteBuilder {
             palette,
             quality_report,
             explanation,
-            base_hue: 0.0, // Hue irrelevant for grayscale
+            base_hue: 0.0,
+            harmony_score: 0.0,
+            solver_result: None,
         })
     }
 }
@@ -755,6 +964,19 @@ impl Default for IntelligentPaletteBuilder {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Summary of a constraint solver run for palette generation.
+#[derive(Debug, Clone)]
+pub struct SolverReport {
+    /// Whether the solver converged within the penalty threshold.
+    pub converged: bool,
+    /// Number of gradient-descent iterations executed.
+    pub iterations: usize,
+    /// Final total penalty (lower = better; 0.0 = fully satisfied).
+    pub final_penalty: f64,
+    /// Human-readable descriptions of remaining violations.
+    pub violations: Vec<String>,
 }
 
 /// A palette with quality metadata and explanations.
@@ -768,6 +990,10 @@ pub struct PaletteWithMetadata {
     pub explanation: RecommendationExplanation,
     /// Base hue used for generation (0-360°).
     pub base_hue: f64,
+    /// Chromatic harmony score [0, 1] (higher = more coherent palette).
+    pub harmony_score: f64,
+    /// Constraint solver result, if `generate_constrained` was used.
+    pub solver_result: Option<SolverReport>,
 }
 
 impl PaletteWithMetadata {
@@ -906,13 +1132,16 @@ impl PaletteQualityReport {
     ///
     /// Returns all advanced scores sorted by priority score (highest first).
     pub fn by_priority(&self) -> Vec<(&'static str, &AdvancedScore)> {
-        let mut sorted: Vec<_> = self.advanced_scores
+        let mut sorted: Vec<_> = self
+            .advanced_scores
             .iter()
             .map(|(name, score)| (*name, score))
             .collect();
 
         sorted.sort_by(|a, b| {
-            b.1.priority.partial_cmp(&a.1.priority).unwrap_or(std::cmp::Ordering::Equal)
+            b.1.priority
+                .partial_cmp(&a.1.priority)
+                .unwrap_or(std::cmp::Ordering::Equal)
         });
 
         sorted
@@ -928,14 +1157,16 @@ impl PaletteQualityReport {
 
         let count = self.advanced_scores.len() as f64;
         let (impact_sum, effort_sum, conf_sum, priority_sum) =
-            self.advanced_scores.iter().fold((0.0, 0.0, 0.0, 0.0), |acc, (_, score)| {
-                (
-                    acc.0 + score.impact,
-                    acc.1 + score.effort,
-                    acc.2 + score.confidence,
-                    acc.3 + score.priority,
-                )
-            });
+            self.advanced_scores
+                .iter()
+                .fold((0.0, 0.0, 0.0, 0.0), |acc, (_, score)| {
+                    (
+                        acc.0 + score.impact,
+                        acc.1 + score.effort,
+                        acc.2 + score.confidence,
+                        acc.3 + score.priority,
+                    )
+                });
 
         (
             impact_sum / count,
@@ -951,7 +1182,8 @@ impl PaletteQualityReport {
     /// and priority recommendations.
     pub fn advanced_summary(&self) -> String {
         if self.advanced_scores.is_empty() {
-            return "No advanced scores available. Call score_palette_advanced() first.".to_string();
+            return "No advanced scores available. Call score_palette_advanced() first."
+                .to_string();
         }
 
         let (avg_impact, avg_effort, avg_conf, avg_priority) = self.average_advanced_metrics();
@@ -1149,7 +1381,12 @@ mod tests {
                 score.confidence
             );
             // Priority can be > 1.0 (e.g., critical priority = 2.0+)
-            assert!(score.priority >= 0.0, "{}: priority negative: {}", name, score.priority);
+            assert!(
+                score.priority >= 0.0,
+                "{}: priority negative: {}",
+                name,
+                score.priority
+            );
         }
     }
 
@@ -1262,6 +1499,8 @@ mod tests {
             quality_report: builder.assess_palette(&palette),
             explanation: create_mock_explanation(),
             base_hue: 210.0,
+            harmony_score: 0.0,
+            solver_result: None,
         };
 
         // Compute advanced scores
@@ -1372,8 +1611,8 @@ mod tests {
 
         // Create palette with colors at extreme hues (to test hue wrapping)
         let mut palette = create_minimal_palette();
-        palette.primary = ThemeColor::oklch(0.65, 0.15, 10.0);   // Near 0°
-        palette.accent = ThemeColor::oklch(0.65, 0.15, 350.0);  // Near 360°
+        palette.primary = ThemeColor::oklch(0.65, 0.15, 10.0); // Near 0°
+        palette.accent = ThemeColor::oklch(0.65, 0.15, 350.0); // Near 360°
 
         let scores = builder.score_palette_advanced(&palette);
 
@@ -1488,7 +1727,11 @@ mod tests {
         if let Some(palette_meta) = builder.generate_for_color_level(210.0, ColorLevel::Color256) {
             let oklch = palette_meta.palette.primary.to_oklch();
             // 256-color should reduce chroma to <=0.12
-            assert!(oklch.c <= 0.13, "Chroma should be reduced for 256-color, got {:.3}", oklch.c);
+            assert!(
+                oklch.c <= 0.13,
+                "Chroma should be reduced for 256-color, got {:.3}",
+                oklch.c
+            );
         }
     }
 
@@ -1504,15 +1747,24 @@ mod tests {
         if let Some(palette_meta) = builder.generate_for_color_level(210.0, ColorLevel::Color16) {
             // Warning should be yellow (60°)
             let warning_h = palette_meta.palette.warning.to_oklch().h;
-            assert!((warning_h - 60.0).abs() < 5.0, "Warning should be yellow for 16-color");
+            assert!(
+                (warning_h - 60.0).abs() < 5.0,
+                "Warning should be yellow for 16-color"
+            );
 
             // Error should be red (0°)
             let error_h = palette_meta.palette.error.to_oklch().h;
-            assert!(error_h < 10.0 || error_h > 350.0, "Error should be red for 16-color");
+            assert!(
+                error_h < 10.0 || error_h > 350.0,
+                "Error should be red for 16-color"
+            );
 
             // Success should be green (120°)
             let success_h = palette_meta.palette.success.to_oklch().h;
-            assert!((success_h - 120.0).abs() < 10.0, "Success should be green for 16-color");
+            assert!(
+                (success_h - 120.0).abs() < 10.0,
+                "Success should be green for 16-color"
+            );
         }
     }
 
@@ -1547,7 +1799,10 @@ mod tests {
 
             // Contrast should be significant (delta L >= 0.5)
             let delta_l = (text - bg).abs();
-            assert!(delta_l >= 0.5, "Grayscale should maintain high lightness contrast");
+            assert!(
+                delta_l >= 0.5,
+                "Grayscale should maintain high lightness contrast"
+            );
         }
     }
 
@@ -1570,7 +1825,11 @@ mod tests {
 
         for level in &levels {
             let result = builder.generate_for_color_level(210.0, *level);
-            assert!(result.is_some(), "Generation should succeed for {:?}", level);
+            assert!(
+                result.is_some(),
+                "Generation should succeed for {:?}",
+                level
+            );
         }
     }
 
@@ -1615,9 +1874,18 @@ mod tests {
 
         // 3. Validate quality
         let result = result.unwrap();
-        assert!(result.quality_improvement >= -0.01, "Quality should not regress significantly");
-        assert!(result.final_palette.quality_report.average_overall() >= 0.5, "Final quality should be reasonable");
-        assert!(result.iterations <= 50, "Should converge within max iterations");
+        assert!(
+            result.quality_improvement >= -0.01,
+            "Quality should not regress significantly"
+        );
+        assert!(
+            result.final_palette.quality_report.average_overall() >= 0.5,
+            "Final quality should be reasonable"
+        );
+        assert!(
+            result.iterations <= 50,
+            "Should converge within max iterations"
+        );
     }
 
     #[test]
@@ -1645,7 +1913,11 @@ mod tests {
             assert!(result.is_some(), "Should generate palette for {:?}", level);
 
             let palette_meta = result.unwrap();
-            assert!(palette_meta.quality_report.average_overall() >= 0.3, "Quality should meet minimum for {:?}", level);
+            assert!(
+                palette_meta.quality_report.average_overall() >= 0.3,
+                "Quality should meet minimum for {:?}",
+                level
+            );
         }
     }
 
@@ -1658,19 +1930,37 @@ mod tests {
             min_confidence: 0.3,
         };
         let builder = IntelligentPaletteBuilder::with_thresholds(thresholds);
-        let palette_meta = builder.generate_from_hue(210.0).expect("Should generate palette");
+        let palette_meta = builder
+            .generate_from_hue(210.0)
+            .expect("Should generate palette");
 
         // Validate quality report consistency
         let overall = palette_meta.quality_report.average_overall();
-        assert!(overall >= 0.0 && overall <= 1.0, "Overall quality must be in [0,1]");
+        assert!(
+            overall >= 0.0 && overall <= 1.0,
+            "Overall quality must be in [0,1]"
+        );
 
         // Validate advanced scores if present
         if !palette_meta.quality_report.advanced_scores.is_empty() {
-            let (compliance, perceptual, priority, confidence) = palette_meta.quality_report.average_advanced_metrics();
-            assert!(compliance >= 0.0 && compliance <= 1.0, "Compliance must be in [0,1]");
-            assert!(perceptual >= 0.0 && perceptual <= 1.0, "Perceptual must be in [0,1]");
-            assert!(priority >= 0.0 && priority <= 1.0, "Priority must be in [0,1]");
-            assert!(confidence >= 0.0 && confidence <= 1.0, "Confidence must be in [0,1]");
+            let (compliance, perceptual, priority, confidence) =
+                palette_meta.quality_report.average_advanced_metrics();
+            assert!(
+                compliance >= 0.0 && compliance <= 1.0,
+                "Compliance must be in [0,1]"
+            );
+            assert!(
+                perceptual >= 0.0 && perceptual <= 1.0,
+                "Perceptual must be in [0,1]"
+            );
+            assert!(
+                priority >= 0.0 && priority <= 1.0,
+                "Priority must be in [0,1]"
+            );
+            assert!(
+                confidence >= 0.0 && confidence <= 1.0,
+                "Confidence must be in [0,1]"
+            );
         }
     }
 
@@ -1683,15 +1973,32 @@ mod tests {
             min_confidence: 0.3,
         };
         let builder = IntelligentPaletteBuilder::with_thresholds(thresholds);
-        let palette_meta = builder.generate_from_hue(210.0).expect("Should generate palette");
+        let palette_meta = builder
+            .generate_from_hue(210.0)
+            .expect("Should generate palette");
         let palette = &palette_meta.palette;
 
         // Helper to validate OKLCH values
         let validate_oklch = |name: &str, color: &ThemeColor| {
             let oklch = color.to_oklch();
-            assert!(oklch.l >= 0.0 && oklch.l <= 1.0, "{}: lightness must be in [0,1], got {}", name, oklch.l);
-            assert!(oklch.c >= 0.0 && oklch.c <= 0.5, "{}: chroma must be in [0,0.5], got {}", name, oklch.c);
-            assert!(oklch.h >= 0.0 && oklch.h < 360.0, "{}: hue must be in [0,360), got {}", name, oklch.h);
+            assert!(
+                oklch.l >= 0.0 && oklch.l <= 1.0,
+                "{}: lightness must be in [0,1], got {}",
+                name,
+                oklch.l
+            );
+            assert!(
+                oklch.c >= 0.0 && oklch.c <= 0.5,
+                "{}: chroma must be in [0,0.5], got {}",
+                name,
+                oklch.c
+            );
+            assert!(
+                oklch.h >= 0.0 && oklch.h < 360.0,
+                "{}: hue must be in [0,360), got {}",
+                name,
+                oklch.h
+            );
         };
 
         // Validate all palette colors
@@ -1720,23 +2027,28 @@ mod tests {
         // Use high target to test convergence detection
         let config = OptimizationConfig {
             max_iterations: 100,
-            target_quality: 0.99,  // Very high target
+            target_quality: 0.99, // Very high target
             min_improvement: 0.001,
             verbose: false,
         };
         let mut optimizer = AdaptivePaletteOptimizer::with_config(builder, config);
 
-        let result = optimizer.optimize_from_hue(210.0).expect("Should produce result");
+        let result = optimizer
+            .optimize_from_hue(210.0)
+            .expect("Should produce result");
 
         // Should stop before max iterations if converged
-        assert!(!result.convergence_status.is_empty(), "Should have convergence status");
+        assert!(
+            !result.convergence_status.is_empty(),
+            "Should have convergence status"
+        );
 
         // If it stopped early, quality should be reasonable or it detected stalling
         if result.iterations < 100 {
             assert!(
-                result.final_palette.quality_report.average_overall() >= 0.7 ||
-                result.convergence_status.contains("Stalled") ||
-                result.convergence_status.contains("Undetermined"),
+                result.final_palette.quality_report.average_overall() >= 0.7
+                    || result.convergence_status.contains("Stalled")
+                    || result.convergence_status.contains("Undetermined"),
                 "Early stop should be due to good quality or detected stalling"
             );
         }
@@ -1753,7 +2065,9 @@ mod tests {
             min_confidence: 0.3,
         };
         let builder = IntelligentPaletteBuilder::with_thresholds(thresholds);
-        let palette_meta = builder.generate_from_hue(210.0).expect("Should generate palette");
+        let palette_meta = builder
+            .generate_from_hue(210.0)
+            .expect("Should generate palette");
 
         // Test downgrade to each level
         let caps_256 = TerminalCapabilities::with_color_level(ColorLevel::Color256);
@@ -1842,16 +2156,34 @@ mod tests {
         let bg_code_rgb = palette.bg_code.srgb8();
 
         // User and assistant should be different
-        assert_ne!(bg_user_rgb, bg_assistant_rgb, "bg_user should differ from bg_assistant");
+        assert_ne!(
+            bg_user_rgb, bg_assistant_rgb,
+            "bg_user should differ from bg_assistant"
+        );
 
         // Tool should be different from user and assistant
-        assert_ne!(bg_tool_rgb, bg_user_rgb, "bg_tool should differ from bg_user");
-        assert_ne!(bg_tool_rgb, bg_assistant_rgb, "bg_tool should differ from bg_assistant");
+        assert_ne!(
+            bg_tool_rgb, bg_user_rgb,
+            "bg_tool should differ from bg_user"
+        );
+        assert_ne!(
+            bg_tool_rgb, bg_assistant_rgb,
+            "bg_tool should differ from bg_assistant"
+        );
 
         // Code should be different from all others
-        assert_ne!(bg_code_rgb, bg_user_rgb, "bg_code should differ from bg_user");
-        assert_ne!(bg_code_rgb, bg_assistant_rgb, "bg_code should differ from bg_assistant");
-        assert_ne!(bg_code_rgb, bg_tool_rgb, "bg_code should differ from bg_tool");
+        assert_ne!(
+            bg_code_rgb, bg_user_rgb,
+            "bg_code should differ from bg_user"
+        );
+        assert_ne!(
+            bg_code_rgb, bg_assistant_rgb,
+            "bg_code should differ from bg_assistant"
+        );
+        assert_ne!(
+            bg_code_rgb, bg_tool_rgb,
+            "bg_code should differ from bg_tool"
+        );
     }
 
     #[test]
@@ -1865,22 +2197,31 @@ mod tests {
         let bg_code_oklch = palette.bg_code.to_oklch();
 
         // User should be lighter than assistant (more prominent)
-        assert!(bg_user_oklch.l > bg_assistant_oklch.l,
+        assert!(
+            bg_user_oklch.l > bg_assistant_oklch.l,
             "bg_user lightness {:.3} should be > bg_assistant lightness {:.3}",
-            bg_user_oklch.l, bg_assistant_oklch.l);
+            bg_user_oklch.l,
+            bg_assistant_oklch.l
+        );
 
         // Code should be darker than panel (creates depth)
         let bg_panel_oklch = palette.bg_panel.to_oklch();
-        assert!(bg_code_oklch.l < bg_panel_oklch.l,
+        assert!(
+            bg_code_oklch.l < bg_panel_oklch.l,
             "bg_code lightness {:.3} should be < bg_panel lightness {:.3}",
-            bg_code_oklch.l, bg_panel_oklch.l);
+            bg_code_oklch.l,
+            bg_panel_oklch.l
+        );
 
         // Tool should have cyan tint (distinct hue)
         // Hue ~195° for cyan
         let hue_diff = (bg_tool_oklch.h - 195.0).abs();
-        assert!(hue_diff < 30.0,
+        assert!(
+            hue_diff < 30.0,
             "bg_tool hue {:.1}° should be near cyan (195°), diff: {:.1}°",
-            bg_tool_oklch.h, hue_diff);
+            bg_tool_oklch.h,
+            hue_diff
+        );
     }
 
     #[test]
@@ -1904,13 +2245,18 @@ mod tests {
             let bg_code_rgb = palette.bg_code.srgb8();
 
             // At least user and assistant should be distinct (perceptual elevation)
-            assert_ne!(bg_user_rgb, bg_assistant_rgb, "Generated palette should have distinct user/assistant backgrounds");
+            assert_ne!(
+                bg_user_rgb, bg_assistant_rgb,
+                "Generated palette should have distinct user/assistant backgrounds"
+            );
 
             // Code should be darker than panel
             let bg_code_oklch = palette.bg_code.to_oklch();
             let bg_panel_oklch = palette.bg_panel.to_oklch();
-            assert!(bg_code_oklch.l < bg_panel_oklch.l,
-                "Code background should be darker than panel");
+            assert!(
+                bg_code_oklch.l < bg_panel_oklch.l,
+                "Code background should be darker than panel"
+            );
         }
     }
 
@@ -1936,7 +2282,10 @@ mod tests {
 
         // Should have some scores
         assert!(!report.text_scores.is_empty(), "Should have text scores");
-        assert!(!report.semantic_scores.is_empty(), "Should have semantic scores");
+        assert!(
+            !report.semantic_scores.is_empty(),
+            "Should have semantic scores"
+        );
     }
 
     #[test]

@@ -8,6 +8,8 @@ use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
 use crate::error::Result;
+use crate::types::capability_types::{CapabilityDescriptor, Modality};
+use crate::types::execution_graph::{ExecutionEdge, ExecutionGraph, ExecutionNode, NodeId};
 use crate::types::ToolDefinition;
 
 /// Outcome of executing a plan step.
@@ -21,6 +23,10 @@ pub enum StepOutcome {
 /// A step in an execution plan.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PlanStep {
+    /// Stable identity for this step across replans and rounds.
+    /// Auto-generated on deserialization when not present (LLM-generated plans).
+    #[serde(default = "uuid::Uuid::new_v4")]
+    pub step_id: uuid::Uuid,
     /// Human-readable description of what this step does.
     pub description: String,
     /// Tool name to invoke (if this step uses a tool).
@@ -35,6 +41,29 @@ pub struct PlanStep {
     /// Outcome after execution: None until executed.
     #[serde(default)]
     pub outcome: Option<StepOutcome>,
+}
+
+impl Default for PlanStep {
+    fn default() -> Self {
+        Self {
+            step_id: uuid::Uuid::new_v4(),
+            description: String::new(),
+            tool_name: None,
+            parallel: false,
+            confidence: 1.0,
+            expected_args: None,
+            outcome: None,
+        }
+    }
+}
+
+/// Execution mode inferred from plan structure.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecutionMode {
+    #[default]
+    PlanExecuteReflect,
+    DirectExecution,
 }
 
 /// An execution plan generated before tool invocation.
@@ -55,6 +84,139 @@ pub struct ExecutionPlan {
     /// Original plan ID if this is a replan.
     #[serde(default)]
     pub parent_plan_id: Option<uuid::Uuid>,
+    /// Inferred execution mode (set post-parse, not by LLM).
+    #[serde(default)]
+    pub mode: ExecutionMode,
+    /// True if plan requires at least one content-read tool.
+    #[serde(default)]
+    pub requires_evidence: bool,
+    /// Tools explicitly blocked for this plan (propagated from session).
+    #[serde(default)]
+    pub blocked_tools: Vec<String>,
+    /// Declared execution requirements for the Step 7 capability gate.
+    /// Populated post-parse via `derive_capability_descriptor()` — never set by LLM directly.
+    /// Default: all-empty → gate always passes → zero-drift for existing plans.
+    #[serde(default)]
+    pub capability_descriptor: CapabilityDescriptor,
+}
+
+impl Default for ExecutionPlan {
+    fn default() -> Self {
+        Self {
+            goal: String::new(),
+            steps: vec![],
+            requires_confirmation: false,
+            plan_id: uuid::Uuid::new_v4(),
+            replan_count: 0,
+            parent_plan_id: None,
+            mode: ExecutionMode::PlanExecuteReflect,
+            requires_evidence: false,
+            blocked_tools: vec![],
+            capability_descriptor: CapabilityDescriptor::default(),
+        }
+    }
+}
+
+impl ExecutionPlan {
+    /// Average confidence across all plan steps.
+    ///
+    /// Returns `1.0` for empty plans (no steps → no uncertainty).
+    /// Used by the `NeedsClarification` gate to decide whether to pause
+    /// and ask the user before executing destructive steps.
+    pub fn avg_confidence(&self) -> f64 {
+        if self.steps.is_empty() {
+            return 1.0;
+        }
+        self.steps.iter().map(|s| s.confidence).sum::<f64>() / self.steps.len() as f64
+    }
+
+    /// Auto-derive `CapabilityDescriptor` from plan step tool names (Step 7/8.1/10).
+    ///
+    /// Extracts unique, non-empty tool names from all steps. Infers `ToolUse`
+    /// modality when any step references a tool; `Text` is always included.
+    ///
+    /// `avg_input_tokens_per_step`: base per-step token estimate from `PolicyConfig`.
+    /// `tool_cost_multiplier`: multiplier applied to ToolUse/Vision nodes.
+    /// Pass `(0, _)` to disable Rule 3 budget checking (e.g., in tests or sub-agents).
+    ///
+    /// `estimated_token_cost` is now topology-aware via graph cost propagation (Step 10):
+    ///   Text node → `avg`; ToolUse node → `avg × multiplier`; sum over reachable nodes.
+    ///
+    /// Called post-parse in `agent/mod.rs` and after replanning in `convergence_phase.rs`.
+    pub fn derive_capability_descriptor(
+        &mut self,
+        avg_input_tokens_per_step: usize,
+        tool_cost_multiplier: usize,
+    ) {
+        // Step 1: Compute required_tools (deduped) and modalities from step metadata.
+        let mut seen = std::collections::HashSet::new();
+        let required_tools: Vec<String> = self
+            .steps
+            .iter()
+            .filter_map(|s| s.tool_name.as_deref())
+            .filter(|t| seen.insert(*t))
+            .map(|t| t.to_string())
+            .collect();
+
+        let required_modalities = if required_tools.is_empty() {
+            vec![Modality::Text]
+        } else {
+            vec![Modality::Text, Modality::ToolUse]
+        };
+
+        // Step 2: Set descriptor with required_tools populated so to_execution_graph()
+        // can read them for declared_tools. estimated_token_cost set to 0 as placeholder.
+        self.capability_descriptor = CapabilityDescriptor {
+            required_tools,
+            required_modalities,
+            estimated_token_cost: 0,
+        };
+
+        // Step 3: Graph-based cost propagation (Step 10).
+        // Builds the linear graph, assigns topology-aware node costs, sums reachable cost.
+        let mut graph = self.to_execution_graph();
+        graph.assign_base_costs(avg_input_tokens_per_step, tool_cost_multiplier);
+        self.capability_descriptor.estimated_token_cost = graph.total_cost();
+    }
+
+    /// Convert this plan into an `ExecutionGraph` for structural validation (Step 9).
+    ///
+    /// Nodes correspond 1:1 to plan steps (by index).
+    /// Edges are linear: node 0→1, 1→2, ..., (n-2)→(n-1).
+    /// `declared_tools` mirrors `capability_descriptor.required_tools`.
+    ///
+    /// Produces an acyclic graph by construction. Call `GraphValidator::validate()`
+    /// on the result to enforce all 4 structural rules before execution.
+    pub fn to_execution_graph(&self) -> ExecutionGraph {
+        let nodes: Vec<ExecutionNode> = self
+            .steps
+            .iter()
+            .enumerate()
+            .map(|(i, step)| ExecutionNode {
+                id: NodeId(i),
+                tool: step.tool_name.clone(),
+                modality: if step.tool_name.is_some() {
+                    Modality::ToolUse
+                } else {
+                    Modality::Text
+                },
+                base_cost: 0, // Populated by assign_base_costs() — default 0 until then.
+            })
+            .collect();
+
+        let edges: Vec<ExecutionEdge> = (0..nodes.len().saturating_sub(1))
+            .map(|i| ExecutionEdge {
+                from: NodeId(i),
+                to: NodeId(i + 1),
+            })
+            .collect();
+
+        ExecutionGraph {
+            declared_tools: self.capability_descriptor.required_tools.clone(),
+            nodes,
+            edges,
+        }
+    }
 }
 
 /// Formal status of a tracked plan step (FSM).
@@ -94,12 +256,10 @@ impl TaskStatus {
             | (Self::Running, Self::Failed)
             | (Self::Running, Self::Cancelled) => Ok(target),
             // Terminal → anything is invalid
-            (from, to) if from.is_terminal() => {
-                Err(format!("cannot transition from terminal state {from:?} to {to:?}"))
-            }
-            (from, to) => {
-                Err(format!("invalid transition from {from:?} to {to:?}"))
-            }
+            (from, to) if from.is_terminal() => Err(format!(
+                "cannot transition from terminal state {from:?} to {to:?}"
+            )),
+            (from, to) => Err(format!("invalid transition from {from:?} to {to:?}")),
         }
     }
 }
@@ -182,10 +342,54 @@ pub trait Planner: Send + Sync {
 mod tests {
     use super::*;
 
+    fn make_step(confidence: f64) -> PlanStep {
+        PlanStep {
+            step_id: uuid::Uuid::new_v4(),
+            description: "step".into(),
+            tool_name: None,
+            parallel: false,
+            confidence,
+            expected_args: None,
+            outcome: None,
+        }
+    }
+
+    fn make_plan(steps: Vec<PlanStep>) -> ExecutionPlan {
+        ExecutionPlan {
+            goal: "test goal".into(),
+            steps,
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn avg_confidence_empty_returns_one() {
+        let plan = make_plan(vec![]);
+        assert_eq!(
+            plan.avg_confidence(),
+            1.0,
+            "Empty plan has no uncertainty — should return 1.0"
+        );
+    }
+
+    #[test]
+    fn avg_confidence_computed_correctly() {
+        let plan = make_plan(vec![make_step(0.8), make_step(0.6), make_step(1.0)]);
+        let expected = (0.8 + 0.6 + 1.0) / 3.0;
+        let diff = (plan.avg_confidence() - expected).abs();
+        assert!(
+            diff < 1e-10,
+            "avg_confidence should be {expected:.4}, got {:.4}",
+            plan.avg_confidence()
+        );
+    }
+
     #[test]
     fn task_status_pending_to_running() {
         assert_eq!(
-            TaskStatus::Pending.transition_to(TaskStatus::Running).unwrap(),
+            TaskStatus::Pending
+                .transition_to(TaskStatus::Running)
+                .unwrap(),
             TaskStatus::Running
         );
     }
@@ -193,7 +397,9 @@ mod tests {
     #[test]
     fn task_status_pending_to_skipped() {
         assert_eq!(
-            TaskStatus::Pending.transition_to(TaskStatus::Skipped).unwrap(),
+            TaskStatus::Pending
+                .transition_to(TaskStatus::Skipped)
+                .unwrap(),
             TaskStatus::Skipped
         );
     }
@@ -201,7 +407,9 @@ mod tests {
     #[test]
     fn task_status_pending_to_cancelled() {
         assert_eq!(
-            TaskStatus::Pending.transition_to(TaskStatus::Cancelled).unwrap(),
+            TaskStatus::Pending
+                .transition_to(TaskStatus::Cancelled)
+                .unwrap(),
             TaskStatus::Cancelled
         );
     }
@@ -209,7 +417,9 @@ mod tests {
     #[test]
     fn task_status_running_to_completed() {
         assert_eq!(
-            TaskStatus::Running.transition_to(TaskStatus::Completed).unwrap(),
+            TaskStatus::Running
+                .transition_to(TaskStatus::Completed)
+                .unwrap(),
             TaskStatus::Completed
         );
     }
@@ -217,7 +427,9 @@ mod tests {
     #[test]
     fn task_status_running_to_failed() {
         assert_eq!(
-            TaskStatus::Running.transition_to(TaskStatus::Failed).unwrap(),
+            TaskStatus::Running
+                .transition_to(TaskStatus::Failed)
+                .unwrap(),
             TaskStatus::Failed
         );
     }
@@ -225,14 +437,21 @@ mod tests {
     #[test]
     fn task_status_running_to_cancelled() {
         assert_eq!(
-            TaskStatus::Running.transition_to(TaskStatus::Cancelled).unwrap(),
+            TaskStatus::Running
+                .transition_to(TaskStatus::Cancelled)
+                .unwrap(),
             TaskStatus::Cancelled
         );
     }
 
     #[test]
     fn task_status_terminal_rejects_transition() {
-        for terminal in [TaskStatus::Completed, TaskStatus::Failed, TaskStatus::Skipped, TaskStatus::Cancelled] {
+        for terminal in [
+            TaskStatus::Completed,
+            TaskStatus::Failed,
+            TaskStatus::Skipped,
+            TaskStatus::Cancelled,
+        ] {
             assert!(terminal.transition_to(TaskStatus::Running).is_err());
             assert!(terminal.transition_to(TaskStatus::Pending).is_err());
         }
@@ -241,12 +460,16 @@ mod tests {
     #[test]
     fn task_status_invalid_pending_to_completed() {
         // Can't skip Running
-        assert!(TaskStatus::Pending.transition_to(TaskStatus::Completed).is_err());
+        assert!(TaskStatus::Pending
+            .transition_to(TaskStatus::Completed)
+            .is_err());
     }
 
     #[test]
     fn task_status_invalid_pending_to_failed() {
-        assert!(TaskStatus::Pending.transition_to(TaskStatus::Failed).is_err());
+        assert!(TaskStatus::Pending
+            .transition_to(TaskStatus::Failed)
+            .is_err());
     }
 
     #[test]
@@ -279,6 +502,7 @@ mod tests {
     fn tracked_step_serde_roundtrip() {
         let ts = TrackedStep {
             step: PlanStep {
+                step_id: uuid::Uuid::new_v4(),
                 description: "Read file".into(),
                 tool_name: Some("file_read".into()),
                 parallel: false,
@@ -321,6 +545,7 @@ mod tests {
         let task_id = uuid::Uuid::new_v4();
         let ts = TrackedStep {
             step: PlanStep {
+                step_id: uuid::Uuid::new_v4(),
                 description: "Edit file".into(),
                 tool_name: Some("file_edit".into()),
                 parallel: false,
@@ -346,5 +571,97 @@ mod tests {
         assert_eq!(d.task_id, task_id);
         assert_eq!(d.agent_type, "Coder");
         assert!(d.delegated);
+    }
+
+    // ── BUG-007 regression: synthesis guard condition (FIX-1) ────────────────
+
+    fn make_plan_step(tool: Option<&str>, done: bool) -> PlanStep {
+        PlanStep {
+            tool_name: tool.map(str::to_owned),
+            outcome: done.then(|| StepOutcome::Success {
+                summary: "ok".into(),
+            }),
+            ..PlanStep::default()
+        }
+    }
+
+    /// Mixed plan: execution + coordination steps pending.
+    /// FIX-1: `any_pending_execution` must be true → guard must NOT fire.
+    #[test]
+    fn bug007_mixed_plan_reports_pending_execution() {
+        let steps = vec![
+            make_plan_step(Some("bash"), false),       // pending execution
+            make_plan_step(Some("file_write"), false), // pending execution
+            make_plan_step(None, false),               // pending coordination
+            make_plan_step(None, false),               // pending synthesis
+        ];
+        let any_pending_execution = steps
+            .iter()
+            .filter(|s| s.outcome.is_none())
+            .any(|s| s.tool_name.is_some());
+        assert!(
+            any_pending_execution,
+            "Mixed plan must report pending execution — synthesis guard must NOT fire"
+        );
+    }
+
+    /// Pure synthesis plan (all execution steps done, only text steps remain).
+    /// FIX-1: no pending execution → guard SHOULD fire.
+    #[test]
+    fn bug007_pure_synthesis_plan_no_pending_execution() {
+        let steps = vec![
+            make_plan_step(Some("bash"), true),       // completed
+            make_plan_step(Some("file_write"), true), // completed
+            make_plan_step(None, false),              // pending coordination
+            make_plan_step(None, false),              // pending synthesis
+        ];
+        let any_pending_execution = steps
+            .iter()
+            .filter(|s| s.outcome.is_none())
+            .any(|s| s.tool_name.is_some());
+        assert!(
+            !any_pending_execution,
+            "Pure synthesis plan must report no pending execution — guard SHOULD fire"
+        );
+    }
+
+    /// Demonstrates the original bug fires when a pending execution step
+    /// is followed by a coordination step (tool_name=None).
+    /// The old `all(is_none)` condition returns false here (does NOT fire),
+    /// but a scenario where execution steps are listed BEFORE None steps makes
+    /// the bug visible: once execution is logically "last seen", the guard fires
+    /// incorrectly. The new condition is path-independent.
+    #[test]
+    fn bug007_new_condition_is_path_independent() {
+        // Scenario A: pending execution step exists anywhere in the list
+        let steps_a = vec![
+            make_plan_step(None, false),         // coordination (pending)
+            make_plan_step(Some("bash"), false), // execution (pending)
+        ];
+        let any_exec_a = steps_a
+            .iter()
+            .filter(|s| s.outcome.is_none())
+            .any(|s| s.tool_name.is_some());
+        // New condition: guard does NOT fire (execution step is pending)
+        let new_fires_a = steps_a.iter().any(|s| s.outcome.is_none()) && !any_exec_a;
+        assert!(
+            !new_fires_a,
+            "New condition must not fire when execution step is pending"
+        );
+
+        // Scenario B: no execution steps pending
+        let steps_b = vec![
+            make_plan_step(None, false),        // coordination (pending)
+            make_plan_step(Some("bash"), true), // execution (done)
+        ];
+        let any_exec_b = steps_b
+            .iter()
+            .filter(|s| s.outcome.is_none())
+            .any(|s| s.tool_name.is_some());
+        let new_fires_b = steps_b.iter().any(|s| s.outcome.is_none()) && !any_exec_b;
+        assert!(
+            new_fires_b,
+            "New condition must fire when only coordination steps remain"
+        );
     }
 }

@@ -1,15 +1,51 @@
 use axum::{
-    middleware,
+    extract::Request,
+    http::StatusCode,
+    middleware::{self, Next},
+    response::Response,
     routing::{delete, get, post},
     Router,
 };
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{AllowOrigin, CorsLayer};
 use tower_http::trace::TraceLayer;
 
 use super::auth::auth_middleware;
 use super::handlers;
 use super::state::AppState;
 use super::ws::ws_handler;
+
+/// Admin-only authentication middleware.
+///
+/// DECISION: Admin endpoints use HALCON_ADMIN_API_KEY as a bootstrap mechanism
+/// (before RBAC JWT claims are available). The env var is checked at request time,
+/// not at server startup, so operators can rotate the key without restarting.
+/// Matches the Stripe/Linear pattern for admin API keys.
+async fn admin_auth_middleware(request: Request, next: Next) -> Result<Response, StatusCode> {
+    let expected = std::env::var("HALCON_ADMIN_API_KEY").unwrap_or_default();
+    if expected.is_empty() {
+        // No admin key configured → reject all admin requests for safety.
+        tracing::warn!("HALCON_ADMIN_API_KEY not set — admin endpoints disabled");
+        return Err(StatusCode::UNAUTHORIZED);
+    }
+
+    let provided = request
+        .headers()
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|h| h.strip_prefix("Bearer "));
+
+    match provided {
+        Some(token) if token == expected => Ok(next.run(request).await),
+        Some(_) => {
+            tracing::warn!("invalid admin API key presented");
+            Err(StatusCode::UNAUTHORIZED)
+        }
+        None => {
+            tracing::warn!("missing Authorization: Bearer header on admin endpoint");
+            Err(StatusCode::UNAUTHORIZED)
+        }
+    }
+}
 
 /// Build the full API router with all routes, middleware, and state.
 pub fn build_router(state: AppState) -> Router {
@@ -38,22 +74,86 @@ pub fn build_router(state: AppState) -> Router {
         .route(
             "/system/config",
             get(handlers::config::get_config).put(handlers::config::update_config),
+        )
+        // Chat endpoints
+        .route(
+            "/chat/sessions",
+            get(handlers::chat::list_sessions).post(handlers::chat::create_session),
+        )
+        .route(
+            "/chat/sessions/:id",
+            get(handlers::chat::get_session)
+                .delete(handlers::chat::delete_session)
+                .patch(handlers::chat::update_session),
+        )
+        .route(
+            "/chat/sessions/:id/messages",
+            get(handlers::chat::list_messages).post(handlers::chat::submit_message),
+        )
+        .route(
+            "/chat/sessions/:id/active",
+            delete(handlers::chat::cancel_active),
+        )
+        .route(
+            "/chat/sessions/:id/permissions/:req_id",
+            post(handlers::chat::resolve_permission),
         );
 
-    Router::new()
+    // Admin routes require the HALCON_ADMIN_API_KEY env var (bootstrap admin auth).
+    // Mounted separately from the main API so the auth middleware is never accidentally
+    // removed from admin endpoints in a future refactor.
+    let admin_routes = Router::new()
+        .route(
+            "/api/v1/admin/usage/claude-code",
+            get(handlers::admin::usage::claude_code_usage),
+        )
+        .route(
+            "/api/v1/admin/usage/summary",
+            get(handlers::admin::usage::usage_summary),
+        )
+        .layer(middleware::from_fn(admin_auth_middleware))
+        .with_state(state.clone());
+
+    // Routes that require Bearer token authentication.
+    // The auth middleware is scoped to this sub-router so it is impossible for
+    // a future refactor to accidentally expose protected routes without auth.
+    let protected = Router::new()
         .nest("/api/v1", api_routes)
         .route("/ws/events", get(ws_handler))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
-        ))
-        // Health check endpoint (no auth).
+        ));
+
+    Router::new()
+        // Health check is explicitly PUBLIC — no auth, no state required.
         .route("/health", get(health_check))
+        .merge(protected)
+        .merge(admin_routes)
         .layer(
+            // Restrict CORS to localhost origins only.
+            // This prevents cross-origin browser requests from arbitrary websites
+            // while allowing egui desktop clients (no Origin header) to connect freely.
             CorsLayer::new()
-                .allow_origin(Any)
-                .allow_methods(Any)
-                .allow_headers(Any),
+                .allow_origin(AllowOrigin::predicate(|origin, _req| {
+                    let b = origin.as_bytes();
+                    b.starts_with(b"http://127.0.0.1")
+                        || b.starts_with(b"http://localhost")
+                        || b.starts_with(b"https://127.0.0.1")
+                        || b.starts_with(b"https://localhost")
+                }))
+                .allow_methods([
+                    axum::http::Method::GET,
+                    axum::http::Method::POST,
+                    axum::http::Method::PUT,
+                    axum::http::Method::DELETE,
+                    axum::http::Method::OPTIONS,
+                ])
+                .allow_headers([
+                    axum::http::header::AUTHORIZATION,
+                    axum::http::header::CONTENT_TYPE,
+                    axum::http::header::ACCEPT,
+                ]),
         )
         .layer(TraceLayer::new_for_http())
         .with_state(state)

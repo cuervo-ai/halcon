@@ -21,7 +21,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use futures::stream::{self, BoxStream};
 use futures::StreamExt;
-use tracing::{debug, warn};
+use tracing::{debug, instrument, warn};
 
 use halcon_core::error::{HalconError, Result};
 use halcon_core::traits::ModelProvider;
@@ -228,8 +228,16 @@ impl OllamaProvider {
     fn format_tool_emulation_prompt(tools: &[ToolDefinition]) -> String {
         // Prioritize tools: file_write, file_read, file_edit, bash first (most commonly needed),
         // then the rest up to MAX_EMULATION_TOOLS.
-        let priority_names = ["file_write", "file_read", "file_edit", "bash", "grep", "glob"];
-        let mut ordered: Vec<&ToolDefinition> = Vec::with_capacity(tools.len().min(Self::MAX_EMULATION_TOOLS));
+        let priority_names = [
+            "file_write",
+            "file_read",
+            "file_edit",
+            "bash",
+            "grep",
+            "glob",
+        ];
+        let mut ordered: Vec<&ToolDefinition> =
+            Vec::with_capacity(tools.len().min(Self::MAX_EMULATION_TOOLS));
 
         // Add priority tools first.
         for pname in &priority_names {
@@ -288,7 +296,10 @@ impl OllamaProvider {
                     .unwrap_or_default();
                 if required.is_empty() {
                     if let Some(obj) = props.as_object() {
-                        obj.keys().map(|k| k.as_str()).collect::<Vec<_>>().join(", ")
+                        obj.keys()
+                            .map(|k| k.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
                     } else {
                         String::new()
                     }
@@ -313,9 +324,13 @@ impl OllamaProvider {
         // Strongest instruction at the END — recency bias makes local models follow this.
         prompt.push_str("\n## CRITICAL RULES\n");
         prompt.push_str("1. To use a tool, output EXACTLY this format:\n");
-        prompt.push_str("<tool_call>\n{\"name\": \"TOOL_NAME\", \"arguments\": {PARAMS}}\n</tool_call>\n");
+        prompt.push_str(
+            "<tool_call>\n{\"name\": \"TOOL_NAME\", \"arguments\": {PARAMS}}\n</tool_call>\n",
+        );
         prompt.push_str("2. NEVER explain how to do something — USE THE TOOL instead.\n");
-        prompt.push_str("3. NEVER output code snippets or shell commands as text — call bash or file_write.\n");
+        prompt.push_str(
+            "3. NEVER output code snippets or shell commands as text — call bash or file_write.\n",
+        );
         prompt.push_str("4. After <tool_call> blocks, STOP. Do not add extra text.\n");
         prompt.push_str("5. When you receive a SUCCESS tool result, respond with a SHORT text confirmation. Do NOT call the same tool again.\n");
         prompt.push_str("6. NEVER repeat a tool call that already succeeded. Once a file is written, do NOT write it again.\n");
@@ -400,10 +415,7 @@ impl OllamaProvider {
                 let abs_end = after_tag + end;
                 let command = text[after_tag..abs_end].trim();
                 if !command.is_empty() && command.len() < 2000 {
-                    tool_calls.push((
-                        "bash".to_string(),
-                        serde_json::json!({"command": command}),
-                    ));
+                    tool_calls.push(("bash".to_string(), serde_json::json!({"command": command})));
                 }
                 search_from = abs_end + 3;
             } else {
@@ -416,15 +428,16 @@ impl OllamaProvider {
             if let Some(echo_pos) = text.find("echo ") {
                 let after_echo = &text[echo_pos + 5..];
                 // Find quoted content.
-                let (content, after_content) = if after_echo.starts_with('"') {
-                    if let Some(end) = after_echo[1..].find('"') {
-                        (Some(&after_echo[1..end + 1]), &after_echo[end + 2..])
+                let (content, after_content) = if let Some(stripped) = after_echo.strip_prefix('"')
+                {
+                    if let Some(end) = stripped.find('"') {
+                        (Some(&stripped[..end]), &stripped[end + 1..])
                     } else {
                         (None, after_echo)
                     }
-                } else if after_echo.starts_with('\'') {
-                    if let Some(end) = after_echo[1..].find('\'') {
-                        (Some(&after_echo[1..end + 1]), &after_echo[end + 2..])
+                } else if let Some(stripped) = after_echo.strip_prefix('\'') {
+                    if let Some(end) = stripped.find('\'') {
+                        (Some(&stripped[..end]), &stripped[end + 1..])
                     } else {
                         (None, after_echo)
                     }
@@ -435,8 +448,8 @@ impl OllamaProvider {
                 if let Some(content) = content {
                     // Look for > /path after the quoted content.
                     let trimmed = after_content.trim_start();
-                    if trimmed.starts_with('>') {
-                        let path_start = trimmed[1..].trim_start();
+                    if let Some(stripped) = trimmed.strip_prefix('>') {
+                        let path_start = stripped.trim_start();
                         let path_end = path_start
                             .find(|c: char| c.is_whitespace() || c == '"' || c == '`')
                             .unwrap_or(path_start.len());
@@ -500,9 +513,10 @@ impl OllamaProvider {
             });
         }
 
-        let body = response.text().await.map_err(|e| {
-            HalconError::StreamError(format!("read error: {e}"))
-        })?;
+        let body = response
+            .text()
+            .await
+            .map_err(|e| HalconError::StreamError(format!("read error: {e}")))?;
 
         let mut accumulated_text = String::new();
         let mut usage = TokenUsage::default();
@@ -522,10 +536,7 @@ impl OllamaProvider {
 
     /// Build a retry request that appends the model's failed text response and
     /// a correction prompt instructing it to use tool_call format.
-    fn build_retry_request(
-        original: &OllamaChatRequest,
-        failed_text: &str,
-    ) -> OllamaChatRequest {
+    fn build_retry_request(original: &OllamaChatRequest, failed_text: &str) -> OllamaChatRequest {
         let mut messages = original.messages.clone();
         // Add the model's failed response as an assistant message.
         messages.push(OllamaMessage {
@@ -601,6 +612,7 @@ impl ModelProvider for OllamaProvider {
         &self.models
     }
 
+    #[instrument(skip_all, fields(provider = "ollama", model = %request.model, msgs = request.messages.len()))]
     async fn invoke(
         &self,
         request: &ModelRequest,
@@ -619,16 +631,14 @@ impl ModelProvider for OllamaProvider {
         if has_tools {
             // Tool emulation path: collect full response, parse for <tool_call> blocks.
             // Includes 1 retry when model fails to use tool format.
-            let (accumulated_text, mut usage) =
-                self.send_and_collect(&chat_request).await?;
+            let (accumulated_text, mut usage) = self.send_and_collect(&chat_request).await?;
 
             debug!(
                 accumulated_len = accumulated_text.len(),
                 "Ollama tool emulation: parsing response for <tool_call> blocks"
             );
 
-            let (mut tool_calls, mut remaining_text) =
-                Self::parse_tool_calls(&accumulated_text);
+            let (mut tool_calls, mut remaining_text) = Self::parse_tool_calls(&accumulated_text);
 
             // Retry once if model didn't produce tool calls.
             if tool_calls.is_empty() {
@@ -638,18 +648,15 @@ impl ModelProvider for OllamaProvider {
                     "Ollama tool emulation: no <tool_call> blocks found, retrying with correction"
                 );
 
-                let retry_request =
-                    Self::build_retry_request(&chat_request, &accumulated_text);
-                let (retry_text, retry_usage) =
-                    self.send_and_collect(&retry_request).await?;
+                let retry_request = Self::build_retry_request(&chat_request, &accumulated_text);
+                let (retry_text, retry_usage) = self.send_and_collect(&retry_request).await?;
 
                 debug!(
                     retry_len = retry_text.len(),
                     "Ollama tool emulation: retry response received"
                 );
 
-                let (retry_calls, retry_remaining) =
-                    Self::parse_tool_calls(&retry_text);
+                let (retry_calls, retry_remaining) = Self::parse_tool_calls(&retry_text);
 
                 if !retry_calls.is_empty() {
                     debug!(
@@ -659,7 +666,7 @@ impl ModelProvider for OllamaProvider {
                     tool_calls = retry_calls;
                     remaining_text = retry_remaining;
                     let _ = retry_text; // consumed by parse_tool_calls
-                    // Merge usage (sum both attempts).
+                                        // Merge usage (sum both attempts).
                     usage.input_tokens += retry_usage.input_tokens;
                     usage.output_tokens += retry_usage.output_tokens;
                 } else {
@@ -763,9 +770,9 @@ impl ModelProvider for OllamaProvider {
                     let bytes = match chunk_result {
                         Ok(b) => b,
                         Err(e) => {
-                            return std::future::ready(Some(vec![Err(
-                                HalconError::StreamError(format!("stream read error: {e}")),
-                            )]));
+                            return std::future::ready(Some(vec![Err(HalconError::StreamError(
+                                format!("stream read error: {e}"),
+                            ))]));
                         }
                     };
 
@@ -814,6 +821,14 @@ impl ModelProvider for OllamaProvider {
     fn estimate_cost(&self, _request: &ModelRequest) -> TokenCost {
         // Local inference: always free.
         TokenCost::default()
+    }
+
+    fn tool_format(&self) -> halcon_core::types::ToolFormat {
+        halcon_core::types::ToolFormat::OllamaXmlEmulation
+    }
+
+    fn tokenizer_hint(&self) -> halcon_core::types::TokenizerHint {
+        halcon_core::types::TokenizerHint::OllamaUnknown
     }
 }
 
@@ -881,7 +896,10 @@ mod tests {
             assert!(model.context_window > 0);
             assert!(model.max_output_tokens > 0);
             assert_eq!(model.cost_per_input_token, 0.0);
-            assert!(model.supports_tools, "all Ollama models support tools via emulation");
+            assert!(
+                model.supports_tools,
+                "all Ollama models support tools via emulation"
+            );
         }
     }
 
@@ -1043,7 +1061,8 @@ mod tests {
 
     #[test]
     fn parse_ndjson_text_delta() {
-        let line = r#"{"model":"llama3.2","message":{"role":"assistant","content":"Hello"},"done":false}"#;
+        let line =
+            r#"{"model":"llama3.2","message":{"role":"assistant","content":"Hello"},"done":false}"#;
         let result = OllamaProvider::parse_ndjson_line(line);
         assert!(result.is_some());
         let chunk = result.unwrap().unwrap();
@@ -1099,10 +1118,8 @@ mod tests {
 
     #[tokio::test]
     async fn is_available_returns_false_for_unreachable() {
-        let provider = OllamaProvider::new(
-            Some("http://127.0.0.1:19999".into()),
-            HttpConfig::default(),
-        );
+        let provider =
+            OllamaProvider::new(Some("http://127.0.0.1:19999".into()), HttpConfig::default());
         assert!(!provider.is_available().await);
     }
 
@@ -1219,23 +1236,24 @@ mod tests {
         );
         let models = provider.supported_models();
         assert_eq!(models[0].id, "deepseek-coder-v2:latest");
-        assert!(models[0].supports_tools, "default model should support tools via emulation");
+        assert!(
+            models[0].supports_tools,
+            "default model should support tools via emulation"
+        );
     }
 
     #[test]
     fn build_request_tool_result_error_status() {
         let request = ModelRequest {
             model: "llama3.2".into(),
-            messages: vec![
-                ChatMessage {
-                    role: Role::User,
-                    content: MessageContent::Blocks(vec![ContentBlock::ToolResult {
-                        tool_use_id: "emul_1_0".into(),
-                        content: "Permission denied".into(),
-                        is_error: true,
-                    }]),
-                },
-            ],
+            messages: vec![ChatMessage {
+                role: Role::User,
+                content: MessageContent::Blocks(vec![ContentBlock::ToolResult {
+                    tool_use_id: "emul_1_0".into(),
+                    content: "Permission denied".into(),
+                    is_error: true,
+                }]),
+            }],
             tools: sample_tools(),
             max_tokens: None,
             temperature: None,
@@ -1269,7 +1287,10 @@ mod tests {
         // Malformed JSON inside <tool_call> should be silently dropped (no panic).
         let text = r#"Some text <tool_call>not valid json{</tool_call> more text"#;
         let (calls, remaining) = OllamaProvider::parse_tool_calls(text);
-        assert!(calls.is_empty(), "Invalid JSON should not produce tool calls");
+        assert!(
+            calls.is_empty(),
+            "Invalid JSON should not produce tool calls"
+        );
         assert!(remaining.contains("Some text"));
         assert!(remaining.contains("more text"));
     }
@@ -1279,7 +1300,10 @@ mod tests {
         // Valid JSON but missing required 'name' or 'arguments' fields.
         let text = r#"<tool_call>{"only_name": "test"}</tool_call>"#;
         let (calls, _remaining) = OllamaProvider::parse_tool_calls(text);
-        assert!(calls.is_empty(), "Missing fields should not produce tool calls");
+        assert!(
+            calls.is_empty(),
+            "Missing fields should not produce tool calls"
+        );
     }
 
     // === Phase 32: Tool emulation improvements ===
@@ -1288,8 +1312,15 @@ mod tests {
     fn tool_emulation_prompt_prioritizes_file_and_bash() {
         // Create 15 tools: the 6 priority ones plus 9 generic ones.
         let mut tools: Vec<ToolDefinition> = vec![
-            "grep", "glob", "web_search", "git_status", "git_diff",
-            "git_log", "git_add", "git_commit", "symbol_search",
+            "grep",
+            "glob",
+            "web_search",
+            "git_status",
+            "git_diff",
+            "git_log",
+            "git_add",
+            "git_commit",
+            "symbol_search",
         ]
         .into_iter()
         .map(|name| ToolDefinition {
@@ -1315,9 +1346,16 @@ mod tests {
         let prompt = OllamaProvider::format_tool_emulation_prompt(&tools);
 
         // file_write should appear before git_status in the listing.
-        let fw_pos = prompt.find("**file_write**").expect("file_write should be in prompt");
-        let gs_pos = prompt.find("**git_status**").expect("git_status should be in prompt");
-        assert!(fw_pos < gs_pos, "file_write should be listed before git_status");
+        let fw_pos = prompt
+            .find("**file_write**")
+            .expect("file_write should be in prompt");
+        let gs_pos = prompt
+            .find("**git_status**")
+            .expect("git_status should be in prompt");
+        assert!(
+            fw_pos < gs_pos,
+            "file_write should be listed before git_status"
+        );
     }
 
     #[test]
@@ -1350,9 +1388,15 @@ mod tests {
         let tools = sample_tools();
         let prompt = OllamaProvider::format_tool_emulation_prompt(&tools);
         // file_write has required: ["path", "content"].
-        assert!(prompt.contains("path, content"), "should list required params");
+        assert!(
+            prompt.contains("path, content"),
+            "should list required params"
+        );
         // bash has required: ["command"].
-        assert!(prompt.contains("command"), "should list bash required param");
+        assert!(
+            prompt.contains("command"),
+            "should list bash required param"
+        );
     }
 
     #[test]
@@ -1373,14 +1417,17 @@ mod tests {
             options: None,
         };
 
-        let retry = OllamaProvider::build_retry_request(&original, "Here's how to create a file...");
+        let retry =
+            OllamaProvider::build_retry_request(&original, "Here's how to create a file...");
 
         // Should have original messages + assistant response + correction prompt.
         assert_eq!(retry.messages.len(), 4);
         assert_eq!(retry.messages[0].role, "system");
         assert_eq!(retry.messages[1].role, "user");
         assert_eq!(retry.messages[2].role, "assistant");
-        assert!(retry.messages[2].content.contains("Here's how to create a file"));
+        assert!(retry.messages[2]
+            .content
+            .contains("Here's how to create a file"));
         assert_eq!(retry.messages[3].role, "user");
         assert!(retry.messages[3].content.contains("<tool_call>"));
         assert_eq!(retry.model, "test-model");

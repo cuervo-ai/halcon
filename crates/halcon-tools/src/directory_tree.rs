@@ -48,12 +48,13 @@ impl Tool for DirectoryTreeTool {
     }
 
     async fn execute(&self, input: ToolInput) -> Result<ToolOutput> {
-        let path_str = input.arguments["path"]
-            .as_str()
-            .ok_or_else(|| HalconError::ToolExecutionFailed {
-                tool: "directory_tree".into(),
-                message: "missing required 'path' argument".into(),
-            })?;
+        let path_str =
+            input.arguments["path"]
+                .as_str()
+                .ok_or_else(|| HalconError::ToolExecutionFailed {
+                    tool: "directory_tree".into(),
+                    message: "missing required 'path' argument".into(),
+                })?;
 
         let max_depth = input.arguments["depth"]
             .as_u64()

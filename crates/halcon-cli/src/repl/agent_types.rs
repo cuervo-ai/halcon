@@ -2,8 +2,17 @@
 #[cfg(feature = "tui")]
 pub type ControlReceiver = tokio::sync::mpsc::UnboundedReceiver<crate::tui::events::ControlEvent>;
 
+// In Classic REPL (non-TUI) mode, use a simple cancel-only channel so Ctrl-C
+// can interrupt the agent loop gracefully (resolves GAP-5).
 #[cfg(not(feature = "tui"))]
-pub type ControlReceiver = ();
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClassicCancelSignal {
+    /// User pressed Ctrl-C — cancel the agent loop.
+    Cancel,
+}
+
+#[cfg(not(feature = "tui"))]
+pub type ControlReceiver = tokio::sync::mpsc::Receiver<ClassicCancelSignal>;
 
 /// Why the agent loop stopped.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -22,6 +31,42 @@ pub enum StopCondition {
     ProviderError,
     /// Tool loop guard forced tool withdrawal / synthesis.
     ForcedSynthesis,
+    /// The tool environment (MCP servers / external resources) is persistently unavailable.
+    ///
+    /// Fires when the ToolFailureTracker circuit breaker trips on `mcp_unavailable` patterns
+    /// for every MCP tool in the active batch. Continuing to loop or replan would burn rounds
+    /// against a dead environment — halting immediately gives the UCB1 reward pipeline a clean
+    /// `0.0` signal so the strategy that dispatched MCP tools gets penalized appropriately.
+    EnvironmentError,
+    /// Session USD cost exceeded `AgentLimits.max_cost_usd` before the next round.
+    ///
+    /// Treated identically to `TokenBudget` by the evaluator/reward pipeline (score 0.3):
+    /// the agent produced useful output but ran out of budget before achieving full convergence.
+    CostBudget,
+    /// `SafeEditManager` blocked a file modification because it exceeded `RiskTier::High/Critical`
+    /// and autonomous approval is not enabled.
+    ///
+    /// Score 0.3: the agent performed useful work and produced a valid diff, but governance
+    /// blocked the write. UCB1 gets a partial-credit signal (same tier as CostBudget) so the
+    /// strategy that generated the blocked edit is mildly penalized — not zeroed.
+    SupervisorDenied,
+}
+
+/// Compact critic verdict stored in AgentLoopResult.
+///
+/// Carries the full LoopCritic signal through to mod.rs for the Critic→Retry feedback loop.
+/// The `retry_instruction` field is what actually drives Phase 1.2 in-session retries —
+/// without it the retry had no content and defaulted to a generic message.
+#[derive(Debug, Clone)]
+pub struct CriticVerdictSummary {
+    /// Whether the critic considers the goal achieved.
+    pub achieved: bool,
+    /// Critic's confidence in its verdict (0.0–1.0).
+    pub confidence: f32,
+    /// Specific gaps the critic identified (used in retry instruction).
+    pub gaps: Vec<String>,
+    /// Instruction for the retry invocation. None if critic has no specific guidance.
+    pub retry_instruction: Option<String>,
 }
 
 /// Result of an agent loop execution.
@@ -47,4 +92,310 @@ pub struct AgentLoopResult {
     pub timeline_json: Option<String>,
     /// Returned control channel receiver (Phase 43). Returned so TUI can reuse across messages.
     pub ctrl_rx: Option<ControlReceiver>,
+    /// LoopCritic verdict (Phase 1.2): full structured summary including retry_instruction.
+    /// None when critic was skipped (no plan execution or critic timed out).
+    /// Used by mod.rs for actual in-session retry via reasoning_engine.should_retry().
+    pub critic_verdict: Option<CriticVerdictSummary>,
+    /// Per-round evaluation snapshots from RoundScorer (Phase 2).
+    ///
+    /// Each entry scores one tool-execution round on 8 dimensions (progress, tool efficiency,
+    /// token efficiency, coherence, anomaly flags). Empty when no tool rounds occurred.
+    /// Used by mod.rs post_loop() to compute a richer UCB1 reward signal.
+    pub round_evaluations: Vec<super::round_scorer::RoundEvaluation>,
+    /// Plan completion ratio at loop end (completed_steps / total_steps), clamped to [0, 1].
+    /// Zero when no execution plan was active this session.
+    pub plan_completion_ratio: f32,
+    /// Average semantic drift of all replanned plans from the original goal [0, 1].
+    ///
+    /// Computed as `cumulative_drift_score / drift_replan_count`. Zero when no replanning
+    /// occurred. Fed into `reward_pipeline::RawRewardSignals.plan_coherence_score` so the
+    /// coherence component of the multi-signal reward degrades when the model drifts from
+    /// the original user intent during structural replanning.
+    pub avg_plan_drift: f32,
+    /// Tool-loop oscillation intensity for this session [0, 1].
+    ///
+    /// Derived from `ToolLoopGuard.consecutive_rounds()` as a fraction of the force
+    /// threshold (8 consecutive tool rounds = 1.0 maximum). Fed into
+    /// `reward_pipeline::RawRewardSignals.oscillation_penalty` so the trajectory
+    /// component of the multi-signal reward is discounted when the model loops without
+    /// making progress.
+    pub oscillation_penalty: f32,
+    /// The model ID used in the final (or most recent) agent round.
+    ///
+    /// Populated so `mod.rs` can call `ModelSelector::record_outcome()` with the
+    /// unified reward-pipeline reward instead of the coarse stop-condition mapping
+    /// that was previously computed inside `agent.rs`.  `None` for early-exit paths
+    /// where no model invocation occurred.
+    pub last_model_used: Option<String>,
+    /// Per-plugin cost attribution from this agent loop.
+    ///
+    /// Populated from `PluginRegistry::cost_snapshot()` after loop completion.
+    /// Empty when no plugins were active (all existing tests, non-plugin sessions).
+    /// Used by `mod.rs` to apply `plugin_adjusted_reward()` in the UCB1 feedback path.
+    pub plugin_cost_snapshot: Vec<super::plugins::PluginCostSnapshot>,
+    /// Names of all tools successfully executed during this agent loop, accumulated
+    /// from `PostBatchOutcome::Continue.tool_successes` across all rounds.
+    /// Used by orchestrator to populate `SubAgentResult.agent_result.tools_used`
+    /// and by the TUI session summary ("Tools: N calls").
+    pub tools_executed: Vec<String>,
+    /// Whether the loop produced verified evidence (evidence gate did not fire).
+    /// False when content-read tools were attempted but returned insufficient text.
+    pub evidence_verified: bool,
+    /// Content-read tool attempts during this loop (read_file, read_multiple_files, etc.).
+    pub content_read_attempts: usize,
+    /// Provider name used in the final (or most recent) agent round.
+    /// Populated so metrics can attribute cost by provider across sessions.
+    pub last_provider_used: Option<String>,
+    /// Tools blocked during this loop because of guardrail/policy denials.
+    /// (tool_name, reason) pairs accumulated from post_batch error detection.
+    /// Merged by mod.rs into session_blocked_tools for cross-turn persistence (BRECHA-S3).
+    pub blocked_tools: Vec<(String, String)>,
+    /// Structured context for sub-agent tasks that failed during orchestration (BRECHA-R1 + FASE 5).
+    ///
+    /// Injected into the critic retry message with categorized error info so the planner
+    /// generates alternative approaches instead of reproducing the same failing steps.
+    pub failed_sub_agent_steps: Vec<FailedStepContext>,
+    /// Whether the LoopCritic was unavailable (both primary and fallback failed or timed out).
+    ///
+    /// When true, the reward pipeline applies a CRITIC_UNAVAILABLE_PENALTY (FASE 4) to push
+    /// sessions without adversarial verification below the retry threshold.
+    pub critic_unavailable: bool,
+
+    /// Tool failure records from ToolTrustScorer for retry mutation (F4).
+    ///
+    /// Used by `repl/mod.rs` to compute `RetryMutation` axes (tool removal, temp increase,
+    /// plan depth reduction, model fallback) when the critic triggers a retry.
+    pub tool_trust_failures: Vec<crate::repl::retry_mutation::ToolFailureRecord>,
+
+    /// SLA budget snapshot from the agent loop (Phase 2 SLA Hard Enforcement).
+    ///
+    /// Propagated from `LoopState.sla_budget` so mod.rs can gate retries via
+    /// `allows_retry()` without re-deriving the budget from DecisionLayer.
+    pub sla_budget: Option<crate::repl::sla_manager::SlaBudget>,
+
+    /// Evidence graph synthesis coverage (Phase 3 EvidenceGraph Governance).
+    /// Fraction of Good evidence nodes referenced by synthesis. 1.0 = full coverage.
+    /// Default 1.0 when no evidence graph is active.
+    pub evidence_coverage: f64,
+
+    /// Semantic classification of the synthesis event from the governance gate (Phase 2).
+    /// `None` when no synthesis was triggered this loop (e.g. conversational turns,
+    /// or early-exit paths where `result_assembly::build` was never reached).
+    pub synthesis_kind: Option<crate::repl::domain::synthesis_gate::SynthesisKind>,
+
+    /// Trigger that caused synthesis from the governance gate (Phase 2).
+    /// `None` when no synthesis was triggered this loop.
+    pub synthesis_trigger: Option<crate::repl::domain::synthesis_gate::SynthesisTrigger>,
+
+    /// Number of mid-session routing escalations triggered by RoutingAdaptor (GAP-4).
+    /// Counts T1–T4 trigger events (SecuritySignals, ToolFailureCluster, LowEvidence, Complexity).
+    /// Used by mod.rs post-loop to surface escalation count in the session summary.
+    pub routing_escalation_count: u32,
+
+    /// Trust level of the response — indicates whether evidence came from
+    /// tool calls this round, prior rounds, or context synthesis.
+    pub response_trust: halcon_core::types::ResponseTrust,
+}
+
+/// Categorization of why a sub-agent step failed (FASE 5).
+///
+/// Derived from the error string in `SubAgentResult.error` to provide structured
+/// context for the retry planner.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum FailedStepErrorCategory {
+    Timeout,
+    PermissionDenied,
+    ToolExecutionFailed,
+    ProviderError,
+    DependencyCascade,
+    CyclicDependency,
+    Unknown,
+}
+
+impl FailedStepErrorCategory {
+    /// Derive category from a free-form error string.
+    pub fn from_error_string(error: &str) -> Self {
+        let lower = error.to_lowercase();
+        if lower.contains("timeout") || lower.contains("timed out") || lower.contains("deadline") {
+            Self::Timeout
+        } else if lower.contains("denied")
+            || lower.contains("permission")
+            || lower.contains("not allowed")
+            || lower.contains("guardrail")
+        {
+            Self::PermissionDenied
+        } else if lower.contains("cascade")
+            || lower.contains("dependency failed")
+            || lower.contains("dep_failed")
+        {
+            Self::DependencyCascade
+        } else if lower.contains("cyclic") || lower.contains("circular dependency") {
+            Self::CyclicDependency
+        } else if lower.contains("tool") && (lower.contains("fail") || lower.contains("error")) {
+            Self::ToolExecutionFailed
+        } else if lower.contains("provider")
+            || lower.contains("api error")
+            || lower.contains("rate limit")
+            || lower.contains("auth")
+        {
+            Self::ProviderError
+        } else {
+            Self::Unknown
+        }
+    }
+
+    /// Human-readable label for use in retry injection prompts.
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::Timeout => "TIMEOUT",
+            Self::PermissionDenied => "PERMISSION_DENIED",
+            Self::ToolExecutionFailed => "TOOL_EXECUTION_FAILED",
+            Self::ProviderError => "PROVIDER_ERROR",
+            Self::DependencyCascade => "DEPENDENCY_CASCADE",
+            Self::CyclicDependency => "CYCLIC_DEPENDENCY",
+            Self::Unknown => "UNKNOWN",
+        }
+    }
+}
+
+/// Structured context for a failed sub-agent step (FASE 5).
+///
+/// Replaces the plain `String` in `failed_sub_agent_steps` with categorized
+/// error information so the retry planner gets actionable context.
+#[derive(Debug, Clone)]
+pub struct FailedStepContext {
+    /// Step description (max 120 chars, truncated from plan step).
+    pub description: String,
+    /// Categorized error type.
+    pub error_category: FailedStepErrorCategory,
+    /// Original error message (max 200 chars).
+    pub error_message: String,
+}
+
+impl std::fmt::Display for FailedStepContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "[{}] {}: {}",
+            self.error_category.label(),
+            self.description,
+            self.error_message
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn from_error_string_timeout() {
+        assert_eq!(
+            FailedStepErrorCategory::from_error_string("connection timed out after 30s"),
+            FailedStepErrorCategory::Timeout
+        );
+        assert_eq!(
+            FailedStepErrorCategory::from_error_string("Request timeout: 60s deadline exceeded"),
+            FailedStepErrorCategory::Timeout
+        );
+    }
+
+    #[test]
+    fn from_error_string_permission_denied() {
+        assert_eq!(
+            FailedStepErrorCategory::from_error_string("access denied by guardrail"),
+            FailedStepErrorCategory::PermissionDenied
+        );
+        assert_eq!(
+            FailedStepErrorCategory::from_error_string("permission not allowed for this tool"),
+            FailedStepErrorCategory::PermissionDenied
+        );
+    }
+
+    #[test]
+    fn from_error_string_dependency_cascade() {
+        assert_eq!(
+            FailedStepErrorCategory::from_error_string("dependency failed: step 2 cascade"),
+            FailedStepErrorCategory::DependencyCascade
+        );
+    }
+
+    #[test]
+    fn from_error_string_cyclic_dependency() {
+        assert_eq!(
+            FailedStepErrorCategory::from_error_string("cyclic dependency detected between steps"),
+            FailedStepErrorCategory::CyclicDependency
+        );
+    }
+
+    #[test]
+    fn from_error_string_tool_execution_failed() {
+        assert_eq!(
+            FailedStepErrorCategory::from_error_string(
+                "tool execution failed: grep returned exit code 1"
+            ),
+            FailedStepErrorCategory::ToolExecutionFailed
+        );
+    }
+
+    #[test]
+    fn from_error_string_provider_error() {
+        assert_eq!(
+            FailedStepErrorCategory::from_error_string(
+                "provider returned 500: internal server error"
+            ),
+            FailedStepErrorCategory::ProviderError
+        );
+        assert_eq!(
+            FailedStepErrorCategory::from_error_string("rate limit exceeded, retry after 60s"),
+            FailedStepErrorCategory::ProviderError
+        );
+    }
+
+    #[test]
+    fn from_error_string_unknown() {
+        assert_eq!(
+            FailedStepErrorCategory::from_error_string("something went wrong"),
+            FailedStepErrorCategory::Unknown
+        );
+    }
+
+    #[test]
+    fn labels_non_empty() {
+        let categories = [
+            FailedStepErrorCategory::Timeout,
+            FailedStepErrorCategory::PermissionDenied,
+            FailedStepErrorCategory::ToolExecutionFailed,
+            FailedStepErrorCategory::ProviderError,
+            FailedStepErrorCategory::DependencyCascade,
+            FailedStepErrorCategory::CyclicDependency,
+            FailedStepErrorCategory::Unknown,
+        ];
+        for cat in &categories {
+            assert!(
+                !cat.label().is_empty(),
+                "label for {:?} must be non-empty",
+                cat
+            );
+        }
+    }
+}
+
+/// Multi-dimensional strategy execution context derived from UCB1 StrategyPlan.
+///
+/// Carried in AgentContext so the agent loop can apply tightness/sensitivity
+/// without re-querying the ReasoningEngine mid-loop.
+#[derive(Debug, Clone)]
+pub struct StrategyContext {
+    pub strategy: super::strategy_selector::ReasoningStrategy,
+    /// Whether to invoke the Reflector after tool batches.
+    pub enable_reflection: bool,
+    /// ToolLoopGuard scaling: 0.0 = relaxed thresholds, 1.0 = tightest.
+    pub loop_guard_tightness: f32,
+    /// Structural replan sensitivity: 0.0 = permissive, 1.0 = hair-trigger.
+    pub replan_sensitivity: f32,
+    /// Optional model routing preference ("fast" | "cheap" | "quality" | None).
+    pub routing_bias: Option<String>,
+    pub task_type: super::task_analyzer::TaskType,
+    pub complexity: super::task_analyzer::TaskComplexity,
 }

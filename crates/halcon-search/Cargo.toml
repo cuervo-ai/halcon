@@ -31,7 +31,7 @@ chrono = { workspace = true }
 reqwest = { workspace = true, features = ["gzip", "deflate"] }
 
 # HTML parsing
-scraper = "0.20"
+scraper = "0.21"
 html5ever = "0.29"
 ego-tree = "0.9"
 
@@ -40,7 +40,10 @@ whatlang = "0.17"  # Language detection
 unicode-segmentation = "1.12"
 
 # Embeddings and vector search
-fastembed = "4.5"  # Local semantic embeddings
+# ort-load-dynamic: loads ORT at runtime via dlopen — no prebuilt ORT binary
+# needed at compile time (avoids C++ ABI link failures in cross containers and
+# "binaries not available" panics for musl/windows-gnu targets).
+fastembed = { version = "4.5", default-features = false, features = ["hf-hub-native-tls", "ort-load-dynamic"] }
 ndarray = "0.16"  # Vector operations
 
 # Compression

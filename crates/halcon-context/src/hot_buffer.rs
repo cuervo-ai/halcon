@@ -84,7 +84,9 @@ impl HotBuffer {
     /// Pop the oldest message (for forced eviction).
     pub fn pop_oldest(&mut self) -> Option<ChatMessage> {
         let msg = self.messages.pop_front()?;
-        self.token_count = self.token_count.saturating_sub(estimate_message_tokens(&msg));
+        self.token_count = self
+            .token_count
+            .saturating_sub(estimate_message_tokens(&msg));
         Some(msg)
     }
 
@@ -159,14 +161,24 @@ mod tests {
     #[test]
     fn token_count_adjusts_on_eviction() {
         let mut buf = HotBuffer::new(2);
-        buf.push(text_msg(Role::User, "short"));
-        buf.push(text_msg(Role::User, "also short"));
+        // Use texts with meaningfully different token counts under tiktoken cl100k_base:
+        // "the quick brown fox jumps over the lazy dog" ≈ 9 tokens
+        // "x" = 1 token
+        // Evicting the long message and adding "x" must decrease total token count.
+        buf.push(text_msg(
+            Role::User,
+            "the quick brown fox jumps over the lazy dog",
+        ));
+        buf.push(text_msg(Role::User, "also a short message"));
         let before = buf.token_count();
 
-        buf.push(text_msg(Role::User, "x")); // evicts "short"
+        buf.push(text_msg(Role::User, "x")); // evicts the long first message
         let after = buf.token_count();
-        // After should be less since "short" was evicted and "x" is smaller
-        assert!(after < before);
+        assert!(
+            after < before,
+            "evicting a long message and adding 'x' must decrease token count \
+             (before={before}, after={after})"
+        );
     }
 
     #[test]

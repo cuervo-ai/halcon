@@ -90,7 +90,10 @@ mod tests {
     fn register_and_find() {
         let mut idx = CapabilityIndex::new();
         let a = id(1);
-        idx.register(a, &[AgentCapability::CodeGeneration, AgentCapability::Testing]);
+        idx.register(
+            a,
+            &[AgentCapability::CodeGeneration, AgentCapability::Testing],
+        );
 
         assert_eq!(idx.find_agents(&AgentCapability::CodeGeneration), &[a]);
         assert_eq!(idx.find_agents(&AgentCapability::Testing), &[a]);
@@ -116,7 +119,10 @@ mod tests {
         let mut idx = CapabilityIndex::new();
         let a = id(1);
         let b = id(2);
-        idx.register(a, &[AgentCapability::CodeGeneration, AgentCapability::Testing]);
+        idx.register(
+            a,
+            &[AgentCapability::CodeGeneration, AgentCapability::Testing],
+        );
         idx.register(b, &[AgentCapability::CodeGeneration]);
 
         idx.deregister(&a);

@@ -4,18 +4,89 @@ use anyhow::Result;
 use halcon_core::traits::ModelProvider;
 use halcon_core::types::{AppConfig, HttpConfig, McpConfig, ModelInfo};
 use halcon_providers::{
-    AnthropicProvider, DeepSeekProvider, EchoProvider, GeminiProvider, OllamaProvider,
-    OpenAICompatibleProvider, OpenAIProvider, ProviderRegistry,
+    AnthropicProvider, CenzontleProvider, ClaudeCodeProvider, DeepSeekProvider, EchoProvider,
+    GeminiProvider, OllamaProvider, OpenAICompatibleProvider, OpenAIProvider, ProviderRegistry,
 };
 use halcon_tools::ToolRegistry;
 use serde::Deserialize;
 
 use crate::render::feedback;
 
+// ── Typo detection ────────────────────────────────────────────────────────────
+
+/// Compute the Levenshtein edit distance between two strings.
+/// Pure function — no allocations beyond the DP matrix.
+fn levenshtein(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let (la, lb) = (a.len(), b.len());
+    if la == 0 {
+        return lb;
+    }
+    if lb == 0 {
+        return la;
+    }
+    let mut prev: Vec<usize> = (0..=lb).collect();
+    let mut curr = vec![0usize; lb + 1];
+    for i in 1..=la {
+        curr[0] = i;
+        for j in 1..=lb {
+            let cost = if a[i - 1] == b[j - 1] { 0 } else { 1 };
+            curr[j] = (curr[j - 1] + 1).min(prev[j] + 1).min(prev[j - 1] + cost);
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+    prev[lb]
+}
+
+/// Return the closest registered provider name to `typo` if within edit distance ≤ 2.
+fn suggest_provider(typo: &str, registered: &[String]) -> Option<String> {
+    let typo_lc = typo.to_lowercase();
+    registered
+        .iter()
+        .filter(|name| name.as_str() != "echo") // echo is internal
+        .min_by_key(|name| levenshtein(&typo_lc, &name.to_lowercase()))
+        .and_then(|best| {
+            if levenshtein(&typo_lc, &best.to_lowercase()) <= 2 {
+                Some(best.clone())
+            } else {
+                None
+            }
+        })
+}
+
 /// Build a ProviderRegistry from configuration.
 ///
 /// Registers providers whose API keys are available.
+///
+/// DECISION: In --air-gap mode (HALCON_AIR_GAP=1) only the Ollama provider
+/// is registered, regardless of what is configured. This is enforced at the
+/// factory level (not the CLI level) so that sub-agents spawned by
+/// orchestrator.rs also respect the constraint.
+/// The factory is the single chokepoint for all provider creation — matching
+/// how security boundaries work in privilege separation (enforce at the lowest
+/// common layer, not the entry point).
 pub fn build_registry(config: &AppConfig) -> ProviderRegistry {
+    let air_gap = std::env::var("HALCON_AIR_GAP")
+        .map(|v| v == "1")
+        .unwrap_or(false);
+
+    if air_gap {
+        // Air-gap mode: register only Ollama.
+        // OLLAMA_BASE_URL is guaranteed to be set (defaults to localhost:11434)
+        // by the air-gap enforcement code in main.rs.
+        let mut registry = ProviderRegistry::new();
+        let base_url = std::env::var("OLLAMA_BASE_URL").ok();
+        let provider = OllamaProvider::with_default_model(
+            base_url,
+            halcon_core::types::HttpConfig::default(),
+            None,
+        );
+        registry.register(Arc::new(provider));
+        tracing::info!("Air-gap mode: only Ollama provider registered");
+        return registry;
+    }
+
     let mut registry = ProviderRegistry::new();
 
     // Always register echo for testing.
@@ -114,14 +185,274 @@ pub fn build_registry(config: &AppConfig) -> ProviderRegistry {
         }
     }
 
+    // Register ClaudeCode if enabled and the claude binary is available.
+    if let Some(provider_cfg) = config.models.providers.get("claude_code") {
+        if provider_cfg.enabled {
+            use halcon_providers::claude_code::ClaudeCodeConfig;
+
+            let cc_config = ClaudeCodeConfig::from_provider_extra(&provider_cfg.extra);
+            // Use file-existence check instead of subprocess invocation:
+            // - avoids nested-session / sudo errors when run inside Claude Code
+            // - avoids PATH lookup issues for absolute-path binaries
+            let available = std::path::Path::new(&cc_config.command).exists()
+                || std::process::Command::new(&cc_config.command)
+                    .arg("--version")
+                    .output()
+                    .map(|o| o.status.success())
+                    .unwrap_or(false);
+
+            if available {
+                let cmd = cc_config.command.clone();
+                registry.register(Arc::new(ClaudeCodeProvider::new(cc_config)));
+                tracing::info!(command = %cmd, "Registered claude_code provider");
+            } else {
+                tracing::warn!(
+                    command = %cc_config.command,
+                    "claude_code enabled but binary not found — skipping registration"
+                );
+            }
+        }
+    }
+
+    // DECISION: Bedrock is activated when CLAUDE_CODE_USE_BEDROCK=1 is set,
+    // matching the Claude Code SDK convention for Bedrock usage.
+    // This allows users to switch providers by changing a single env var.
+    // See US-bedrock (PASO 2-B).
+    #[cfg(feature = "bedrock")]
+    if std::env::var("CLAUDE_CODE_USE_BEDROCK").is_ok() {
+        if let Some(provider) = halcon_providers::BedrockProvider::from_env() {
+            registry.register(provider);
+            tracing::info!("Registered Bedrock provider (CLAUDE_CODE_USE_BEDROCK is set)");
+        } else {
+            tracing::warn!("CLAUDE_CODE_USE_BEDROCK is set but AWS credentials are missing (AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY)");
+        }
+    }
+
+    // DECISION: Vertex is activated when CLAUDE_CODE_USE_VERTEX=1 is set,
+    // matching the Claude Code SDK convention for Vertex usage.
+    // See US-vertex (PASO 2-C).
+    #[cfg(feature = "vertex")]
+    if std::env::var("CLAUDE_CODE_USE_VERTEX").is_ok() {
+        if let Some(provider) = halcon_providers::VertexProvider::from_env() {
+            registry.register(Arc::new(provider));
+            tracing::info!("Registered Vertex AI provider (CLAUDE_CODE_USE_VERTEX is set)");
+        } else {
+            tracing::warn!(
+                "CLAUDE_CODE_USE_VERTEX is set but ANTHROPIC_VERTEX_PROJECT_ID is missing"
+            );
+        }
+    }
+
+    // DECISION: Azure is activated when CLAUDE_CODE_USE_AZURE=1 is set.
+    // See US-foundry (PASO 2-D).
+    if std::env::var("CLAUDE_CODE_USE_AZURE").is_ok() {
+        if let Some(provider) = halcon_providers::AzureFoundryProvider::from_env() {
+            registry.register(Arc::new(provider));
+            tracing::info!("Registered Azure AI Foundry provider (CLAUDE_CODE_USE_AZURE is set)");
+        } else {
+            tracing::warn!("CLAUDE_CODE_USE_AZURE is set but AZURE_AI_ENDPOINT is missing");
+        }
+    }
+
+    // Register Cenzontle if an SSO access token is available.
+    //
+    // Enabled when:
+    //   a) config.models.providers["cenzontle"].enabled == true, OR
+    //   b) CENZONTLE_ACCESS_TOKEN env var is set (env var overrides config for CI/CD)
+    //
+    // Token priority:
+    // 1. CENZONTLE_ACCESS_TOKEN env var (CI/CD — also forces registration)
+    // 2. Credential store (written by `halcon auth login cenzontle`)
+    //    Backend is auto-selected by CredentialManager:
+    //      macOS    → Keychain
+    //      Linux+dbus → Secret Service
+    //      Linux headless → XDG file store (~/.local/share/halcon/halcon-cli.json)
+    //
+    // IMPORTANT: credential store errors are logged explicitly (not silenced with
+    // .ok().flatten()) so that Linux users get actionable diagnostics instead of
+    // a mysterious "provider not registered" error.
+    //
+    // Model discovery is deferred to ensure_cenzontle_models() which runs after
+    // build_registry() in an async context.
+    let cenzontle_env_token = std::env::var("CENZONTLE_ACCESS_TOKEN")
+        .ok()
+        .filter(|v| !v.is_empty());
+
+    // Auto-detect cenzontle: enabled if (a) env var set, (b) config opt-in, or
+    // (c) a token already exists in the keystore from a prior `halcon auth login cenzontle`.
+    // Case (c) ensures that logging in is sufficient — no manual config edit required.
+    let cenzontle_enabled = cenzontle_env_token.is_some()
+        || config
+            .models
+            .providers
+            .get("cenzontle")
+            .map(|c| c.enabled)
+            .unwrap_or(false)
+        || {
+            let ks = halcon_auth::KeyStore::new("halcon-cli");
+            matches!(ks.get_secret("cenzontle:access_token"), Ok(Some(_)))
+        };
+
+    if cenzontle_enabled {
+        let cenzontle_token: Option<String> = cenzontle_env_token.or_else(|| {
+            let keystore = halcon_auth::KeyStore::new("halcon-cli");
+            tracing::debug!(
+                backend = keystore.backend_info(),
+                "Cenzontle: reading access token from credential store"
+            );
+            match keystore.get_secret("cenzontle:access_token") {
+                Ok(token) => token,
+                Err(e) => {
+                    // Surface the real error rather than silencing it.
+                    // On Linux headless this typically means D-Bus is absent and the
+                    // file store fallback also failed — surface actionable guidance.
+                    tracing::warn!(
+                        error = %e,
+                        backend = keystore.backend_info(),
+                        "Cenzontle: credential store read failed. \
+                         Workaround: set CENZONTLE_ACCESS_TOKEN env var, or run \
+                         `halcon auth login cenzontle` to re-authenticate."
+                    );
+                    None
+                }
+            }
+        });
+
+        // Resolve base URL: env var > config api_base > built-in default
+        let base_url = std::env::var("CENZONTLE_BASE_URL").ok().or_else(|| {
+            config
+                .models
+                .providers
+                .get("cenzontle")
+                .and_then(|c| c.api_base.clone())
+                .filter(|s| !s.is_empty())
+        });
+
+        if let Some(token) = cenzontle_token {
+            // Build with empty model list — `ensure_cenzontle_models()` populates async.
+            let provider = CenzontleProvider::new(token, base_url, Vec::new());
+            registry.register(Arc::new(provider));
+            tracing::debug!("Registered Cenzontle provider (token found, enabled=true)");
+        } else {
+            tracing::warn!(
+                "Cenzontle is enabled but no access token found. \
+                 Run `halcon auth login cenzontle` or set CENZONTLE_ACCESS_TOKEN."
+            );
+        }
+    }
+
     // P0.3: Load dynamic providers from ~/.halcon/providers.d/*.toml
-    if let Some(providers_dir) = dirs::home_dir()
-        .map(|h| h.join(".halcon").join("providers.d"))
-    {
+    if let Some(providers_dir) = dirs::home_dir().map(|h| h.join(".halcon").join("providers.d")) {
         load_dynamic_providers(&providers_dir, &mut registry);
     }
 
     registry
+}
+
+/// Populate Cenzontle models by calling the API.
+///
+/// Call this after `build_registry()` when an async context is available.
+/// If the Cenzontle provider is not registered (no token) this is a no-op.
+/// TTL for the Cenzontle model list disk cache (1 hour).
+const CENZONTLE_MODEL_CACHE_TTL_SECS: u64 = 3600;
+
+/// Load the Cenzontle model list from the disk cache if it's still fresh.
+///
+/// Returns `Some(models)` when a valid, non-expired cache exists.
+/// Returns `None` on any error (cache miss, expired, parse error) — caller fetches from API.
+fn load_cenzontle_model_cache() -> Option<Vec<halcon_core::types::ModelInfo>> {
+    let cache_path = dirs::home_dir()?
+        .join(".halcon")
+        .join("cenzontle-models.json");
+
+    let meta = std::fs::metadata(&cache_path).ok()?;
+    let age = meta.modified().ok()?.elapsed().unwrap_or_default();
+    if age.as_secs() > CENZONTLE_MODEL_CACHE_TTL_SECS {
+        tracing::debug!(age_secs = age.as_secs(), "Cenzontle model cache expired");
+        return None;
+    }
+
+    let json = std::fs::read_to_string(&cache_path).ok()?;
+    let models: Vec<halcon_core::types::ModelInfo> = serde_json::from_str(&json).ok()?;
+    if models.is_empty() {
+        return None;
+    }
+
+    tracing::debug!(
+        count = models.len(),
+        "Cenzontle: model list loaded from disk cache"
+    );
+    Some(models)
+}
+
+/// Save the Cenzontle model list to the disk cache.
+fn save_cenzontle_model_cache(models: &[halcon_core::types::ModelInfo]) {
+    let Some(cache_path) =
+        dirs::home_dir().map(|h| h.join(".halcon").join("cenzontle-models.json"))
+    else {
+        return;
+    };
+    match serde_json::to_string(models) {
+        Ok(json) => {
+            if let Err(e) = std::fs::write(&cache_path, json) {
+                tracing::debug!(error = %e, "Cenzontle: failed to write model cache");
+            } else {
+                tracing::debug!(
+                    count = models.len(),
+                    "Cenzontle: model list saved to disk cache"
+                );
+            }
+        }
+        Err(e) => {
+            tracing::debug!(error = %e, "Cenzontle: failed to serialize model list for cache");
+        }
+    }
+}
+
+pub async fn ensure_cenzontle_models(registry: &mut ProviderRegistry) {
+    // If cenzontle isn't registered, skip.
+    if registry.get("cenzontle").is_none() {
+        return;
+    }
+
+    let token = std::env::var("CENZONTLE_ACCESS_TOKEN")
+        .ok()
+        .filter(|v| !v.is_empty())
+        .or_else(|| {
+            let keystore = halcon_auth::KeyStore::new("halcon-cli");
+            match keystore.get_secret("cenzontle:access_token") {
+                Ok(t) => t,
+                Err(e) => {
+                    tracing::warn!(
+                        error = %e,
+                        "Cenzontle: credential store read failed during model refresh"
+                    );
+                    None
+                }
+            }
+        });
+
+    let Some(token) = token else { return };
+    let base_url = std::env::var("CENZONTLE_BASE_URL").ok();
+
+    // Fast path: use disk cache if still fresh (< 1 hour old).
+    // This avoids a GET /v1/llm/models API call on every startup — saves 2-10s
+    // especially when the Azure Container Apps backend is cold or slow.
+    if let Some(cached_models) = load_cenzontle_model_cache() {
+        let provider = CenzontleProvider::new(token, base_url, cached_models);
+        registry.register(Arc::new(provider));
+        tracing::debug!("Cenzontle provider: re-registered with cached model list");
+        return;
+    }
+
+    // Cache miss — fetch from API.
+    if let Some(provider) = CenzontleProvider::from_token(token, base_url).await {
+        // Persist the model list so the next startup uses the cache.
+        save_cenzontle_model_cache(provider.supported_models());
+        // Re-register with populated model list.
+        registry.register(Arc::new(provider));
+        tracing::debug!("Cenzontle provider models populated from API");
+    }
 }
 
 /// Ensure Ollama is in the registry as a last-resort local fallback.
@@ -145,14 +476,113 @@ pub async fn ensure_local_fallback(registry: &mut ProviderRegistry) {
     }
 }
 
+/// Run the Ollama probe and Cenzontle model fetch **in parallel** to minimize startup latency.
+///
+/// Previously these were sequential: Ollama probe (~2s) + Cenzontle model fetch (~2-10s) = 4-12s.
+/// By running in parallel, startup cost is `max(ollama_latency, cenzontle_latency)` ≈ 2-10s.
+/// With the disk cache active, the Cenzontle step resolves in <1ms so total = Ollama probe only.
+pub async fn ensure_startup_providers(registry: &mut ProviderRegistry) {
+    let needs_ollama = registry.get("ollama").is_none();
+    let needs_cenzontle = registry.get("cenzontle").is_some();
+
+    if !needs_ollama && !needs_cenzontle {
+        return; // Nothing to do
+    }
+
+    // Extract cenzontle token + base_url before entering async block (registry not movable).
+    let cenzontle_token: Option<String> = if needs_cenzontle {
+        std::env::var("CENZONTLE_ACCESS_TOKEN")
+            .ok()
+            .filter(|v| !v.is_empty())
+            .or_else(|| {
+                let keystore = halcon_auth::KeyStore::new("halcon-cli");
+                match keystore.get_secret("cenzontle:access_token") {
+                    Ok(t) => t,
+                    Err(e) => {
+                        tracing::warn!(error = %e, "Cenzontle: credential read failed (parallel probe)");
+                        None
+                    }
+                }
+            })
+    } else {
+        None
+    };
+    let cenzontle_base = std::env::var("CENZONTLE_BASE_URL").ok();
+
+    // ── Run Ollama and Cenzontle in parallel ──────────────────────────────────
+    let ollama_fut = async {
+        if !needs_ollama {
+            return None;
+        }
+        let provider = OllamaProvider::new(None, HttpConfig::default());
+        if provider.is_available().await {
+            Some(provider)
+        } else {
+            None
+        }
+    };
+
+    let cenzontle_fut = async {
+        let Some(token) = cenzontle_token else {
+            return None;
+        };
+
+        // Fast path: use the disk cache if still fresh.
+        if let Some(cached_models) = load_cenzontle_model_cache() {
+            let p = CenzontleProvider::new(token, cenzontle_base, cached_models);
+            return Some(p);
+        }
+
+        // Cache miss — fetch from the API.
+        let provider = CenzontleProvider::from_token(token, cenzontle_base).await?;
+        save_cenzontle_model_cache(provider.supported_models());
+        Some(provider)
+    };
+
+    let (ollama_result, cenzontle_result) = tokio::join!(ollama_fut, cenzontle_fut);
+
+    // Register results (no I/O here — fast sequential operations).
+    if let Some(p) = ollama_result {
+        registry.register(Arc::new(p));
+        tracing::info!("Auto-detected local Ollama — registered as fallback provider");
+    }
+    if let Some(p) = cenzontle_result {
+        registry.register(Arc::new(p));
+        tracing::debug!("Cenzontle provider ready (parallel startup)");
+    }
+}
+
 /// Precheck that the requested provider is available; fall back if not.
 ///
 /// Returns the (provider_name, model) to use. If the primary is unavailable,
 /// tries other registered providers. Shows clear errors if nothing works.
+///
+/// `explicit_model`: true when the user passed `-m <model>` explicitly.
+/// When false (model came from global config default_model), model mismatches
+/// are resolved silently — the provider's best model is used without a warning.
 pub async fn precheck_providers(
     registry: &ProviderRegistry,
     primary: &str,
     model: &str,
+) -> Result<(String, String)> {
+    precheck_providers_with_explicit(registry, primary, model, false).await
+}
+
+/// Like `precheck_providers` but with explicit-model flag.
+pub async fn precheck_providers_explicit(
+    registry: &ProviderRegistry,
+    primary: &str,
+    model: &str,
+    explicit_model: bool,
+) -> Result<(String, String)> {
+    precheck_providers_with_explicit(registry, primary, model, explicit_model).await
+}
+
+async fn precheck_providers_with_explicit(
+    registry: &ProviderRegistry,
+    primary: &str,
+    model: &str,
+    explicit_model: bool,
 ) -> Result<(String, String)> {
     // Check if primary provider is in the registry and available.
     if let Some(p) = registry.get(primary) {
@@ -164,37 +594,76 @@ pub async fn precheck_providers(
             let resolved_model = if p.validate_model(model).is_ok() {
                 model.to_string()
             } else {
-                let best = p
-                    .supported_models()
+                // Find the FIRST model with the highest context_window that supports tools.
+                // Using max_by_key alone returns the LAST model on equal keys (Rust iterator
+                // semantics), which can pick a low-priority fallback (e.g. command-path alias)
+                // when all models have the same context window.
+                let supported = p.supported_models();
+                let max_ctx = supported
                     .iter()
                     .filter(|m| m.supports_tools)
-                    .max_by_key(|m| m.context_window)
+                    .map(|m| m.context_window)
+                    .max()
+                    .unwrap_or(0);
+                let best = supported
+                    .iter()
+                    .find(|m| m.supports_tools && m.context_window >= max_ctx) // first model wins on ties (order = priority in supported_models())
                     .map(|m| m.id.clone())
                     .unwrap_or_else(|| {
-                        p.supported_models()
+                        supported
                             .first()
                             .map(|m| m.id.clone())
                             .unwrap_or_else(|| model.to_string())
                     });
-                feedback::user_warning(
-                    &format!(
-                        "model '{model}' is not available on provider '{primary}', \
-                         using '{best}' instead"
-                    ),
-                    Some("Use -m to explicitly specify a model for this provider"),
-                );
+                // Only warn when the user explicitly passed -m <model>.
+                // When model came from the global config default_model (explicit_model=false),
+                // the mismatch is expected (e.g. default_model="claude-sonnet-4-6" on openai)
+                // — silently select the provider's best model instead.
+                if explicit_model {
+                    feedback::user_warning(
+                        &format!(
+                            "model '{model}' is not available on provider '{primary}', \
+                             using '{best}' instead"
+                        ),
+                        Some("Use -m to explicitly specify a model for this provider"),
+                    );
+                } else {
+                    tracing::debug!(
+                        global_default = model,
+                        resolved = %best,
+                        provider = primary,
+                        "model not valid for provider; using provider default (no warning — model came from global config)"
+                    );
+                }
                 best
             };
             return Ok((primary.to_string(), resolved_model));
         }
+        // For cenzontle, the most likely cause is an expired SSO token — give a specific hint.
+        let unavail_hint = if primary == "cenzontle" {
+            "SSO token expired — run `halcon auth login cenzontle` to re-authenticate"
+        } else {
+            "Checking fallback providers..."
+        };
         feedback::user_warning(
             &format!("primary provider '{primary}' is not available"),
-            Some("Checking fallback providers..."),
+            Some(unavail_hint),
         );
     } else {
+        // Check for typos before falling back silently.
+        let registered = registry
+            .list()
+            .into_iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>();
+        let suggestion = suggest_provider(primary, &registered);
+        let hint = match &suggestion {
+            Some(s) => format!("Did you mean: \"{s}\"? (use -p {s})"),
+            None => "Checking fallback providers...".to_string(),
+        };
         feedback::user_warning(
             &format!("provider '{primary}' is not registered (missing API key?)"),
-            Some("Checking fallback providers..."),
+            Some(hint.as_str()),
         );
     }
 
@@ -391,9 +860,15 @@ struct DynamicProviderSection {
     api_key_env: Option<String>,
 }
 
-fn default_context_window() -> u32 { 128_000 }
-fn default_max_output() -> u32 { 4_096 }
-fn default_true() -> bool { true }
+fn default_context_window() -> u32 {
+    128_000
+}
+fn default_max_output() -> u32 {
+    4_096
+}
+fn default_true() -> bool {
+    true
+}
 
 /// Load dynamic provider manifests from `dir/*.toml` and register each as an
 /// `OpenAICompatibleProvider` in `registry`.
@@ -501,12 +976,54 @@ pub fn load_dynamic_providers(dir: &std::path::Path, registry: &mut ProviderRegi
     }
 }
 
+/// Promote cenzontle to default provider in the on-disk config, at most once per process.
+/// Called from chat::run() when cenzontle is auto-detected at runtime but the config still
+/// points to a different default_provider (e.g. users who logged in before v0.3.8).
+pub fn activate_cenzontle_in_config_once() {
+    static ONCE: std::sync::Once = std::sync::Once::new();
+    ONCE.call_once(crate::commands::sso::activate_cenzontle_in_config);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    #[serial_test::serial(provider_factory_env)]
+    #[test]
+    fn build_registry_air_gap_only_registers_ollama() {
+        // DECISION: air-gap mode is tested by directly setting the env var.
+        // We must clean it up to avoid leaking into other tests.
+        std::env::set_var("HALCON_AIR_GAP", "1");
+        std::env::set_var("OLLAMA_BASE_URL", "http://localhost:11434");
+
+        let config = AppConfig::default();
+        let registry = build_registry(&config);
+
+        // Only Ollama should be registered in air-gap mode.
+        assert!(
+            registry.get("ollama").is_some(),
+            "ollama must be registered in air-gap mode"
+        );
+        assert!(
+            registry.get("echo").is_none(),
+            "echo must NOT be registered in air-gap mode"
+        );
+        assert!(
+            registry.get("anthropic").is_none(),
+            "anthropic must NOT be registered in air-gap mode"
+        );
+
+        // Cleanup.
+        std::env::remove_var("HALCON_AIR_GAP");
+        std::env::remove_var("OLLAMA_BASE_URL");
+    }
+
+    #[serial_test::serial(provider_factory_env)]
     #[test]
     fn build_registry_always_has_echo() {
+        // Ensure HALCON_AIR_GAP is not set for this test.
+        std::env::remove_var("HALCON_AIR_GAP");
+
         let config = AppConfig::default();
         let registry = build_registry(&config);
         assert!(registry.get("echo").is_some());
@@ -656,5 +1173,69 @@ id = "minimal-model"
         assert_eq!(models[0].max_output_tokens, 4_096);
         assert!(models[0].supports_streaming);
         assert!(models[0].supports_tools);
+    }
+
+    // ── Typo detection tests ──────────────────────────────────────────────────
+
+    #[test]
+    fn levenshtein_exact_match() {
+        assert_eq!(levenshtein("anthropic", "anthropic"), 0);
+    }
+
+    #[test]
+    fn levenshtein_single_transposition() {
+        // "antropic" → "anthropic": insert 'h' = distance 1
+        assert_eq!(levenshtein("antropic", "anthropic"), 1);
+    }
+
+    #[test]
+    fn levenshtein_two_edits() {
+        // "anthrpc" → "anthropic": insert 'o' + insert 'i' = distance 2
+        assert_eq!(levenshtein("anthrpc", "anthropic"), 2);
+    }
+
+    #[test]
+    fn suggest_provider_catches_antropic_typo() {
+        let registered = vec![
+            "anthropic".to_string(),
+            "openai".to_string(),
+            "ollama".to_string(),
+            "deepseek".to_string(),
+            "echo".to_string(),
+        ];
+        let suggestion = suggest_provider("antropic", &registered);
+        assert_eq!(suggestion.as_deref(), Some("anthropic"));
+    }
+
+    #[test]
+    fn suggest_provider_catches_opnai_typo() {
+        let registered = vec![
+            "anthropic".to_string(),
+            "openai".to_string(),
+            "ollama".to_string(),
+            "echo".to_string(),
+        ];
+        let suggestion = suggest_provider("opnai", &registered);
+        assert_eq!(suggestion.as_deref(), Some("openai"));
+    }
+
+    #[test]
+    fn suggest_provider_no_suggestion_for_nonsense() {
+        let registered = vec![
+            "anthropic".to_string(),
+            "openai".to_string(),
+            "echo".to_string(),
+        ];
+        // "xyz" is edit distance >2 from everything → no suggestion
+        let suggestion = suggest_provider("xyz", &registered);
+        assert!(suggestion.is_none());
+    }
+
+    #[test]
+    fn suggest_provider_excludes_echo() {
+        let registered = vec!["echo".to_string()];
+        // Only "echo" registered; typo "ech" is distance 1 but echo is excluded
+        let suggestion = suggest_provider("ech", &registered);
+        assert!(suggestion.is_none());
     }
 }

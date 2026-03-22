@@ -9,21 +9,16 @@ use serde::{Deserialize, Serialize};
 use super::determinism::ExecutionContext;
 
 /// Dry-run mode controls which tools are actually executed.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum DryRunMode {
     /// Normal execution — all tools run.
+    #[default]
     Off,
     /// Execute ReadOnly tools, skip ReadWrite/Destructive.
     DestructiveOnly,
     /// Skip all tool executions.
     Full,
-}
-
-impl Default for DryRunMode {
-    fn default() -> Self {
-        Self::Off
-    }
 }
 
 /// Bundled Phase 14+ context for the agent loop.
@@ -73,7 +68,11 @@ mod tests {
 
     #[test]
     fn dry_run_mode_all_variants_serde() {
-        for mode in [DryRunMode::Off, DryRunMode::Full, DryRunMode::DestructiveOnly] {
+        for mode in [
+            DryRunMode::Off,
+            DryRunMode::Full,
+            DryRunMode::DestructiveOnly,
+        ] {
             let json = serde_json::to_string(&mode).unwrap();
             let parsed: DryRunMode = serde_json::from_str(&json).unwrap();
             assert_eq!(parsed, mode);

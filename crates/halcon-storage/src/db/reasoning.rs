@@ -1,7 +1,7 @@
 //! Reasoning experience persistence for UCB1 multi-armed bandit learning.
 
 use chrono::Utc;
-use rusqlite::{Connection, OptionalExtension, Result, params};
+use rusqlite::{params, Connection, OptionalExtension, Result};
 
 /// Strategy experience entry.
 #[derive(Debug, Clone)]

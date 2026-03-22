@@ -1,0 +1,1189 @@
+---
+import Layout from '../layouts/Layout.astro';
+---
+
+<Layout
+  title="Material Lab — HALCÓN"
+  description="4 physical material simulations — fire, fluid, cloth and molten metal — powered by WebGL + Canvas with OKLCH colors derived by Momoto"
+  lang="en"
+>
+
+<!-- ── Hero canvas (IGNIS background) ──────────────────────────────────────── -->
+<div class="mat-hero" id="mat-hero">
+  <canvas id="hero-canvas" class="mat-hero-canvas" aria-hidden="true"></canvas>
+  <div class="mat-hero-veil" aria-hidden="true"></div>
+
+  <div class="mat-hero-content">
+    <div class="chip-fire" style="width:fit-content; margin-bottom:1.25rem;">
+      <span class="w-1.5 h-1.5 rounded-full" style="background:var(--c-p);"></span>
+      Physics Engine · WASM Color Science
+    </div>
+
+    <h1 class="mat-hero-title gradient-text">
+      MATERIAL<br/>LAB
+    </h1>
+
+    <p class="mat-hero-sub">
+      4 physical simulations — fire plasma, SPH fluid, Verlet cloth,<br/>
+      cellular molten metal — colors derived in real-time via Momoto OKLCH.
+    </p>
+
+    <div class="mat-hero-pills">
+      <span class="mat-pill">WebGL · IGNIS</span>
+      <span class="mat-pill">SPH · AQUA</span>
+      <span class="mat-pill">Verlet · VELUM</span>
+      <span class="mat-pill">CA · FERRUM</span>
+    </div>
+
+    <div class="mat-wasm-badge" id="mat-wasm-badge">
+      <span class="mat-wasm-dot"></span>
+      <span id="mat-wasm-label">Momoto WASM initializing…</span>
+    </div>
+  </div>
+
+  <!-- Scroll indicator -->
+  <div class="mat-scroll-hint" aria-hidden="true">
+    <span>scroll to explore</span>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
+    </svg>
+  </div>
+</div>
+
+<!-- ── Simulation grid ──────────────────────────────────────────────────────── -->
+<div class="mat-container">
+  <div class="mat-grid">
+
+    <!-- ── IGNIS ────────────────────────────────────────────────────────── -->
+    <div class="mat-card mat-card--fire" id="card-ignis" style="--mat-glow:232,82,0;">
+      <div class="mat-card-accent"></div>
+      <div class="mat-card-header">
+        <div class="mat-card-title-row">
+          <div class="mat-card-icon mat-card-icon--fire">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M17.657 18.657A8 8 0 016.343 7.343S7 9 9 10c0-2 .5-5 2.986-7C14 5 16.09 5.777 17.656 7.343A7.975 7.975 0 0120 13a7.975 7.975 0 01-2.343 5.657z"/>
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9.879 16.121A3 3 0 1012.015 11L11 14H9c0 .768.293 1.536.879 2.121z"/>
+            </svg>
+          </div>
+          <div>
+            <span class="mat-tag mat-tag--fire">WebGL · Heat Field</span>
+            <h2 class="mat-card-title">IGNIS</h2>
+            <p class="mat-card-sub">Fire plasma — semi-Lagrangian advection with GPU heat diffusion.</p>
+          </div>
+        </div>
+        <div class="mat-stats-col">
+          <div class="mat-stat"><span class="mat-stat-val" id="ignis-fps">60</span><span class="mat-stat-lbl">fps</span></div>
+          <div class="mat-stat"><span class="mat-stat-val" id="ignis-res">—</span><span class="mat-stat-lbl">res</span></div>
+        </div>
+      </div>
+      <div class="mat-canvas-wrap">
+        <canvas id="ignis-canvas" class="mat-canvas"></canvas>
+        <div class="mat-canvas-hint">Move cursor · adds heat</div>
+      </div>
+      <div class="mat-props">
+        <div class="mat-prop"><span>Diffusivity</span><span>0.065</span></div>
+        <div class="mat-prop"><span>Cooling/frame</span><span>97.45%</span></div>
+        <div class="mat-prop"><span>Source</span><span>bottom + cursor</span></div>
+        <div class="mat-prop"><span>Color engine</span><span>Momoto OKLCH ramp</span></div>
+      </div>
+      <div class="mat-oklch-strip" id="ignis-oklch"></div>
+    </div>
+
+    <!-- ── AQUA ─────────────────────────────────────────────────────────── -->
+    <div class="mat-card mat-card--gold" id="card-aqua" style="--mat-glow:245,160,0;">
+      <div class="mat-card-accent"></div>
+      <div class="mat-card-header">
+        <div class="mat-card-title-row">
+          <div class="mat-card-icon mat-card-icon--gold">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M12 2.25c0 0-5.25 6-5.25 10.5a5.25 5.25 0 0010.5 0C17.25 8.25 12 2.25 12 2.25z"/>
+              <path stroke-linecap="round" stroke-linejoin="round" d="M9.75 14.25a2.25 2.25 0 004.5 0"/>
+            </svg>
+          </div>
+          <div>
+            <span class="mat-tag mat-tag--gold">Canvas · SPH</span>
+            <h2 class="mat-card-title">AQUA</h2>
+            <p class="mat-card-sub">SPH fluid — pressure + viscosity forces with metaball rendering.</p>
+          </div>
+        </div>
+        <div class="mat-stats-col">
+          <div class="mat-stat"><span class="mat-stat-val" id="aqua-fps">60</span><span class="mat-stat-lbl">fps</span></div>
+          <div class="mat-stat"><span class="mat-stat-val" id="aqua-count">120</span><span class="mat-stat-lbl">ptcl</span></div>
+        </div>
+      </div>
+      <div class="mat-canvas-wrap">
+        <canvas id="aqua-canvas" class="mat-canvas"></canvas>
+        <div class="mat-canvas-hint">Click · repels · Move · attracts</div>
+      </div>
+      <div class="mat-props">
+        <div class="mat-prop"><span>Smoothing h</span><span>42px</span></div>
+        <div class="mat-prop"><span>Stiffness k</span><span>420</span></div>
+        <div class="mat-prop"><span>Viscosity μ</span><span>28</span></div>
+        <div class="mat-prop"><span>Particles</span><span>120</span></div>
+      </div>
+      <div class="mat-oklch-strip" id="aqua-oklch"></div>
+    </div>
+
+    <!-- ── VELUM ─────────────────────────────────────────────────────────── -->
+    <div class="mat-card mat-card--ember" id="card-velum" style="--mat-glow:196,20,0;">
+      <div class="mat-card-accent"></div>
+      <div class="mat-card-header">
+        <div class="mat-card-title-row">
+          <div class="mat-card-icon mat-card-icon--ember">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 8.5c3 0 5-2 8-2s5 2 8 2"/>
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 12c3 1 5 3 8 3s5-2 8-3"/>
+              <path stroke-linecap="round" stroke-linejoin="round" d="M3 15.5c3 1.5 5 2.5 8 2.5s5-1 8-2.5"/>
+              <path stroke-linecap="round" stroke-width="1" d="M6 6v14M12 6v14M18 6v14" opacity="0.3"/>
+            </svg>
+          </div>
+          <div>
+            <span class="mat-tag mat-tag--ember">Canvas · Verlet</span>
+            <h2 class="mat-card-title">VELUM</h2>
+            <p class="mat-card-sub">Cloth/silk — Verlet integration with structural + shear springs.</p>
+          </div>
+        </div>
+        <div class="mat-stats-col">
+          <div class="mat-stat"><span class="mat-stat-val" id="velum-fps">60</span><span class="mat-stat-lbl">fps</span></div>
+          <div class="mat-stat"><span class="mat-stat-val" id="velum-nodes">252</span><span class="mat-stat-lbl">nodes</span></div>
+        </div>
+      </div>
+      <div class="mat-canvas-wrap">
+        <canvas id="velum-canvas" class="mat-canvas"></canvas>
+        <div class="mat-canvas-hint">Hover · pulls cloth</div>
+      </div>
+      <div class="mat-props">
+        <div class="mat-prop"><span>Grid</span><span>18 × 14</span></div>
+        <div class="mat-prop"><span>Iterations</span><span>4 / frame</span></div>
+        <div class="mat-prop"><span>Damping</span><span>98.5%</span></div>
+        <div class="mat-prop"><span>Wind</span><span>sinusoidal</span></div>
+      </div>
+      <div class="mat-oklch-strip" id="velum-oklch"></div>
+    </div>
+
+    <!-- ── FERRUM ────────────────────────────────────────────────────────── -->
+    <div class="mat-card mat-card--spark" id="card-ferrum" style="--mat-glow:255,200,0;">
+      <div class="mat-card-accent"></div>
+      <div class="mat-card-header">
+        <div class="mat-card-title-row">
+          <div class="mat-card-icon mat-card-icon--spark">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M21 7.5l-9-5.25L3 7.5m18 0l-9 5.25m9-5.25v9l-9 5.25M3 7.5l9 5.25M3 7.5v9l9 5.25m0-9v9"/>
+            </svg>
+          </div>
+          <div>
+            <span class="mat-tag mat-tag--spark">Canvas · Cellular</span>
+            <h2 class="mat-card-title">FERRUM</h2>
+            <p class="mat-card-sub">Molten metal — cellular automaton with 3-phase transitions.</p>
+          </div>
+        </div>
+        <div class="mat-stats-col">
+          <div class="mat-stat"><span class="mat-stat-val" id="ferrum-fps">60</span><span class="mat-stat-lbl">fps</span></div>
+          <div class="mat-stat"><span class="mat-stat-val" id="ferrum-melt">0%</span><span class="mat-stat-lbl">molten</span></div>
+        </div>
+      </div>
+      <div class="mat-canvas-wrap">
+        <canvas id="ferrum-canvas" class="mat-canvas"></canvas>
+        <div class="mat-canvas-hint">Hover · heats metal (forge)</div>
+      </div>
+      <div class="mat-props">
+        <div class="mat-prop"><span>Grid</span><span>96 × 72</span></div>
+        <div class="mat-prop"><span>Conductivity</span><span>0.18</span></div>
+        <div class="mat-prop"><span>Melt point</span><span>T = 0.35</span></div>
+        <div class="mat-prop"><span>Vaporize</span><span>T = 0.80</span></div>
+      </div>
+      <div class="mat-oklch-strip" id="ferrum-oklch"></div>
+    </div>
+
+  </div><!-- /.mat-grid -->
+
+  <!-- ── Momoto Live Inspector ──────────────────────────────────────────────── -->
+  <section class="mat-inspector glass" id="mat-inspector">
+    <div class="mat-inspector-header">
+      <div>
+        <h2 class="mat-inspector-title">Momoto OKLCH Inspector</h2>
+        <p class="mat-inspector-sub">
+          Live color derivation — simulation heat → OKLCH → 6 UI states via TokenDerivationEngine.
+          <span class="mat-mono" id="inspector-cache">Cache: 0 entries</span>
+        </p>
+      </div>
+      <div class="mat-engine-stats" id="engine-stats">
+        <span class="mat-mono">Engine: singleton · warm cache</span>
+      </div>
+    </div>
+
+    <!-- Live color ring -->
+    <div class="mat-inspector-body">
+      <div class="mat-color-ring" id="color-ring">
+        <!-- Filled by JS -->
+      </div>
+
+      <div class="mat-token-table" id="token-table">
+        <!-- Filled by JS -->
+      </div>
+
+      <div class="mat-contrast-col" id="contrast-col">
+        <!-- Filled by JS -->
+      </div>
+    </div>
+  </section>
+
+  <!-- ── Iteration notes ────────────────────────────────────────────────────── -->
+  <section class="mat-notes">
+    <h2 class="mat-notes-title gradient-text-brand">Implementation — 3 Iterations</h2>
+    <div class="mat-notes-grid">
+      <div class="mat-note-card glass">
+        <div class="mat-note-badge mat-note-badge--1">IT 1</div>
+        <h3>Core Simulation</h3>
+        <ul>
+          <li>WebGL heat field (IGNIS) — ping-pong FBOs, GLSL advection + diffusion</li>
+          <li>SPH fluid (AQUA) — density/pressure/viscosity forces, gradient rendering</li>
+          <li>Verlet cloth (VELUM) — constraint relaxation, triangle mesh</li>
+          <li>Cellular automaton (FERRUM) — Laplacian diffusion, phase transitions</li>
+          <li>Momoto <code>buildFireRamp(256)</code> — 256-step OKLCH gradient, zero WASM in RAF</li>
+        </ul>
+      </div>
+      <div class="mat-note-card glass">
+        <div class="mat-note-badge mat-note-badge--2">IT 2</div>
+        <h3>Interaction + Color</h3>
+        <ul>
+          <li>Mouse/touch heat injection in all 4 simulations</li>
+          <li>Momoto singleton <code>TokenDerivationEngine</code> — warm Rust cache across calls</li>
+          <li>Live OKLCH inspector — 6 derived states update every 500ms</li>
+          <li><code>batchDeriveFast()</code> — single WASM round-trip for 4 palettes</li>
+          <li><code>getInteractionColor()</code> — <code>determine_ui_state()</code> + <code>derive_token_for_state()</code></li>
+        </ul>
+      </div>
+      <div class="mat-note-card glass">
+        <div class="mat-note-badge mat-note-badge--3">IT 3</div>
+        <h3>Polish + Deploy</h3>
+        <ul>
+          <li>Adaptive resolution (DPR, simW = canvasW/3 for IGNIS GPU efficiency)</li>
+          <li>Momoto <code>getMaterialPalette()</code> — specular/shadow/glow/edge tokens per card</li>
+          <li>WCAG contrast validation on card backgrounds via <code>checkContrast()</code></li>
+          <li>Reduced-motion: simulations freeze on <code>prefers-reduced-motion: reduce</code></li>
+          <li>Cloudflare Pages: <code>wrangler deploy</code> — static, 0 runtime servers</li>
+        </ul>
+      </div>
+    </div>
+  </section>
+
+</div><!-- /.mat-container -->
+
+</Layout>
+
+<!-- ══════════════════════════════════════════════════════════════════════════ -->
+<style>
+/* ── Root & hero ─────────────────────────────────────────────────────────── */
+.mat-hero {
+  position: relative;
+  min-height: 78svh;   /* not full-screen: simulation grid visible below the fold */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding-top: var(--navbar-h, 4.75rem);
+}
+
+.mat-hero-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%; height: 100%;
+  z-index: 0;
+}
+
+.mat-hero-veil {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to bottom,
+    rgba(7,4,1,0.55) 0%,
+    rgba(7,4,1,0.35) 40%,
+    rgba(7,4,1,0.55) 80%,
+    rgba(7,4,1,0.90) 100%
+  );
+  z-index: 1;
+}
+
+.mat-hero-content {
+  position: relative;
+  z-index: 2;
+  text-align: center;
+  padding: 2rem 1.5rem;
+}
+
+.mat-hero-title {
+  font-family: var(--font-display);
+  font-size: clamp(4rem, 12vw, 9rem);
+  font-weight: 900;
+  line-height: 0.9;
+  letter-spacing: -0.02em;
+  margin-bottom: 1.5rem;
+  background: linear-gradient(135deg,
+    var(--c-p) 0%, var(--c-gold) 40%, var(--c-spark) 65%, #fff 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  background-size: 200% 200%;
+  animation: gradient-shift 4s ease-in-out infinite;
+}
+
+.mat-hero-sub {
+  font-size: clamp(0.85rem, 2vw, 1.05rem);
+  color: var(--c-t2);
+  max-width: 560px;
+  margin: 0 auto 1.75rem;
+  line-height: 1.6;
+}
+
+.mat-hero-pills {
+  display: flex;
+  gap: 0.5rem;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-bottom: 1.5rem;
+}
+
+.mat-pill {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  padding: 0.25rem 0.75rem;
+  border: 1px solid rgba(200,80,0,0.25);
+  border-radius: 9999px;
+  color: var(--c-t2);
+  background: rgba(232,82,0,0.06);
+  letter-spacing: 0.05em;
+  backdrop-filter: blur(4px);
+}
+
+.mat-wasm-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 1rem;
+  border: 1px solid rgba(200,80,0,0.15);
+  border-radius: 9999px;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--c-t3);
+  background: rgba(7,4,1,0.65);
+  backdrop-filter: blur(12px);
+}
+.mat-wasm-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: rgba(200,80,0,0.4);
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+.mat-wasm-dot.ready { background: #22c55e; box-shadow: 0 0 6px rgba(34,197,94,0.5); }
+
+.mat-scroll-hint {
+  position: absolute;
+  bottom: 1.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.3rem;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  color: var(--c-t4);
+  letter-spacing: 0.08em;
+  animation: float 2.8s ease-in-out infinite;
+}
+
+/* ── Container ────────────────────────────────────────────────────────────── */
+.mat-container {
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 3rem 1.5rem 5rem;
+}
+
+/* ── Simulation grid ─────────────────────────────────────────────────────── */
+.mat-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 1.5rem;
+  margin-bottom: 2.5rem;
+}
+@media (max-width: 900px) {
+  .mat-grid { grid-template-columns: 1fr; }
+}
+
+/* ── Simulation card ─────────────────────────────────────────────────────── */
+.mat-card {
+  position: relative;
+  background: rgba(12, 6, 2, 0.75);
+  border: 1px solid rgba(var(--mat-glow), 0.14);
+  border-radius: 1.25rem;
+  overflow: hidden;
+  transition: border-color 0.28s ease, box-shadow 0.28s ease, transform 0.28s ease;
+}
+.mat-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(var(--mat-glow), 0.32);
+  box-shadow: 0 12px 56px rgba(0,0,0,0.60),
+              0 0 28px rgba(var(--mat-glow), 0.10),
+              inset 0 1px 0 rgba(255,255,255,0.04);
+}
+
+/* Per-material top accent strip */
+.mat-card-accent {
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg,
+    rgba(var(--mat-glow), 0.65) 0%,
+    rgba(var(--mat-glow), 0.0) 100%);
+}
+
+/* Material icon */
+.mat-card-icon {
+  width: 40px; height: 40px;
+  border-radius: 0.625rem;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+  transition: transform 0.25s ease;
+}
+.mat-card:hover .mat-card-icon { transform: scale(1.08); }
+.mat-card-icon svg { width: 20px; height: 20px; }
+.mat-card-icon--fire  { background: rgba(232,82,0,0.12);  border: 1px solid rgba(232,82,0,0.25);  color: #e85200; }
+.mat-card-icon--gold  { background: rgba(245,160,0,0.12); border: 1px solid rgba(245,160,0,0.25); color: #f5a000; }
+.mat-card-icon--ember { background: rgba(196,20,0,0.12);  border: 1px solid rgba(196,20,0,0.25);  color: #e04030; }
+.mat-card-icon--spark { background: rgba(255,200,0,0.12); border: 1px solid rgba(255,200,0,0.25); color: #ffd000; }
+
+.mat-card-title-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.mat-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.25rem 1.5rem 0;
+}
+
+.mat-tag {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  padding: 0.15rem 0.5rem;
+  border-radius: 0.25rem;
+  margin-bottom: 0.4rem;
+}
+.mat-tag--fire  { background: rgba(232,82,0,0.12);  color: var(--c-p);    border: 1px solid rgba(232,82,0,0.22); }
+.mat-tag--gold  { background: rgba(245,160,0,0.12); color: var(--c-gold); border: 1px solid rgba(245,160,0,0.22); }
+.mat-tag--ember { background: rgba(196,20,0,0.12);  color: #e04030;       border: 1px solid rgba(196,20,0,0.22); }
+.mat-tag--spark { background: rgba(255,208,0,0.12); color: var(--c-spark);border: 1px solid rgba(255,208,0,0.22); }
+
+.mat-card-title {
+  font-family: var(--font-display);
+  font-size: 1.6rem;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  color: var(--c-t1);
+  line-height: 1;
+  margin-bottom: 0.3rem;
+}
+.mat-card-sub {
+  font-size: 0.78rem;
+  color: var(--c-t3);
+  line-height: 1.5;
+  max-width: 280px;
+}
+
+.mat-stats-col {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 0.25rem;
+  flex-shrink: 0;
+}
+.mat-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  font-family: var(--font-mono);
+}
+.mat-stat-val {
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--c-gold);
+  line-height: 1;
+}
+.mat-stat-lbl {
+  font-size: 0.55rem;
+  color: var(--c-t4);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+/* ── Canvas ──────────────────────────────────────────────────────────────── */
+.mat-canvas-wrap {
+  position: relative;
+  margin: 1rem 1rem 0;
+  border-radius: 0.75rem;
+  overflow: hidden;
+  background: #0e0806;
+  border: 1px solid rgba(var(--mat-glow), 0.10);
+}
+/* Loading shimmer — shown until .sim-loaded is added by JS */
+.mat-canvas-wrap::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    110deg,
+    rgba(var(--mat-glow), 0.03) 0%,
+    rgba(var(--mat-glow), 0.08) 40%,
+    rgba(var(--mat-glow), 0.03) 80%
+  );
+  background-size: 200% 100%;
+  animation: canvas-shimmer 1.8s ease-in-out infinite;
+  z-index: 1;
+  pointer-events: none;
+  transition: opacity 0.6s ease;
+}
+.mat-canvas-wrap.sim-loaded::before {
+  opacity: 0;
+  animation: none;
+}
+@keyframes canvas-shimmer {
+  0%   { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
+/* Loading label */
+.mat-canvas-wrap::after {
+  content: 'initializing simulation…';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  color: rgba(var(--mat-glow), 0.40);
+  letter-spacing: 0.08em;
+  z-index: 1;
+  pointer-events: none;
+  transition: opacity 0.6s ease;
+}
+.mat-canvas-wrap.sim-loaded::after { opacity: 0; }
+
+.mat-canvas {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 3;
+  cursor: crosshair;
+  position: relative;
+  z-index: 2;
+}
+
+.mat-canvas-hint {
+  position: absolute;
+  bottom: 0.6rem;
+  right: 0.75rem;
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  color: var(--c-t4);
+  letter-spacing: 0.04em;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.3s;
+  z-index: 3;
+}
+.mat-canvas-wrap:hover .mat-canvas-hint { opacity: 1; }
+@media (hover: none) {
+  /* Touch devices: always show hint */
+  .mat-canvas-hint { opacity: 0.6; }
+}
+
+/* ── Properties table ────────────────────────────────────────────────────── */
+.mat-props {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0;
+  margin: 0.75rem 1rem 0;
+  border: 1px solid rgba(200,80,0,0.06);
+  border-radius: 0.5rem;
+  overflow: hidden;
+}
+.mat-prop {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.4rem 0.75rem;
+  border-bottom: 1px solid rgba(200,80,0,0.05);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+}
+.mat-prop:last-child, .mat-prop:nth-last-child(2) { border-bottom: none; }
+.mat-prop span:first-child { color: var(--c-t3); }
+.mat-prop span:last-child  { color: var(--c-t1); font-weight: 600; }
+
+/* ── OKLCH color strip ───────────────────────────────────────────────────── */
+.mat-oklch-strip {
+  height: 6px;
+  margin: 0.75rem 1rem 1.25rem;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--c-ember), var(--c-p), var(--c-gold), var(--c-spark));
+  transition: background 0.6s ease;
+}
+
+/* ── Inspector section ───────────────────────────────────────────────────── */
+.mat-inspector {
+  border-radius: 1.25rem;
+  padding: 1.75rem;
+  margin-bottom: 2.5rem;
+  border: 1px solid rgba(200,80,0,0.12);
+}
+
+.mat-inspector-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+.mat-inspector-title {
+  font-family: var(--font-display);
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--c-t1);
+  margin-bottom: 0.25rem;
+}
+.mat-inspector-sub {
+  font-size: 0.78rem;
+  color: var(--c-t3);
+  line-height: 1.5;
+}
+.mat-mono {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  color: var(--c-t4);
+  display: block;
+  margin-top: 0.25rem;
+}
+.mat-engine-stats {
+  align-self: flex-start;
+}
+
+.mat-inspector-body {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 1.5rem;
+  align-items: start;
+}
+@media (max-width: 800px) {
+  .mat-inspector-body { grid-template-columns: 1fr; }
+}
+
+/* Color ring */
+.mat-color-ring {
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.mat-color-swatch {
+  width: 40px; height: 40px;
+  border-radius: 50%;
+  border: 2px solid rgba(200,80,0,0.15);
+  transition: all 0.4s ease;
+  position: relative;
+}
+.mat-color-swatch::after {
+  content: attr(data-label);
+  position: absolute;
+  left: calc(100% + 0.5rem);
+  top: 50%;
+  transform: translateY(-50%);
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  color: var(--c-t4);
+  white-space: nowrap;
+}
+
+/* Token table */
+.mat-token-table {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.5rem;
+}
+@media (max-width: 600px) {
+  .mat-token-table { grid-template-columns: repeat(2, 1fr); }
+}
+.mat-token-cell {
+  border-radius: 0.5rem;
+  overflow: hidden;
+  border: 1px solid rgba(200,80,0,0.08);
+}
+.mat-token-swatch { height: 36px; transition: background 0.4s ease; }
+.mat-token-info { padding: 0.35rem 0.5rem; background: rgba(12,6,2,0.7); }
+.mat-token-name { font-family: var(--font-mono); font-size: 0.58rem; color: var(--c-t4); }
+.mat-token-hex  { font-family: var(--font-mono); font-size: 0.68rem; color: var(--c-t1); font-weight: 600; }
+
+/* Contrast col */
+.mat-contrast-col { display: flex; flex-direction: column; gap: 0.4rem; min-width: 160px; }
+.mat-contrast-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.4rem 0.6rem;
+  background: rgba(12,6,2,0.5);
+  border: 1px solid rgba(200,80,0,0.07);
+  border-radius: 0.35rem;
+}
+.mat-contrast-pair  { font-size: 0.68rem; color: var(--c-t2); }
+.mat-contrast-ratio { font-family: var(--font-mono); font-size: 0.65rem; font-weight: 700; color: var(--c-t1); }
+.mat-contrast-badge {
+  font-family: var(--font-mono); font-size: 0.55rem; font-weight: 600;
+  padding: 0.1rem 0.3rem; border-radius: 0.2rem;
+}
+.mat-contrast-pass { background: rgba(34,197,94,0.12); color: #22c55e; border: 1px solid rgba(34,197,94,0.2); }
+.mat-contrast-fail { background: rgba(239,68,68,0.12); color: #ef4444; border: 1px solid rgba(239,68,68,0.2); }
+
+/* ── Notes section ───────────────────────────────────────────────────────── */
+.mat-notes { margin-top: 1rem; }
+.mat-notes-title {
+  font-family: var(--font-display);
+  font-size: 1.5rem;
+  font-weight: 800;
+  margin-bottom: 1.25rem;
+}
+.mat-notes-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+}
+@media (max-width: 900px) {
+  .mat-notes-grid { grid-template-columns: 1fr; }
+}
+.mat-note-card {
+  border-radius: 1rem;
+  padding: 1.25rem;
+  border: 1px solid rgba(200,80,0,0.10);
+  position: relative;
+}
+.mat-note-badge {
+  position: absolute;
+  top: -0.6rem; left: 1rem;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  font-weight: 700;
+  padding: 0.15rem 0.55rem;
+  border-radius: 9999px;
+  letter-spacing: 0.06em;
+}
+.mat-note-badge--1 { background: rgba(232,82,0,0.18); color: var(--c-p);    border: 1px solid rgba(232,82,0,0.3); }
+.mat-note-badge--2 { background: rgba(245,160,0,0.18); color: var(--c-gold); border: 1px solid rgba(245,160,0,0.3); }
+.mat-note-badge--3 { background: rgba(255,208,0,0.18); color: var(--c-spark);border: 1px solid rgba(255,208,0,0.3); }
+.mat-note-card h3 {
+  font-family: var(--font-display);
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--c-t1);
+  margin-bottom: 0.75rem;
+  padding-top: 0.4rem;
+}
+.mat-note-card ul {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.mat-note-card li {
+  font-size: 0.75rem;
+  color: var(--c-t3);
+  padding-left: 0.75rem;
+  position: relative;
+  line-height: 1.5;
+}
+.mat-note-card li::before {
+  content: '—';
+  position: absolute;
+  left: 0;
+  color: var(--c-ember);
+  font-size: 0.65rem;
+}
+.mat-note-card code {
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  color: var(--c-gold);
+  background: rgba(245,160,0,0.08);
+  border-radius: 0.2rem;
+  padding: 0 0.2rem;
+}
+
+/* ── Live Momoto card glow (CSS vars set by JS batchDeriveFast) ──────────── */
+.mat-card {
+  --m-glow: rgba(232,82,0,0.0);
+  --m-edge: rgba(232,82,0,0.12);
+  transition: border-color 0.25s ease, box-shadow 0.8s ease;
+}
+
+/* ── Reduced motion ──────────────────────────────────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  .mat-hero-title { animation: none; }
+  .mat-scroll-hint { animation: none; }
+  .mat-card { transition: none; }
+}
+</style>
+
+<!-- ══════════════════════════════════════════════════════════════════════════ -->
+<script>
+  /**
+   * Material Lab — SOTA Bootstrap  (IT1 + IT2 + IT3)
+   * ──────────────────────────────────────────────────
+   * IT1: CSS/WebGL correctness + error boundaries
+   * IT2: Physics→Momoto OKLCH bridge (live heat drives color derivation)
+   *      getMaterialPalette() → live card glows via CSS box-shadow
+   *      batchDeriveFast() with simulation-shifted OKLCH base colors
+   * IT3: WASM init + ramp timing display, WCAG live validation,
+   *      engineCacheSize() growth tracking
+   */
+
+  // ── Dynamic import helper: bypasses Astro/Vite public-dir guard in dev ────
+  // new Function trick makes the URL opaque to static analysis.
+  function dynImport(url: string): Promise<any> {
+    return new Function('u', 'return import(u)')(url) as Promise<any>;
+  }
+
+  // ── Shared physics state: populated by each simulation's onStats ──────────
+  const simStats: Record<string, { fps: number; heatLevel: number }> = {
+    ignis:  { fps: 60, heatLevel: 0.60 },   // IGNIS always hot
+    aqua:   { fps: 60, heatLevel: 0.50 },
+    velum:  { fps: 60, heatLevel: 0.30 },
+    ferrum: { fps: 60, heatLevel: 0.05 },
+  };
+
+  const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  async function bootMaterials() {
+    // ── 1. Initialize Momoto WASM + time it ────────────────────────────────
+    const t0 = performance.now();
+    const {
+      initMomoto, buildFireRamp, batchDeriveFast, getMaterialPalette,
+      checkContrast, engineCacheSize,
+      BRAND_FIRE, BRAND_GOLD, BRAND_EMBER, BRAND_SPARK, BRAND_BG, BRAND_TEXT1,
+    } = await import('../lib/momoto/index');
+    await initMomoto();
+    const initMs = (performance.now() - t0).toFixed(1);
+
+    // ── 2. Build 256-step OKLCH fire ramp + time it ───────────────────────
+    const t1 = performance.now();
+    const ramp = await buildFireRamp(256);
+    const rampMs = (performance.now() - t1).toFixed(1);
+
+    // Update badge
+    const label = document.getElementById('mat-wasm-label');
+    const dot   = document.querySelector<HTMLElement>('.mat-wasm-dot');
+    if (label) label.textContent = `WASM ${initMs}ms · ramp ${rampMs}ms · ${ramp.length} stops`;
+    dot?.classList.add('ready');
+
+    // ── 3. Apply initial Momoto material palettes to cards ─────────────────
+    // getMaterialPalette() → glow / edge tokens → CSS vars + box-shadow
+    const cardDefs = [
+      { id: 'card-ignis',  base: BRAND_FIRE  },
+      { id: 'card-aqua',   base: BRAND_GOLD  },
+      { id: 'card-velum',  base: BRAND_EMBER },
+      { id: 'card-ferrum', base: BRAND_SPARK },
+    ] as const;
+
+    await Promise.all(cardDefs.map(async ({ id, base }) => {
+      const pal = await getMaterialPalette(base);
+      const el  = document.getElementById(id) as HTMLElement | null;
+      if (el) {
+        el.style.setProperty('--m-glow', pal.glow);
+        el.style.setProperty('--m-edge', pal.edge);
+      }
+    }));
+
+    // ── 4. Boot simulations (skip if user prefers-reduced-motion) ──────────
+    if (!prefersReduced) {
+      await Promise.allSettled([
+        bootHeroFire(ramp),
+        bootIgnis(ramp),
+        bootAqua(ramp),
+        bootVelum(ramp),
+        bootFerrum(ramp),
+      ]);
+    }
+
+    // ── 5. Start live Momoto inspector ─────────────────────────────────────
+    startInspector(ramp, {
+      batchDeriveFast, getMaterialPalette, checkContrast, engineCacheSize,
+      BRAND_FIRE, BRAND_GOLD, BRAND_EMBER, BRAND_SPARK, BRAND_BG, BRAND_TEXT1,
+    });
+  }
+
+  // ── Hero background (IGNIS WebGL, full-bleed) — IT1: WebGL fallback ────────
+  async function bootHeroFire(ramp: string[]) {
+    const canvas = document.getElementById('hero-canvas') as HTMLCanvasElement | null;
+    if (!canvas) return;
+    try {
+      const { IgnisSimulation } = await dynImport('/sim/fire-sim.js');
+      const sim = new IgnisSimulation(canvas);
+      if (!sim.init()) throw new Error('WebGL context failed');
+      sim.setColorRamp(ramp);
+    } catch {
+      // IT1: WebGL fallback — static radial gradient matching brand palette
+      const hero = document.getElementById('mat-hero') as HTMLElement | null;
+      if (hero) {
+        hero.style.background = [
+          'radial-gradient(ellipse 80% 60% at 50% 90%, rgba(196,20,0,0.40) 0%, rgba(7,4,1,0) 65%)',
+          'radial-gradient(ellipse 40% 30% at 30% 70%, rgba(232,82,0,0.20) 0%, rgba(7,4,1,0) 55%)',
+          'linear-gradient(180deg, #070401 0%, #0e0401 100%)',
+        ].join(', ');
+      }
+    }
+  }
+
+  function markLoaded(canvasId: string) {
+    const wrap = document.getElementById(canvasId)?.parentElement;
+    if (wrap) wrap.classList.add('sim-loaded');
+  }
+
+  // ── IGNIS card ────────────────────────────────────────────────────────────
+  async function bootIgnis(ramp: string[]) {
+    const canvas = document.getElementById('ignis-canvas') as HTMLCanvasElement | null;
+    if (!canvas) return;
+    try {
+      const { IgnisSimulation } = await dynImport('/sim/fire-sim.js');
+      const sim = new IgnisSimulation(canvas);
+      if (!sim.init()) return;
+      sim.setColorRamp(ramp);
+      markLoaded('ignis-canvas');
+      const resEl = document.getElementById('ignis-res');
+      if (resEl) {
+        resEl.textContent = `${sim.simW}×${sim.simH}`;
+        new ResizeObserver(() => { resEl.textContent = `${sim.simW}×${sim.simH}`; }).observe(canvas);
+      }
+      sim.onStats = ({ fps }: { fps: number }) => {
+        const el = document.getElementById('ignis-fps');
+        if (el) el.textContent = String(fps);
+        simStats['ignis'].fps = fps;
+      };
+    } catch (e) { console.warn('[IGNIS] init failed:', e); }
+  }
+
+  // ── AQUA card ─────────────────────────────────────────────────────────────
+  async function bootAqua(ramp: string[]) {
+    const canvas = document.getElementById('aqua-canvas') as HTMLCanvasElement | null;
+    if (!canvas) return;
+    try {
+      const { AquaSimulation } = await dynImport('/sim/fluid-sim.js');
+      const sim = new AquaSimulation(canvas);
+      if (!sim.init()) return;
+      sim.setColorRamp(ramp);
+      markLoaded('aqua-canvas');
+      const countEl = document.getElementById('aqua-count');
+      if (countEl) countEl.textContent = String(sim.N);
+      sim.onStats = ({ fps, avgTemp }: { fps: number; avgTemp: number }) => {
+        const el = document.getElementById('aqua-fps');
+        if (el) el.textContent = String(fps);
+        simStats['aqua'].fps = fps;
+        simStats['aqua'].heatLevel = avgTemp ?? 0.5;
+      };
+    } catch (e) { console.warn('[AQUA] init failed:', e); }
+  }
+
+  // ── VELUM card ────────────────────────────────────────────────────────────
+  async function bootVelum(ramp: string[]) {
+    const canvas = document.getElementById('velum-canvas') as HTMLCanvasElement | null;
+    if (!canvas) return;
+    try {
+      const { VelumSimulation } = await dynImport('/sim/cloth-sim.js');
+      const sim = new VelumSimulation(canvas);
+      if (!sim.init()) return;
+      sim.setColorRamp(ramp);
+      markLoaded('velum-canvas');
+      const nodesEl = document.getElementById('velum-nodes');
+      if (nodesEl) nodesEl.textContent = String(sim.COLS * sim.ROWS);
+      sim.onStats = ({ fps, avgTemp }: { fps: number; avgTemp: number }) => {
+        const el = document.getElementById('velum-fps');
+        if (el) el.textContent = String(fps);
+        simStats['velum'].fps = fps;
+        simStats['velum'].heatLevel = avgTemp ?? 0.3;
+      };
+    } catch (e) { console.warn('[VELUM] init failed:', e); }
+  }
+
+  // ── FERRUM card ───────────────────────────────────────────────────────────
+  async function bootFerrum(ramp: string[]) {
+    const canvas = document.getElementById('ferrum-canvas') as HTMLCanvasElement | null;
+    if (!canvas) return;
+    try {
+      const { FerrumSimulation } = await dynImport('/sim/molten-sim.js');
+      const sim = new FerrumSimulation(canvas);
+      if (!sim.init()) return;
+      sim.setColorRamp(ramp);
+      markLoaded('ferrum-canvas');
+      sim.onStats = ({ fps, moltFrac }: { fps: number; moltFrac: number }) => {
+        const fpsEl  = document.getElementById('ferrum-fps');
+        const meltEl = document.getElementById('ferrum-melt');
+        if (fpsEl)  fpsEl.textContent  = String(fps);
+        if (meltEl) meltEl.textContent = `${Math.round(moltFrac * 100)}%`;
+        simStats['ferrum'].fps = fps;
+        simStats['ferrum'].heatLevel = moltFrac;
+      };
+    } catch (e) { console.warn('[FERRUM] init failed:', e); }
+  }
+
+  // ── Momoto Live Inspector — IT2: physics heat drives OKLCH derivation ──────
+  function startInspector(ramp: string[], api: {
+    batchDeriveFast: Function; getMaterialPalette: Function; checkContrast: Function;
+    engineCacheSize: Function;
+    BRAND_FIRE: any; BRAND_GOLD: any; BRAND_EMBER: any; BRAND_SPARK: any;
+    BRAND_BG: any; BRAND_TEXT1: any;
+  }) {
+    const {
+      batchDeriveFast, getMaterialPalette, checkContrast,
+      engineCacheSize, BRAND_FIRE, BRAND_GOLD, BRAND_EMBER, BRAND_SPARK,
+      BRAND_BG, BRAND_TEXT1,
+    } = api;
+
+    const ring  = document.getElementById('color-ring');
+    const table = document.getElementById('token-table');
+    const cont  = document.getElementById('contrast-col');
+    const cache = document.getElementById('inspector-cache');
+
+    const SIM_NAMES  = ['IGNIS', 'AQUA', 'VELUM', 'FERRUM'] as const;
+    const SIM_BASES  = [BRAND_FIRE, BRAND_GOLD, BRAND_EMBER, BRAND_SPARK];
+    const SIM_KEYS   = ['ignis', 'aqua', 'velum', 'ferrum'] as const;
+    const STRIP_IDS  = ['ignis-oklch','aqua-oklch','velum-oklch','ferrum-oklch'];
+    const CARD_IDS   = ['card-ignis','card-aqua','card-velum','card-ferrum'];
+
+    // Build ring swatches once
+    if (ring) {
+      ring.innerHTML = SIM_BASES.map((b, i) => {
+        const idx = Math.min(Math.round(b.l * 255), ramp.length - 1);
+        return `<div class="mat-color-swatch" id="ring-${i}" data-label="${SIM_NAMES[i]}" style="background:${ramp[idx]};"></div>`;
+      }).join('');
+    }
+
+    let cycle = 0;
+
+    async function updateInspector() {
+      const activeIdx  = cycle % 4;
+      const simKey     = SIM_KEYS[activeIdx];
+      const base       = SIM_BASES[activeIdx];
+      const heat       = simStats[simKey].heatLevel;
+      cycle++;
+
+      // ── IT2 CORE: shift base OKLCH color by live simulation heat ──────────
+      // hotter simulation → higher lightness + chroma → warmer derived tokens
+      const dynamicBase = {
+        l: Math.min(0.94, base.l + heat * 0.18),
+        c: Math.min(0.36, base.c + heat * 0.06),
+        h: base.h,
+      };
+
+      // Single WASM round-trip for active sim
+      const t0 = performance.now();
+      const [states] = await batchDeriveFast([dynamicBase]);
+      const batchMs  = (performance.now() - t0).toFixed(1);
+
+      // Engine stats row
+      const engineEl = document.getElementById('engine-stats');
+      if (engineEl) {
+        engineEl.innerHTML = `<span class="mat-mono">cache ${engineCacheSize()} · ${batchMs}ms · ${SIM_NAMES[activeIdx]} heat ${(heat * 100).toFixed(0)}%</span>`;
+      }
+
+      // Token table — 6 UI states derived from heat-shifted OKLCH
+      if (table) {
+        const stateKeys = ['idle','hover','active','focus','disabled','loading'] as const;
+        table.innerHTML = stateKeys.map(k => `
+          <div class="mat-token-cell">
+            <div class="mat-token-swatch" style="background:${states[k]};"></div>
+            <div class="mat-token-info">
+              <div class="mat-token-name">${k}</div>
+              <div class="mat-token-hex">${states[k]}</div>
+            </div>
+          </div>
+        `).join('');
+      }
+
+      // WCAG contrast — live validation with dynamic color
+      if (cont) {
+        const pairs = [
+          { label: 'Text on BG',              fg: BRAND_TEXT1,  bg: BRAND_BG },
+          { label: `${SIM_NAMES[activeIdx]} heat`, fg: dynamicBase, bg: BRAND_BG },
+        ];
+        const rows = await Promise.all(pairs.map(async p => {
+          const r   = await checkContrast(p.fg, p.bg);
+          const cls = r.passesAA ? 'mat-contrast-pass' : 'mat-contrast-fail';
+          const lbl = r.passesAAA ? 'AAA' : r.passesAA ? 'AA' : 'FAIL';
+          return `<div class="mat-contrast-row">
+            <span class="mat-contrast-pair">${p.label}</span>
+            <span class="mat-contrast-ratio">${r.wcagRatio.toFixed(1)}:1</span>
+            <span class="mat-contrast-badge ${cls}">${lbl}</span>
+          </div>`;
+        }));
+        cont.innerHTML = rows.join('');
+      }
+
+      // Ring highlight — pulse active swatch
+      document.querySelectorAll<HTMLElement>('.mat-color-swatch').forEach((el, i) => {
+        el.style.boxShadow = i === activeIdx
+          ? `0 0 0 3px ${states.idle}, 0 0 18px ${states.idle}70`
+          : '';
+      });
+
+      // OKLCH strips — each driven by its own simulation heat
+      await Promise.all(STRIP_IDS.map(async (id, i) => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        const h = simStats[SIM_KEYS[i]].heatLevel;
+        const dynColor = {
+          l: Math.min(0.94, SIM_BASES[i].l + h * 0.18),
+          c: Math.min(0.36, SIM_BASES[i].c + h * 0.06),
+          h: SIM_BASES[i].h,
+        };
+        const [tok] = await batchDeriveFast([dynColor]);
+        el.style.background = `linear-gradient(90deg, ${tok.disabled}, ${tok.idle}, ${tok.hover}, ${tok.active})`;
+      }));
+
+      // IT2: Live card glow — getMaterialPalette() drives box-shadow intensity
+      // Hotter sim → brighter glow color → larger glow radius
+      await Promise.all(CARD_IDS.map(async (cardId, i) => {
+        const h = simStats[SIM_KEYS[i]].heatLevel;
+        if (h < 0.02) return; // skip effectively cold sims
+        const dynColor = {
+          l: Math.min(0.94, SIM_BASES[i].l + h * 0.15),
+          c: SIM_BASES[i].c,
+          h: SIM_BASES[i].h,
+        };
+        const pal = await getMaterialPalette(dynColor);
+        const el  = document.getElementById(cardId) as HTMLElement | null;
+        if (!el) return;
+        const glowPx = Math.round(8 + h * 28);   // 8px cold → 36px hot
+        el.style.setProperty('--m-glow', pal.glow);
+        el.style.setProperty('--m-edge', pal.edge);
+        el.style.boxShadow = [
+          `0 ${glowPx}px ${glowPx * 3}px rgba(0,0,0,0.5)`,
+          `0 0 ${glowPx}px ${pal.glow}40`,
+          `inset 0 1px 0 ${pal.specular}30`,
+        ].join(', ');
+      }));
+
+      // Cache counter
+      if (cache) cache.textContent = `Cache: ${engineCacheSize()} entries`;
+    }
+
+    updateInspector();
+    setInterval(updateInspector, 600);
+  }
+
+  bootMaterials().catch(e => console.error('[MaterialLab] boot failed:', e));
+</script>

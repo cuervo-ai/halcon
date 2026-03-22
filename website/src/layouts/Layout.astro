@@ -21,7 +21,7 @@ const {
   canonical,
 } = Astro.props;
 
-const siteBase     = 'https://cuervo.cloud';
+const siteBase     = 'https://halcon.cuervo.cloud';
 const canonicalUrl = canonical ?? new URL(Astro.url.pathname, siteBase).toString();
 const ogTitle      = `${title} | Halcón CLI`;
 const esPath       = '/es' + (Astro.url.pathname === '/' ? '' : Astro.url.pathname);

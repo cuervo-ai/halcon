@@ -11,7 +11,7 @@ pub fn render(
     ui: &mut Ui,
     state: &mut AppState,
     config: &mut AppConfig,
-    cmd_tx: &mpsc::UnboundedSender<UiCommand>,
+    cmd_tx: &mpsc::Sender<UiCommand>,
 ) {
     ui.heading("Settings");
     ui.separator();
@@ -70,24 +70,21 @@ pub fn render(
             ui.horizontal(|ui| {
                 let save_btn = ui.add_enabled(
                     state.config_dirty,
-                    egui::Button::new(
-                        RichText::new("Save Changes")
-                            .color(if state.config_dirty {
-                                HalconTheme::ACCENT
-                            } else {
-                                HalconTheme::TEXT_MUTED
-                            }),
-                    ),
+                    egui::Button::new(RichText::new("Save Changes").color(if state.config_dirty {
+                        HalconTheme::ACCENT
+                    } else {
+                        HalconTheme::TEXT_MUTED
+                    })),
                 );
                 if save_btn.clicked() {
                     if let Some(ref cfg) = state.runtime_config {
                         let update = build_update_request(cfg);
-                        let _ = cmd_tx.send(UiCommand::UpdateConfig(Box::new(update)));
+                        let _ = cmd_tx.try_send(UiCommand::UpdateConfig(Box::new(update)));
                     }
                 }
 
                 if ui.button("Reload").clicked() {
-                    let _ = cmd_tx.send(UiCommand::RefreshConfig);
+                    let _ = cmd_tx.try_send(UiCommand::RefreshConfig);
                 }
 
                 if state.config_dirty {
@@ -121,24 +118,24 @@ pub fn render(
         ui.add_space(4.0);
 
         // ── Danger Zone ─────────────────────────────────────────
-        ui.label(RichText::new("Danger Zone").strong().color(HalconTheme::ERROR));
+        ui.label(
+            RichText::new("Danger Zone")
+                .strong()
+                .color(HalconTheme::ERROR),
+        );
         ui.add_space(4.0);
         if ui
             .button(RichText::new("Shutdown Runtime").color(HalconTheme::ERROR))
             .clicked()
         {
-            let _ = cmd_tx.send(UiCommand::Shutdown { graceful: true });
+            let _ = cmd_tx.try_send(UiCommand::Shutdown { graceful: true });
         }
     });
 }
 
 // ── Desktop Settings ────────────────────────────────────────────────
 
-fn render_desktop_settings(
-    ui: &mut Ui,
-    config: &mut AppConfig,
-    cmd_tx: &mpsc::UnboundedSender<UiCommand>,
-) {
+fn render_desktop_settings(ui: &mut Ui, config: &mut AppConfig, cmd_tx: &mpsc::Sender<UiCommand>) {
     ui.horizontal(|ui| {
         ui.label("Server URL:");
         ui.text_edit_singleline(&mut config.server_url);
@@ -149,13 +146,22 @@ fn render_desktop_settings(
     });
     ui.horizontal(|ui| {
         if ui.button("Connect").clicked() {
-            let _ = cmd_tx.send(UiCommand::Connect {
+            let _ = cmd_tx.try_send(UiCommand::Connect {
                 url: config.server_url.clone(),
                 token: config.auth_token.clone(),
             });
         }
         if ui.button("Disconnect").clicked() {
-            let _ = cmd_tx.send(UiCommand::Disconnect);
+            let _ = cmd_tx.try_send(UiCommand::Disconnect);
+        }
+        if ui
+            .button("Save")
+            .on_hover_text("Save URL + token to ~/.halcon/desktop.toml")
+            .clicked()
+        {
+            if let Err(e) = config.save() {
+                tracing::warn!(error = %e, "failed to save desktop config");
+            }
         }
     });
 
@@ -231,8 +237,7 @@ fn render_providers_section(
                             dirty |= ui.checkbox(&mut p.enabled, "Enabled").changed();
 
                             // api_base
-                            let mut base =
-                                p.api_base.clone().unwrap_or_default();
+                            let mut base = p.api_base.clone().unwrap_or_default();
                             ui.horizontal(|ui| {
                                 ui.label("API Base:");
                                 if ui.text_edit_singleline(&mut base).changed() {
@@ -246,8 +251,7 @@ fn render_providers_section(
                             });
 
                             // api_key_env
-                            let mut key_env =
-                                p.api_key_env.clone().unwrap_or_default();
+                            let mut key_env = p.api_key_env.clone().unwrap_or_default();
                             ui.horizontal(|ui| {
                                 ui.label("API Key Env:");
                                 if ui.text_edit_singleline(&mut key_env).changed() {
@@ -261,8 +265,7 @@ fn render_providers_section(
                             });
 
                             // default_model
-                            let mut model =
-                                p.default_model.clone().unwrap_or_default();
+                            let mut model = p.default_model.clone().unwrap_or_default();
                             ui.horizontal(|ui| {
                                 ui.label("Default model:");
                                 if ui.text_edit_singleline(&mut model).changed() {
@@ -281,11 +284,9 @@ fn render_providers_section(
                                 ui.label("Connect timeout:");
                                 dirty |= ui
                                     .add(
-                                        egui::DragValue::new(
-                                            &mut p.http.connect_timeout_secs,
-                                        )
-                                        .range(0..=300)
-                                        .suffix("s"),
+                                        egui::DragValue::new(&mut p.http.connect_timeout_secs)
+                                            .range(0..=300)
+                                            .suffix("s"),
                                     )
                                     .changed();
                             });
@@ -293,11 +294,9 @@ fn render_providers_section(
                                 ui.label("Request timeout:");
                                 dirty |= ui
                                     .add(
-                                        egui::DragValue::new(
-                                            &mut p.http.request_timeout_secs,
-                                        )
-                                        .range(0..=3600)
-                                        .suffix("s"),
+                                        egui::DragValue::new(&mut p.http.request_timeout_secs)
+                                            .range(0..=3600)
+                                            .suffix("s"),
                                     )
                                     .changed();
                             });
@@ -305,8 +304,7 @@ fn render_providers_section(
                                 ui.label("Max retries:");
                                 dirty |= ui
                                     .add(
-                                        egui::DragValue::new(&mut p.http.max_retries)
-                                            .range(0..=20),
+                                        egui::DragValue::new(&mut p.http.max_retries).range(0..=20),
                                     )
                                     .changed();
                             });
@@ -314,11 +312,9 @@ fn render_providers_section(
                                 ui.label("Retry base delay:");
                                 dirty |= ui
                                     .add(
-                                        egui::DragValue::new(
-                                            &mut p.http.retry_base_delay_ms,
-                                        )
-                                        .range(0..=30_000)
-                                        .suffix("ms"),
+                                        egui::DragValue::new(&mut p.http.retry_base_delay_ms)
+                                            .range(0..=30_000)
+                                            .suffix("ms"),
                                     )
                                     .changed();
                             });
@@ -331,11 +327,7 @@ fn render_providers_section(
         });
 }
 
-fn render_agent_limits_section(
-    ui: &mut Ui,
-    l: &mut AgentLimitsDto,
-    state: &mut AppState,
-) {
+fn render_agent_limits_section(ui: &mut Ui, l: &mut AgentLimitsDto, state: &mut AppState) {
     CollapsingHeader::new("Agent Limits")
         .default_open(false)
         .show(ui, |ui| {
@@ -391,10 +383,7 @@ fn render_agent_limits_section(
             ui.horizontal(|ui| {
                 ui.label("Max tool output chars:");
                 dirty |= ui
-                    .add(
-                        egui::DragValue::new(&mut l.max_tool_output_chars)
-                            .range(0..=10_000_000),
-                    )
+                    .add(egui::DragValue::new(&mut l.max_tool_output_chars).range(0..=10_000_000))
                     .changed();
             });
             if dirty {
@@ -416,10 +405,7 @@ fn render_routing_section(ui: &mut Ui, r: &mut RoutingConfigDto, state: &mut App
                     .selected_text(&r.strategy)
                     .show_ui(ui, |ui| {
                         for s in &strategies {
-                            if ui
-                                .selectable_label(r.strategy == *s, *s)
-                                .clicked()
-                            {
+                            if ui.selectable_label(r.strategy == *s, *s).clicked() {
                                 r.strategy = s.to_string();
                                 dirty = true;
                             }
@@ -521,13 +507,14 @@ fn render_tools_section(ui: &mut Ui, t: &mut ToolsConfigDto, state: &mut AppStat
 
             ui.add_space(4.0);
             ui.label(RichText::new("Sandbox").small().strong());
-            dirty |= ui.checkbox(&mut t.sandbox.enabled, "Sandbox enabled").changed();
+            dirty |= ui
+                .checkbox(&mut t.sandbox.enabled, "Sandbox enabled")
+                .changed();
             ui.horizontal(|ui| {
                 ui.label("Max output bytes:");
                 dirty |= ui
                     .add(
-                        egui::DragValue::new(&mut t.sandbox.max_output_bytes)
-                            .range(0..=10_000_000),
+                        egui::DragValue::new(&mut t.sandbox.max_output_bytes).range(0..=10_000_000),
                     )
                     .changed();
             });
@@ -574,9 +561,7 @@ fn render_security_section(ui: &mut Ui, s: &mut SecurityConfigDto, state: &mut A
         .show(ui, |ui| {
             let mut dirty = false;
 
-            dirty |= ui
-                .checkbox(&mut s.pii_detection, "PII detection")
-                .changed();
+            dirty |= ui.checkbox(&mut s.pii_detection, "PII detection").changed();
 
             ui.horizontal(|ui| {
                 ui.label("PII action:");
@@ -585,10 +570,7 @@ fn render_security_section(ui: &mut Ui, s: &mut SecurityConfigDto, state: &mut A
                     .selected_text(&s.pii_action)
                     .show_ui(ui, |ui| {
                         for a in &actions {
-                            if ui
-                                .selectable_label(s.pii_action == *a, *a)
-                                .clicked()
-                            {
+                            if ui.selectable_label(s.pii_action == *a, *a).clicked() {
                                 s.pii_action = a.to_string();
                                 dirty = true;
                             }
@@ -646,11 +628,7 @@ fn render_memory_section(ui: &mut Ui, m: &mut MemoryConfigDto, state: &mut AppSt
         });
 }
 
-fn render_resilience_section(
-    ui: &mut Ui,
-    r: &mut ResilienceConfigDto,
-    state: &mut AppState,
-) {
+fn render_resilience_section(ui: &mut Ui, r: &mut ResilienceConfigDto, state: &mut AppState) {
     CollapsingHeader::new("Resilience")
         .default_open(false)
         .show(ui, |ui| {
@@ -693,8 +671,7 @@ fn render_resilience_section(
                 ui.label("Half-open probes:");
                 dirty |= ui
                     .add(
-                        egui::DragValue::new(&mut r.circuit_breaker.half_open_probes)
-                            .range(1..=20),
+                        egui::DragValue::new(&mut r.circuit_breaker.half_open_probes).range(1..=20),
                     )
                     .changed();
             });
@@ -714,19 +691,13 @@ fn render_resilience_section(
             ui.horizontal(|ui| {
                 ui.label("Degraded threshold:");
                 dirty |= ui
-                    .add(
-                        egui::DragValue::new(&mut r.health.degraded_threshold)
-                            .range(0..=100),
-                    )
+                    .add(egui::DragValue::new(&mut r.health.degraded_threshold).range(0..=100))
                     .changed();
             });
             ui.horizontal(|ui| {
                 ui.label("Unhealthy threshold:");
                 dirty |= ui
-                    .add(
-                        egui::DragValue::new(&mut r.health.unhealthy_threshold)
-                            .range(0..=100),
-                    )
+                    .add(egui::DragValue::new(&mut r.health.unhealthy_threshold).range(0..=100))
                     .changed();
             });
 
@@ -736,10 +707,8 @@ fn render_resilience_section(
                 ui.label("Max concurrent/provider:");
                 dirty |= ui
                     .add(
-                        egui::DragValue::new(
-                            &mut r.backpressure.max_concurrent_per_provider,
-                        )
-                        .range(1..=100),
+                        egui::DragValue::new(&mut r.backpressure.max_concurrent_per_provider)
+                            .range(1..=100),
                     )
                     .changed();
             });

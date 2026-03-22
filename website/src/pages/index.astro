@@ -4,79 +4,81 @@ import { t } from '../i18n/translations';
 
 const lang = 'en';
 
+// Provider SVG icons — clean line icons, stroke-width 1.5, optimized for 20–22px display
+const providerIcons: Record<string, string> = {
+  // Anthropic: stylized A / triangular prism — their logomark shape
+  anthropic: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M5 20L12 4l7 16"/>
+    <path d="M8.5 14h7"/>
+  </svg>`,
+  // OpenAI: clean hexagon with center dot — represents their logo geometry
+  openai: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <path d="M12 2l8.66 5v10L12 22 3.34 17V7z"/>
+    <circle cx="12" cy="12" r="2.5" fill="currentColor" stroke="none"/>
+  </svg>`,
+  // DeepSeek: compass / magnifying lens — "deep seek" / search
+  deepseek: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <circle cx="11" cy="11" r="7"/>
+    <path d="M16.5 16.5L21 21"/>
+    <circle cx="11" cy="11" r="3" fill="currentColor" stroke="none" opacity="0.5"/>
+  </svg>`,
+  // Google Gemini: 4-pointed star / gemstone — Gemini's actual logomark
+  gemini: `<svg viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true">
+    <path d="M12 2C12 7 17 12 22 12C17 12 12 17 12 22C12 17 7 12 2 12C7 12 12 7 12 2Z"/>
+  </svg>`,
+  // Ollama: simple server/terminal — local model runner
+  ollama: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+    <rect x="2" y="3" width="20" height="14" rx="2"/>
+    <path d="M8 21h8M12 17v4"/>
+    <path d="M7 8l2 2-2 2M13 10h4"/>
+  </svg>`,
+};
+
 const providers = [
   {
     name: 'Anthropic',
-    logo: '🧠',
+    logoKey: 'anthropic',
     accent: 'rgba(232,82,0,0.10)',
     border: 'rgba(232,82,0,0.30)',
+    glow: '232,82,0',
     models: ['Claude Opus 4.6', 'Claude Sonnet 4.5', 'Claude Haiku 4.5'],
     badge: null,
   },
   {
     name: 'OpenAI',
-    logo: '⬡',
+    logoKey: 'openai',
     accent: 'rgba(16,163,127,0.10)',
     border: 'rgba(16,163,127,0.28)',
+    glow: '16,163,127',
     models: ['GPT-4o', 'GPT-4o mini', 'o1', 'o3-mini'],
     badge: null,
   },
   {
     name: 'DeepSeek',
-    logo: '◎',
+    logoKey: 'deepseek',
     accent: 'rgba(99,102,241,0.10)',
     border: 'rgba(99,102,241,0.28)',
+    glow: '99,102,241',
     models: ['deepseek-chat', 'deepseek-coder', 'deepseek-reasoner'],
     badge: null,
   },
   {
     name: 'Google Gemini',
-    logo: '✦',
+    logoKey: 'gemini',
     accent: 'rgba(66,133,244,0.10)',
     border: 'rgba(66,133,244,0.28)',
+    glow: '66,133,244',
     models: ['Gemini 2.0 Flash', 'Gemini 2.5 Pro'],
     badge: null,
   },
   {
     name: 'Ollama',
-    logo: '⬤',
+    logoKey: 'ollama',
     accent: 'rgba(245,160,0,0.08)',
     border: 'rgba(245,160,0,0.28)',
+    glow: '245,160,0',
     models: ['Llama 3', 'Mistral', 'DeepSeek Coder V2', '+ any model'],
     badge: t(lang, 'providers.local_badge'),
-  },
-];
-
-const features = [
-  {
-    icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>`,
-    title: t(lang, 'f1.title'),
-    desc: t(lang, 'f1.desc'),
-  },
-  {
-    icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>`,
-    title: t(lang, 'f2.title'),
-    desc: t(lang, 'f2.desc'),
-  },
-  {
-    icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>`,
-    title: t(lang, 'f3.title'),
-    desc: t(lang, 'f3.desc'),
-  },
-  {
-    icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>`,
-    title: t(lang, 'f4.title'),
-    desc: t(lang, 'f4.desc'),
-  },
-  {
-    icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>`,
-    title: t(lang, 'f5.title'),
-    desc: t(lang, 'f5.desc'),
-  },
-  {
-    icon: `<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 10V3L4 14h7v7l9-11h-7z"/>`,
-    title: t(lang, 'f6.title'),
-    desc: t(lang, 'f6.desc'),
   },
 ];
 ---
@@ -88,183 +90,454 @@ const features = [
 >
 
   <!-- ═══════════════════════════════════════════ HERO ══ -->
-  <section class="relative min-h-[90vh] flex flex-col items-center justify-center pt-24 pb-16 px-4 overflow-hidden">
+  <section class="hero-root relative min-h-screen flex items-center pt-20 pb-8 overflow-hidden">
 
-    <!-- Background glow -->
+    <!-- ── FONDO MOMOTO RUBY ─────────────────────────────── -->
     <div class="absolute inset-0 pointer-events-none" aria-hidden="true">
-      <div class="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] rounded-full opacity-20"
-           style="background: radial-gradient(circle, rgba(232,82,0,0.5) 0%, rgba(245,160,0,0.2) 40%, transparent 70%); filter: blur(80px);"></div>
+      <div id="hero-glow-ruby"
+           style="position:absolute;inset:0;background:radial-gradient(ellipse 85% 65% at 65% 42%, rgba(160,14,0,0.28) 0%, transparent 62%);"></div>
+      <div id="hero-glow-fire"
+           style="position:absolute;inset:0;background:radial-gradient(ellipse 50% 55% at 22% 65%, rgba(232,82,0,0.10) 0%, transparent 58%);"></div>
+      <div id="hero-glow-gold"
+           style="position:absolute;inset:0;background:radial-gradient(ellipse 40% 30% at 70% 10%, rgba(245,160,0,0.06) 0%, transparent 55%);"></div>
+      <!-- Ambient beam — diagonal light sweep -->
+      <div class="hero-beam" aria-hidden="true"></div>
+      <div class="hero-grain absolute inset-0" style="opacity:0.030;"></div>
+      <div class="absolute inset-0 bg-grid" style="opacity:0.038;"></div>
+      <div class="bg-dots absolute inset-0" aria-hidden="true"></div>
+      <div id="hero-sparks" class="absolute inset-0 overflow-hidden"></div>
     </div>
 
-    <div class="relative z-10 max-w-4xl mx-auto text-center">
+    <!-- ── LAYOUT 2 COLUMNAS ─────────────────────────────── -->
+    <div class="relative z-10 max-w-7xl mx-auto w-full px-5 lg:px-10">
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-10 lg:gap-14 items-center">
 
-      <!-- Badge -->
-      <div class="inline-flex items-center gap-2 px-3 py-1.5 mb-8 rounded-full border text-xs font-medium font-mono"
-           style="border-color: rgba(232,82,0,0.35); background: rgba(232,82,0,0.08); color: var(--c-gold);">
-        <span class="w-1.5 h-1.5 rounded-full animate-pulse" style="background: var(--c-p);"></span>
-        v0.2.0 · macOS · Linux · Windows
-      </div>
+        <!-- ── IZQUIERDA: texto ──────────────────────────── -->
+        <div class="text-center lg:text-left">
 
-      <!-- Headline -->
-      <h1 class="text-5xl sm:text-6xl md:text-7xl font-black leading-none tracking-tight mb-6 font-display">
-        {t(lang, 'hero.headline').split('\n').map((line: string, i: number) => (
-          <span class={i === 1 ? 'block gradient-text-brand mt-1' : 'block'}>{line}</span>
-        ))}
-      </h1>
-
-      <!-- Subheadline -->
-      <p class="text-lg sm:text-xl leading-relaxed max-w-2xl mx-auto mb-10" style="color: var(--c-t2);">
-        {t(lang, 'hero.sub')}
-      </p>
-
-      <!-- CTAs -->
-      <div class="flex flex-col sm:flex-row items-center justify-center gap-4 mb-14">
-        <a href="/download" class="btn-primary" style="padding: 0.875rem 2rem; font-size: 1rem;">
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-          </svg>
-          {t(lang, 'hero.cta_dl')}
-        </a>
-        <a href="/docs"
-           class="flex items-center gap-2 px-6 py-3.5 rounded-xl text-sm font-medium border transition-all duration-200"
-           style="color: var(--c-t2); border-color: var(--c-b);"
-           onmouseover="this.style.color='var(--c-t1)'; this.style.borderColor='var(--c-bh)'"
-           onmouseout="this.style.color='var(--c-t2)'; this.style.borderColor='var(--c-b)'">
-          {t(lang, 'hero.cta_docs')}
-          <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
-          </svg>
-        </a>
-      </div>
-
-      <!-- Install snippet -->
-      <div class="inline-block max-w-lg w-full">
-        <p class="text-xs font-medium mb-2 text-left pl-1" style="color: var(--c-t4);">{t(lang, 'hero.install_label')}</p>
-        <div class="glass rounded-xl overflow-hidden text-left">
-          <div class="flex items-center justify-between px-4 py-2.5 border-b" style="border-color: var(--c-b); background: var(--c-surface);">
-            <div class="flex gap-1.5">
-              <span class="w-2.5 h-2.5 rounded-full" style="background: rgba(200,80,0,0.4);"></span>
-              <span class="w-2.5 h-2.5 rounded-full" style="background: rgba(245,160,0,0.3);"></span>
-              <span class="w-2.5 h-2.5 rounded-full" style="background: rgba(34,197,94,0.3);"></span>
-            </div>
-            <span class="text-xs font-mono" style="color: var(--c-t4);">bash</span>
+          <!-- Badge -->
+          <div id="hero-badge" data-reveal
+               class="inline-flex items-center gap-2 px-3.5 py-1.5 mb-7 rounded-full border font-mono text-xs font-medium"
+               style="border-color:rgba(232,82,0,0.30);background:rgba(232,82,0,0.07);color:var(--c-gold);animation:badge-breathe 3.6s ease-in-out infinite;">
+            <span style="width:6px;height:6px;border-radius:50%;background:var(--c-p);animation:live-pulse 2.3s ease-in-out infinite;display:inline-block;"></span>
+            v0.3.0
+            <span style="font-size:10px;padding:1px 6px;border-radius:4px;background:rgba(245,160,0,0.09);color:var(--c-t3);">stable</span>
           </div>
-          <div class="px-4 py-3.5 font-mono text-sm flex items-center justify-between gap-3"
-               style="color: var(--c-p);">
-            <div>
-              <span style="color: var(--c-t4);">$ </span>curl -sSfL cuervo.cloud/install.sh | sh
-            </div>
-            <button id="hero-copy-btn" title="Copy"
-                    class="flex-shrink-0 p-1.5 rounded transition-colors"
-                    style="color: var(--c-t4);"
-                    onmouseover="this.style.color='var(--c-t1)'; this.style.background='var(--c-surface)'"
-                    onmouseout="this.style.color='var(--c-t4)'; this.style.background='transparent'">
-              <svg id="copy-icon" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+
+          <!-- Headline -->
+          <h1 data-reveal data-delay="1" class="text-5xl sm:text-6xl lg:text-[4.2rem] xl:text-7xl font-black leading-[1.02] tracking-tight mb-5 font-display">
+            <span class="block" style="color:var(--c-t1);">The terminal AI agent</span>
+            <span id="hero-headline-brand" class="block mt-1"
+                  style="background-image:linear-gradient(135deg,var(--c-gold) 0%,var(--c-p) 48%,var(--c-ember) 100%);
+                         background-size:200% auto;-webkit-background-clip:text;background-clip:text;
+                         -webkit-text-fill-color:transparent;color:transparent;
+                         animation:gradient-shift 5s ease infinite;">
+              <span id="hero-typewriter"></span><span id="hero-cursor"
+                    style="-webkit-text-fill-color:var(--c-p);color:var(--c-p);animation:cursor-blink 1.1s step-end infinite;">▋</span>
+            </span>
+          </h1>
+
+          <!-- Subheadline -->
+          <p data-reveal data-delay="2" class="text-base sm:text-lg leading-relaxed max-w-xl mx-auto lg:mx-0 mb-8"
+             style="color:var(--c-t2);">
+            {t(lang, 'hero.sub')}
+          </p>
+
+          <!-- CTAs -->
+          <div data-reveal data-delay="3" class="flex flex-col sm:flex-row items-center lg:items-start justify-center lg:justify-start gap-3 mb-8">
+            <a href="/download" class="btn-primary" data-magnetic style="padding:0.875rem 1.75rem;font-size:0.9375rem;">
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
+                      d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
               </svg>
-            </button>
+              Download v0.3.0
+            </a>
+            <a href="/docs" class="btn-outline" style="padding:0.875rem 1.75rem;font-size:0.9375rem;">
+              Read the docs
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+              </svg>
+            </a>
+          </div>
+
+          <!-- Install tabs -->
+          <div data-reveal data-delay="4" class="max-w-lg mx-auto lg:mx-0">
+            <div class="flex gap-1 mb-2" role="tablist" aria-label="Install method">
+              <button class="install-tab active" role="tab" aria-selected="true"
+                      data-cmd="curl -sSfL https://halcon.cuervo.cloud/install.sh | sh" data-label="bash">curl</button>
+              <button class="install-tab" role="tab" aria-selected="false"
+                      data-cmd="brew tap cuervo-ai/tap &amp;&amp; brew install halcon" data-label="brew">brew</button>
+              <button class="install-tab" role="tab" aria-selected="false"
+                      data-cmd="cargo install --git https://github.com/cuervo-ai/halcon-cli halcon-cli" data-label="cargo">cargo</button>
+            </div>
+            <div class="glass rounded-xl overflow-hidden text-left" style="border-color:rgba(232,82,0,0.14);">
+              <div class="flex items-center justify-between px-4 py-2 border-b"
+                   style="border-color:var(--c-b);background:var(--c-surface);">
+                <div class="flex gap-1.5">
+                  <span class="w-2.5 h-2.5 rounded-full" style="background:rgba(255,96,89,0.55);"></span>
+                  <span class="w-2.5 h-2.5 rounded-full" style="background:rgba(255,189,68,0.55);"></span>
+                  <span class="w-2.5 h-2.5 rounded-full" style="background:rgba(40,200,64,0.55);"></span>
+                </div>
+                <span id="hero-tab-label" class="text-xs font-mono" style="color:var(--c-t4);">bash</span>
+              </div>
+              <div class="px-4 py-3.5 font-mono text-sm flex items-center justify-between gap-3"
+                   style="color:var(--c-p);">
+                <div>
+                  <span style="color:var(--c-t4);">$ </span>
+                  <span id="hero-cmd-text">curl -sSfL https://halcon.cuervo.cloud/install.sh | sh</span>
+                </div>
+                <button id="hero-copy-btn" title="Copy"
+                        class="flex-shrink-0 p-1.5 rounded transition-colors"
+                        style="color:var(--c-t4);"
+                        onmouseover="this.style.color='var(--c-t1)';this.style.background='rgba(232,82,0,0.08)'"
+                        onmouseout="this.style.color='var(--c-t4)';this.style.background='transparent'">
+                  <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5"
+                          d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+            <p class="text-xs mt-2 text-center lg:text-left" style="color:var(--c-t4);">
+              SHA-256 verified · no sudo · installs to ~/.local/bin
+            </p>
+          </div>
+
+          <!-- Trust row -->
+          <div data-reveal data-delay="5" class="flex items-center justify-center lg:justify-start gap-x-3 gap-y-1 mt-7 flex-wrap"
+               aria-label="Platform support">
+            <span class="font-mono text-xs font-semibold" style="color:var(--c-p);">v0.3.0</span>
+            <span style="color:var(--c-t4);" aria-hidden="true">·</span>
+            <span class="text-xs" style="color:var(--c-t3);">macOS</span>
+            <span style="color:var(--c-t4);" aria-hidden="true">·</span>
+            <span class="text-xs" style="color:var(--c-t3);">Linux</span>
+            <span style="color:var(--c-t4);" aria-hidden="true">·</span>
+            <span class="text-xs" style="color:var(--c-t3);">Windows</span>
+            <span style="color:var(--c-t4);" aria-hidden="true">·</span>
+            <span class="text-xs font-mono" style="color:var(--c-t4);">Written in Rust</span>
           </div>
         </div>
-        <p class="text-xs mt-2 text-center" style="color: var(--c-t4);">SHA-256 verified · no sudo required · installs to ~/.local/bin</p>
+
+        <!-- ── DERECHA: terminal video ────────────────────── -->
+        <div class="relative hero-terminal-col" data-reveal data-delay="2">
+          <div id="hero-term-aura" class="absolute -inset-4 rounded-3xl pointer-events-none"
+               style="background:radial-gradient(ellipse at center,rgba(160,14,0,0.12) 0%,transparent 70%);filter:blur(24px);"></div>
+
+          <div id="hero-terminal" class="relative rounded-2xl overflow-hidden"
+               style="border:1px solid rgba(200,30,0,0.22);background:var(--c-surface-2);
+                      box-shadow:0 0 50px rgba(160,14,0,0.18),0 0 100px rgba(160,14,0,0.08),0 24px 60px rgba(0,0,0,0.55);">
+
+            <div class="flex items-center gap-1.5 px-4 py-2.5 border-b select-none"
+                 style="border-color:rgba(200,30,0,0.10);background:var(--c-surface);">
+              <span class="term-dot w-3 h-3 rounded-full" style="background:rgba(255,96,89,0.65);" title="Close"></span>
+              <span class="term-dot w-3 h-3 rounded-full" style="background:rgba(255,189,68,0.65);" title="Minimize"></span>
+              <span class="term-dot w-3 h-3 rounded-full" style="background:rgba(40,200,64,0.65);" title="Zoom"></span>
+              <span class="flex-1 text-center font-mono text-xs" style="color:var(--c-t4);">halcon — zsh — 120×38</span>
+              <time id="hero-term-clock" class="font-mono text-xs tabular-nums"
+                    style="color:var(--c-t4);min-width:5ch;"></time>
+            </div>
+
+            <div class="hero-scanlines absolute inset-0 z-10 pointer-events-none rounded-b-2xl"></div>
+
+            <div class="absolute z-20 pointer-events-none"
+                 style="top:40px;left:0;right:0;height:13%;
+                        background:linear-gradient(to bottom,var(--c-surface-2) 0%,transparent 100%);"></div>
+            <div class="absolute bottom-0 z-20 pointer-events-none"
+                 style="left:0;right:0;height:7%;
+                        background:linear-gradient(to top,var(--c-surface-2) 0%,transparent 100%);"></div>
+
+            <video id="hero-video" autoplay muted loop playsinline
+                   class="w-full block" poster="/terminal-uxui.png"
+                   style="display:block;max-height:480px;object-fit:cover;object-position:top;">
+              <source src="/hero.mp4" type="video/mp4" />
+            </video>
+          </div>
+
+          <div class="absolute -bottom-6 left-1/2 -translate-x-1/2 w-3/4 h-16 pointer-events-none"
+               style="background:radial-gradient(ellipse,rgba(160,14,0,0.22) 0%,transparent 68%);filter:blur(18px);"></div>
+
+          <!-- Floating feature chips -->
+          <div class="hero-chips-layer" aria-hidden="true">
+            <div class="hero-chip" style="top:-16px;right:10%;animation-delay:0s;">
+              <span style="color:var(--c-p);">⚡</span> 21 Built-in Tools
+            </div>
+            <div class="hero-chip" style="bottom:12%;left:-5%;animation-delay:1.4s;">
+              <span style="color:var(--c-gold);">◎</span> Multi-model
+            </div>
+            <div class="hero-chip" style="top:40%;right:-8%;animation-delay:0.8s;">
+              <span style="color:var(--c-spark);">🦀</span> 100% Rust
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <!-- ══════════════════════════════════════ STATS ══ -->
+  <section class="py-16 px-4 border-t" style="border-color: var(--c-b);">
+    <div class="max-w-5xl mx-auto">
+      <div class="grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
+
+        <div class="stat-card" data-reveal>
+          <div class="stat-number font-display font-black" style="color:var(--c-p);">21</div>
+          <div class="stat-label" style="color:var(--c-t3);">Built-in Tools</div>
+          <div class="stat-bar mt-3">
+            <div class="stat-bar-fill" style="width:88%;background:linear-gradient(90deg,var(--c-ember),var(--c-p));"></div>
+          </div>
+        </div>
+
+        <div class="stat-card" data-reveal data-delay="1">
+          <div class="stat-number font-display font-black" style="color:var(--c-gold);">5</div>
+          <div class="stat-label" style="color:var(--c-t3);">AI Providers</div>
+          <div class="stat-bar mt-3">
+            <div class="stat-bar-fill" style="width:65%;background:linear-gradient(90deg,var(--c-p),var(--c-gold));"></div>
+          </div>
+        </div>
+
+        <div class="stat-card" data-reveal data-delay="2">
+          <div class="stat-number font-display font-black" style="background:linear-gradient(135deg,var(--c-gold),var(--c-p));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;">100%</div>
+          <div class="stat-label" style="color:var(--c-t3);">Written in Rust</div>
+          <div class="stat-bar mt-3">
+            <div class="stat-bar-fill" style="width:100%;background:linear-gradient(90deg,var(--c-ember),var(--c-gold));"></div>
+          </div>
+        </div>
+
+        <div class="stat-card" data-reveal data-delay="3">
+          <div class="stat-number font-display font-black" style="color:var(--c-spark);">&lt;2ms</div>
+          <div class="stat-label" style="color:var(--c-t3);">Agent overhead</div>
+          <div class="stat-bar mt-3">
+            <div class="stat-bar-fill" style="width:98%;background:linear-gradient(90deg,var(--c-p),var(--c-spark));"></div>
+          </div>
+        </div>
+
       </div>
     </div>
   </section>
 
   <!-- ══════════════════════════════════════ PROVIDERS ══ -->
-  <section id="providers" class="py-24 px-4 border-t" style="border-color: var(--c-b);">
+  <section id="providers" class="cv-section py-24 px-4 border-t" style="border-color: var(--c-b);">
     <div class="max-w-6xl mx-auto">
 
-      <div class="text-center mb-14">
+      <div class="text-center mb-14" data-reveal>
+        <p class="text-xs font-mono uppercase tracking-widest mb-3" style="color:var(--c-p);">Multi-model</p>
         <h2 class="text-3xl sm:text-4xl font-black mb-3 font-display">{t(lang, 'providers.heading')}</h2>
         <p class="text-base" style="color: var(--c-t3);">{t(lang, 'providers.sub')}</p>
       </div>
 
       <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {providers.map(p => (
-          <div class="glass rounded-2xl p-5 transition-all duration-300"
-               style={`border-color: ${p.border}; background: ${p.accent};`}
-               onmouseover={`this.style.transform='scale(1.01)'`}
-               onmouseout={`this.style.transform='scale(1)'`}>
-            <div class="flex items-start justify-between mb-4">
-              <div class="flex items-center gap-3">
-                <div class="w-10 h-10 rounded-xl flex items-center justify-center text-xl"
-                     style={`background: ${p.accent}; border: 1px solid ${p.border};`}>
-                  {p.logo}
+        {providers.map((p, i) => (
+          <div class="glass rounded-2xl provider-card"
+               data-reveal
+               data-delay={String(i + 1)}
+               data-tilt
+               style={`border-color: ${p.border}; background: ${p.accent}; --p-glow: ${p.glow};`}>
+            <!-- Top accent strip -->
+            <div class="provider-top-strip" style={`background: linear-gradient(90deg, rgba(${p.glow},0.55) 0%, rgba(${p.glow},0.0) 100%);`}></div>
+            <div class="p-5 pt-4">
+              <!-- Header -->
+              <div class="flex items-start justify-between mb-4">
+                <div class="flex items-center gap-3">
+                  <div class="w-11 h-11 rounded-xl flex items-center justify-center provider-icon"
+                       style={`background: rgba(${p.glow},0.14); border: 1px solid rgba(${p.glow},0.32); color: rgba(${p.glow},1);`}
+                       set:html={providerIcons[p.logoKey]}>
+                  </div>
+                  <span class="font-bold text-base" style="color: var(--c-t1);">{p.name}</span>
                 </div>
-                <span class="font-bold text-base" style="color: var(--c-t1);">{p.name}</span>
+                {p.badge && (
+                  <span class="text-xs font-medium px-2 py-0.5 rounded-full"
+                        style={`background: rgba(${p.glow},0.15); color: rgba(${p.glow},1); border: 1px solid rgba(${p.glow},0.35);`}>
+                    {p.badge}
+                  </span>
+                )}
               </div>
-              {p.badge && (
-                <span class="text-xs font-medium px-2 py-0.5 rounded-full"
-                      style="background: rgba(245,160,0,0.15); color: var(--c-gold); border: 1px solid rgba(245,160,0,0.3);">
-                  {p.badge}
-                </span>
-              )}
-            </div>
-            <div class="space-y-1.5">
-              <p class="text-xs uppercase tracking-wider mb-2" style="color: var(--c-t4);">{t(lang, 'providers.models')}</p>
-              {p.models.map(m => (
-                <div class="flex items-center gap-2">
-                  <span class="w-1 h-1 rounded-full flex-shrink-0" style="background: var(--c-p); opacity: 0.6;"></span>
-                  <span class="font-mono text-xs" style="color: var(--c-t2);">{m}</span>
-                </div>
-              ))}
+              <!-- Divider -->
+              <div class="provider-divider" style={`background: linear-gradient(90deg, rgba(${p.glow},0.30) 0%, transparent 100%);`}></div>
+              <!-- Models -->
+              <div class="space-y-1.5 mt-3">
+                <p class="text-xs uppercase tracking-wider mb-2 font-mono" style="color: var(--c-t4);">{t(lang, 'providers.models')}</p>
+                {p.models.map(m => (
+                  <div class="flex items-center gap-2">
+                    <span class="w-1.5 h-1.5 rounded-full flex-shrink-0" style={`background: rgba(${p.glow},0.80);`}></span>
+                    <span class="font-mono text-xs" style="color: var(--c-t2);">{m}</span>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         ))}
 
         <!-- Switch card -->
-        <div class="glass rounded-2xl p-5 flex flex-col items-center justify-center text-center gap-3"
+        <div class="glass rounded-2xl p-6 flex flex-col items-center justify-center text-center gap-4 provider-switch-card"
+             data-reveal data-delay="6"
              style="border-style: dashed; border-color: rgba(200,80,0,0.25);">
-          <div class="w-10 h-10 rounded-xl flex items-center justify-center"
-               style="background: rgba(232,82,0,0.08); border: 1px solid rgba(232,82,0,0.2);">
+          <div class="w-11 h-11 rounded-xl flex items-center justify-center"
+               style="background: rgba(232,82,0,0.10); border: 1px solid rgba(232,82,0,0.25);">
             <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color: var(--c-p);">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/>
             </svg>
           </div>
-          <p class="text-sm font-medium" style="color: var(--c-t2);">Switch with one flag</p>
-          <code class="font-mono text-xs px-3 py-1.5 rounded-lg" style="background: var(--c-surface); color: var(--c-p);">
-            halcon -p openai chat
-          </code>
-          <code class="font-mono text-xs px-3 py-1.5 rounded-lg" style="background: var(--c-surface); color: var(--c-gold);">
-            halcon -p ollama -m llama3 chat
-          </code>
+          <p class="text-sm font-semibold" style="color: var(--c-t1);">Switch with one flag</p>
+          <div class="w-full space-y-2">
+            <div class="provider-code-block" style="border-color: rgba(232,82,0,0.20);">
+              <span class="provider-code-label" style="color: var(--c-p);">provider</span>
+              <code class="font-mono text-xs" style="color: var(--c-t2);">halcon -p openai chat</code>
+            </div>
+            <div class="provider-code-block" style="border-color: rgba(245,160,0,0.20);">
+              <span class="provider-code-label" style="color: var(--c-gold);">model</span>
+              <code class="font-mono text-xs" style="color: var(--c-t2);">halcon -p ollama -m llama3 chat</code>
+            </div>
+          </div>
         </div>
       </div>
     </div>
   </section>
 
-  <!-- ══════════════════════════════════════ FEATURES ══ -->
-  <section id="features" class="py-24 px-4 border-t" style="border-color: var(--c-b);">
+  <!-- ══════════════════════════════════════ FEATURES BENTO ══ -->
+  <section id="features" class="cv-section py-24 px-4 border-t" style="border-color: var(--c-b);">
     <div class="max-w-6xl mx-auto">
 
-      <div class="text-center mb-14">
+      <div class="text-center mb-14" data-reveal>
+        <p class="text-xs font-mono uppercase tracking-widest mb-3" style="color:var(--c-p);">Capabilities</p>
         <h2 class="text-3xl sm:text-4xl font-black mb-3 font-display">{t(lang, 'features.heading')}</h2>
         <p class="text-base" style="color: var(--c-t3);">{t(lang, 'features.sub')}</p>
       </div>
 
-      <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-        {features.map(f => (
-          <div class="glass rounded-2xl p-6 transition-all duration-300"
-               onmouseover="this.style.borderColor='var(--c-bh)'; this.style.transform='scale(1.01)'"
-               onmouseout="this.style.borderColor=''; this.style.transform='scale(1)'">
-            <div class="w-10 h-10 rounded-xl flex items-center justify-center mb-4"
-                 style="background: rgba(232,82,0,0.08); border: 1px solid rgba(232,82,0,0.2);">
-              <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color: var(--c-p);" set:html={f.icon} />
-            </div>
-            <h3 class="font-bold text-base mb-2" style="color: var(--c-t1);">{f.title}</h3>
-            <p class="text-sm leading-relaxed" style="color: var(--c-t3);">{f.desc}</p>
+      <!-- Bento grid: [F1:2] [F2:1] / [F3:1] [F4:1] [F5:1] / [F6:3] -->
+      <div class="bento-grid">
+
+        <!-- F1: 21 tools — LARGE with mini tool stream preview -->
+        <div class="bento-2 glass rounded-2xl p-7 bento-card" data-reveal data-tilt>
+          <div class="w-11 h-11 rounded-xl flex items-center justify-center mb-5"
+               style="background: rgba(232,82,0,0.10); border: 1px solid rgba(232,82,0,0.25);">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color: var(--c-p);">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+            </svg>
           </div>
-        ))}
+          <h3 class="font-black text-xl mb-2 font-display" style="color: var(--c-t1);">21 built-in tools</h3>
+          <p class="text-sm leading-relaxed mb-5" style="color: var(--c-t3);">File read/write/edit, bash, git, web search, regex grep, code symbols, HTTP requests, and background jobs — all wired into the agent loop.</p>
+          <!-- Mini tool activity stream -->
+          <div class="bento-preview">
+            <div><span class="bm">╌╌ R2</span></div>
+            <div><span class="bg">▸</span> <span class="bt">Read project structure</span></div>
+            <div><span class="bp">⟳</span> <span class="bt">directory_tree</span> <span class="bm">halcon-cli/</span></div>
+            <div><span class="be">✓</span> <span class="bm">20 crates · 2.3s</span></div>
+            <div><span class="bp">⟳</span> <span class="bt">file_read</span> <span class="bm">src/main.rs</span></div>
+            <div><span class="be">✓</span> <span class="bp">grep</span> <span class="bm">"fn main" · 0.4s</span></div>
+            <div class="mt-1"><span class="bg">◆</span> <span class="bt">Found entry point at line 42…</span></div>
+          </div>
+        </div>
+
+        <!-- F2: Permissions — normal card -->
+        <div class="bento-1 glass rounded-2xl p-7 bento-card" data-reveal data-delay="1" data-tilt>
+          <div class="w-11 h-11 rounded-xl flex items-center justify-center mb-5"
+               style="background: rgba(232,82,0,0.10); border: 1px solid rgba(232,82,0,0.25);">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color: var(--c-p);">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"/>
+            </svg>
+          </div>
+          <h3 class="font-black text-lg mb-2 font-display" style="color: var(--c-t1);">Permission-first</h3>
+          <p class="text-sm leading-relaxed mb-4" style="color: var(--c-t3);">Every tool is classified. ReadOnly tools run silently. ReadWrite and Destructive tools require explicit confirmation.</p>
+          <!-- Permission badges -->
+          <div class="flex flex-col gap-1.5">
+            <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg" style="background:rgba(34,197,94,0.07);border:1px solid rgba(34,197,94,0.15);">
+              <span style="color:#22c55e;font-size:0.65rem;">●</span>
+              <span class="font-mono text-xs" style="color:var(--c-t3);">ReadOnly — silent</span>
+            </div>
+            <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg" style="background:rgba(245,160,0,0.07);border:1px solid rgba(245,160,0,0.15);">
+              <span style="color:var(--c-gold);font-size:0.65rem;">●</span>
+              <span class="font-mono text-xs" style="color:var(--c-t3);">ReadWrite — confirm</span>
+            </div>
+            <div class="flex items-center gap-2 px-3 py-1.5 rounded-lg" style="background:rgba(232,82,0,0.08);border:1px solid rgba(232,82,0,0.20);">
+              <span style="color:var(--c-p);font-size:0.65rem;">●</span>
+              <span class="font-mono text-xs" style="color:var(--c-t3);">Destructive — [y/N]</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- F3: TUI Cockpit -->
+        <div class="bento-1 glass rounded-2xl p-7 bento-card" data-reveal data-delay="1" data-tilt>
+          <div class="w-11 h-11 rounded-xl flex items-center justify-center mb-5"
+               style="background: rgba(232,82,0,0.10); border: 1px solid rgba(232,82,0,0.25);">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color: var(--c-p);">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+            </svg>
+          </div>
+          <h3 class="font-black text-lg mb-2 font-display" style="color: var(--c-t1);">TUI Cockpit</h3>
+          <p class="text-sm leading-relaxed" style="color: var(--c-t3);">3-zone terminal UI: live token counters, agent FSM state, plan progress, and real-time activity stream. Pause, step, or cancel mid-execution.</p>
+          <div class="mt-4">
+            <code class="font-mono text-xs px-3 py-1.5 rounded-lg" style="background:var(--c-surface);border:1px solid var(--c-b);color:var(--c-p);">halcon chat --tui</code>
+          </div>
+        </div>
+
+        <!-- F4: Episodic memory -->
+        <div class="bento-1 glass rounded-2xl p-7 bento-card" data-reveal data-delay="2" data-tilt>
+          <div class="w-11 h-11 rounded-xl flex items-center justify-center mb-5"
+               style="background: rgba(232,82,0,0.10); border: 1px solid rgba(232,82,0,0.25);">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color: var(--c-p);">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/>
+            </svg>
+          </div>
+          <h3 class="font-black text-lg mb-2 font-display" style="color: var(--c-t1);">Episodic memory</h3>
+          <p class="text-sm leading-relaxed" style="color: var(--c-t3);">Remembers decisions, file paths, and learnings across sessions using BM25 semantic search and temporal decay scoring.</p>
+        </div>
+
+        <!-- F5: MCP Server -->
+        <div class="bento-1 glass rounded-2xl p-7 bento-card" data-reveal data-delay="3" data-tilt>
+          <div class="w-11 h-11 rounded-xl flex items-center justify-center mb-5"
+               style="background: rgba(232,82,0,0.10); border: 1px solid rgba(232,82,0,0.25);">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color: var(--c-p);">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+            </svg>
+          </div>
+          <h3 class="font-black text-lg mb-2 font-display" style="color: var(--c-t1);">MCP Server built in</h3>
+          <p class="text-sm leading-relaxed" style="color: var(--c-t3);">Run <code class="text-xs" style="color:var(--c-p);">halcon mcp-server</code> to expose all 21 tools via JSON-RPC over stdio. Wire into VS Code, Cursor, or any MCP-compatible IDE.</p>
+        </div>
+
+        <!-- F6: Multi-provider routing — FULL WIDTH showcase -->
+        <div class="bento-3 glass rounded-2xl p-7 bento-card-wide" data-reveal data-delay="1" data-tilt>
+          <div class="flex flex-col lg:flex-row lg:items-center gap-8">
+            <div class="flex-shrink-0">
+              <div class="w-11 h-11 rounded-xl flex items-center justify-center mb-5"
+                   style="background: rgba(232,82,0,0.10); border: 1px solid rgba(232,82,0,0.25);">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="color: var(--c-p);">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                </svg>
+              </div>
+              <h3 class="font-black text-xl mb-2 font-display" style="color: var(--c-t1);">Multi-provider routing</h3>
+              <p class="text-sm leading-relaxed max-w-sm" style="color: var(--c-t3);">Automatic fallback between providers, latency-aware model selection, and cost tracking per session. Set <code class="text-xs" style="color:var(--c-p);">balanced</code>, <code class="text-xs" style="color:var(--c-gold);">fast</code>, or <code class="text-xs" style="color:var(--c-emerald);">cheap</code> strategies.</p>
+            </div>
+            <!-- Latency metrics visual -->
+            <div class="flex-1 space-y-3 min-w-0">
+              {[
+                { name: 'deepseek-chat', latency: '420ms', pct: 42, color: 'rgba(99,102,241,0.8)' },
+                { name: 'claude-sonnet', latency: '680ms', pct: 68, color: 'rgba(232,82,0,0.8)' },
+                { name: 'gpt-4o-mini',   latency: '310ms', pct: 31, color: 'rgba(16,163,127,0.8)' },
+                { name: 'ollama/llama3', latency: '95ms',  pct: 10, color: 'rgba(245,160,0,0.8)' },
+              ].map(row => (
+                <div class="flex items-center gap-3">
+                  <span class="font-mono text-xs w-36 flex-shrink-0" style="color:var(--c-t3);">{row.name}</span>
+                  <div class="flex-1 h-1.5 rounded-full overflow-hidden" style="background:rgba(255,255,255,0.04);">
+                    <div class="h-full rounded-full latency-bar" style={`width:${row.pct}%;background:${row.color};`}></div>
+                  </div>
+                  <span class="font-mono text-xs w-12 text-right flex-shrink-0" style="color:var(--c-t4);">{row.latency}</span>
+                </div>
+              ))}
+              <p class="text-xs mt-2" style="color:var(--c-t4);">p95 latency · real session data · automatic routing</p>
+            </div>
+          </div>
+        </div>
+
       </div>
     </div>
   </section>
 
   <!-- ══════════════════════════════════════ TUI DEMO ══ -->
-  <section class="py-24 px-4 border-t" style="border-color: var(--c-b);">
+  <section class="cv-section py-24 px-4 border-t" style="border-color: var(--c-b);">
     <div class="max-w-6xl mx-auto">
       <div class="grid md:grid-cols-2 gap-12 items-center">
 
-        <div>
+        <div data-reveal>
           <div class="inline-flex items-center gap-2 px-3 py-1 mb-5 rounded-full border text-xs font-mono"
                style="border-color: rgba(232,82,0,0.30); background: rgba(232,82,0,0.06); color: var(--c-p);">
             TUI Cockpit
@@ -301,8 +574,7 @@ const features = [
         </div>
 
         <!-- Terminal mockup -->
-        <div class="glass rounded-2xl overflow-hidden" style="font-family: 'JetBrains Mono', monospace;">
-          <!-- Window bar -->
+        <div class="glass rounded-2xl overflow-hidden" data-reveal data-delay="1" style="font-family: 'JetBrains Mono', monospace;">
           <div class="flex items-center justify-between px-4 py-2.5 border-b"
                style="border-color: var(--c-b); background: rgba(12,8,4,0.9);">
             <div class="flex gap-1.5">
@@ -316,7 +588,6 @@ const features = [
               <span class="text-xs" style="color: var(--c-p);">● RUNNING</span>
             </div>
           </div>
-          <!-- Status bar -->
           <div class="px-3 py-1.5 text-xs flex items-center justify-between"
                style="background: rgba(232,82,0,0.08); border-bottom: 1px solid rgba(232,82,0,0.12); color: var(--c-t3);">
             <span class="font-mono">SESSION <span style="color: var(--c-t4);">a3f8c1</span></span>
@@ -324,7 +595,6 @@ const features = [
             <span>R<span style="color: var(--c-p);">3</span> &nbsp; ↑<span style="color: var(--c-gold);">1.2k</span> ↓<span style="color: var(--c-emerald);">4.8k</span></span>
             <span style="color: var(--c-gold);">$0.0024</span>
           </div>
-          <!-- Split: activity + panel -->
           <div class="flex" style="min-height: 280px;">
             <div class="flex-1 p-3 text-xs space-y-1.5 overflow-hidden border-r"
                  style="border-color: var(--c-b); background: rgba(7,4,1,0.6);">
@@ -365,7 +635,6 @@ const features = [
               </div>
             </div>
           </div>
-          <!-- Prompt zone -->
           <div class="border-t px-3 py-2.5" style="border-color: var(--c-b); background: rgba(12,8,4,0.9);">
             <div class="flex items-center gap-2">
               <span style="color: var(--c-p);">›</span>
@@ -379,11 +648,113 @@ const features = [
     </div>
   </section>
 
+  <!-- ══════════════════════════════════════ COMMAND SHOWCASE ══ -->
+  <section class="cv-section py-24 px-4 border-t" style="border-color: var(--c-b);">
+    <div class="max-w-5xl mx-auto">
+
+      <div class="text-center mb-12" data-reveal>
+        <p class="text-xs font-mono uppercase tracking-widest mb-3" style="color:var(--c-p);">In action</p>
+        <h2 class="text-3xl sm:text-4xl font-black mb-3 font-display">One agent, every workflow</h2>
+        <p class="text-base" style="color:var(--c-t3);">From quick questions to complex multi-step engineering tasks.</p>
+      </div>
+
+      <!-- Terminal showcase with tabs -->
+      <div class="showcase-terminal glass rounded-2xl overflow-hidden" data-reveal data-delay="1">
+
+        <!-- Window chrome + tabs -->
+        <div class="flex items-center border-b" style="border-color:var(--c-b);background:rgba(7,4,1,0.85);">
+          <div class="flex items-center gap-1.5 px-4 py-3 border-r flex-shrink-0" style="border-color:var(--c-b);">
+            <span class="w-2.5 h-2.5 rounded-full" style="background:rgba(255,96,89,0.6)"></span>
+            <span class="w-2.5 h-2.5 rounded-full" style="background:rgba(255,189,68,0.6)"></span>
+            <span class="w-2.5 h-2.5 rounded-full" style="background:rgba(40,200,64,0.6)"></span>
+          </div>
+          <div class="flex overflow-x-auto">
+            <button class="showcase-tab active" data-tab="0">
+              <span style="color:var(--c-t4);">halcon</span> chat
+            </button>
+            <button class="showcase-tab" data-tab="1">
+              <span style="color:var(--c-t4);">halcon</span> -p deepseek chat
+            </button>
+            <button class="showcase-tab" data-tab="2">
+              <span style="color:var(--c-t4);">halcon</span> chat --tui
+            </button>
+          </div>
+        </div>
+
+        <!-- Panel 0: basic chat -->
+        <div class="showcase-panel active" data-panel="0">
+          <div class="p-6 font-mono text-xs leading-loose" style="min-height:280px;background:rgba(7,4,1,0.55);">
+            <div style="color:var(--c-t3);"><span style="color:var(--c-t4);">~</span> <span style="color:var(--c-p);">$</span> halcon chat <span style="color:var(--c-gold);">"Analyze this repo and find any N+1 query issues"</span></div>
+            <div class="mt-3" style="color:var(--c-t4);">◈ Planning...</div>
+            <div style="color:var(--c-gold);">  ▸ Scan directory structure</div>
+            <div style="color:var(--c-gold);">  ▸ Read database layer files</div>
+            <div style="color:var(--c-gold);">  ▸ Analyze query patterns</div>
+            <div class="mt-2" style="color:var(--c-p);">⟳ directory_tree  src/ <span style="color:var(--c-t4);">170ms</span></div>
+            <div style="color:#22c55e;">✓ directory_tree  <span style="color:var(--c-t4);">23 files</span></div>
+            <div style="color:var(--c-p);">⟳ file_read  src/db/users.rs <span style="color:var(--c-t4);">38ms</span></div>
+            <div style="color:var(--c-p);">⟳ file_read  src/db/posts.rs <span style="color:var(--c-t4);">31ms</span></div>
+            <div style="color:#22c55e;">✓ file_read  <span style="color:var(--c-t4);">2 files</span></div>
+            <div class="mt-3 flex items-start gap-2">
+              <span style="color:var(--c-p);">◆ halcon</span>
+              <span style="color:var(--c-t2);">Found <span style="color:var(--c-gold);">2 N+1 issues</span>: <code style="color:var(--c-p);">get_posts_by_user()</code> loads all posts then fetches author per row. <code style="color:var(--c-p);">list_comments()</code> makes one query per post. Use <code style="color:var(--c-p);">JOIN</code> or batch <code style="color:var(--c-p);">WHERE id IN (?)</code> instead.</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Panel 1: multi-provider -->
+        <div class="showcase-panel" data-panel="1">
+          <div class="p-6 font-mono text-xs leading-loose" style="min-height:280px;background:rgba(7,4,1,0.55);">
+            <div style="color:var(--c-t3);"><span style="color:var(--c-t4);">~</span> <span style="color:var(--c-p);">$</span> halcon <span style="color:var(--c-gold);">-p deepseek</span> chat <span style="color:var(--c-gold);">"Write a Rust async web scraper"</span></div>
+            <div class="mt-3" style="color:var(--c-t4);">provider: deepseek · model: deepseek-chat · strategy: balanced</div>
+            <div style="color:var(--c-t4);">◈ Planning...</div>
+            <div style="color:var(--c-gold);">  ▸ Design scraper architecture</div>
+            <div style="color:var(--c-gold);">  ▸ Write reqwest + tokio implementation</div>
+            <div style="color:var(--c-gold);">  ▸ Add error handling and rate limiting</div>
+            <div class="mt-2" style="color:var(--c-p);">⟳ file_write  src/scraper.rs <span style="color:var(--c-t4);">2.1s</span></div>
+            <div style="color:#22c55e;">✓ file_write  <span style="color:var(--c-t4);">148 lines written</span></div>
+            <div class="mt-3 flex items-start gap-2">
+              <span style="color:var(--c-p);">◆ halcon</span>
+              <span style="color:var(--c-t2);">Created <code style="color:var(--c-p);">src/scraper.rs</code> — async scraper using <code style="color:var(--c-p);">reqwest</code>, <code style="color:var(--c-p);">tokio</code>, concurrent requests via <code style="color:var(--c-p);">JoinSet</code>, exponential backoff, and configurable rate limiting.</span>
+            </div>
+            <div class="mt-2 text-xs" style="color:var(--c-t4);">↑ 842 tokens · ↓ 2.1k tokens · $0.0003 · 4.8s</div>
+          </div>
+        </div>
+
+        <!-- Panel 2: TUI mode -->
+        <div class="showcase-panel" data-panel="2">
+          <div class="p-6 font-mono text-xs leading-loose" style="min-height:280px;background:rgba(7,4,1,0.55);">
+            <div style="color:var(--c-t3);"><span style="color:var(--c-t4);">~</span> <span style="color:var(--c-p);">$</span> halcon chat <span style="color:var(--c-gold);">--tui</span></div>
+            <div class="mt-3" style="color:var(--c-t4);">Launching TUI Cockpit...</div>
+            <div class="mt-2 rounded-lg overflow-hidden" style="border:1px solid rgba(200,80,0,0.15);">
+              <div class="px-3 py-1.5 text-xs flex items-center gap-4" style="background:rgba(232,82,0,0.08);border-bottom:1px solid rgba(232,82,0,0.10);">
+                <span style="color:var(--c-t4);">SESSION <span style="color:var(--c-t3);">f2a1b9</span></span>
+                <span style="color:var(--c-t4);">anthropic / claude-sonnet-4-5</span>
+                <span>R<span style="color:var(--c-p);">2</span></span>
+                <span>↑<span style="color:var(--c-gold);">1.8k</span> ↓<span style="color:#22c55e;">5.2k</span></span>
+                <span style="color:var(--c-gold);">$0.0031</span>
+              </div>
+              <div class="p-3" style="background:rgba(4,2,0,0.7);">
+                <div style="color:var(--c-t4);">╌╌ R1</div>
+                <div style="color:var(--c-gold);">▸ Understand the codebase</div>
+                <div style="color:#22c55e;">✓ directory_tree · file_read</div>
+                <div style="color:var(--c-t4);">╌╌ R2</div>
+                <div style="color:var(--c-p);">⟳ grep "TODO" **/*.rs</div>
+                <div style="color:var(--c-t4);">▸ [Space] pause  [N] step  [Esc] cancel</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
   <!-- ══════════════════════════════════════ QUICK START ══ -->
   <section class="py-24 px-4 border-t" style="border-color: var(--c-b);">
     <div class="max-w-3xl mx-auto">
 
-      <div class="text-center mb-12">
+      <div class="text-center mb-12" data-reveal>
+        <p class="text-xs font-mono uppercase tracking-widest mb-3" style="color:var(--c-p);">Get started</p>
         <h2 class="text-3xl sm:text-4xl font-black mb-3 font-display">{t(lang, 'qs.heading')}</h2>
       </div>
 
@@ -393,7 +764,7 @@ const features = [
             n: '1',
             title: t(lang, 'qs.step1'),
             note: t(lang, 'qs.step1_note'),
-            code: 'curl -sSfL cuervo.cloud/install.sh | sh',
+            code: 'curl -sSfL https://halcon.cuervo.cloud/install.sh | sh',
           },
           {
             n: '2',
@@ -407,8 +778,8 @@ const features = [
             note: t(lang, 'qs.step3_note'),
             code: 'halcon chat "Refactor my login function to use async/await"',
           },
-        ].map(step => (
-          <div class="glass rounded-2xl overflow-hidden">
+        ].map((step, i) => (
+          <div class="glass rounded-2xl overflow-hidden" data-reveal data-delay={String(i + 1)}>
             <div class="flex items-center gap-4 px-5 py-4 border-b" style="border-color: var(--c-b); background: var(--c-surface);">
               <div class="w-7 h-7 rounded-lg flex items-center justify-center text-sm font-mono font-bold flex-shrink-0"
                    style="background: rgba(232,82,0,0.12); color: var(--c-p); border: 1px solid rgba(232,82,0,0.3);">
@@ -432,20 +803,891 @@ const features = [
     </div>
   </section>
 
+  <!-- ══════════════════════════════════════ CTA ══ -->
+  <section class="cta-root relative py-32 px-4 overflow-hidden border-t" style="border-color:var(--c-b);">
+    <!-- Deep fire ambient -->
+    <div class="absolute inset-0 pointer-events-none" aria-hidden="true">
+      <div style="position:absolute;inset:0;background:radial-gradient(ellipse 90% 75% at 50% 55%, rgba(140,12,0,0.30) 0%, rgba(232,82,0,0.06) 45%, transparent 70%);"></div>
+      <div style="position:absolute;inset:0;background:radial-gradient(ellipse 40% 40% at 20% 80%, rgba(245,160,0,0.05) 0%, transparent 55%);"></div>
+      <div style="position:absolute;inset:0;background:radial-gradient(ellipse 40% 40% at 80% 20%, rgba(196,20,0,0.04) 0%, transparent 55%);"></div>
+      <!-- Fire grid -->
+      <div class="absolute inset-0 bg-grid" style="opacity:0.055;"></div>
+      <!-- Noise grain -->
+      <div class="hero-grain absolute inset-0" style="opacity:0.025;"></div>
+      <!-- Diagonal light ray -->
+      <div class="cta-beam" aria-hidden="true"></div>
+    </div>
+
+    <div class="relative z-10 max-w-3xl mx-auto text-center">
+
+      <!-- Pre-header chip -->
+      <div data-reveal class="inline-flex items-center gap-2 px-3.5 py-1.5 mb-8 rounded-full border font-mono text-xs"
+           style="border-color:rgba(232,82,0,0.28);background:rgba(232,82,0,0.06);color:var(--c-gold);">
+        <span class="w-1.5 h-1.5 rounded-full" style="background:var(--c-p);animation:live-pulse 2.3s ease-in-out infinite;display:inline-block;"></span>
+        Free forever — no account required
+      </div>
+
+      <!-- Headline -->
+      <h2 data-reveal data-delay="1"
+          class="text-5xl sm:text-6xl lg:text-7xl font-black mb-6 font-display leading-[1.00] tracking-tight">
+        <span class="block" style="color:var(--c-t1);">Start shipping</span>
+        <span class="block gradient-text mt-1">faster today.</span>
+      </h2>
+
+      <!-- Sub -->
+      <p data-reveal data-delay="2" class="text-lg leading-relaxed mb-10" style="color:var(--c-t3);">
+        One command install. No configuration. Every major AI provider.<br class="hidden sm:block"/>
+        macOS · Linux · Windows.
+      </p>
+
+      <!-- CTAs -->
+      <div data-reveal data-delay="3" class="flex flex-col sm:flex-row items-center justify-center gap-4 mb-8">
+        <a href="/download" class="btn-primary cta-btn-lg" data-magnetic>
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5"
+                  d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+          </svg>
+          Download v0.3.0
+        </a>
+        <a href="/docs" class="btn-outline cta-btn-lg">
+          Read the docs
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+          </svg>
+        </a>
+      </div>
+
+      <!-- Inline install command -->
+      <div data-reveal data-delay="4"
+           class="inline-flex items-center gap-3 px-5 py-3 rounded-xl font-mono text-sm"
+           style="background:rgba(7,4,1,0.82);border:1px solid rgba(200,80,0,0.16);backdrop-filter:blur(16px);">
+        <span style="color:var(--c-t4);">$</span>
+        <span style="color:var(--c-p);">curl -sSfL https://halcon.cuervo.cloud/install.sh | sh</span>
+      </div>
+
+      <!-- Trust marks -->
+      <div data-reveal data-delay="5" class="flex items-center justify-center gap-x-5 gap-y-2 mt-8 flex-wrap text-xs" style="color:var(--c-t4);">
+        <span>✓ SHA-256 verified</span>
+        <span style="color:rgba(200,80,0,0.25);">·</span>
+        <span>✓ No sudo needed</span>
+        <span style="color:rgba(200,80,0,0.25);">·</span>
+        <span>✓ Installs to ~/.local/bin</span>
+        <span style="color:rgba(200,80,0,0.25);">·</span>
+        <span>✓ 100% open audit trail</span>
+      </div>
+
+    </div>
+  </section>
+
 </Layout>
 
+<style>
+  /* ── Hero keyframes ─────────────────────────────────── */
+  @keyframes badge-breathe {
+    0%,100% { box-shadow: 0 0 0 0 rgba(232,82,0,0.0); }
+    50%      { box-shadow: 0 0 0 7px rgba(232,82,0,0.05), 0 0 22px rgba(232,82,0,0.07); }
+  }
+  @keyframes live-pulse {
+    0%,100% { transform: scale(1);   opacity: 0.75; }
+    50%      { transform: scale(1.5); opacity: 1;    }
+  }
+  @keyframes cursor-blink { 0%,100% { opacity:1; } 50% { opacity:0; } }
+
+  /* Ambient beam — diagonal sweep across hero */
+  .hero-beam {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      105deg,
+      transparent 0%,
+      transparent 38%,
+      rgba(232, 82, 0, 0.022) 42%,
+      rgba(245, 160, 0, 0.012) 46%,
+      transparent 50%,
+      transparent 100%
+    );
+    pointer-events: none;
+  }
+
+  /* CRT scanlines */
+  .hero-scanlines {
+    background: repeating-linear-gradient(
+      to bottom,
+      transparent 0px, transparent 3px,
+      rgba(0,0,0,0.045) 3px, rgba(0,0,0,0.045) 4px
+    );
+    animation: scanline-drift 10s linear infinite;
+  }
+  @keyframes scanline-drift { 0% { background-position:0 0; } 100% { background-position:0 40px; } }
+
+  /* Install tabs */
+  .install-tab {
+    padding: 0.28rem 0.65rem;
+    font-family: var(--font-mono);
+    font-size: 0.70rem;
+    font-weight: 500;
+    color: var(--c-t4);
+    border-radius: 0.35rem;
+    border: 1px solid transparent;
+    background: transparent;
+    cursor: pointer;
+    transition: all 0.14s;
+  }
+  .install-tab.active, .install-tab:hover {
+    color: var(--c-gold);
+    border-color: rgba(245,160,0,0.22);
+    background: rgba(245,160,0,0.06);
+  }
+
+  /* Noise grain */
+  .hero-grain {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='300' height='300' filter='url(%23n)'/%3E%3C/svg%3E");
+    background-size: 300px 300px;
+  }
+
+  /* Terminal dot hover */
+  .term-dot { transition: opacity 0.18s; cursor: default; }
+  .term-dot:hover { opacity: 0.80; }
+
+  /* Spark particles */
+  @keyframes spark-rise {
+    0%   { opacity:0; transform:translateY(0) translateX(0) scale(1); }
+    8%   { opacity:var(--op,0.70); }
+    85%  { opacity:var(--op2,0.25); }
+    100% { opacity:0; transform:translateY(-200px) translateX(var(--tx,10px)) scale(0.08); }
+  }
+
+  /* Mobile headline */
+  @media (max-width:639px) {
+    #hero-headline-brand { font-size: clamp(2.4rem, 8vw, 3.5rem); }
+  }
+
+  /* ── Scroll reveal system ─────────────────────────── */
+  [data-reveal] {
+    opacity: 0;
+    transform: translateY(28px);
+    transition:
+      opacity  0.65s cubic-bezier(0.22, 1, 0.36, 1),
+      transform 0.65s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+  [data-reveal].revealed {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  [data-delay="1"] { transition-delay: 0.08s; }
+  [data-delay="2"] { transition-delay: 0.16s; }
+  [data-delay="3"] { transition-delay: 0.24s; }
+  [data-delay="4"] { transition-delay: 0.32s; }
+  [data-delay="5"] { transition-delay: 0.40s; }
+  [data-delay="6"] { transition-delay: 0.48s; }
+  @media (prefers-reduced-motion: reduce) {
+    [data-reveal] { opacity: 1 !important; transform: none !important; transition: none !important; }
+  }
+
+  /* ── Stats section ────────────────────────────────── */
+  .stat-card {
+    padding: 1.5rem 1.25rem;
+    text-align: center;
+    border-radius: 1rem;
+    background: rgba(17, 8, 3, 0.55);
+    border: 1px solid rgba(200, 80, 0, 0.10);
+    transition: border-color 0.3s ease, transform 0.3s ease;
+  }
+  .stat-card:hover {
+    border-color: rgba(245, 160, 0, 0.25);
+    transform: translateY(-2px);
+  }
+  .stat-number {
+    font-size: 2.5rem;
+    line-height: 1;
+    letter-spacing: -0.03em;
+  }
+  .stat-label {
+    font-size: 0.8rem;
+    margin-top: 0.4rem;
+  }
+  .stat-bar {
+    height: 3px;
+    background: rgba(255,255,255,0.05);
+    border-radius: 9999px;
+    overflow: hidden;
+  }
+  .stat-bar-fill {
+    height: 100%;
+    border-radius: 9999px;
+    transition: width 1.2s cubic-bezier(0.22, 1, 0.36, 1) 0.4s;
+  }
+
+  /* ── Bento grid ───────────────────────────────────── */
+  .bento-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 1.25rem;
+  }
+  .bento-1 { grid-column: span 1; }
+  .bento-2 { grid-column: span 2; }
+  .bento-3 { grid-column: span 3; }
+
+  @media (max-width: 1023px) {
+    .bento-grid { grid-template-columns: repeat(2, 1fr); }
+    .bento-3 { grid-column: span 2; }
+    .bento-2 { grid-column: span 2; }
+  }
+  @media (max-width: 639px) {
+    .bento-grid { grid-template-columns: 1fr; }
+    .bento-2, .bento-3 { grid-column: span 1; }
+  }
+
+  .bento-card {
+    --glow-opacity: 0;
+    transition: --glow-opacity 400ms ease, border-color 280ms ease, transform 280ms cubic-bezier(0.22,1,0.36,1), box-shadow 280ms ease;
+    will-change: transform;
+  }
+  .bento-card:hover {
+    --glow-opacity: 1;
+    border-color: rgba(232, 82, 0, 0.42) !important;
+    transform: translateY(-3px);
+    box-shadow:
+      0 0 0 1px rgba(232,82,0,0.08),
+      0 12px 56px rgba(232,82,0,0.14),
+      0 4px 16px rgba(0,0,0,0.40);
+  }
+  .bento-card-wide { transition: border-color 0.28s ease; }
+  .bento-card-wide:hover { border-color: rgba(220, 100, 0, 0.30) !important; }
+
+  /* Bento mini preview (tool stream inside large card) */
+  .bento-preview {
+    margin-top: 1.25rem;
+    padding: 0.875rem 1rem;
+    border-radius: 0.75rem;
+    background: rgba(4, 2, 0, 0.70);
+    border: 1px solid rgba(200, 80, 0, 0.12);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.70rem;
+    line-height: 1.8;
+    overflow: hidden;
+  }
+  .bento-preview .bp { color: var(--c-p); }
+  .bento-preview .bg { color: var(--c-gold); }
+  .bento-preview .be { color: #22c55e; }
+  .bento-preview .bm { color: var(--c-t4); }
+  .bento-preview .bt { color: var(--c-t2); }
+
+  /* Latency bars animation */
+  @keyframes bar-grow {
+    from { width: 0 !important; }
+  }
+  .latency-bar {
+    animation: bar-grow 1.0s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    animation-delay: 0.3s;
+  }
+
+  /* Provider cards */
+  .provider-card {
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.28s ease, box-shadow 0.28s ease, border-color 0.28s ease;
+  }
+  .provider-top-strip {
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    border-radius: 2px 2px 0 0;
+  }
+  .provider-icon {
+    transition: transform 0.25s ease, box-shadow 0.25s ease;
+  }
+  .provider-icon svg {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+  }
+  .provider-card:hover .provider-icon {
+    transform: scale(1.08);
+    box-shadow: 0 0 16px rgba(var(--p-glow), 0.30);
+  }
+  .provider-divider {
+    height: 1px;
+    border-radius: 1px;
+    opacity: 0.6;
+  }
+  /* Switch card code blocks */
+  .provider-code-block {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    background: var(--c-surface);
+    border: 1px solid;
+    border-radius: 0.625rem;
+    padding: 0.5rem 0.75rem;
+    text-align: left;
+  }
+  .provider-code-label {
+    font-family: var(--font-mono);
+    font-size: 0.6rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    opacity: 0.85;
+    flex-shrink: 0;
+    width: 3.5rem;
+  }
+  .provider-switch-card {
+    transition: transform 0.28s ease, box-shadow 0.28s ease;
+  }
+  .provider-switch-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 12px 40px rgba(0,0,0,0.30), 0 0 24px rgba(232,82,0,0.08);
+  }
+
+  /* ── Hero floating chips ──────────────────────────── */
+  .hero-chips-layer {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 5;
+  }
+  .hero-chip {
+    position: absolute;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.35rem 0.8rem;
+    font-family: var(--font-mono);
+    font-size: 0.68rem;
+    font-weight: 500;
+    color: var(--c-t2);
+    background: rgba(11, 6, 2, 0.82);
+    border: 1px solid rgba(200, 80, 0, 0.20);
+    border-radius: 9999px;
+    backdrop-filter: blur(16px);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.45), 0 0 0 1px rgba(255,255,255,0.03);
+    animation: chip-float 4s ease-in-out infinite;
+    white-space: nowrap;
+  }
+  @keyframes chip-float {
+    0%, 100% { transform: translateY(0px); }
+    50%       { transform: translateY(-9px); }
+  }
+  @media (max-width: 1023px) {
+    .hero-chips-layer { display: none; }
+    .hero-terminal-col { overflow: visible; }
+  }
+
+  /* ── Command Showcase ─────────────────────────────── */
+  .showcase-tab {
+    padding: 0.7rem 1.1rem;
+    font-family: var(--font-mono);
+    font-size: 0.7rem;
+    font-weight: 500;
+    color: var(--c-t4);
+    background: transparent;
+    border: none;
+    border-bottom: 2px solid transparent;
+    cursor: pointer;
+    transition: all 0.18s;
+    white-space: nowrap;
+  }
+  .showcase-tab:hover { color: var(--c-t2); }
+  .showcase-tab.active {
+    color: var(--c-p);
+    border-bottom-color: var(--c-p);
+    background: rgba(232, 82, 0, 0.04);
+  }
+  .showcase-panel { display: none; }
+  .showcase-panel.active { display: block; }
+  .showcase-terminal { transition: box-shadow 0.3s ease; }
+  .showcase-terminal:hover {
+    box-shadow: 0 8px 48px rgba(232,82,0,0.10), 0 2px 12px rgba(0,0,0,0.4);
+  }
+
+  /* ── Stat count-up ────────────────────────────────── */
+  @keyframes stat-in {
+    from { opacity: 0; transform: translateY(16px) scale(0.92); }
+    to   { opacity: 1; transform: translateY(0)    scale(1); }
+  }
+  .stat-card.counted .stat-number {
+    animation: stat-in 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  /* ── Pre-footer CTA section ──────────────────────── */
+  .cta-root {
+    /* Subtle top fire border gradient */
+    border-image: linear-gradient(90deg, transparent 0%, rgba(232,82,0,0.35) 30%, rgba(245,160,0,0.25) 50%, rgba(232,82,0,0.35) 70%, transparent 100%) 1;
+  }
+  .cta-beam {
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      128deg,
+      transparent 0%,
+      transparent 44%,
+      rgba(232, 82, 0, 0.018) 48%,
+      rgba(245, 160, 0, 0.010) 52%,
+      transparent 56%,
+      transparent 100%
+    );
+    pointer-events: none;
+  }
+  .cta-btn-lg {
+    padding: 1rem 2.5rem !important;
+    font-size: 1rem !important;
+  }
+
+  /* ── Bento fire glow hover (consolidated above with @property) ── */
+
+  /* ── Section gradient separator ──────────────────── */
+  .section-divider {
+    height: 1px;
+    background: linear-gradient(
+      90deg,
+      transparent 0%,
+      rgba(200,80,0,0.18) 20%,
+      rgba(245,160,0,0.10) 50%,
+      rgba(200,80,0,0.18) 80%,
+      transparent 100%
+    );
+    margin: 0;
+  }
+
+  /* Scroll progress bar */
+  #scroll-progress {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 2px;
+    z-index: 9999;
+    background: linear-gradient(90deg, var(--c-ember), var(--c-p), var(--c-gold));
+    pointer-events: none;
+    transition: width 60ms linear;
+  }
+
+  /* ═══════════════════════════════════════════════════════
+     ITERATION 7 — 2026 Native CSS + Physical Depth
+     ═══════════════════════════════════════════════════════ */
+
+  /* @property — animatable custom properties (2026 baseline) */
+  @property --glow-opacity {
+    syntax: '<number>';
+    inherits: false;
+    initial-value: 0;
+  }
+  @property --btn-lift {
+    syntax: '<length>';
+    inherits: false;
+    initial-value: 0px;
+  }
+
+  /* Dot grid hero background — Vercel/Linear 2026 pattern */
+  .bg-dots {
+    background-image: radial-gradient(circle, rgba(200,70,0,0.13) 1px, transparent 1px);
+    background-size: 28px 28px;
+    mask-image: radial-gradient(ellipse 78% 68% at 58% -8%, black 18%, transparent 72%);
+    -webkit-mask-image: radial-gradient(ellipse 78% 68% at 58% -8%, black 18%, transparent 72%);
+    pointer-events: none;
+  }
+
+  /* Hero terminal — 3D initial perspective tilt */
+  #hero-terminal {
+    transform: perspective(1100px) rotateX(4deg) rotateY(-2.5deg) translateZ(0);
+    transition: transform 650ms cubic-bezier(0.16, 1, 0.3, 1);
+    will-change: transform;
+  }
+  .hero-terminal-col:hover #hero-terminal {
+    transform: perspective(1100px) rotateX(0.5deg) rotateY(-0.5deg) translateZ(0);
+  }
+
+  /* Physical 3D depth on primary CTA buttons */
+  .btn-primary {
+    box-shadow:
+      0 4px 0 rgba(110, 8, 0, 0.80),
+      0 6px 20px rgba(232,82,0,0.24);
+    transition: transform 120ms ease, box-shadow 120ms ease, filter 120ms ease !important;
+  }
+  .btn-primary:hover {
+    transform: translateY(-2px) !important;
+    box-shadow:
+      0 6px 0 rgba(110, 8, 0, 0.80),
+      0 12px 32px rgba(232,82,0,0.38),
+      0 0 64px -12px rgba(232,82,0,0.26) !important;
+    filter: brightness(1.08) !important;
+  }
+  .btn-primary:active {
+    transform: translateY(2px) !important;
+    box-shadow:
+      0 1px 0 rgba(110, 8, 0, 0.80),
+      0 2px 6px rgba(232,82,0,0.12) !important;
+    filter: brightness(0.96) !important;
+  }
+
+  /* Showcase panel enter animation */
+  @keyframes panel-in {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+  .showcase-panel.active {
+    animation: panel-in 0.26s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  }
+
+  /* CSS-native scroll animations — progressive enhancement (Chrome 115+) */
+  @supports (animation-timeline: view()) and (animation-range: entry 0%) {
+    @keyframes reveal-view-native {
+      from { opacity: 0; transform: translateY(20px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+    [data-reveal] {
+      opacity: 1 !important;
+      transform: translateY(0) !important;
+      transition: none !important;
+      animation: reveal-view-native 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+      animation-timeline: view(block);
+      animation-range: entry 0% entry 30%;
+    }
+    [data-delay="1"] { animation-delay: 0s !important; }
+    [data-delay="2"] { animation-delay: 0s !important; }
+    [data-delay="3"] { animation-delay: 0s !important; }
+    [data-delay="4"] { animation-delay: 0s !important; }
+    [data-delay="5"] { animation-delay: 0s !important; }
+    [data-delay="6"] { animation-delay: 0s !important; }
+  }
+
+  /* content-visibility for render performance on long sections */
+  .cv-section {
+    content-visibility: auto;
+    contain-intrinsic-size: 0 680px;
+  }
+
+  /* Magnetic button touch target */
+  [data-magnetic] {
+    transition: transform 300ms cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  /* Provider card hover depth — uses per-provider --p-glow */
+  .provider-card:hover {
+    transform: translateY(-4px);
+    box-shadow:
+      0 16px 48px rgba(0,0,0,0.40),
+      0 0 32px rgba(var(--p-glow), 0.12),
+      inset 0 1px 0 rgba(var(--p-glow), 0.15);
+  }
+</style>
+
 <script>
-  const btn = document.getElementById('hero-copy-btn');
-  btn?.addEventListener('click', async () => {
-    try {
-      await navigator.clipboard.writeText('curl -sSfL https://cuervo.cloud/install.sh | sh');
-      const icon = btn.querySelector('svg');
-      if (icon) {
-        icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>';
-        setTimeout(() => {
-          icon.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>';
-        }, 1500);
+  // ── Typewriter ────────────────────────────────────────────
+  function initTypewriter() {
+    const el = document.getElementById('hero-typewriter');
+    if (!el) return;
+    const phrases = [
+      'that runs on any model.',
+      'for Claude & GPT-4o.',
+      'with 21 built-in tools.',
+      'with layered permissions.',
+      'for your whole team.',
+    ];
+    let wi = 0, ci = 0, erasing = false;
+    function tick() {
+      const word = phrases[wi];
+      if (!erasing) {
+        el.textContent = word.slice(0, ++ci);
+        if (ci >= word.length) { erasing = true; setTimeout(tick, 2400); return; }
+      } else {
+        el.textContent = word.slice(0, --ci);
+        if (ci <= 0) { erasing = false; wi = (wi + 1) % phrases.length; setTimeout(tick, 320); return; }
       }
-    } catch {}
-  });
+      setTimeout(tick, erasing ? 36 : 52 + Math.random() * 28);
+    }
+    tick();
+  }
+
+  // ── Install tabs ──────────────────────────────────────────
+  function initTabs() {
+    document.querySelectorAll('.install-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.install-tab').forEach(b => {
+          b.classList.remove('active');
+          b.setAttribute('aria-selected', 'false');
+        });
+        btn.classList.add('active');
+        btn.setAttribute('aria-selected', 'true');
+        const cmd   = btn.getAttribute('data-cmd')   || '';
+        const label = btn.getAttribute('data-label') || 'bash';
+        const cmdEl = document.getElementById('hero-cmd-text');
+        const lblEl = document.getElementById('hero-tab-label');
+        if (cmdEl) cmdEl.textContent = cmd;
+        if (lblEl) lblEl.textContent = label;
+      });
+    });
+  }
+
+  // ── Copy button ───────────────────────────────────────────
+  function initCopy() {
+    const btn = document.getElementById('hero-copy-btn');
+    if (!btn) return;
+    btn.addEventListener('click', async () => {
+      const raw = document.getElementById('hero-cmd-text')?.textContent || '';
+      const text = raw;
+      try {
+        await navigator.clipboard.writeText(text);
+        const svg = btn.querySelector('svg');
+        if (svg) {
+          svg.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/>';
+          setTimeout(() => {
+            svg.innerHTML = '<path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>';
+          }, 1500);
+        }
+      } catch {}
+    });
+  }
+
+  // ── Terminal clock ────────────────────────────────────────
+  function initClock() {
+    const el = document.getElementById('hero-term-clock') as HTMLTimeElement | null;
+    if (!el) return;
+    function tick() {
+      const now = new Date();
+      el.textContent = now.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      el.setAttribute('datetime', now.toISOString());
+    }
+    tick();
+    setInterval(tick, 1000);
+  }
+
+  // ── Video observer ────────────────────────────────────────
+  function initVideo() {
+    const v = document.getElementById('hero-video') as HTMLVideoElement | null;
+    if (!v) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) { v.pause(); return; }
+    const obs = new IntersectionObserver(
+      entries => entries.forEach(e => e.isIntersecting ? v.play().catch(() => {}) : v.pause()),
+      { threshold: 0.15 }
+    );
+    obs.observe(v);
+  }
+
+  // ── Spark particles ───────────────────────────────────────
+  function initSparks(colors: string[]) {
+    const container = document.getElementById('hero-sparks');
+    if (!container || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    container.innerHTML = '';
+    const n = 16;
+    for (let i = 0; i < n; i++) {
+      const el = document.createElement('div');
+      const size   = 1.2 + Math.random() * 2.8;
+      const x      = 38 + Math.random() * 54;
+      const bottom = 4  + Math.random() * 35;
+      const delay  = Math.random() * 7;
+      const dur    = 4.5 + Math.random() * 5.5;
+      const tx     = (Math.random() - 0.45) * 55;
+      const color  = colors[Math.floor(Math.random() * colors.length)] || '#a00e00';
+      el.style.cssText = `
+        position:absolute;left:${x}%;bottom:${bottom}%;
+        width:${size}px;height:${size}px;border-radius:50%;
+        background:${color};opacity:0;
+        --op:${0.45 + Math.random() * 0.40};
+        --op2:${0.12 + Math.random() * 0.18};
+        --tx:${tx}px;
+        animation:spark-rise ${dur}s ease-out ${delay}s infinite;
+        filter:blur(${size > 3 ? '0.6px' : '0px'});
+      `;
+      container.appendChild(el);
+    }
+  }
+
+  // ── MOMOTO: safe usage — only shiftColor + BRAND_* constants ──
+  // Rationale: TokenDerivationEngine::derive_states() is calibrated for TUI Falcon Blue
+  // palette, not fire orange. We use only arithmetic shiftColor for background glows.
+  // CSS custom properties drive all brand identity colors.
+  async function initHeroMomoto() {
+    try {
+      const {
+        shiftColor,
+        checkContrast, isAccessible,
+        BRAND_FIRE, BRAND_EMBER, BRAND_GOLD, BRAND_SPARK, BRAND_BG, BRAND_TEXT1,
+      } = await import('../lib/momoto/index');
+
+      // Safe: shiftColor does arithmetic OKLCH shift, no derive_states
+      // BRAND_EMBER is a ColorOklch object: {l, c, h}
+      const rubyShifted = await shiftColor(BRAND_EMBER, { lightness: -0.08, chroma: 0.06, hue: -10 });
+      const rubyDeep    = await shiftColor(BRAND_EMBER, { lightness: -0.18, chroma: 0.04, hue: -14 });
+      const fireShifted = await shiftColor(BRAND_FIRE, { lightness: 0.04, chroma: 0.01, hue: 4 });
+      const goldShifted = await shiftColor(BRAND_GOLD, { lightness: 0.03, chroma: -0.01 });
+
+      // Apply to decorative background glow layers
+      const glowRuby = document.getElementById('hero-glow-ruby');
+      const glowFire = document.getElementById('hero-glow-fire');
+      const glowGold = document.getElementById('hero-glow-gold');
+      const termAura = document.getElementById('hero-term-aura');
+
+      if (glowRuby && rubyDeep) glowRuby.style.background =
+        `radial-gradient(ellipse 88% 68% at 65% 42%, ${rubyDeep}44 0%, ${rubyShifted}1a 38%, transparent 62%)`;
+      if (glowFire && fireShifted) glowFire.style.background =
+        `radial-gradient(ellipse 52% 58% at 20% 68%, ${fireShifted}1a 0%, transparent 58%)`;
+      if (glowGold && goldShifted) glowGold.style.background =
+        `radial-gradient(ellipse 42% 32% at 72% 8%, ${goldShifted}10 0%, transparent 52%)`;
+      if (termAura && rubyDeep) termAura.style.background =
+        `radial-gradient(ellipse at center, ${rubyDeep}1e 0%, transparent 70%)`;
+
+      // Headline: shift fire+gold for gradient endpoints
+      const headline = document.getElementById('hero-headline-brand');
+      if (headline && fireShifted && goldShifted) {
+        headline.style.backgroundImage =
+          `linear-gradient(135deg, ${goldShifted} 0%, ${fireShifted} 48%, ${rubyShifted} 100%)`;
+      }
+
+      // Sparks with momoto-derived colors
+      if (rubyDeep && rubyShifted && fireShifted && goldShifted) {
+        initSparks([rubyDeep, rubyShifted, fireShifted, goldShifted, '#a00e00']);
+      } else {
+        initSparks(['#a00e00', '#e85200', '#f5a000', '#c41400']);
+      }
+
+      // Passive accessibility validation only
+      checkContrast(BRAND_TEXT1, BRAND_BG).then(contrast => {
+        if (!contrast.passesAA) {
+          console.warn('[Momoto] WCAG AA contrast check failed:', contrast);
+        }
+      });
+      isAccessible(BRAND_TEXT1, BRAND_BG).catch(() => {});
+
+    } catch (_e) {
+      // Fallback: static fire colors
+      initSparks(['#a00e00', '#e85200', '#f5a000', '#c41400']);
+    }
+  }
+
+  // ── Scroll progress bar ───────────────────────────────────
+  function initScrollProgress() {
+    const bar = document.createElement('div');
+    bar.id = 'scroll-progress';
+    document.body.prepend(bar);
+    const update = () => {
+      const max = document.documentElement.scrollHeight - window.innerHeight;
+      const pct = max > 0 ? Math.min((window.scrollY / max) * 100, 100) : 0;
+      bar.style.width = pct + '%';
+    };
+    window.addEventListener('scroll', update, { passive: true });
+    update();
+  }
+
+  // ── Scroll reveal observer ────────────────────────────────
+  function initReveal() {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      document.querySelectorAll('[data-reveal]').forEach(el => el.classList.add('revealed'));
+      return;
+    }
+    const obs = new IntersectionObserver(
+      entries => entries.forEach(e => {
+        if (e.isIntersecting) {
+          e.target.classList.add('revealed');
+          obs.unobserve(e.target);
+        }
+      }),
+      { threshold: 0.06, rootMargin: '0px 0px -48px 0px' }
+    );
+    document.querySelectorAll('[data-reveal]').forEach(el => obs.observe(el));
+  }
+
+  // ── Card 3D tilt effect ───────────────────────────────────
+  function initTilt() {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    document.querySelectorAll('[data-tilt]').forEach(card => {
+      const el = card as HTMLElement;
+      el.addEventListener('mousemove', (e: MouseEvent) => {
+        const rect = el.getBoundingClientRect();
+        const x = (e.clientX - rect.left) / rect.width  - 0.5;
+        const y = (e.clientY - rect.top)  / rect.height - 0.5;
+        el.style.transition = 'transform 0.08s ease';
+        el.style.transform  = `perspective(700px) rotateX(${-y * 6}deg) rotateY(${x * 6}deg) translateY(-1px)`;
+      });
+      el.addEventListener('mouseleave', () => {
+        el.style.transition = 'transform 0.4s cubic-bezier(0.22,1,0.36,1)';
+        el.style.transform  = '';
+      });
+    });
+  }
+
+  // ── Command Showcase tabs ─────────────────────────────────
+  function initShowcase() {
+    document.querySelectorAll('.showcase-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const idx = btn.getAttribute('data-tab');
+        document.querySelectorAll('.showcase-tab').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.showcase-panel').forEach(p => p.classList.remove('active'));
+        btn.classList.add('active');
+        const panel = document.querySelector(`.showcase-panel[data-panel="${idx}"]`);
+        if (panel) panel.classList.add('active');
+      });
+    });
+  }
+
+  // ── Stat count-up animation ───────────────────────────────
+  function initStatCountup() {
+    const targets: Record<string, number> = { '21': 21, '5': 5, '100%': 100, '<2ms': 2 };
+    const obs = new IntersectionObserver(entries => {
+      entries.forEach(e => {
+        if (!e.isIntersecting) return;
+        const card = e.target as HTMLElement;
+        const numEl = card.querySelector('.stat-number') as HTMLElement | null;
+        if (!numEl || card.classList.contains('counted')) return;
+        card.classList.add('counted');
+        const text = numEl.textContent?.trim() || '';
+        if (text === '21' || text === '5') {
+          const target = Number(text);
+          const dur = 800;
+          const start = performance.now();
+          const update = (now: number) => {
+            const t = Math.min((now - start) / dur, 1);
+            const ease = 1 - Math.pow(1 - t, 3);
+            numEl.textContent = String(Math.round(ease * target));
+            if (t < 1) requestAnimationFrame(update);
+            else numEl.textContent = String(target);
+          };
+          requestAnimationFrame(update);
+        }
+        obs.unobserve(card);
+      });
+    }, { threshold: 0.5 });
+    document.querySelectorAll('.stat-card').forEach(c => obs.observe(c));
+  }
+
+  // ── Magnetic button effect (2026 SOTA) ────────────────────
+  function initMagneticButtons() {
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    document.querySelectorAll('[data-magnetic]').forEach(btn => {
+      const el = btn as HTMLElement;
+      let rafId = 0;
+      el.addEventListener('mousemove', (e: MouseEvent) => {
+        cancelAnimationFrame(rafId);
+        rafId = requestAnimationFrame(() => {
+          const rect = el.getBoundingClientRect();
+          const x = (e.clientX - rect.left - rect.width  / 2) * 0.30;
+          const y = (e.clientY - rect.top  - rect.height / 2) * 0.30;
+          el.style.transform = `translate(${x}px, ${y}px)`;
+        });
+      });
+      el.addEventListener('mouseleave', () => {
+        cancelAnimationFrame(rafId);
+        el.style.transform = '';
+      });
+    });
+  }
+
+  // ── Boot ──────────────────────────────────────────────────
+  function initHero() {
+    initTypewriter();
+    initTabs();
+    initCopy();
+    initClock();
+    initVideo();
+    initHeroMomoto();
+    initScrollProgress();
+    initReveal();
+    initTilt();
+    initShowcase();
+    initStatCountup();
+    initMagneticButtons();
+  }
+
+  initHero();
+  document.addEventListener('astro:after-swap', initHero);
 </script>

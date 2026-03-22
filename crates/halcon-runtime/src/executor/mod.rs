@@ -186,10 +186,7 @@ pub struct RuntimeExecutor {
 }
 
 impl RuntimeExecutor {
-    pub fn new(
-        registry: Arc<AgentRegistry>,
-        router: Arc<MessageRouter>,
-    ) -> Self {
+    pub fn new(registry: Arc<AgentRegistry>, router: Arc<MessageRouter>) -> Self {
         Self { registry, router }
     }
 
@@ -494,7 +491,10 @@ mod tests {
             context_keys: vec![],
         });
         let result = dag.validate();
-        assert!(matches!(result, Err(RuntimeError::MissingDependency { .. })));
+        assert!(matches!(
+            result,
+            Err(RuntimeError::MissingDependency { .. })
+        ));
     }
 
     // --- SharedContext tests ---
@@ -552,7 +552,10 @@ mod tests {
             Ok(AgentResponse {
                 request_id: request.request_id,
                 success: true,
-                output: format!("{} processed: {}", self.descriptor.name, request.instruction),
+                output: format!(
+                    "{} processed: {}",
+                    self.descriptor.name, request.instruction
+                ),
                 artifacts: vec![],
                 usage: AgentUsage {
                     input_tokens: 10,

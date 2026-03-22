@@ -6,6 +6,7 @@
 
 use async_trait::async_trait;
 use futures::stream::BoxStream;
+use tracing::instrument;
 
 use halcon_core::error::Result;
 use halcon_core::traits::ModelProvider;
@@ -111,6 +112,7 @@ impl ModelProvider for OpenAIProvider {
         self.inner.supported_models()
     }
 
+    #[instrument(skip_all, fields(provider = "openai", model = %request.model, msgs = request.messages.len()))]
     async fn invoke(
         &self,
         request: &ModelRequest,
@@ -124,6 +126,14 @@ impl ModelProvider for OpenAIProvider {
 
     fn estimate_cost(&self, request: &ModelRequest) -> TokenCost {
         self.inner.estimate_cost(request)
+    }
+
+    fn tool_format(&self) -> halcon_core::types::ToolFormat {
+        halcon_core::types::ToolFormat::OpenAIFunctionObject
+    }
+
+    fn tokenizer_hint(&self) -> halcon_core::types::TokenizerHint {
+        halcon_core::types::TokenizerHint::TiktokenCl100k
     }
 }
 

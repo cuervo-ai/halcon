@@ -62,7 +62,8 @@ impl Database {
         sql.push_str(" ORDER BY created_at DESC LIMIT ?");
         params.push(Box::new(limit));
 
-        let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|p| p.as_ref()).collect();
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params.iter().map(|p| p.as_ref()).collect();
 
         let mut stmt = conn
             .prepare(&sql)

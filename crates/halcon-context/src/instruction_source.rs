@@ -104,7 +104,11 @@ mod tests {
     #[tokio::test]
     async fn token_estimation_populated() {
         let dir = TempDir::new().unwrap();
-        std::fs::write(dir.path().join("HALCON.md"), "Hello world test content here").unwrap();
+        std::fs::write(
+            dir.path().join("HALCON.md"),
+            "Hello world test content here",
+        )
+        .unwrap();
 
         let source = InstructionSource::new();
         let chunks = source

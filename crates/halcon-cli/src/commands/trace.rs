@@ -11,27 +11,22 @@ use crate::config_loader::default_db_path;
 
 /// Export a session's trace as deterministic JSON to stdout.
 pub fn export(session_id: &str, db_path: Option<&Path>) -> Result<()> {
-    let id = Uuid::parse_str(session_id)
-        .map_err(|e| anyhow::anyhow!("Invalid session ID: {e}"))?;
+    let id = Uuid::parse_str(session_id).map_err(|e| anyhow::anyhow!("Invalid session ID: {e}"))?;
 
     let path = db_path
         .map(|p| p.to_path_buf())
         .unwrap_or_else(default_db_path);
 
-    let db = Database::open(&path)
-        .context("Failed to open database")?;
+    let db = Database::open(&path).context("Failed to open database")?;
 
-    let export = db
-        .export_trace(id)
-        .map_err(|e| anyhow::anyhow!("{e}"))?;
+    let export = db.export_trace(id).map_err(|e| anyhow::anyhow!("{e}"))?;
 
     if export.steps.is_empty() {
         eprintln!("No trace steps found for session {session_id}.");
         return Ok(());
     }
 
-    let json = serde_json::to_string_pretty(&export)
-        .context("Failed to serialize trace")?;
+    let json = serde_json::to_string_pretty(&export).context("Failed to serialize trace")?;
     println!("{json}");
     Ok(())
 }
@@ -42,15 +37,13 @@ pub fn export(session_id: &str, db_path: Option<&Path>) -> Result<()> {
 /// and compares execution fingerprints. When false, renders the trace steps
 /// as text output (backward-compatible visualization mode).
 pub async fn replay(session_id: &str, db_path: Option<&Path>, verify: bool) -> Result<()> {
-    let id = Uuid::parse_str(session_id)
-        .map_err(|e| anyhow::anyhow!("Invalid session ID: {e}"))?;
+    let id = Uuid::parse_str(session_id).map_err(|e| anyhow::anyhow!("Invalid session ID: {e}"))?;
 
     let path = db_path
         .map(|p| p.to_path_buf())
         .unwrap_or_else(default_db_path);
 
-    let db = Database::open(&path)
-        .context("Failed to open database")?;
+    let db = Database::open(&path).context("Failed to open database")?;
 
     if verify {
         return replay_verify(id, &db).await;
@@ -81,14 +74,23 @@ async fn replay_verify(session_id: Uuid, db: &Database) -> Result<()> {
     .await?;
 
     eprintln!("Replay complete:");
-    eprintln!("  Original session:  {}", &result.original_session_id.to_string()[..8]);
-    eprintln!("  Replay session:    {}", &result.replay_session_id.to_string()[..8]);
+    eprintln!(
+        "  Original session:  {}",
+        &result.original_session_id.to_string()[..8]
+    );
+    eprintln!(
+        "  Replay session:    {}",
+        &result.replay_session_id.to_string()[..8]
+    );
     eprintln!("  Steps replayed:    {}", result.steps_replayed);
     eprintln!("  Rounds:            {}", result.rounds);
     eprintln!("  Replay fingerprint: {}", &result.replay_fingerprint[..16]);
 
     if let Some(ref orig_fp) = result.original_fingerprint {
-        eprintln!("  Original fingerprint: {}", &orig_fp[..orig_fp.len().min(16)]);
+        eprintln!(
+            "  Original fingerprint: {}",
+            &orig_fp[..orig_fp.len().min(16)]
+        );
     } else {
         eprintln!("  Original fingerprint: (not recorded)");
     }
@@ -133,10 +135,7 @@ fn replay_visualize(id: Uuid, session_id: &str, db: &Database) -> Result<()> {
                     .get("message_count")
                     .and_then(|v| v.as_u64())
                     .unwrap_or(0);
-                let tool_count = data
-                    .get("tool_count")
-                    .and_then(|v| v.as_u64())
-                    .unwrap_or(0);
+                let tool_count = data.get("tool_count").and_then(|v| v.as_u64()).unwrap_or(0);
                 eprintln!(
                     "[step {}] ModelRequest  round={round} model={model} messages={msg_count} tools={tool_count}",
                     step.step_index
@@ -145,10 +144,7 @@ fn replay_visualize(id: Uuid, session_id: &str, db: &Database) -> Result<()> {
             TraceStepType::ModelResponse => {
                 let data: serde_json::Value =
                     serde_json::from_str(&step.data_json).unwrap_or_default();
-                let text = data
-                    .get("text")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+                let text = data.get("text").and_then(|v| v.as_str()).unwrap_or("");
                 let stop = data
                     .get("stop_reason")
                     .and_then(|v| v.as_str())
@@ -211,6 +207,18 @@ fn replay_visualize(id: Uuid, session_id: &str, db: &Database) -> Result<()> {
                     step.step_index
                 );
             }
+            TraceStepType::LoopEvent => {
+                let data: serde_json::Value =
+                    serde_json::from_str(&step.data_json).unwrap_or_default();
+                let event_type = data
+                    .get("event_type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                eprintln!(
+                    "[step {}] LoopEvent     event_type={event_type}",
+                    step.step_index
+                );
+            }
         }
     }
 
@@ -226,7 +234,10 @@ mod tests {
     fn export_invalid_session_id_errors() {
         let result = export("not-a-uuid", None);
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Invalid session ID"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid session ID"));
     }
 
     #[test]
@@ -246,7 +257,10 @@ mod tests {
     async fn replay_invalid_session_id_errors() {
         let result = replay("not-a-uuid", None, false).await;
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("Invalid session ID"));
+        assert!(result
+            .unwrap_err()
+            .to_string()
+            .contains("Invalid session ID"));
     }
 
     #[test]

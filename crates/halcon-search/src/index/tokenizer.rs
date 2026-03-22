@@ -34,10 +34,47 @@ impl Tokenizer {
     fn is_stopword(&self, word: &str) -> bool {
         matches!(
             word,
-            "the" | "a" | "an" | "and" | "or" | "but" | "in" | "on" | "at" | "to" | "for" | "of"
-                | "with" | "by" | "from" | "as" | "is" | "was" | "are" | "were" | "be" | "been"
-                | "this" | "that" | "these" | "those" | "it" | "its" | "he" | "she" | "they"
-                | "we" | "you" | "i" | "me" | "my" | "your" | "their" | "his" | "her"
+            "the"
+                | "a"
+                | "an"
+                | "am"
+                | "and"
+                | "or"
+                | "but"
+                | "in"
+                | "on"
+                | "at"
+                | "to"
+                | "for"
+                | "of"
+                | "with"
+                | "by"
+                | "from"
+                | "as"
+                | "is"
+                | "was"
+                | "are"
+                | "were"
+                | "be"
+                | "been"
+                | "this"
+                | "that"
+                | "these"
+                | "those"
+                | "it"
+                | "its"
+                | "he"
+                | "she"
+                | "they"
+                | "we"
+                | "you"
+                | "i"
+                | "me"
+                | "my"
+                | "your"
+                | "their"
+                | "his"
+                | "her"
         )
     }
 }
@@ -55,7 +92,9 @@ mod tests {
     #[test]
     fn tokenize_basic() {
         let tokenizer = Tokenizer::new();
-        let tokens = tokenizer.tokenize("Hello, world! This is a test.", None).unwrap();
+        let tokens = tokenizer
+            .tokenize("Hello, world! This is a test.", None)
+            .unwrap();
         assert!(tokens.contains(&"hello".to_string()));
         assert!(tokens.contains(&"world".to_string()));
         assert!(tokens.contains(&"test".to_string()));

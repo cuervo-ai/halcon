@@ -1,4 +1,5 @@
 pub mod agents;
+pub mod chat;
 pub mod dashboard;
 pub mod files;
 pub mod logs;

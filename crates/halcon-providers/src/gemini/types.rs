@@ -264,16 +264,14 @@ mod tests {
                 r#"{{"candidates":[{{"content":{{"role":"model","parts":[{{"text":"done"}}]}},"finishReason":"{reason}"}}]}}"#,
             );
             let chunk: GeminiStreamChunk = serde_json::from_str(&json).unwrap();
-            assert_eq!(
-                chunk.candidates[0].finish_reason.as_deref(),
-                Some(reason)
-            );
+            assert_eq!(chunk.candidates[0].finish_reason.as_deref(), Some(reason));
         }
     }
 
     #[test]
     fn deserialize_error_response() {
-        let json = r#"{"error":{"message":"API key not valid","status":"INVALID_ARGUMENT","code":400}}"#;
+        let json =
+            r#"{"error":{"message":"API key not valid","status":"INVALID_ARGUMENT","code":400}}"#;
         let resp: GeminiErrorResponse = serde_json::from_str(json).unwrap();
         assert_eq!(resp.error.message, "API key not valid");
         assert_eq!(resp.error.code, Some(400));

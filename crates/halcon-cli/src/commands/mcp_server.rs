@@ -16,13 +16,11 @@ use halcon_tools::default_registry;
 /// Builds the tool registry from config, then enters the JSON-RPC event loop.
 /// Blocks until stdin is closed.
 pub async fn run(config: &AppConfig, working_dir: Option<&str>) -> Result<()> {
-    let work_dir = working_dir
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| {
-            std::env::current_dir()
-                .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or_else(|_| "/tmp".to_string())
-        });
+    let work_dir = working_dir.map(|s| s.to_string()).unwrap_or_else(|| {
+        std::env::current_dir()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_else(|_| "/tmp".to_string())
+    });
 
     let registry = default_registry(&config.tools);
     let tools: Vec<Arc<dyn halcon_core::traits::Tool>> = registry
@@ -38,10 +36,7 @@ pub async fn run(config: &AppConfig, working_dir: Option<&str>) -> Result<()> {
     );
 
     let server = McpServer::new(tools, work_dir);
-    server
-        .run()
-        .await
-        .context("MCP server exited with error")?;
+    server.run().await.context("MCP server exited with error")?;
 
     Ok(())
 }

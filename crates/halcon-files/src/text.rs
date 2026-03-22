@@ -98,7 +98,9 @@ mod tests {
     async fn extract_text_file() {
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join("hello.txt");
-        tokio::fs::write(&path, "line1\nline2\nline3").await.unwrap();
+        tokio::fs::write(&path, "line1\nline2\nline3")
+            .await
+            .unwrap();
 
         let info = make_info(&path, 17, FileType::PlainText);
         let result = TextHandler.extract(&info, 1000).await.unwrap();

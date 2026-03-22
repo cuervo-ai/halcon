@@ -6,7 +6,7 @@
 //! - Task 3.3: Color downgrading RGB → 256 (target < 50 ns per color)
 //! - Delta-E calculations overhead
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 
 #[cfg(feature = "color-science")]
 use halcon_cli::render::adaptive_palette::AdaptivePalette;
@@ -27,7 +27,11 @@ fn bench_adaptive_palette_transform(c: &mut Criterion) {
     init("neon", None);
     let base_palette = active().palette.clone();
 
-    for health in [HealthLevel::Healthy, HealthLevel::Degraded, HealthLevel::Unhealthy] {
+    for health in [
+        HealthLevel::Healthy,
+        HealthLevel::Degraded,
+        HealthLevel::Unhealthy,
+    ] {
         group.bench_with_input(
             BenchmarkId::from_parameter(format!("{:?}", health)),
             &health,
@@ -75,45 +79,29 @@ fn bench_color_downgrade_256(c: &mut Criterion) {
     ];
 
     for (name, color) in &test_colors {
-        group.bench_with_input(
-            BenchmarkId::new("truecolor", name),
-            color,
-            |b, color| {
-                b.iter(|| {
-                    black_box(caps_truecolor.downgrade_color(black_box(color)));
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("truecolor", name), color, |b, color| {
+            b.iter(|| {
+                black_box(caps_truecolor.downgrade_color(black_box(color)));
+            });
+        });
 
-        group.bench_with_input(
-            BenchmarkId::new("256color", name),
-            color,
-            |b, color| {
-                b.iter(|| {
-                    black_box(caps_256.downgrade_color(black_box(color)));
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("256color", name), color, |b, color| {
+            b.iter(|| {
+                black_box(caps_256.downgrade_color(black_box(color)));
+            });
+        });
 
-        group.bench_with_input(
-            BenchmarkId::new("16color", name),
-            color,
-            |b, color| {
-                b.iter(|| {
-                    black_box(caps_16.downgrade_color(black_box(color)));
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("16color", name), color, |b, color| {
+            b.iter(|| {
+                black_box(caps_16.downgrade_color(black_box(color)));
+            });
+        });
 
-        group.bench_with_input(
-            BenchmarkId::new("monochrome", name),
-            color,
-            |b, color| {
-                b.iter(|| {
-                    black_box(caps_none.downgrade_color(black_box(color)));
-                });
-            },
-        );
+        group.bench_with_input(BenchmarkId::new("monochrome", name), color, |b, color| {
+            b.iter(|| {
+                black_box(caps_none.downgrade_color(black_box(color)));
+            });
+        });
     }
 
     group.finish();
@@ -145,7 +133,11 @@ fn bench_color_downgrade_rgb(c: &mut Criterion) {
             &(*r, *g, *b),
             |bench, &(r, g, b)| {
                 bench.iter(|| {
-                    black_box(caps_truecolor.downgrade_rgb(black_box(r), black_box(g), black_box(b)));
+                    black_box(caps_truecolor.downgrade_rgb(
+                        black_box(r),
+                        black_box(g),
+                        black_box(b),
+                    ));
                 });
             },
         );
@@ -272,10 +264,6 @@ criterion_group!(
 );
 
 #[cfg(not(feature = "color-science"))]
-criterion_group!(
-    benches,
-    bench_terminal_detection,
-    bench_color_downgrade_rgb,
-);
+criterion_group!(benches, bench_terminal_detection, bench_color_downgrade_rgb,);
 
 criterion_main!(benches);

@@ -6,12 +6,12 @@ use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criteri
 
 use chrono::Utc;
 use halcon_context::assembler::estimate_tokens;
+use halcon_context::cold_archive::ColdArchive;
 use halcon_context::cold_store::ColdStore;
 use halcon_context::compression::{compress, decompress, delta_decode, delta_encode};
 use halcon_context::pipeline::{ContextPipeline, ContextPipelineConfig};
-use halcon_context::segment::{extract_segment_from_message, ContextSegment};
-use halcon_context::cold_archive::ColdArchive;
 use halcon_context::repo_map::{self, RepoMap};
+use halcon_context::segment::{extract_segment_from_message, ContextSegment};
 use halcon_context::semantic_store::SemanticStore;
 use halcon_context::sliding_window::SlidingWindow;
 use halcon_core::types::{ChatMessage, MessageContent, Role};
@@ -37,8 +37,7 @@ fn text_msg(role: Role, text: &str) -> ChatMessage {
 }
 
 fn repetitive_text(n: usize) -> String {
-    "Discussing Rust async patterns, error handling with thiserror, and tokio runtime. "
-        .repeat(n)
+    "Discussing Rust async patterns, error handling with thiserror, and tokio runtime. ".repeat(n)
 }
 
 // --- Compression benchmarks ---
@@ -69,8 +68,12 @@ fn bench_delta(c: &mut Criterion) {
     let mut group = c.benchmark_group("delta_encoding");
 
     let base = repetitive_text(20);
-    let target_similar = format!("{} Additional insight about error handling.", &base[..base.len() - 1]);
-    let target_different = "Completely different content about web development with React and Next.js. ".repeat(20);
+    let target_similar = format!(
+        "{} Additional insight about error handling.",
+        &base[..base.len() - 1]
+    );
+    let target_different =
+        "Completely different content about web development with React and Next.js. ".repeat(20);
 
     group.bench_function("encode_similar", |b| {
         b.iter(|| delta_encode(black_box(&base), black_box(&target_similar)))
@@ -147,7 +150,11 @@ fn bench_pipeline(c: &mut Criterion) {
                     let mut pipeline = ContextPipeline::new(&config);
                     for i in 0..count {
                         pipeline.add_message(text_msg(
-                            if i % 2 == 0 { Role::User } else { Role::Assistant },
+                            if i % 2 == 0 {
+                                Role::User
+                            } else {
+                                Role::Assistant
+                            },
                             &format!(
                                 "Message {i}: discussing Rust async patterns and error handling \
                                  with thiserror for library code and anyhow for applications"
@@ -171,7 +178,11 @@ fn bench_pipeline(c: &mut Criterion) {
     let mut pipeline = ContextPipeline::new(&config);
     for i in 0..200 {
         pipeline.add_message(text_msg(
-            if i % 2 == 0 { Role::User } else { Role::Assistant },
+            if i % 2 == 0 {
+                Role::User
+            } else {
+                Role::Assistant
+            },
             &format!("Message {i}: detailed content about code patterns"),
         ));
     }
@@ -197,7 +208,11 @@ fn bench_pipeline(c: &mut Criterion) {
     pipeline_with_l4.load_l4_archive(&path);
     for i in 0..50 {
         pipeline_with_l4.add_message(text_msg(
-            if i % 2 == 0 { Role::User } else { Role::Assistant },
+            if i % 2 == 0 {
+                Role::User
+            } else {
+                Role::Assistant
+            },
             &format!("Message {i}: current session content about code patterns"),
         ));
     }
@@ -278,7 +293,11 @@ fn bench_sliding_window(c: &mut Criterion) {
     // Retrieve.
     let mut window = SlidingWindow::new();
     for i in 0..50 {
-        window.push(make_segment(i, i, &format!("Segment {i} with detailed context")));
+        window.push(make_segment(
+            i,
+            i,
+            &format!("Segment {i} with detailed context"),
+        ));
     }
     group.bench_function("retrieve_50_segments", |b| {
         b.iter(|| window.retrieve(black_box(50_000)))
@@ -341,7 +360,12 @@ fn bench_semantic_store(c: &mut Criterion) {
         ));
     }
     group.bench_function("retrieve_100_entries", |b| {
-        b.iter(|| store.retrieve(black_box("Rust async tokio error handling"), black_box(50_000)))
+        b.iter(|| {
+            store.retrieve(
+                black_box("Rust async tokio error handling"),
+                black_box(50_000),
+            )
+        })
     });
 
     // Retrieve with tight budget.
@@ -394,9 +418,7 @@ fn bench_cold_archive(c: &mut Criterion) {
     });
 
     // Serialize/deserialize.
-    group.bench_function("serialize_100", |b| {
-        b.iter(|| archive.serialize())
-    });
+    group.bench_function("serialize_100", |b| b.iter(|| archive.serialize()));
 
     let data = archive.serialize();
     group.bench_function("deserialize_100", |b| {
@@ -485,7 +507,10 @@ pub mod helpers;
             )
         })
         .collect();
-    let file_refs: Vec<(&str, &str)> = files.iter().map(|(p, c)| (p.as_str(), c.as_str())).collect();
+    let file_refs: Vec<(&str, &str)> = files
+        .iter()
+        .map(|(p, c)| (p.as_str(), c.as_str()))
+        .collect();
 
     group.bench_function("build_map_50_files", |b| {
         b.iter(|| RepoMap::build(black_box("/project"), black_box(&file_refs)))

@@ -158,9 +158,16 @@ fn bench_fts5_search_latency() {
     }
 
     let queries = [
-        "rust async", "sqlite benchmark", "performance tool",
-        "agent cli", "tokio halcon", "unique content", "memory entry",
-        "storage throughput", "search index", "number testing",
+        "rust async",
+        "sqlite benchmark",
+        "performance tool",
+        "agent cli",
+        "tokio halcon",
+        "unique content",
+        "memory entry",
+        "storage throughput",
+        "search index",
+        "number testing",
     ];
 
     let mut latencies = Vec::with_capacity(100);
@@ -330,10 +337,18 @@ fn bench_session_save_load() {
     let db = Database::open_in_memory().unwrap();
 
     for &msg_count in &[0usize, 100, 500, 1000] {
-        let mut session = Session::new("claude-sonnet-4-5".into(), "anthropic".into(), "/tmp".into());
+        let mut session = Session::new(
+            "claude-sonnet-4-5".into(),
+            "anthropic".into(),
+            "/tmp".into(),
+        );
         for i in 0..msg_count {
             session.messages.push(ChatMessage {
-                role: if i % 2 == 0 { Role::User } else { Role::Assistant },
+                role: if i % 2 == 0 {
+                    Role::User
+                } else {
+                    Role::Assistant
+                },
                 content: MessageContent::Text(format!(
                     "Message {i} with realistic content: This is a test message for benchmarking. \
                      It includes enough text to simulate a real conversation turn with the model."
@@ -559,11 +574,18 @@ fn bench_db_growth() {
     // Insert 100 sessions with 10 messages each
     use halcon_core::types::{ChatMessage, MessageContent, Role, Session};
     for i in 0..100 {
-        let mut session =
-            Session::new("claude-sonnet-4-5".into(), "anthropic".into(), "/tmp".into());
+        let mut session = Session::new(
+            "claude-sonnet-4-5".into(),
+            "anthropic".into(),
+            "/tmp".into(),
+        );
         for j in 0..10 {
             session.messages.push(ChatMessage {
-                role: if j % 2 == 0 { Role::User } else { Role::Assistant },
+                role: if j % 2 == 0 {
+                    Role::User
+                } else {
+                    Role::Assistant
+                },
                 content: MessageContent::Text(format!("Session {i} message {j}")),
             });
         }
@@ -572,11 +594,7 @@ fn bench_db_growth() {
 
     // Insert 5000 metrics
     let providers = ["anthropic", "ollama", "openai"];
-    let models = [
-        "claude-sonnet-4-5",
-        "llama-3-70b",
-        "gpt-4",
-    ];
+    let models = ["claude-sonnet-4-5", "llama-3-70b", "gpt-4"];
     for i in 0..5000 {
         let p = providers[i % 3];
         let m = models[i % 3];
@@ -593,10 +611,7 @@ fn bench_db_growth() {
     println!("  cache_entries: {}", cache_stats.total_entries);
     println!("  sessions: 100");
     println!("  metrics: 5000");
-    println!(
-        "  memory_by_type: {:?}",
-        mem_stats.by_type
-    );
+    println!("  memory_by_type: {:?}", mem_stats.by_type);
 
     // Estimate: get page_count * page_size via PRAGMA
     // Note: in-memory DB doesn't have a file, but we can still query page info
@@ -613,11 +628,7 @@ fn bench_metric_aggregation() {
     let db = Database::open_in_memory().unwrap();
 
     let providers = ["anthropic", "ollama", "openai"];
-    let models = [
-        "claude-sonnet-4-5",
-        "llama-3-70b",
-        "gpt-4",
-    ];
+    let models = ["claude-sonnet-4-5", "llama-3-70b", "gpt-4"];
 
     // Insert 5000 metrics across 3 providers
     let insert_start = Instant::now();
@@ -787,5 +798,8 @@ fn bench_batch_vs_individual_metric_insert() {
         fmt_ops(1000, batch_elapsed),
     );
     println!("[BENCH] batch_speedup: {speedup:.1}x");
-    assert!(speedup > 1.0, "Batch insert should be faster than individual");
+    assert!(
+        speedup > 1.0,
+        "Batch insert should be faster than individual"
+    );
 }

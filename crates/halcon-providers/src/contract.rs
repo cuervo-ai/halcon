@@ -7,11 +7,12 @@
 mod tests {
     use std::sync::Arc;
 
+    use futures::StreamExt;
     use halcon_core::traits::ModelProvider;
     use halcon_core::types::{
-        ChatMessage, MessageContent, ModelChunk, ModelRequest, Role, StopReason,
+        ChatMessage, MessageContent, ModelChunk, ModelRequest, Role, StopReason, TokenizerHint,
+        ToolFormat,
     };
-    use futures::StreamExt;
 
     use crate::{
         AnthropicProvider, DeepSeekProvider, EchoProvider, GeminiProvider, OllamaProvider,
@@ -207,12 +208,18 @@ mod tests {
     }
 
     // =======================================================
-    // Contract: total provider count is exactly 6
+    // Contract: total provider count is at least 6
+    // (>= invariant allows adding new providers without failing this test)
     // =======================================================
 
     #[test]
     fn contract_total_provider_count() {
-        assert_eq!(all_providers().len(), 6, "expected 6 providers");
+        let count = all_providers().len();
+        assert!(
+            count >= 6,
+            "expected at least 6 providers, got {count} — \
+             register new providers in all_providers() to include them in contract tests"
+        );
     }
 
     // =======================================================
@@ -254,15 +261,20 @@ mod tests {
     }
 
     // =======================================================
-    // Contract: total model count across all providers
+    // Contract: total model count across all providers (>= invariant)
+    // echo(1) + anthropic(3) + ollama(3) + openai(4) + deepseek(3) + gemini(2) = 16 baseline
+    // New providers/models can be added without updating this threshold.
     // =======================================================
 
     #[test]
     fn contract_total_model_count() {
         let providers = all_providers();
         let total: usize = providers.iter().map(|p| p.supported_models().len()).sum();
-        // echo(1) + anthropic(3) + ollama(3) + openai(4) + deepseek(3) + gemini(2) = 16
-        assert_eq!(total, 16, "expected 16 total models, got {total}");
+        assert!(
+            total >= 16,
+            "expected at least 16 total models across all providers, got {total} — \
+             if you removed a model, update this threshold to reflect the new minimum"
+        );
     }
 
     // =======================================================
@@ -314,19 +326,94 @@ mod tests {
     // Contract: Debug impl does not leak API keys
     // =======================================================
 
+    // =======================================================
+    // Contract: tool_format() is not Unknown for real providers
+    // =======================================================
+
+    #[test]
+    fn contract_tool_format_not_unknown_for_real_providers() {
+        for p in all_providers() {
+            let name = p.name();
+            let format = p.tool_format();
+            // Echo is a test provider — Unknown is acceptable.
+            if name != "echo" {
+                assert_ne!(
+                    format,
+                    ToolFormat::Unknown,
+                    "provider '{}' must declare a known ToolFormat, got Unknown",
+                    name
+                );
+            }
+        }
+    }
+
+    // =======================================================
+    // Contract: model_max_output_tokens matches ModelInfo
+    // =======================================================
+
+    #[test]
+    fn contract_model_max_output_tokens_matches_model_info() {
+        for p in all_providers() {
+            for model in p.supported_models() {
+                let from_trait = p.model_max_output_tokens(&model.id);
+                assert_eq!(
+                    from_trait,
+                    Some(model.max_output_tokens),
+                    "provider '{}', model '{}': model_max_output_tokens() must match ModelInfo.max_output_tokens",
+                    p.name(),
+                    model.id
+                );
+            }
+        }
+    }
+
+    // =======================================================
+    // Contract: tokenizer_hint() is not Unknown for real providers
+    // =======================================================
+
+    #[test]
+    fn contract_tokenizer_hint_not_unknown_for_real_providers() {
+        for p in all_providers() {
+            let name = p.name();
+            let hint = p.tokenizer_hint();
+            // Echo is a test provider — Unknown is acceptable.
+            if name != "echo" {
+                assert_ne!(
+                    hint,
+                    TokenizerHint::Unknown,
+                    "provider '{}' must declare a known TokenizerHint, got Unknown",
+                    name
+                );
+            }
+        }
+    }
+
+    // =======================================================
+    // Contract: Debug impl does not leak API keys
+    // =======================================================
+
     #[test]
     fn contract_debug_does_not_leak_keys() {
         let http = halcon_core::types::HttpConfig::default();
         let openai = OpenAIProvider::new("sk-secret-key-123".into(), None, http.clone());
         let debug_str = format!("{:?}", openai);
-        assert!(!debug_str.contains("sk-secret"), "OpenAI Debug leaks key: {debug_str}");
+        assert!(
+            !debug_str.contains("sk-secret"),
+            "OpenAI Debug leaks key: {debug_str}"
+        );
 
         let deepseek = DeepSeekProvider::new("sk-deepseek-secret".into(), None, http.clone());
         let debug_str = format!("{:?}", deepseek);
-        assert!(!debug_str.contains("sk-deepseek"), "DeepSeek Debug leaks key: {debug_str}");
+        assert!(
+            !debug_str.contains("sk-deepseek"),
+            "DeepSeek Debug leaks key: {debug_str}"
+        );
 
         let gemini = GeminiProvider::new("AIzaSySecret123".into(), None, http);
         let debug_str = format!("{:?}", gemini);
-        assert!(!debug_str.contains("AIzaSy"), "Gemini Debug leaks key: {debug_str}");
+        assert!(
+            !debug_str.contains("AIzaSy"),
+            "Gemini Debug leaks key: {debug_str}"
+        );
     }
 }

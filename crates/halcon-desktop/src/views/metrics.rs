@@ -3,6 +3,8 @@ use egui::{RichText, Ui};
 use crate::state::AppState;
 use crate::theme::HalconTheme;
 
+// MetricChart::render takes &self so no mut borrow of state needed here.
+
 pub fn render(ui: &mut Ui, state: &AppState) {
     ui.heading("Metrics");
     ui.separator();
@@ -47,20 +49,14 @@ pub fn render(ui: &mut Ui, state: &AppState) {
             ui.group(|ui| {
                 ui.label(RichText::new("Tasks").strong());
                 ui.horizontal(|ui| {
-                    ui.colored_label(
-                        HalconTheme::ACCENT,
-                        format!("Active: {}", m.active_tasks),
-                    );
+                    ui.colored_label(HalconTheme::ACCENT, format!("Active: {}", m.active_tasks));
                     ui.separator();
                     ui.colored_label(
                         HalconTheme::SUCCESS,
                         format!("Completed: {}", m.completed_tasks),
                     );
                     ui.separator();
-                    ui.colored_label(
-                        HalconTheme::ERROR,
-                        format!("Failed: {}", m.failed_tasks),
-                    );
+                    ui.colored_label(HalconTheme::ERROR, format!("Failed: {}", m.failed_tasks));
                 });
             });
 
@@ -104,6 +100,29 @@ pub fn render(ui: &mut Ui, state: &AppState) {
                         });
                 });
             }
+
+            // ── Trend charts ─────────────────────────────────────────────────────────
+            // Only meaningful once at least two samples have been collected.
+            if state.charts.events_per_sec.values.len() >= 2
+                || state.charts.active_tasks.values.len() >= 2
+            {
+                ui.add_space(8.0);
+                ui.group(|ui| {
+                    ui.label(RichText::new("Trends").strong());
+                    ui.add_space(4.0);
+                    ui.horizontal(|ui| {
+                        state
+                            .charts
+                            .events_per_sec
+                            .render(ui, egui::Vec2::new(220.0, 80.0));
+                        ui.add_space(8.0);
+                        state
+                            .charts
+                            .active_tasks
+                            .render(ui, egui::Vec2::new(220.0, 80.0));
+                    });
+                });
+            }
         }
     }
 }
@@ -111,11 +130,7 @@ pub fn render(ui: &mut Ui, state: &AppState) {
 fn metric_card(ui: &mut Ui, label: &str, value: &str) {
     ui.group(|ui| {
         ui.vertical(|ui| {
-            ui.label(
-                RichText::new(value)
-                    .size(20.0)
-                    .color(HalconTheme::ACCENT),
-            );
+            ui.label(RichText::new(value).size(20.0).color(HalconTheme::ACCENT));
             ui.label(
                 RichText::new(label)
                     .size(11.0)

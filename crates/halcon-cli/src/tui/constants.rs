@@ -80,7 +80,10 @@ pub const HELP_SECTION_ACTIVITY: &[(&str, &str)] = &[
     ("/", "Enter search mode"),
     ("n/N", "Next/previous search match (in search mode)"),
     ("f", "Toggle fuzzy search (typo tolerance, in search mode)"),
-    ("r", "Toggle regex search (pattern matching, in search mode)"),
+    (
+        "r",
+        "Toggle regex search (pattern matching, in search mode)",
+    ),
     ("Enter", "Expand/collapse selected tool or code block"),
     ("y", "Copy (yank) selected line to clipboard"),
     ("i", "Inspect selected tool result"),
@@ -100,6 +103,7 @@ pub const HELP_SECTION_PANELS: &[(&str, &str)] = &[
     ("F6", "Session browser"),
     ("Ctrl+P", "Command palette"),
     ("Ctrl+F", "Search activity"),
+    ("Ctrl+M", "Model selector — change active model"),
 ];
 
 /// Help section: Agent Control keybindings.

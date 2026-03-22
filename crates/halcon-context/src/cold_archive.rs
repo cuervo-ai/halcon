@@ -113,9 +113,7 @@ impl ColdArchive {
             return Vec::new();
         }
 
-        let query_terms: Vec<String> = query
-            .map(Self::tokenize)
-            .unwrap_or_default();
+        let query_terms: Vec<String> = query.map(Self::tokenize).unwrap_or_default();
 
         let mut candidates: Vec<(usize, f32)> = self
             .entries
@@ -161,10 +159,7 @@ impl ColdArchive {
 
             used += actual_tokens;
             result.push(ContextChunk {
-                source: format!(
-                    "L4:archive:r{}-{}",
-                    entry.round_start, entry.round_end
-                ),
+                source: format!("L4:archive:r{}-{}", entry.round_start, entry.round_end),
                 priority: 20, // Lowest priority (below L3=30)
                 content: text,
                 estimated_tokens: actual_tokens as usize,
@@ -471,7 +466,11 @@ mod tests {
     #[test]
     fn store_single_segment() {
         let mut archive = ColdArchive::new(100);
-        archive.store(&make_segment(1, 5, "Implemented Rust async patterns with tokio runtime"));
+        archive.store(&make_segment(
+            1,
+            5,
+            "Implemented Rust async patterns with tokio runtime",
+        ));
         assert_eq!(archive.len(), 1);
         assert!(!archive.is_empty());
         assert!(archive.original_tokens() > 0);
@@ -500,7 +499,11 @@ mod tests {
     #[test]
     fn retrieve_with_query() {
         let mut archive = ColdArchive::new(100);
-        archive.store(&make_segment(1, 3, "Implemented Rust async patterns with tokio runtime"));
+        archive.store(&make_segment(
+            1,
+            3,
+            "Implemented Rust async patterns with tokio runtime",
+        ));
         archive.store(&make_segment(4, 6, "Added Python Flask API endpoints"));
         archive.store(&make_segment(7, 9, "Configured SQLite database with WAL"));
 
@@ -601,7 +604,11 @@ mod tests {
         let path = dir.path().join("archive.l4");
 
         let mut archive = ColdArchive::with_path(100, path.clone());
-        archive.store(&make_segment(1, 5, "Rust async patterns with tokio runtime"));
+        archive.store(&make_segment(
+            1,
+            5,
+            "Rust async patterns with tokio runtime",
+        ));
         archive.store(&make_segment(6, 10, "SQLite database WAL mode setup"));
 
         let bytes = archive.flush_to_disk().unwrap();
@@ -713,7 +720,9 @@ mod tests {
             4,
         );
         assert!(terms.len() <= 4);
-        assert!(terms.iter().any(|t| t == "rust" || t == "async" || t == "tokio"));
+        assert!(terms
+            .iter()
+            .any(|t| t == "rust" || t == "async" || t == "tokio"));
     }
 
     // --- Pending flush tracking ---

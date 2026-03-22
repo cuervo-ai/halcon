@@ -1,0 +1,312 @@
+HALCON CLI - AI-READABLE DOCUMENTATION
+VERSION: 0.3.0
+BUILD: 877118b7 2026-03-14
+PLATFORM: Rust + TypeScript
+LICENSE: Apache-2.0
+REPOSITORY: https://github.com/cuervo-ai/halcon-cli
+WEBSITE: https://halcon.cuervo.cloud
+TAGS: cli, rust, ai-agent, llm, mcp, sso, tui, tool-use, audit, compliance
+
+---
+
+WHAT IS HALCON CLI
+
+Halcon CLI is a production-grade AI development platform written in Rust. It is a terminal agent that routes each user task through a multi-layer decision pipeline before any LLM call:
+
+1. HybridIntentClassifier: classifies the task type using heuristics (fast path at >=0.88 confidence), embedding cosine similarity, ambiguity detection, and optional LLM deliberation via claude-haiku.
+
+2. Boundary Decision Engine (BDE): calibrates SLA budget (latency / cost / quality), selects the optimal model using a health-aware balanced score (success_rate x 1/latency x 1/cost), and applies circuit breakers for degraded providers.
+
+3. Planning phase: LLM planner generates a structured step graph. Sub-agent tasks are identified for parallel execution.
+
+4. Tool execution with FASE-2 security gate: 18 catastrophic-pattern guards enforced at the tool layer, independent of agent configuration, provider, or transport.
+
+5. Convergence checking: TerminationOracle evaluates goal progress score, oscillation detection, and round budget.
+
+---
+
+SUPPORTED PROVIDERS
+
+anthropic - claude-sonnet-4-6 (default), claude-opus-4-6, claude-haiku-4-5-20251001. Auth: ANTHROPIC_API_KEY env var or system keychain.
+
+openai - gpt-4o, gpt-4o-mini, o1, o3-mini. Auth: OPENAI_API_KEY.
+
+gemini - gemini-2.0-flash, gemini-1.5-pro. Auth: GEMINI_API_KEY. Supports 1M token context.
+
+ollama - any local model. No auth. Air-gap compatible. Default URL: http://localhost:11434.
+
+deepseek - deepseek-chat, deepseek-coder, deepseek-reasoner. Auth: DEEPSEEK_API_KEY. Cost-optimized.
+
+bedrock - AWS Bedrock. Auth: IAM role or AWS credentials. Region: us-east-1 by default.
+
+vertex - Google Vertex AI. Auth: GCP application default credentials.
+
+claude_code - Spawns the `claude` CLI subprocess. No separate auth needed. NDJSON streaming.
+
+cenzontle - Enterprise SSO via Zuclubit OAuth 2.1 PKCE. Auth: `halcon login` or CENZONTLE_ACCESS_TOKEN env var.
+
+---
+
+INSTALLATION
+
+macOS / Linux:
+  curl -fsSL https://halcon.cuervo.cloud/install.sh | sh
+
+Homebrew (macOS):
+  brew tap cuervo-ai/tap && brew install halcon
+
+Windows:
+  iwr -useb https://halcon.cuervo.cloud/install.ps1 | iex
+
+Cargo (source):
+  cargo install --git https://github.com/cuervo-ai/halcon-cli halcon-cli
+
+---
+
+QUICKSTART
+
+  halcon auth set-key anthropic   # store API key in system keychain
+  halcon doctor                   # verify all providers and health
+  halcon chat                     # start interactive session
+  halcon login                    # Cenzontle SSO (enterprise)
+
+---
+
+COMMANDS SUMMARY
+
+chat        - Interactive REPL/agent session. Flags: --provider, --model, --no-banner, --agents, --yes
+status      - Show provider/model/session status and configured providers
+doctor      - Full runtime health diagnostics: providers, cache, metrics, tools, orchestrator
+auth        - Manage API keys. Subcommands: status, set-key, remove-key, sso-login, logout
+login       - Shortcut for: halcon auth sso-login cenzontle
+agents      - Declarative sub-agent registry. Subcommands: list [--verbose], validate
+tools       - Tool registry. Subcommands: list [--filter NAME], health
+mcp         - MCP ecosystem. Subcommands: list, add, remove, get, auth, serve [--transport stdio|http] [--port N]
+audit       - SOC 2 compliance export. Subcommands: list, export [--format jsonl|csv|pdf], verify <session-id>
+memory      - Persistent semantic memory. Subcommands: list, add, remove, search
+metrics     - Usage baselines. Subcommands: show [--output-format human|json|junit|plain], export, prune, decide
+schedule    - Cron agent tasks. Subcommands: list, add [--cron EXPR] [--agent NAME], remove
+serve       - Control plane HTTP/WebSocket API server. Flags: --port (default 9000)
+users       - RBAC management. Subcommands: list, add <email> --role ROLE, remove
+trace       - Session trace export/inspection
+replay      - Replay a recorded session
+lsp         - Start LSP server over stdio
+plugin      - V3 plugin management
+update      - Update halcon binary. Flags: --check, --channel stable|beta
+init        - Initialize .halcon/ project directory
+config      - Configuration management. Subcommands: show, set, get
+theme       - Theme generation and optimization
+doctor      - Runtime health diagnostics
+help        - Print help
+
+---
+
+TOOL REGISTRY (63 TOOLS)
+
+Permission tiers:
+  [RO] read-only: no side effects
+  [RW] read-write: reversible changes
+  [D!] destructive: irreversible, requires approval in TUI or --yes flag
+
+Tools marked with * require explicit user approval in interactive mode.
+
+File operations: file_read [RO], file_write [D!]*, file_edit [D!]*, file_delete [D!]*, file_diff [RO], file_inspect [RO], diff_apply [RW], patch_apply [RW], directory_tree [RO]
+
+Search: grep [RO], glob [RO], fuzzy_find [RO], semantic_grep [RO], symbol_search [RO], native_search [RO], native_index_query [RO], native_crawl [RO]
+
+Git: git_status [RO], git_diff [RO], git_log [RO], git_blame [RO], git_add [RW], git_commit [D!]*, git_branch [RW], git_stash [RW]
+
+Code: code_metrics [RO], code_coverage [RO], dep_check [RO], dependency_graph [RO], syntax_check [RO], lint_check [RO], execute_test [RO], test_run [RO], changelog_gen [RO]
+
+HTTP/Network: http_request [D!]*, http_probe [RO], web_fetch [RO], web_search [RO], port_check [RO], url_parse [RO]
+
+System: bash [D!]*, env_inspect [RO], process_list [RO], process_monitor [RO], background_start [D!]*, background_output [RO], background_kill [D!]
+
+Data: json_transform [RW], json_schema_validate [RO], csv handling, archive [RW], checksum [RO], template_engine [RW], regex_test [RO], token_count [RO]
+
+Infra: docker [RW], sql_query [RO], config_validate [RO], openapi_validate [RO], secret_scan [RO], security scanning
+
+Memory: search_memory [RO] (semantic search over MEMORY.md and session context)
+
+---
+
+SECURITY: FASE-2
+
+FASE-2 (Filtro de Accion con Seguridad Estricta v2) is a 18-pattern guard enforced at the tool execution layer. It blocks catastrophic operations regardless of:
+- Which agent or model is active
+- Which provider is configured
+- Whether the call comes from CLI, VS Code extension, HTTP MCP client, or sub-agent
+
+Patterns blocked (examples):
+  rm -rf / or rm -rf /* (root deletion)
+  Fork bombs: :(){ :|:& };:
+  Credential exfiltration: reading /etc/passwd, /etc/shadow, SSH keys
+  Kernel module operations: insmod, rmmod, modprobe
+  Network firewall modification: iptables, ufw with DROP/FLUSH
+  Docker container escape patterns
+  History manipulation: > ~/.bash_history
+  Privilege escalation patterns
+
+---
+
+AUDIT / SOC 2
+
+Halcon records all tool calls with HMAC-SHA256 chain for tamper detection.
+
+Event taxonomy:
+  AGENT_SESSION_START / AGENT_SESSION_END
+  TOOL_CALL
+  TOOL_BLOCKED
+  SAFETY_GATE_TRIGGER
+  CIRCUIT_BREAKER_ACTIVATION
+  TERMINATION_ORACLE_DECISION
+  REPLAN_TRIGGERED
+  MEMORY_WRITE
+
+Export:
+  halcon audit export --format jsonl   # compact JSON per line (RFC 4180)
+  halcon audit export --format csv     # fixed 5-column CSV
+  halcon audit export --format pdf     # A4 PDF: cover + timeline + breakdown
+
+Verify:
+  halcon audit verify <session-id>     # exits 1 if chain is tampered
+
+---
+
+CENZONTLE SSO
+
+Cenzontle is the enterprise identity layer. Authentication via Zuclubit (OAuth 2.1 PKCE):
+1. halcon login opens browser
+2. PKCE: code_verifier generated locally, code_challenge = BASE64URL(SHA256(verifier))
+3. Redirect to localhost:9876/callback after authentication
+4. Token exchange: access_token (1h) + refresh_token (30d)
+5. Tokens in system keychain, auto-refresh 5 minutes before expiry
+
+Non-interactive: set CENZONTLE_ACCESS_TOKEN env var to bypass browser flow.
+
+---
+
+SUB-AGENT REGISTRY
+
+Agents are Markdown files with YAML frontmatter. Discovery scopes (priority order):
+1. Session: --agents path/to/agent.md
+2. Project: .halcon/agents/*.md
+3. User: ~/.halcon/agents/*.md
+
+Frontmatter fields:
+  name: string (kebab-case, required)
+  description: string (required, used for routing manifest)
+  tools: string[] (subset of 63 tools)
+  model: string (alias or full name)
+  max_turns: int (1-100)
+  skills: string[] (references to .halcon/skills/*.md)
+
+Validation: halcon agents validate
+Routing: parent agent system prompt includes manifest when enable_agent_registry=true
+
+---
+
+MCP ECOSYSTEM
+
+Client (connecting to MCP servers):
+  Transports: HTTP+SSE, stdio
+  Auth: OAuth 2.1 PKCE (via halcon mcp auth <name>)
+  Config: .halcon/mcp.toml (project) or ~/.halcon/mcp.toml (user)
+  Tool search: fuzzy matching via nucleo-matcher, deferred mode above 10% context threshold
+
+Server (Halcon exposes its 63 tools as MCP server):
+  halcon mcp serve              # stdio (for Claude desktop)
+  halcon mcp serve --transport http --port 7777  # HTTP+SSE
+  Auth: HALCON_MCP_SERVER_API_KEY Bearer token
+  Sessions: Mcp-Session-Id header, configurable TTL
+
+---
+
+WORKSPACE CRATES
+
+halcon-core         - Traits and types (all other crates depend on this)
+halcon-cli          - Main binary: REPL, TUI, commands, agent loop, audit, agent_bridge
+halcon-providers    - 9 AI provider implementations
+halcon-tools        - 63 built-in tools with FASE-2 integration
+halcon-agent-core   - FSM, planner, critic, verifier, telemetry, oscillation detection
+halcon-runtime      - Sub-agent executor, spawner, federation router, artifacts
+halcon-mcp          - MCP client + server (HTTP/SSE + stdio), OAuth, tool search
+halcon-context      - Context window: hot buffer, cold archive, vector store, compression
+halcon-search       - Semantic search engine, TF-IDF, inverted index, RAGAS evaluation
+halcon-storage      - SQLite persistence (WAL mode): sessions, metrics, audit, checkpoints
+halcon-auth         - RBAC, JWT, Cenzontle token management, keychain integration
+halcon-security     - FASE-2 guards, guardrails, rate limiting, output risk scoring
+halcon-api          - Control plane REST + WebSocket API (axum)
+halcon-multimodal   - Image/video pipeline, MIME detection, 20MB limit
+halcon-sandbox      - Execution sandbox policies
+halcon-files        - CSV, Excel, PDF, archive handlers
+halcon-integrations - Third-party event hub
+halcon-desktop      - egui desktop application
+halcon-client       - HTTP client for control plane API
+cuervo-cli          - Internal shell integration
+
+---
+
+CONFIGURATION FILE
+
+Default: ~/.halcon/config.toml
+
+  [agent]
+  provider = "anthropic"
+  model    = "claude-sonnet-4-6"
+
+  [agent.limits]
+  max_rounds   = 40
+  max_tokens   = 200000
+  max_cost_usd = 5.0
+
+  [security]
+  pii_detection    = false
+  audit_trail      = true
+  fase2_enabled    = true
+
+  [features]
+  enable_semantic_memory  = true
+  semantic_memory_top_k   = 5
+  enable_agent_registry   = true
+
+---
+
+ENVIRONMENT VARIABLES
+
+ANTHROPIC_API_KEY         - Anthropic API key
+OPENAI_API_KEY            - OpenAI API key
+GEMINI_API_KEY            - Google Gemini API key
+DEEPSEEK_API_KEY          - DeepSeek API key
+CENZONTLE_ACCESS_TOKEN    - Cenzontle bearer token (set by halcon login)
+HALCON_MODEL              - Override active model
+HALCON_PROVIDER           - Override active provider
+HALCON_CONFIG             - Override config file path
+HALCON_LOG                - Log level: trace | debug | info | warn | error
+HALCON_API_TOKEN          - Bearer token for halcon serve REST API
+HALCON_MCP_SERVER_API_KEY - Bearer token for halcon mcp serve HTTP mode
+HALCON_OUTPUT_FORMAT      - Output format for CI: human | json | junit | plain
+
+---
+
+CI/CD INTEGRATION
+
+GitHub Actions:
+  - uses: cuervo-ai/halcon-action@v1
+    with:
+      task: "Review this PR for security issues"
+      provider: anthropic
+      model: claude-sonnet-4-6
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+Non-interactive mode (no TUI, auto-approve):
+  halcon chat --no-banner --yes --provider anthropic \
+    "Run all tests and fix any failures"
+
+JSON output mode (for parsing):
+  HALCON_OUTPUT_FORMAT=json halcon metrics show
+
+---
+
+END OF HALCON CLI AI-READABLE DOCUMENTATION

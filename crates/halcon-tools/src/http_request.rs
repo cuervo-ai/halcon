@@ -63,11 +63,9 @@ impl Tool for HttpRequestTool {
     }
 
     async fn execute(&self, input: ToolInput) -> Result<ToolOutput> {
-        let url = input.arguments["url"]
-            .as_str()
-            .ok_or_else(|| {
-                HalconError::InvalidInput("http_request requires 'url' string".into())
-            })?;
+        let url = input.arguments["url"].as_str().ok_or_else(|| {
+            HalconError::InvalidInput("http_request requires 'url' string".into())
+        })?;
 
         let method_str = input.arguments["method"]
             .as_str()
@@ -147,12 +145,13 @@ impl Tool for HttpRequestTool {
         }
 
         // Send request.
-        let response = request.send().await.map_err(|e| {
-            HalconError::ToolExecutionFailed {
+        let response = request
+            .send()
+            .await
+            .map_err(|e| HalconError::ToolExecutionFailed {
                 tool: "http_request".into(),
                 message: format!("{method} {url} failed: {e}"),
-            }
-        })?;
+            })?;
 
         let status = response.status();
         let status_code = status.as_u16();
@@ -170,12 +169,13 @@ impl Tool for HttpRequestTool {
         }
 
         // Read body.
-        let body_bytes = response.bytes().await.map_err(|e| {
-            HalconError::ToolExecutionFailed {
+        let body_bytes = response
+            .bytes()
+            .await
+            .map_err(|e| HalconError::ToolExecutionFailed {
                 tool: "http_request".into(),
                 message: format!("failed to read response body: {e}"),
-            }
-        })?;
+            })?;
 
         let truncated = body_bytes.len() > MAX_RESPONSE_BYTES;
         let body_text = if truncated {

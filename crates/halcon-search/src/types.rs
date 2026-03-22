@@ -127,7 +127,7 @@ impl CrawlSession {
 }
 
 /// Document metadata extracted during parsing.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct DocumentMetadata {
     pub title: String,
     pub description: Option<String>,
@@ -138,22 +138,6 @@ pub struct DocumentMetadata {
     pub canonical_url: Option<Url>,
     pub og_image: Option<String>,
     pub language: Option<String>,
-}
-
-impl Default for DocumentMetadata {
-    fn default() -> Self {
-        Self {
-            title: String::new(),
-            description: None,
-            author: None,
-            published_at: None,
-            modified_at: None,
-            keywords: Vec::new(),
-            canonical_url: None,
-            og_image: None,
-            language: None,
-        }
-    }
 }
 
 /// Parsed HTML document ready for indexing.

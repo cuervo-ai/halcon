@@ -96,12 +96,20 @@ impl FsCache {
         if let Ok(mut entries) = self.entries.lock() {
             // Evict oldest if at capacity (simple: just clear half).
             if entries.len() >= self.max_entries {
-                let keys: Vec<PathBuf> = entries.keys().take(self.max_entries / 2).cloned().collect();
+                let keys: Vec<PathBuf> =
+                    entries.keys().take(self.max_entries / 2).cloned().collect();
                 for k in keys {
                     entries.remove(&k);
                 }
             }
-            entries.insert(path, CacheEntry { content, mtime, size });
+            entries.insert(
+                path,
+                CacheEntry {
+                    content,
+                    mtime,
+                    size,
+                },
+            );
         }
     }
 
@@ -219,12 +227,7 @@ impl FsService {
         if let Some(ref cache) = self.cache {
             if let Ok(meta) = tokio::fs::metadata(resolved).await {
                 if let Ok(mtime) = meta.modified() {
-                    cache.put(
-                        resolved.to_path_buf(),
-                        content.clone(),
-                        mtime,
-                        meta.len(),
-                    );
+                    cache.put(resolved.to_path_buf(), content.clone(), mtime, meta.len());
                 }
             }
         }
@@ -260,12 +263,15 @@ impl FsService {
         let mut numbered = String::new();
         let mut collected = 0usize;
 
-        while let Some(line) = lines.next_line().await.map_err(|e| {
-            HalconError::ToolExecutionFailed {
-                tool: "fs_service".into(),
-                message: format!("failed to read line from {}: {e}", resolved.display()),
-            }
-        })? {
+        while let Some(line) =
+            lines
+                .next_line()
+                .await
+                .map_err(|e| HalconError::ToolExecutionFailed {
+                    tool: "fs_service".into(),
+                    message: format!("failed to read line from {}: {e}", resolved.display()),
+                })?
+        {
             if total >= offset && (limit == 0 || collected < limit) {
                 if collected > 0 {
                     numbered.push('\n');
@@ -353,9 +359,7 @@ impl FsService {
         }
 
         let bytes = content.len() as u64;
-        self.metrics
-            .write_bytes
-            .fetch_add(bytes, Ordering::Relaxed);
+        self.metrics.write_bytes.fetch_add(bytes, Ordering::Relaxed);
 
         // Invalidate cache for this path.
         if let Some(ref cache) = self.cache {
@@ -387,10 +391,7 @@ impl FsService {
             self.metrics.errors.fetch_add(1, Ordering::Relaxed);
             return Err(HalconError::ToolExecutionFailed {
                 tool: "fs_service".into(),
-                message: format!(
-                    "refusing to delete symlink: {}",
-                    resolved.display()
-                ),
+                message: format!("refusing to delete symlink: {}", resolved.display()),
             });
         }
 
@@ -437,12 +438,14 @@ impl FsService {
         })?;
 
         let mut entries = Vec::new();
-        while let Some(entry) = rd.next_entry().await.map_err(|e| {
-            HalconError::ToolExecutionFailed {
-                tool: "fs_service".into(),
-                message: format!("failed to read dir entry: {e}"),
-            }
-        })? {
+        while let Some(entry) =
+            rd.next_entry()
+                .await
+                .map_err(|e| HalconError::ToolExecutionFailed {
+                    tool: "fs_service".into(),
+                    message: format!("failed to read dir entry: {e}"),
+                })?
+        {
             let ft = entry.file_type().await.unwrap_or_else(|_| {
                 // Fallback: treat as file
                 std::fs::metadata(entry.path())
@@ -460,12 +463,10 @@ impl FsService {
         }
 
         // Sort: directories first, then alphabetical.
-        entries.sort_by(|a, b| {
-            match (a.is_dir, b.is_dir) {
-                (true, false) => std::cmp::Ordering::Less,
-                (false, true) => std::cmp::Ordering::Greater,
-                _ => a.name.cmp(&b.name),
-            }
+        entries.sort_by(|a, b| match (a.is_dir, b.is_dir) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a.name.cmp(&b.name),
         });
 
         Ok(entries)
@@ -474,23 +475,23 @@ impl FsService {
     /// Get symlink metadata (lstat) for a path.
     #[tracing::instrument(skip(self), fields(path = %resolved.display()))]
     pub async fn symlink_metadata(&self, resolved: &Path) -> Result<std::fs::Metadata> {
-        tokio::fs::symlink_metadata(resolved).await.map_err(|e| {
-            HalconError::ToolExecutionFailed {
+        tokio::fs::symlink_metadata(resolved)
+            .await
+            .map_err(|e| HalconError::ToolExecutionFailed {
                 tool: "fs_service".into(),
                 message: format!("failed to stat {}: {e}", resolved.display()),
-            }
-        })
+            })
     }
 
     /// Create directories recursively.
     #[tracing::instrument(skip(self), fields(path = %path.display()))]
     pub async fn create_dir_all(&self, path: &Path) -> Result<()> {
-        tokio::fs::create_dir_all(path).await.map_err(|e| {
-            HalconError::ToolExecutionFailed {
+        tokio::fs::create_dir_all(path)
+            .await
+            .map_err(|e| HalconError::ToolExecutionFailed {
                 tool: "fs_service".into(),
                 message: format!("failed to create directories {}: {e}", path.display()),
-            }
-        })
+            })
     }
 
     // --- Batch Operations ---

@@ -14,7 +14,9 @@ pub struct ToolOutputElider {
 impl ToolOutputElider {
     /// Create a new elider with the given default budget.
     pub fn new(default_budget_tokens: u32) -> Self {
-        Self { default_budget_tokens }
+        Self {
+            default_budget_tokens,
+        }
     }
 
     /// Elide tool output to fit within token budget.
@@ -106,13 +108,11 @@ impl ToolOutputElider {
         }
 
         // Find a clean break point (newline) near the budget
-        let break_at = content[..safe_max]
-            .rfind('\n')
-            .unwrap_or(safe_max);
+        let break_at = content[..safe_max].rfind('\n').unwrap_or(safe_max);
 
         format!(
             "{}\n\n[truncated: {} → {} chars]",
-            &content[..break_at],  // Safe: break_at ≤ safe_max (valid char boundary)
+            &content[..break_at], // Safe: break_at ≤ safe_max (valid char boundary)
             content.len(),
             break_at,
         )
@@ -140,7 +140,9 @@ mod tests {
     #[test]
     fn file_read_elides_large_file() {
         let elider = ToolOutputElider::new(100);
-        let lines: Vec<String> = (0..500).map(|i| format!("line {i}: some content here")).collect();
+        let lines: Vec<String> = (0..500)
+            .map(|i| format!("line {i}: some content here"))
+            .collect();
         let content = lines.join("\n");
         let result = elider.elide("file_read", &content, Some(100));
         assert!(result.contains("line 0:"));
@@ -220,7 +222,7 @@ mod tests {
         let elider = ToolOutputElider::new(10);
         let content = "line1\nline2\nline3\nline4\nline5\nline6\nline7\nline8\nline9\nline10";
         let result = elider.truncate_to_budget(content, 5); // 5 tokens = 20 chars
-        // Should break at a newline boundary
+                                                            // Should break at a newline boundary
         assert!(result.contains("truncated"));
     }
 
@@ -265,7 +267,9 @@ mod tests {
     #[test]
     fn token_savings_file_read() {
         let elider = ToolOutputElider::new(2000);
-        let lines: Vec<String> = (0..10_000).map(|i| format!("line {i}: fn do_something() {{ todo!() }}")).collect();
+        let lines: Vec<String> = (0..10_000)
+            .map(|i| format!("line {i}: fn do_something() {{ todo!() }}"))
+            .collect();
         let content = lines.join("\n");
         let original_tokens = estimate_tokens(&content);
         let elided = elider.elide("file_read", &content, Some(2000));
@@ -280,7 +284,9 @@ mod tests {
     #[test]
     fn token_savings_grep() {
         let elider = ToolOutputElider::new(2000);
-        let lines: Vec<String> = (0..500).map(|i| format!("src/module_{i}.rs:42: let x = match foo {{")).collect();
+        let lines: Vec<String> = (0..500)
+            .map(|i| format!("src/module_{i}.rs:42: let x = match foo {{"))
+            .collect();
         let content = lines.join("\n");
         let original_tokens = estimate_tokens(&content);
         let elided = elider.elide("grep", &content, Some(2000));
@@ -321,11 +327,12 @@ mod tests {
         // Mix of 1-byte, 2-byte, 3-byte, and 4-byte UTF-8 chars
         let content = format!(
             "{}\n{}\n{}\n{}\n",
-            "ASCII text here",                 // 1-byte chars
-            "Café résumé naïve",               // 2-byte chars (é, ü, ï)
-            "日本語 中文 한글",                  // 3-byte chars (CJK)
-            "🚀 🦀 🎉 💻"                       // 4-byte chars (emoji)
-        ).repeat(100);
+            "ASCII text here",   // 1-byte chars
+            "Café résumé naïve", // 2-byte chars (é, ü, ï)
+            "日本語 中文 한글",  // 3-byte chars (CJK)
+            "🚀 🦀 🎉 💻"        // 4-byte chars (emoji)
+        )
+        .repeat(100);
 
         // Should not panic regardless of where truncation point lands
         let result = elider.truncate_to_budget(&content, 10);

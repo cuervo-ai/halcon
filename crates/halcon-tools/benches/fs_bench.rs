@@ -63,21 +63,27 @@ fn bench_read_write(c: &mut Criterion) {
         let fs = fs.clone();
         let p = write_file.clone();
         let c = content_1kb.clone();
-        b.iter(|| rt.block_on(async { fs.atomic_write(black_box(&p), black_box(&c)).await.unwrap() }))
+        b.iter(|| {
+            rt.block_on(async { fs.atomic_write(black_box(&p), black_box(&c)).await.unwrap() })
+        })
     });
 
     c.bench_function("atomic_write_100kb", |b| {
         let fs = fs.clone();
         let p = write_file.clone();
         let c = content_100kb.clone();
-        b.iter(|| rt.block_on(async { fs.atomic_write(black_box(&p), black_box(&c)).await.unwrap() }))
+        b.iter(|| {
+            rt.block_on(async { fs.atomic_write(black_box(&p), black_box(&c)).await.unwrap() })
+        })
     });
 
     c.bench_function("atomic_write_1mb", |b| {
         let fs = fs.clone();
         let p = write_file.clone();
         let c = content_1mb.clone();
-        b.iter(|| rt.block_on(async { fs.atomic_write(black_box(&p), black_box(&c)).await.unwrap() }))
+        b.iter(|| {
+            rt.block_on(async { fs.atomic_write(black_box(&p), black_box(&c)).await.unwrap() })
+        })
     });
 }
 

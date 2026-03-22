@@ -9,7 +9,9 @@ use super::orchestrator::OrchestratorConfig;
 /// Severity of a configuration issue.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum IssueLevel {
+    /// A fatal misconfiguration that will prevent correct operation.
     Error,
+    /// A suboptimal setting that may cause unexpected behavior but is not fatal.
     Warning,
 }
 
@@ -25,9 +27,13 @@ impl fmt::Display for IssueLevel {
 /// A single configuration issue found during validation.
 #[derive(Debug, Clone)]
 pub struct ConfigIssue {
+    /// Severity of the issue.
     pub level: IssueLevel,
+    /// Dot-separated path to the offending config field (e.g. `"general.temperature"`).
     pub field: String,
+    /// Human-readable description of what is wrong.
     pub message: String,
+    /// Optional corrective action to display to the user.
     pub suggestion: Option<String>,
 }
 
@@ -110,9 +116,7 @@ pub fn validate_config(config: &AppConfig) -> Vec<ConfigIssue> {
             level: IssueLevel::Warning,
             field: "resilience + agent.routing.fallback_models".into(),
             message: "resilience is enabled but no fallback models are configured".into(),
-            suggestion: Some(
-                "Add fallback_models to [agent.routing] for failover support".into(),
-            ),
+            suggestion: Some("Add fallback_models to [agent.routing] for failover support".into()),
         });
     }
 
@@ -150,7 +154,9 @@ pub fn validate_config(config: &AppConfig) -> Vec<ConfigIssue> {
                 "provider timeout {}s is very low — requests may time out prematurely",
                 config.agent.limits.provider_timeout_secs
             ),
-            suggestion: Some("Set provider_timeout_secs to at least 30 for reliable inference".into()),
+            suggestion: Some(
+                "Set provider_timeout_secs to at least 30 for reliable inference".into(),
+            ),
         });
     }
 
@@ -170,9 +176,7 @@ pub fn validate_config(config: &AppConfig) -> Vec<ConfigIssue> {
             level: IssueLevel::Warning,
             field: "agent.limits".into(),
             message: "no token or duration budget set — API spend is unbounded".into(),
-            suggestion: Some(
-                "Set max_total_tokens or max_duration_secs for cost control".into(),
-            ),
+            suggestion: Some("Set max_total_tokens or max_duration_secs for cost control".into()),
         });
     }
 
@@ -202,7 +206,9 @@ pub fn validate_config(config: &AppConfig) -> Vec<ConfigIssue> {
                 level: IssueLevel::Warning,
                 field: "display.terminal_background".into(),
                 message: format!("invalid hex color '{hex}' — expected #RGB or #RRGGBB format"),
-                suggestion: Some("Use a hex color like \"#1a1a1a\" for dark or \"#ffffff\" for light".into()),
+                suggestion: Some(
+                    "Use a hex color like \"#1a1a1a\" for dark or \"#ffffff\" for light".into(),
+                ),
             });
         }
     }
@@ -228,8 +234,7 @@ pub fn validate_config(config: &AppConfig) -> Vec<ConfigIssue> {
             field: "orchestrator.sub_agent_timeout_secs".into(),
             message: format!(
                 "sub-agent timeout {}s exceeds parent max_duration_secs {}s",
-                config.orchestrator.sub_agent_timeout_secs,
-                config.agent.limits.max_duration_secs,
+                config.orchestrator.sub_agent_timeout_secs, config.agent.limits.max_duration_secs,
             ),
             suggestion: Some("Sub-agent timeout should be less than parent duration budget".into()),
         });
@@ -241,7 +246,9 @@ pub fn validate_config(config: &AppConfig) -> Vec<ConfigIssue> {
             level: IssueLevel::Warning,
             field: "orchestrator.enable_communication".into(),
             message: "inter-agent communication is enabled but orchestrator is disabled".into(),
-            suggestion: Some("Set orchestrator.enabled = true or disable enable_communication".into()),
+            suggestion: Some(
+                "Set orchestrator.enabled = true or disable enable_communication".into(),
+            ),
         });
     }
 
@@ -269,6 +276,123 @@ pub fn validate_config(config: &AppConfig) -> Vec<ConfigIssue> {
     }
 
     issues
+}
+
+/// Configuration for the multimodal subsystem.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct MultimodalConfig {
+    /// Enable multimodal processing (default: false).
+    pub enabled: bool,
+    /// Routing mode: "api", "local", or "hybrid" (default: "hybrid").
+    pub mode: String,
+    /// Maximum file size in bytes (default: 20 MB).
+    pub max_file_size_bytes: u64,
+    /// Files smaller than this go to local inference when available (default: 2 MB).
+    pub local_threshold_bytes: u64,
+    /// Strip EXIF metadata before upload (default: true).
+    pub strip_exif: bool,
+    /// Reject local file paths in strict privacy mode (default: false).
+    pub privacy_strict: bool,
+    /// Maximum audio duration in seconds (default: 300).
+    pub max_audio_duration_secs: u32,
+    /// Maximum video duration in seconds (default: 60).
+    pub max_video_duration_secs: u32,
+    /// Video sampling rate in frames per second (default: 1).
+    pub video_sample_fps: u32,
+    /// Maximum number of video frames to extract (default: 10).
+    pub max_video_frames: u32,
+    /// Enable content-addressed caching (default: true).
+    pub cache_enabled: bool,
+    /// Cache TTL in seconds (default: 3600).
+    pub cache_ttl_secs: u64,
+    /// Directory containing ONNX model files (optional).
+    pub models_dir: Option<String>,
+    /// API call timeout in milliseconds (default: 30000).
+    pub api_timeout_ms: u64,
+    /// Maximum simultaneous media analyses (prevents DoS from bulk uploads).
+    /// Default: 4. Set 0 to disable limiting.
+    #[serde(default = "default_max_concurrent_analyses")]
+    pub max_concurrent_analyses: u32,
+}
+
+fn default_max_concurrent_analyses() -> u32 {
+    4
+}
+
+impl Default for MultimodalConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            mode: "hybrid".to_string(),
+            max_file_size_bytes: 20 * 1024 * 1024,
+            local_threshold_bytes: 2 * 1024 * 1024,
+            strip_exif: true,
+            privacy_strict: false,
+            max_audio_duration_secs: 300,
+            max_video_duration_secs: 60,
+            video_sample_fps: 1,
+            max_video_frames: 10,
+            cache_enabled: true,
+            cache_ttl_secs: 3600,
+            models_dir: None,
+            api_timeout_ms: 30_000,
+            max_concurrent_analyses: 4,
+        }
+    }
+}
+
+/// Halcon-as-MCP-server configuration (Feature 9).
+///
+/// Configures how Halcon exposes its tools and agents to external MCP clients.
+/// When `enabled = true`, start the server with `halcon mcp serve`.
+/// Distinct from `McpServerConfig` (which configures client connections to external MCP servers).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct McpServeConfig {
+    /// Enable the MCP server (default: false).
+    #[serde(default)]
+    pub enabled: bool,
+    /// Transport mode: "stdio" or "http" (default: "stdio").
+    #[serde(default = "default_mcp_transport")]
+    pub transport: String,
+    /// HTTP port for http transport (default: 7777).
+    #[serde(default = "default_mcp_port")]
+    pub port: u16,
+    /// Expose agent-registry agents as `agent_*` MCP tools (default: true).
+    #[serde(default = "default_true")]
+    pub expose_agents: bool,
+    /// Require Bearer token auth in http transport (default: true).
+    #[serde(default = "default_true")]
+    pub require_auth: bool,
+    /// Allowed MCP client IDs (empty = allow all).
+    #[serde(default)]
+    pub allowed_clients: Vec<String>,
+    /// Session idle timeout in seconds (default: 1800 = 30 min).
+    #[serde(default = "default_mcp_session_ttl")]
+    pub session_ttl_secs: u64,
+}
+
+fn default_mcp_transport() -> String {
+    "stdio".to_string()
+}
+fn default_mcp_port() -> u16 {
+    7777
+}
+fn default_mcp_session_ttl() -> u64 {
+    1800
+}
+
+impl Default for McpServeConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            transport: default_mcp_transport(),
+            port: default_mcp_port(),
+            expose_agents: true,
+            require_auth: true,
+            allowed_clients: Vec::new(),
+            session_ttl_secs: default_mcp_session_ttl(),
+        }
+    }
 }
 
 /// Top-level application configuration.
@@ -310,6 +434,33 @@ pub struct AppConfig {
     pub search: SearchConfig,
     #[serde(default)]
     pub reasoning: ReasoningConfig,
+    /// Multimodal subsystem configuration.
+    #[serde(default)]
+    pub multimodal: MultimodalConfig,
+    /// V3 Plugin system configuration.
+    #[serde(default)]
+    pub plugins: PluginsConfig,
+    /// Centralized policy thresholds (reward, critic, evidence, trust, retry, growth, mini-critic).
+    #[serde(default)]
+    pub policy: super::policy_config::PolicyConfig,
+    /// MCP Server configuration (Feature 9 — Halcon as MCP server).
+    #[serde(default)]
+    pub mcp_server: McpServeConfig,
+}
+
+/// V3 Plugin system configuration.
+///
+/// Enable via `[plugins] enabled = true` in config.toml.
+/// When enabled, the plugin loader scans `~/.halcon/plugins/*.plugin.toml`
+/// on the first agent-loop message and registers PluginProxyTool instances.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct PluginsConfig {
+    /// Master switch.  When false (default) no plugin discovery runs.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Override discovery path (default: ~/.halcon/plugins/).
+    #[serde(default)]
+    pub plugin_dir: Option<String>,
 }
 
 /// Adaptive reasoning and UCB1 strategy learning configuration.
@@ -337,12 +488,66 @@ pub struct ReasoningConfig {
     /// Persist experience across sessions (requires DB).
     #[serde(default = "reasoning_learning_default")]
     pub learning: bool,
+    /// Phase 73 (Phase 5): enable adversarial LoopCritic evaluation after each session.
+    ///
+    /// When `true`, a second LLM call is made after the agent loop to adversarially
+    /// evaluate whether the original goal was truly achieved. Adds ~1–3s latency.
+    /// Disabled by default; enable with `enable_loop_critic = true` in config.toml.
+    #[serde(default)]
+    pub enable_loop_critic: bool,
+    /// Optional separate model for LoopCritic (prevents self-evaluation bias).
+    /// None = use executor model (backward-compatible default).
+    ///
+    /// Example: `critic_model = "gpt-4o-mini"` in `[reasoning]` section.
+    #[serde(default)]
+    pub critic_model: Option<String>,
+    /// Optional separate provider name for LoopCritic.
+    /// None = use executor provider.
+    ///
+    /// Example: `critic_provider = "openai"` in `[reasoning]` section.
+    #[serde(default)]
+    pub critic_provider: Option<String>,
+
+    // ── Phase 3: AgentModelConfig — role-specific model/provider separation ──
+    /// Optional model for the LlmPlanner role (plan generation / replan).
+    /// None = use the session's primary execution model.
+    ///
+    /// Example: `planner_model = "deepseek-chat"` in `[reasoning]` section.
+    #[serde(default)]
+    pub planner_model: Option<String>,
+    /// Optional provider for the LlmPlanner role.
+    /// None = use the session's primary provider.
+    ///
+    /// Example: `planner_provider = "deepseek"` in `[reasoning]` section.
+    #[serde(default)]
+    pub planner_provider: Option<String>,
+
+    /// Optional model for the Reflector role (post-execution reflection).
+    /// None = use the session's primary execution model.
+    ///
+    /// Example: `reflector_model = "gpt-4o-mini"` in `[reasoning]` section.
+    #[serde(default)]
+    pub reflector_model: Option<String>,
+    /// Optional provider for the Reflector role.
+    /// None = use the session's primary provider.
+    ///
+    /// Example: `reflector_provider = "openai"` in `[reasoning]` section.
+    #[serde(default)]
+    pub reflector_provider: Option<String>,
 }
 
-fn reasoning_threshold_default() -> f64 { 0.6 }
-fn reasoning_max_retries_default() -> u32 { 1 }
-fn reasoning_exploration_default() -> f64 { 1.4 }
-fn reasoning_learning_default() -> bool { true }
+fn reasoning_threshold_default() -> f64 {
+    0.6
+}
+fn reasoning_max_retries_default() -> u32 {
+    1
+}
+fn reasoning_exploration_default() -> f64 {
+    1.4
+}
+fn reasoning_learning_default() -> bool {
+    true
+}
 
 impl Default for ReasoningConfig {
     fn default() -> Self {
@@ -352,6 +557,13 @@ impl Default for ReasoningConfig {
             max_retries: reasoning_max_retries_default(),
             exploration_factor: reasoning_exploration_default(),
             learning: reasoning_learning_default(),
+            enable_loop_critic: false,
+            critic_model: None,
+            critic_provider: None,
+            planner_model: None,
+            planner_provider: None,
+            reflector_model: None,
+            reflector_provider: None,
         }
     }
 }
@@ -374,19 +586,19 @@ pub struct SearchConfig {
 }
 
 fn search_enabled_default() -> bool {
-    true  // Enabled by default
+    true // Enabled by default
 }
 
 fn search_cache_default() -> bool {
-    true  // Cache enabled by default
+    true // Cache enabled by default
 }
 
 impl Default for SearchConfig {
     fn default() -> Self {
         Self {
             enabled: true,
-            max_documents: 0,  // Unlimited
-            enable_semantic: false,  // Disabled (requires model download)
+            max_documents: 0,       // Unlimited
+            enable_semantic: false, // Disabled (requires model download)
             enable_cache: true,
         }
     }
@@ -571,9 +783,15 @@ pub struct ToolsConfig {
     /// 0 = no timeout (blocks indefinitely). Default: 30.
     #[serde(default = "default_prompt_timeout")]
     pub prompt_timeout_secs: u64,
-    /// Auto-approve destructive tools when running in CI environments.
+    /// Auto-approve ReadOnly tools when running in CI environments (non-interactive mode).
     /// Prevents 30-second hangs on permission prompts in CI/CD pipelines.
-    /// Default: true.
+    ///
+    /// **Deprecated (Phase 72c)**: This field now controls ReadOnly tier only.
+    /// Use `allow_write_in_ci` for ReadWrite tier and `allow_destructive_in_ci` for
+    /// Destructive tier. Setting this to `true` no longer auto-approves Destructive tools
+    /// — the `NonInteractivePolicy` now enforces per-level granular control.
+    ///
+    /// Default: true (ReadOnly auto-approved in CI; Destructive still requires opt-in).
     #[serde(default = "default_true")]
     pub auto_approve_in_ci: bool,
     /// Custom command blacklist patterns (regex) for bash tool.
@@ -585,6 +803,22 @@ pub struct ToolsConfig {
     /// Default: false (protection enabled).
     #[serde(default)]
     pub disable_builtin_blacklist: bool,
+    /// Allow ReadWrite tools (file_edit, file_write) in non-interactive/CI mode
+    /// without an interactive permission prompt.
+    /// Deprecated: `auto_approve_in_ci` now maps to allow_write=true only.
+    /// Default: false.
+    #[serde(default)]
+    pub allow_write_in_ci: bool,
+    /// Allow Destructive tools (bash, file_delete, etc.) in non-interactive/CI mode.
+    /// Requires explicit opt-in — use `--allow-destructive` CLI flag or set this to true.
+    /// Default: false.
+    #[serde(default)]
+    pub allow_destructive_in_ci: bool,
+    /// Enforce mandatory dry-run preview before first Destructive tool in a session.
+    /// When true, the first destructive tool shows a preview before executing.
+    /// Default: false.
+    #[serde(default)]
+    pub enforce_dry_run_preview: bool,
 }
 
 /// Configuration for automatic tool retry on transient failures.
@@ -632,6 +866,9 @@ impl Default for ToolsConfig {
             auto_approve_in_ci: true,
             command_blacklist: vec![],
             disable_builtin_blacklist: false,
+            allow_write_in_ci: false,
+            allow_destructive_in_ci: false,
+            enforce_dry_run_preview: false,
         }
     }
 }
@@ -663,12 +900,60 @@ impl Default for SandboxConfig {
     }
 }
 
+/// Action taken when PII is detected in user input.
+///
+/// G2 remediation: replaces the old `pii_action: String` field with a typed enum
+/// so the agent loop can branch without string matching. Deserializes from the
+/// same "warn" / "block" / "redact" TOML values via `serde(rename_all = "lowercase")`.
+///
+/// Named `PiiPolicy` (not `PiiAction`) to avoid ambiguity with the `PiiAction` enum
+/// in `event.rs` which records what action was taken (past tense: Redacted/Blocked/Warned).
+/// This enum expresses what policy to apply (imperative: Warn/Block/Redact).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum PiiPolicy {
+    /// Log a warning and continue — PII reaches the LLM (backward-compatible default).
+    Warn,
+    /// Hard block: agent loop halts with an error message to the user.
+    /// PII never reaches the LLM.
+    Block,
+    /// Best-effort redaction of credential patterns before sending to the LLM.
+    /// Falls back to Warn if the pattern is not a recognizable credential.
+    #[default]
+    Redact,
+}
+
+impl std::fmt::Display for PiiPolicy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PiiPolicy::Warn => write!(f, "warn"),
+            PiiPolicy::Block => write!(f, "block"),
+            PiiPolicy::Redact => write!(f, "redact"),
+        }
+    }
+}
+
+impl std::str::FromStr for PiiPolicy {
+    type Err = ();
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "warn" => Ok(PiiPolicy::Warn),
+            "block" => Ok(PiiPolicy::Block),
+            "redact" => Ok(PiiPolicy::Redact),
+            _ => Ok(PiiPolicy::Redact), // safe default on unknown values
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SecurityConfig {
     /// Enable PII detection in prompts/responses.
     pub pii_detection: bool,
-    /// PII action: "redact", "block", or "warn".
-    pub pii_action: String,
+    /// Policy applied when PII is detected in user input.
+    /// Phase 72c Phase 8.1 (G2): typed PiiPolicy enum, default "redact".
+    /// Backward-compatible with existing config.toml ("warn"/"block"/"redact").
+    #[serde(default)]
+    pub pii_action: PiiPolicy,
     /// Enable audit trail.
     pub audit_enabled: bool,
     /// Guardrails configuration.
@@ -677,6 +962,104 @@ pub struct SecurityConfig {
     /// Enable Task-Based Authorization Control (TBAC).
     #[serde(default)]
     pub tbac_enabled: bool,
+    /// Pre-execution self-critique: ask the LLM to review tool calls before executing.
+    /// Expert mode only. Halts loop if model says NO. Default: false.
+    #[serde(default)]
+    pub pre_execution_critique: bool,
+    /// TTL for session-level "always allow" grants (seconds). 0 = infinite.
+    /// Phase 72c G10: prevents stale grants from being exploited. Default: 300 (5 min).
+    #[serde(default = "default_session_grant_ttl")]
+    pub session_grant_ttl_secs: u64,
+    /// Opt-in: scan system prompts for PII patterns and emit a warning log.
+    /// Default: false (system prompts are internal, not user input — low risk).
+    /// When true, any PII pattern found in the cached system prompt is logged as a warning.
+    /// Does NOT block execution — only observability.
+    #[serde(default)]
+    pub scan_system_prompts: bool,
+    /// Analysis mode: auto-approve whitelisted read-only bash commands.
+    /// See `[security.analysis_mode]` in config.toml.
+    #[serde(default)]
+    pub analysis_mode: AnalysisModeConfig,
+}
+
+/// Analysis mode configuration.
+///
+/// When `enabled = true`, bash commands whose text starts with any prefix in
+/// `analysis_tool_whitelist` are auto-approved (bypassing the interactive
+/// confirmation prompt) during agent loops.  Only safe, read-only commands
+/// (grep, find, cat, cargo audit…) should be included in the whitelist.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AnalysisModeConfig {
+    /// Master switch: when false the whitelist is never consulted.
+    #[serde(default)]
+    pub enabled: bool,
+    /// Auto-approve `grep -r` style recursive searches.
+    #[serde(default = "analysis_mode_default_allow")]
+    pub allow_grep_recursive: bool,
+    /// Auto-approve `find . …` project-scoped file searches.
+    #[serde(default = "analysis_mode_default_allow")]
+    pub allow_find_project_files: bool,
+    /// Explicit bash command prefixes (matched case-sensitively against the
+    /// start of the command string) that are auto-approved when `enabled`.
+    #[serde(default = "default_analysis_tool_whitelist")]
+    pub analysis_tool_whitelist: Vec<String>,
+}
+
+fn analysis_mode_default_allow() -> bool {
+    true
+}
+
+fn default_analysis_tool_whitelist() -> Vec<String> {
+    vec![
+        "grep ".into(),
+        "grep -".into(),
+        "rg ".into(),
+        "find . ".into(),
+        "find src".into(),
+        "find crates".into(),
+        "cat ".into(),
+        "head ".into(),
+        "tail ".into(),
+        "wc ".into(),
+        "ls ".into(),
+        "cargo audit".into(),
+        "cargo check".into(),
+        "cargo test --".into(),
+        "npm audit".into(),
+        "npm ls".into(),
+        "yarn audit".into(),
+        "git log ".into(),
+        "git diff ".into(),
+        "git status".into(),
+        "git show ".into(),
+    ]
+}
+
+impl Default for AnalysisModeConfig {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            allow_grep_recursive: true,
+            allow_find_project_files: true,
+            analysis_tool_whitelist: default_analysis_tool_whitelist(),
+        }
+    }
+}
+
+/// Check if a bash command matches the analysis-mode auto-approve whitelist.
+///
+/// Returns `true` when `config.enabled` is true AND the command starts with one
+/// of the whitelisted prefixes.  Callers should skip the interactive confirmation
+/// prompt when this returns true.
+pub fn is_analysis_whitelisted(config: &AnalysisModeConfig, command: &str) -> bool {
+    if !config.enabled {
+        return false;
+    }
+    let cmd = command.trim_start();
+    config
+        .analysis_tool_whitelist
+        .iter()
+        .any(|prefix| cmd.starts_with(prefix.as_str()))
 }
 
 /// Guardrails configuration (delegated from halcon-security for serde compat).
@@ -697,6 +1080,10 @@ fn guardrails_default_true() -> bool {
     true
 }
 
+fn default_session_grant_ttl() -> u64 {
+    300 // 5 minutes
+}
+
 impl Default for GuardrailsConfig {
     fn default() -> Self {
         Self {
@@ -711,10 +1098,16 @@ impl Default for SecurityConfig {
     fn default() -> Self {
         Self {
             pii_detection: true,
-            pii_action: "warn".to_string(),
+            // Phase 72c G2: PiiPolicy::Redact — less disruptive than Block,
+            // still prevents PII from reaching the LLM unfiltered.
+            pii_action: PiiPolicy::Redact,
             audit_enabled: true,
             guardrails: GuardrailsConfig::default(),
             tbac_enabled: false,
+            pre_execution_critique: false,
+            session_grant_ttl_secs: 300,
+            scan_system_prompts: false, // opt-in: system prompts are internal
+            analysis_mode: AnalysisModeConfig::default(),
         }
     }
 }
@@ -887,6 +1280,20 @@ pub struct AgentLimits {
     /// Phase 4: Allows multiple prompts to process concurrently without blocking TUI.
     #[serde(default = "default_max_concurrent_agents")]
     pub max_concurrent_agents: usize,
+    /// Maximum USD cost for this agent session. 0.0 = unlimited.
+    /// When exceeded, the agent loop stops gracefully after the current round.
+    #[serde(default)]
+    pub max_cost_usd: f64,
+    /// Confidence threshold for the clarification gate: when a plan contains destructive
+    /// steps and average confidence is below this threshold, the agent returns a clarification
+    /// request instead of executing immediately. 0.0 = never ask, 1.0 = always ask.
+    /// Default 0.6: ask when plan confidence < 60% and destructive tools are involved.
+    #[serde(default = "default_clarification_threshold")]
+    pub clarification_threshold: f64,
+}
+
+fn default_clarification_threshold() -> f64 {
+    0.6
 }
 
 fn default_provider_timeout() -> u64 {
@@ -910,12 +1317,14 @@ impl Default for AgentLimits {
         Self {
             max_rounds: 25,
             max_total_tokens: 0,
-            max_duration_secs: 0,
+            max_duration_secs: 600,
             tool_timeout_secs: 120,
             provider_timeout_secs: default_provider_timeout(),
             max_parallel_tools: default_max_parallel(),
             max_tool_output_chars: default_max_tool_output_chars(),
             max_concurrent_agents: default_max_concurrent_agents(),
+            max_cost_usd: 0.0,
+            clarification_threshold: default_clarification_threshold(),
         }
     }
 }
@@ -1275,6 +1684,11 @@ pub struct TaskFrameworkConfig {
     /// Resume incomplete tasks on startup. Default: false.
     #[serde(default)]
     pub resume_on_startup: bool,
+    /// Expert mode: hard structural enforcement.
+    /// When true: blocked DAG halts the loop, failure cascades halt, planner timeouts propagate.
+    /// Enabled automatically by `--expert` CLI flag. Default: false.
+    #[serde(default)]
+    pub strict_enforcement: bool,
 }
 
 fn default_task_max_retries() -> u32 {
@@ -1293,6 +1707,7 @@ impl Default for TaskFrameworkConfig {
             default_max_retries: default_task_max_retries(),
             default_retry_base_ms: default_task_retry_base_ms(),
             resume_on_startup: false,
+            strict_enforcement: false,
         }
     }
 }
@@ -1366,14 +1781,54 @@ impl Default for ContextServersConfig {
             // ✅ ENABLED: Los 8 servidores SDLC activos por defecto para Context Servers modal
             enabled: true,
             // Prioridades específicas por fase SDLC (mayor = más importante)
-            requirements: ContextServerDef { enabled: true, priority: 100, token_budget: 2000, cache_ttl_secs: 3600 },
-            architecture: ContextServerDef { enabled: true, priority: 90, token_budget: 2000, cache_ttl_secs: 3600 },
-            codebase: ContextServerDef { enabled: true, priority: 80, token_budget: 2000, cache_ttl_secs: 3600 },
-            workflow: ContextServerDef { enabled: true, priority: 70, token_budget: 1500, cache_ttl_secs: 3600 },
-            testing: ContextServerDef { enabled: true, priority: 60, token_budget: 1500, cache_ttl_secs: 3600 },
-            runtime: ContextServerDef { enabled: true, priority: 50, token_budget: 1000, cache_ttl_secs: 3600 },
-            security: ContextServerDef { enabled: true, priority: 40, token_budget: 1000, cache_ttl_secs: 3600 },
-            support: ContextServerDef { enabled: true, priority: 30, token_budget: 1000, cache_ttl_secs: 3600 },
+            requirements: ContextServerDef {
+                enabled: true,
+                priority: 100,
+                token_budget: 2000,
+                cache_ttl_secs: 3600,
+            },
+            architecture: ContextServerDef {
+                enabled: true,
+                priority: 90,
+                token_budget: 2000,
+                cache_ttl_secs: 3600,
+            },
+            codebase: ContextServerDef {
+                enabled: true,
+                priority: 80,
+                token_budget: 2000,
+                cache_ttl_secs: 3600,
+            },
+            workflow: ContextServerDef {
+                enabled: true,
+                priority: 70,
+                token_budget: 1500,
+                cache_ttl_secs: 3600,
+            },
+            testing: ContextServerDef {
+                enabled: true,
+                priority: 60,
+                token_budget: 1500,
+                cache_ttl_secs: 3600,
+            },
+            runtime: ContextServerDef {
+                enabled: true,
+                priority: 50,
+                token_budget: 1000,
+                cache_ttl_secs: 3600,
+            },
+            security: ContextServerDef {
+                enabled: true,
+                priority: 40,
+                token_budget: 1000,
+                cache_ttl_secs: 3600,
+            },
+            support: ContextServerDef {
+                enabled: true,
+                priority: 30,
+                token_budget: 1000,
+                cache_ttl_secs: 3600,
+            },
         }
     }
 }
@@ -1468,7 +1923,9 @@ mod tests {
         config.display.terminal_background = "invalid".to_string();
         let issues = validate_config(&config);
         assert!(
-            issues.iter().any(|i| i.field.contains("terminal_background")),
+            issues
+                .iter()
+                .any(|i| i.field.contains("terminal_background")),
             "should warn on invalid terminal_background hex"
         );
     }
@@ -1480,8 +1937,9 @@ mod tests {
 
         let issues = validate_config(&config);
         assert!(
-            issues.iter().any(|i| i.level == IssueLevel::Error
-                && i.field.contains("temperature")),
+            issues
+                .iter()
+                .any(|i| i.level == IssueLevel::Error && i.field.contains("temperature")),
             "should produce error for temperature=5.0"
         );
     }
@@ -1494,8 +1952,9 @@ mod tests {
 
         let issues = validate_config(&config);
         assert!(
-            issues.iter().any(|i| i.level == IssueLevel::Warning
-                && i.field.contains("fallback")),
+            issues
+                .iter()
+                .any(|i| i.level == IssueLevel::Warning && i.field.contains("fallback")),
             "should warn when resilience enabled with no fallback models"
         );
     }
@@ -1537,9 +1996,7 @@ mod tests {
 
         let issues = validate_config(&config);
         assert!(
-            !issues
-                .iter()
-                .any(|i| i.field == "agent.limits"),
+            !issues.iter().any(|i| i.field == "agent.limits"),
             "should not warn when token budget is set"
         );
     }
@@ -1558,8 +2015,9 @@ mod tests {
 
         let issues = validate_config(&config);
         assert!(
-            issues.iter().any(|i| i.level == IssueLevel::Warning
-                && i.field.contains("provider_timeout")),
+            issues
+                .iter()
+                .any(|i| i.level == IssueLevel::Warning && i.field.contains("provider_timeout")),
             "should warn when provider timeout < 30"
         );
     }
@@ -1571,8 +2029,9 @@ mod tests {
 
         let issues = validate_config(&config);
         assert!(
-            issues.iter().any(|i| i.level == IssueLevel::Warning
-                && i.field.contains("max_parallel")),
+            issues
+                .iter()
+                .any(|i| i.level == IssueLevel::Warning && i.field.contains("max_parallel")),
             "should warn when max_parallel_tools is 0"
         );
     }
@@ -1610,8 +2069,9 @@ mod tests {
 
         let issues = validate_config(&config);
         assert!(
-            issues.iter().any(|i| i.level == IssueLevel::Warning
-                && i.field.contains("max_concurrent_agents")),
+            issues.iter().any(
+                |i| i.level == IssueLevel::Warning && i.field.contains("max_concurrent_agents")
+            ),
             "should warn when max_concurrent_agents is 0"
         );
     }
@@ -1638,8 +2098,9 @@ mod tests {
 
         let issues = validate_config(&config);
         assert!(
-            issues.iter().any(|i| i.level == IssueLevel::Warning
-                && i.field.contains("dry_run")),
+            issues
+                .iter()
+                .any(|i| i.level == IssueLevel::Warning && i.field.contains("dry_run")),
             "should warn when dry_run enabled with confirm_destructive off"
         );
     }
@@ -1651,8 +2112,10 @@ mod tests {
 
         let issues = validate_config(&config);
         assert!(
-            issues.iter().any(|i| i.level == IssueLevel::Warning
-                && i.field.contains("max_reconnect_attempts")),
+            issues
+                .iter()
+                .any(|i| i.level == IssueLevel::Warning
+                    && i.field.contains("max_reconnect_attempts")),
             "should warn when max_reconnect_attempts > 10"
         );
     }
@@ -1666,8 +2129,9 @@ mod tests {
 
         let issues = validate_config(&config);
         assert!(
-            issues.iter().any(|i| i.level == IssueLevel::Warning
-                && i.field.contains("sub_agent_timeout")),
+            issues
+                .iter()
+                .any(|i| i.level == IssueLevel::Warning && i.field.contains("sub_agent_timeout")),
             "should warn when sub-agent timeout exceeds parent duration"
         );
     }
@@ -1702,8 +2166,15 @@ mod tests {
     fn validate_config_default_still_no_errors() {
         let config = AppConfig::default();
         let issues = validate_config(&config);
-        let errors: Vec<_> = issues.iter().filter(|i| i.level == IssueLevel::Error).collect();
-        assert!(errors.is_empty(), "default config should have no errors: {:?}", errors);
+        let errors: Vec<_> = issues
+            .iter()
+            .filter(|i| i.level == IssueLevel::Error)
+            .collect();
+        assert!(
+            errors.is_empty(),
+            "default config should have no errors: {:?}",
+            errors
+        );
     }
 
     #[test]
@@ -1800,6 +2271,7 @@ mod tests {
             default_max_retries: 5,
             default_retry_base_ms: 1000,
             resume_on_startup: true,
+            strict_enforcement: true,
         };
         let json = serde_json::to_string(&config).unwrap();
         let roundtrip: TaskFrameworkConfig = serde_json::from_str(&json).unwrap();
@@ -1808,6 +2280,7 @@ mod tests {
         assert_eq!(roundtrip.default_max_retries, 5);
         assert_eq!(roundtrip.default_retry_base_ms, 1000);
         assert!(roundtrip.resume_on_startup);
+        assert!(roundtrip.strict_enforcement);
     }
 
     #[test]
@@ -1849,4 +2322,47 @@ mod tests {
         assert!(config.auto_approve_in_ci);
     }
 
+    // ── Phase 3: AgentModelConfig tests ────────────────────────────────────
+
+    #[test]
+    fn reasoning_config_role_fields_default_to_none() {
+        let cfg = ReasoningConfig::default();
+        assert!(cfg.planner_model.is_none());
+        assert!(cfg.planner_provider.is_none());
+        assert!(cfg.reflector_model.is_none());
+        assert!(cfg.reflector_provider.is_none());
+    }
+
+    #[test]
+    fn reasoning_config_role_fields_can_be_set() {
+        let cfg = ReasoningConfig {
+            enabled: true,
+            planner_model: Some("deepseek-chat".to_string()),
+            planner_provider: Some("deepseek".to_string()),
+            reflector_model: Some("gpt-4o-mini".to_string()),
+            reflector_provider: Some("openai".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(cfg.planner_model.as_deref(), Some("deepseek-chat"));
+        assert_eq!(cfg.planner_provider.as_deref(), Some("deepseek"));
+        assert_eq!(cfg.reflector_model.as_deref(), Some("gpt-4o-mini"));
+        assert_eq!(cfg.reflector_provider.as_deref(), Some("openai"));
+    }
+
+    #[test]
+    fn reasoning_config_role_fields_independent_of_critic() {
+        // Verify planner/reflector fields coexist with existing critic fields.
+        let cfg = ReasoningConfig {
+            critic_model: Some("claude-haiku-4-5".to_string()),
+            critic_provider: Some("anthropic".to_string()),
+            planner_model: Some("deepseek-chat".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(cfg.critic_model.as_deref(), Some("claude-haiku-4-5"));
+        assert_eq!(cfg.critic_provider.as_deref(), Some("anthropic"));
+        assert_eq!(cfg.planner_model.as_deref(), Some("deepseek-chat"));
+        assert!(cfg.planner_provider.is_none());
+        assert!(cfg.reflector_model.is_none());
+        assert!(cfg.reflector_provider.is_none());
+    }
 }

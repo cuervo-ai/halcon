@@ -1,8 +1,8 @@
 //! Replay provider: replays recorded model responses from trace steps
 //! instead of calling a real API. Used for deterministic replay verification.
 
-use std::sync::Mutex;
 use std::collections::VecDeque;
+use std::sync::Mutex;
 
 use async_trait::async_trait;
 use futures::stream::{self, BoxStream};
@@ -55,13 +55,25 @@ impl ReplayProvider {
                 .map_err(|e| HalconError::Internal(format!("parse trace data_json: {e}")))?;
 
             // Skip cache-hit entries (they don't represent real model responses).
-            if data.get("cache_hit").and_then(|v| v.as_bool()).unwrap_or(false) {
+            if data
+                .get("cache_hit")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false)
+            {
                 continue;
             }
 
-            let text = data.get("text").and_then(|v| v.as_str()).unwrap_or("").to_string();
+            let text = data
+                .get("text")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .to_string();
 
-            let stop_reason = match data.get("stop_reason").and_then(|v| v.as_str()).unwrap_or("end_turn") {
+            let stop_reason = match data
+                .get("stop_reason")
+                .and_then(|v| v.as_str())
+                .unwrap_or("end_turn")
+            {
                 "end_turn" => StopReason::EndTurn,
                 "max_tokens" => StopReason::MaxTokens,
                 "tool_use" => StopReason::ToolUse,
@@ -70,25 +82,35 @@ impl ReplayProvider {
             };
 
             let usage = if let Some(u) = data.get("usage") {
+                // Saturating cast: token counts > u32::MAX are impossible in practice
+                // but silently truncating would produce incorrect accounting.
+                let saturate = |v: u64| v.min(u32::MAX as u64) as u32;
                 TokenUsage {
-                    input_tokens: u.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
-                    output_tokens: u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0) as u32,
+                    input_tokens: saturate(
+                        u.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
+                    ),
+                    output_tokens: saturate(
+                        u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0),
+                    ),
                     ..Default::default()
                 }
             } else {
                 TokenUsage::default()
             };
 
-            let tool_uses = data.get("tool_uses")
+            let tool_uses = data
+                .get("tool_uses")
                 .and_then(|v| v.as_array())
                 .map(|arr| {
-                    arr.iter().filter_map(|t| {
-                        Some(RecordedToolUse {
-                            id: t.get("id")?.as_str()?.to_string(),
-                            name: t.get("name")?.as_str()?.to_string(),
-                            input: t.get("input").cloned().unwrap_or(serde_json::Value::Null),
+                    arr.iter()
+                        .filter_map(|t| {
+                            Some(RecordedToolUse {
+                                id: t.get("id")?.as_str()?.to_string(),
+                                name: t.get("name")?.as_str()?.to_string(),
+                                input: t.get("input").cloned().unwrap_or(serde_json::Value::Null),
+                            })
                         })
-                    }).collect()
+                        .collect()
                 })
                 .unwrap_or_default();
 
@@ -121,7 +143,10 @@ impl ReplayProvider {
 
     /// Number of remaining responses.
     pub fn remaining(&self) -> usize {
-        self.responses.lock().unwrap_or_else(|e| e.into_inner()).len()
+        self.responses
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .len()
     }
 }
 
@@ -185,10 +210,10 @@ impl ModelProvider for ReplayProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use halcon_core::types::{ChatMessage, MessageContent, Role};
-    use halcon_storage::{TraceStep, TraceStepType};
     use chrono::Utc;
     use futures::StreamExt;
+    use halcon_core::types::{ChatMessage, MessageContent, Role};
+    use halcon_storage::{TraceStep, TraceStepType};
     use uuid::Uuid;
 
     fn make_trace_step(step_type: TraceStepType, data_json: &str, step_index: u32) -> TraceStep {
@@ -361,9 +386,21 @@ mod tests {
     #[tokio::test]
     async fn multiple_rounds() {
         let steps = vec![
-            make_trace_step(TraceStepType::ModelResponse, r#"{"round":0,"text":"R0","stop_reason":"tool_use","usage":{"input_tokens":1,"output_tokens":1},"latency_ms":10,"tool_uses":[]}"#, 0),
-            make_trace_step(TraceStepType::ModelResponse, r#"{"round":1,"text":"R1","stop_reason":"tool_use","usage":{"input_tokens":2,"output_tokens":2},"latency_ms":20,"tool_uses":[]}"#, 1),
-            make_trace_step(TraceStepType::ModelResponse, r#"{"round":2,"text":"R2","stop_reason":"end_turn","usage":{"input_tokens":3,"output_tokens":3},"latency_ms":30,"tool_uses":[]}"#, 2),
+            make_trace_step(
+                TraceStepType::ModelResponse,
+                r#"{"round":0,"text":"R0","stop_reason":"tool_use","usage":{"input_tokens":1,"output_tokens":1},"latency_ms":10,"tool_uses":[]}"#,
+                0,
+            ),
+            make_trace_step(
+                TraceStepType::ModelResponse,
+                r#"{"round":1,"text":"R1","stop_reason":"tool_use","usage":{"input_tokens":2,"output_tokens":2},"latency_ms":20,"tool_uses":[]}"#,
+                1,
+            ),
+            make_trace_step(
+                TraceStepType::ModelResponse,
+                r#"{"round":2,"text":"R2","stop_reason":"end_turn","usage":{"input_tokens":3,"output_tokens":3},"latency_ms":30,"tool_uses":[]}"#,
+                2,
+            ),
         ];
         let provider = ReplayProvider::from_trace(&steps, "test").unwrap();
         let req = make_request();
@@ -404,8 +441,16 @@ mod tests {
             make_trace_step(TraceStepType::ModelRequest, r#"{"round":0}"#, 0),
             make_trace_step(TraceStepType::ToolCall, r#"{"tool_name":"bash"}"#, 1),
             make_trace_step(TraceStepType::ToolResult, r#"{"tool_use_id":"tu_1"}"#, 2),
-            make_trace_step(TraceStepType::ModelResponse, r#"{"round":0,"text":"Hi","stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1},"latency_ms":10,"tool_uses":[]}"#, 3),
-            make_trace_step(TraceStepType::Error, r#"{"context":"test","message":"err"}"#, 4),
+            make_trace_step(
+                TraceStepType::ModelResponse,
+                r#"{"round":0,"text":"Hi","stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1},"latency_ms":10,"tool_uses":[]}"#,
+                3,
+            ),
+            make_trace_step(
+                TraceStepType::Error,
+                r#"{"context":"test","message":"err"}"#,
+                4,
+            ),
         ];
         let provider = ReplayProvider::from_trace(&steps, "test").unwrap();
         assert_eq!(provider.remaining(), 1);

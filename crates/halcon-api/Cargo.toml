@@ -15,10 +15,15 @@ server = [
     "dep:tower-http",
     "dep:tokio",
     "dep:futures-util",
+    "dep:halcon-auth",
     "dep:halcon-runtime",
     "dep:halcon-core",
     "dep:halcon-tools",
+    "dep:halcon-storage",
     "dep:tracing",
+    "dep:rand",
+    "dep:dashmap",
+    "dep:subtle",
 ]
 
 [dependencies]
@@ -37,10 +42,15 @@ tower-http = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 tracing = { workspace = true, optional = true }
 futures-util = { workspace = true, optional = true }
+rand = { workspace = true, optional = true }
+dashmap = { workspace = true, optional = true }
+subtle = { workspace = true, optional = true }
 
 # Workspace crates (server only)
+halcon-auth = { workspace = true, optional = true }
 halcon-runtime = { workspace = true, optional = true }
 halcon-core = { workspace = true, optional = true }
+halcon-storage = { workspace = true, optional = true }
 halcon-tools = { workspace = true, optional = true }
 
 [dev-dependencies]

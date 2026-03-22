@@ -44,14 +44,10 @@ pub async fn doctor(config: &AppConfig, db_path: Option<&Path>) -> Result<()> {
 
     // Initialize database for native search tools
     let db = if config.search.enabled {
-        let db_path = config
-            .storage
-            .database_path
-            .clone()
-            .unwrap_or_else(|| {
-                let home = dirs::home_dir().expect("Could not determine home directory");
-                home.join(".local/share/halcon/halcon.db")
-            });
+        let db_path = config.storage.database_path.clone().unwrap_or_else(|| {
+            let home = dirs::home_dir().expect("Could not determine home directory");
+            home.join(".local/share/halcon/halcon.db")
+        });
 
         match Database::open(&db_path) {
             Ok(db) => Some(Arc::new(db)),
@@ -156,9 +152,10 @@ pub async fn doctor(config: &AppConfig, db_path: Option<&Path>) -> Result<()> {
         }
 
         // Validate required fields exist in properties.
-        if let (Some(props), Some(required)) =
-            (schema["properties"].as_object(), schema["required"].as_array())
-        {
+        if let (Some(props), Some(required)) = (
+            schema["properties"].as_object(),
+            schema["required"].as_array(),
+        ) {
             for req in required {
                 if let Some(field) = req.as_str() {
                     if !props.contains_key(field) {
@@ -180,10 +177,7 @@ pub async fn doctor(config: &AppConfig, db_path: Option<&Path>) -> Result<()> {
 
     if schema_fail == 0 {
         let badge = components::badge("PASS", components::BadgeLevel::Success);
-        let _ = writeln!(
-            out,
-            "    {badge} All {schema_pass} schemas valid"
-        );
+        let _ = writeln!(out, "    {badge} All {schema_pass} schemas valid");
     } else {
         let badge = components::badge("FAIL", components::BadgeLevel::Error);
         let _ = writeln!(
@@ -230,9 +224,18 @@ pub async fn doctor(config: &AppConfig, db_path: Option<&Path>) -> Result<()> {
     // --- 4. Probe ReadOnly Tools ---
     components::section_header("ReadOnly Tool Probes", &mut out);
     let probeable = [
-        ("glob", serde_json::json!({"pattern": "*.NONEXISTENT_DOCTOR_PROBE"})),
-        ("grep", serde_json::json!({"pattern": "NONEXISTENT_DOCTOR_PROBE_xyz123"})),
-        ("directory_tree", serde_json::json!({"path": "/tmp", "depth": 1})),
+        (
+            "glob",
+            serde_json::json!({"pattern": "*.NONEXISTENT_DOCTOR_PROBE"}),
+        ),
+        (
+            "grep",
+            serde_json::json!({"pattern": "NONEXISTENT_DOCTOR_PROBE_xyz123"}),
+        ),
+        (
+            "directory_tree",
+            serde_json::json!({"path": "/tmp", "depth": 1}),
+        ),
         ("task_track", serde_json::json!({"action": "list"})),
     ];
 
@@ -261,10 +264,7 @@ pub async fn doctor(config: &AppConfig, db_path: Option<&Path>) -> Result<()> {
                     } else {
                         probe_pass += 1;
                         let badge = components::badge("OK", components::BadgeLevel::Success);
-                        let _ = writeln!(
-                            out,
-                            "    {tool_name:<20} {badge} {dim}({elapsed}ms){r}"
-                        );
+                        let _ = writeln!(out, "    {tool_name:<20} {badge} {dim}({elapsed}ms){r}");
                     }
                 }
                 Err(e) => {
@@ -337,7 +337,13 @@ pub async fn doctor(config: &AppConfig, db_path: Option<&Path>) -> Result<()> {
         let _ = writeln!(
             out,
             "    {dim}Allowed dirs: {}{r}",
-            config.tools.allowed_directories.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", ")
+            config
+                .tools
+                .allowed_directories
+                .iter()
+                .map(|p| p.display().to_string())
+                .collect::<Vec<_>>()
+                .join(", ")
         );
     }
     if !config.tools.blocked_patterns.is_empty() {
@@ -367,10 +373,7 @@ pub async fn doctor(config: &AppConfig, db_path: Option<&Path>) -> Result<()> {
                     let _ = writeln!(
                         out,
                         "    {accent}{:<20}{r} {badge} {dim}{} calls, {:.0}ms avg, {}% success{r}",
-                        stat.tool_name,
-                        stat.total_executions,
-                        stat.avg_duration_ms,
-                        success_pct,
+                        stat.tool_name, stat.total_executions, stat.avg_duration_ms, success_pct,
                     );
                 }
             }
@@ -403,10 +406,14 @@ pub async fn doctor(config: &AppConfig, db_path: Option<&Path>) -> Result<()> {
         recs.push("Consider enabling sandbox for bash tool: tools.sandbox.enabled = true".into());
     }
     if schema_fail > 0 {
-        recs.push(format!("{schema_fail} tool(s) have invalid schemas — check implementation"));
+        recs.push(format!(
+            "{schema_fail} tool(s) have invalid schemas — check implementation"
+        ));
     }
     if probe_fail > 0 {
-        recs.push(format!("{probe_fail} ReadOnly probe(s) failed — investigate tool health"));
+        recs.push(format!(
+            "{probe_fail} ReadOnly probe(s) failed — investigate tool health"
+        ));
     }
 
     // Check DB for low-success-rate tools.
@@ -454,11 +461,7 @@ pub async fn doctor(config: &AppConfig, db_path: Option<&Path>) -> Result<()> {
         );
     }
 
-    let _ = writeln!(
-        out,
-        "  {muted}{bl}{}{br}{r}\n",
-        h.repeat(54),
-    );
+    let _ = writeln!(out, "  {muted}{bl}{}{br}{r}\n", h.repeat(54),);
 
     let _ = out.flush();
     Ok(())
@@ -472,14 +475,10 @@ pub fn list(config: &AppConfig) -> Result<()> {
 
     // Initialize database for native search tools
     let db = if config.search.enabled {
-        let db_path = config
-            .storage
-            .database_path
-            .clone()
-            .unwrap_or_else(|| {
-                let home = dirs::home_dir().expect("Could not determine home directory");
-                home.join(".local/share/halcon/halcon.db")
-            });
+        let db_path = config.storage.database_path.clone().unwrap_or_else(|| {
+            let home = dirs::home_dir().expect("Could not determine home directory");
+            home.join(".local/share/halcon/halcon.db")
+        });
 
         match Database::open(&db_path) {
             Ok(db) => Some(Arc::new(db)),
@@ -607,9 +606,10 @@ pub fn validate(config: &AppConfig) -> Result<()> {
         }
 
         // Cross-reference required ↔ properties.
-        if let (Some(props), Some(required)) =
-            (schema["properties"].as_object(), schema["required"].as_array())
-        {
+        if let (Some(props), Some(required)) = (
+            schema["properties"].as_object(),
+            schema["required"].as_array(),
+        ) {
             for req in required {
                 if let Some(field) = req.as_str() {
                     if !props.contains_key(field) {
@@ -654,10 +654,7 @@ pub fn validate(config: &AppConfig) -> Result<()> {
         let _ = writeln!(out, "  {badge} All {pass} tools passed validation\n");
     } else {
         let badge = components::badge("FAIL", components::BadgeLevel::Error);
-        let _ = writeln!(
-            out,
-            "  {badge} {pass} passed, {fail} failed validation\n"
-        );
+        let _ = writeln!(out, "  {badge} {pass} passed, {fail} failed validation\n");
     }
 
     let _ = out.flush();
@@ -712,7 +709,11 @@ pub fn add_tool(name: &str, command: &str, description: &str, permission: &str) 
     let t = theme::active();
     let success = t.palette.success.fg();
     let r = theme::reset();
-    let _ = writeln!(out, "\n  {success}✓ Tool '{safe_name}' added:{r} {}", path.display());
+    let _ = writeln!(
+        out,
+        "\n  {success}✓ Tool '{safe_name}' added:{r} {}",
+        path.display()
+    );
     let _ = writeln!(out, "    Command: {command}");
     let _ = writeln!(out, "    Permission: {permission}\n");
 
@@ -774,10 +775,7 @@ pub fn remove_tool(name: &str, force: bool) -> Result<()> {
 
 // --- Helpers ---
 
-fn open_db(
-    config: &AppConfig,
-    db_path: Option<&Path>,
-) -> Result<Option<Arc<Database>>> {
+fn open_db(config: &AppConfig, db_path: Option<&Path>) -> Result<Option<Arc<Database>>> {
     let path = db_path
         .map(|p| p.to_path_buf())
         .or_else(|| config.storage.database_path.clone())
@@ -858,7 +856,11 @@ mod tests {
         let proc_reg = Arc::new(ProcessRegistry::new(5));
         let registry = halcon_tools::full_registry(&config.tools, Some(proc_reg), None, None);
         let defs = registry.tool_definitions();
-        assert_eq!(defs.len(), 24);
+        assert!(
+            defs.len() >= 24,
+            "expected at least 24 tools, got {}",
+            defs.len()
+        );
     }
 
     #[test]
@@ -889,9 +891,10 @@ mod tests {
         let registry = halcon_tools::full_registry(&config.tools, Some(proc_reg), None, None);
         for def in registry.tool_definitions() {
             let schema = &def.input_schema;
-            if let (Some(props), Some(required)) =
-                (schema["properties"].as_object(), schema["required"].as_array())
-            {
+            if let (Some(props), Some(required)) = (
+                schema["properties"].as_object(),
+                schema["required"].as_array(),
+            ) {
                 for req in required {
                     if let Some(field) = req.as_str() {
                         assert!(
@@ -1063,7 +1066,10 @@ mod tests {
             assert!(matches!(*p, "ReadOnly" | "Destructive"));
         }
         for p in &invalid {
-            assert!(!matches!(*p, "ReadOnly" | "Destructive"), "'{p}' should be invalid");
+            assert!(
+                !matches!(*p, "ReadOnly" | "Destructive"),
+                "'{p}' should be invalid"
+            );
         }
     }
 

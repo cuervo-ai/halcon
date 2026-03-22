@@ -78,11 +78,29 @@ impl Database {
                 ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23
             )",
             rusqlite::params![
-                task_id, session_id, plan_id, step_index, title, description,
-                status, priority, depends_on_json, inputs_json, outputs_json,
-                artifacts_json, provenance_json, retry_policy_json, retry_count,
-                tags_json, tool_name, expected_args_json, error,
-                created_at, started_at, finished_at, duration_ms,
+                task_id,
+                session_id,
+                plan_id,
+                step_index,
+                title,
+                description,
+                status,
+                priority,
+                depends_on_json,
+                inputs_json,
+                outputs_json,
+                artifacts_json,
+                provenance_json,
+                retry_policy_json,
+                retry_count,
+                tags_json,
+                tool_name,
+                expected_args_json,
+                error,
+                created_at,
+                started_at,
+                finished_at,
+                duration_ms,
             ],
         )
         .map_err(|e| HalconError::DatabaseError(format!("save structured_task: {e}")))?;
@@ -121,8 +139,15 @@ impl Database {
                 retry_count = COALESCE(?9, retry_count)
             WHERE task_id = ?1",
             rusqlite::params![
-                task_id, status, provenance_json, artifacts_json, error,
-                started_at, finished_at, duration_ms, retry_count,
+                task_id,
+                status,
+                provenance_json,
+                artifacts_json,
+                error,
+                started_at,
+                finished_at,
+                duration_ms,
+                retry_count,
             ],
         )
         .map_err(|e| HalconError::DatabaseError(format!("update structured_task status: {e}")))?;
@@ -189,10 +214,7 @@ impl Database {
     }
 
     /// Load all structured tasks for a plan.
-    pub fn load_structured_tasks_by_plan(
-        &self,
-        plan_id: &str,
-    ) -> Result<Vec<StructuredTaskRow>> {
+    pub fn load_structured_tasks_by_plan(&self, plan_id: &str) -> Result<Vec<StructuredTaskRow>> {
         let conn = self
             .conn
             .lock()
@@ -253,43 +275,42 @@ impl Database {
             .lock()
             .map_err(|e| HalconError::DatabaseError(e.to_string()))?;
 
-        let result = conn
-            .query_row(
-                "SELECT task_id, session_id, plan_id, step_index, title, description,
+        let result = conn.query_row(
+            "SELECT task_id, session_id, plan_id, step_index, title, description,
                         status, priority, depends_on_json, inputs_json, outputs_json,
                         artifacts_json, provenance_json, retry_policy_json, retry_count,
                         tags_json, tool_name, expected_args_json, error,
                         created_at, started_at, finished_at, duration_ms
                  FROM structured_tasks WHERE task_id = ?1",
-                [task_id],
-                |row| {
-                    Ok(StructuredTaskRow {
-                        task_id: row.get(0)?,
-                        session_id: row.get(1)?,
-                        plan_id: row.get(2)?,
-                        step_index: row.get(3)?,
-                        title: row.get(4)?,
-                        description: row.get(5)?,
-                        status: row.get(6)?,
-                        priority: row.get(7)?,
-                        depends_on_json: row.get(8)?,
-                        inputs_json: row.get(9)?,
-                        outputs_json: row.get(10)?,
-                        artifacts_json: row.get(11)?,
-                        provenance_json: row.get(12)?,
-                        retry_policy_json: row.get(13)?,
-                        retry_count: row.get(14)?,
-                        tags_json: row.get(15)?,
-                        tool_name: row.get(16)?,
-                        expected_args_json: row.get(17)?,
-                        error: row.get(18)?,
-                        created_at: row.get(19)?,
-                        started_at: row.get(20)?,
-                        finished_at: row.get(21)?,
-                        duration_ms: row.get(22)?,
-                    })
-                },
-            );
+            [task_id],
+            |row| {
+                Ok(StructuredTaskRow {
+                    task_id: row.get(0)?,
+                    session_id: row.get(1)?,
+                    plan_id: row.get(2)?,
+                    step_index: row.get(3)?,
+                    title: row.get(4)?,
+                    description: row.get(5)?,
+                    status: row.get(6)?,
+                    priority: row.get(7)?,
+                    depends_on_json: row.get(8)?,
+                    inputs_json: row.get(9)?,
+                    outputs_json: row.get(10)?,
+                    artifacts_json: row.get(11)?,
+                    provenance_json: row.get(12)?,
+                    retry_policy_json: row.get(13)?,
+                    retry_count: row.get(14)?,
+                    tags_json: row.get(15)?,
+                    tool_name: row.get(16)?,
+                    expected_args_json: row.get(17)?,
+                    error: row.get(18)?,
+                    created_at: row.get(19)?,
+                    started_at: row.get(20)?,
+                    finished_at: row.get(21)?,
+                    duration_ms: row.get(22)?,
+                })
+            },
+        );
 
         match result {
             Ok(row) => Ok(Some(row)),
@@ -486,7 +507,12 @@ mod tests {
     fn load_incomplete_returns_non_terminal() {
         let db = Database::open_in_memory().unwrap();
 
-        for (id, status) in [("t1", "Pending"), ("t2", "Running"), ("t3", "Completed"), ("t4", "Failed")] {
+        for (id, status) in [
+            ("t1", "Pending"),
+            ("t2", "Running"),
+            ("t3", "Completed"),
+            ("t4", "Failed"),
+        ] {
             db.save_structured_task(
                 id, None, None, None,
                 "T", "Desc", status, 0,
@@ -541,7 +567,9 @@ mod tests {
     #[test]
     fn empty_session_returns_empty() {
         let db = Database::open_in_memory().unwrap();
-        let result = db.load_structured_tasks_by_session("no-such-session").unwrap();
+        let result = db
+            .load_structured_tasks_by_session("no-such-session")
+            .unwrap();
         assert!(result.is_empty());
     }
 }

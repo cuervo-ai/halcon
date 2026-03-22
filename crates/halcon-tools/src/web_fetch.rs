@@ -46,12 +46,13 @@ impl Tool for WebFetchTool {
     }
 
     async fn execute(&self, input: ToolInput) -> Result<ToolOutput> {
-        let url = input.arguments["url"]
-            .as_str()
-            .ok_or_else(|| HalconError::ToolExecutionFailed {
-                tool: "web_fetch".into(),
-                message: "missing required 'url' argument".into(),
-            })?;
+        let url =
+            input.arguments["url"]
+                .as_str()
+                .ok_or_else(|| HalconError::ToolExecutionFailed {
+                    tool: "web_fetch".into(),
+                    message: "missing required 'url' argument".into(),
+                })?;
 
         // Validate URL scheme.
         if !url.starts_with("http://") && !url.starts_with("https://") {
@@ -75,12 +76,15 @@ impl Tool for WebFetchTool {
                 message: format!("failed to build HTTP client: {e}"),
             })?;
 
-        let response = client.get(url).send().await.map_err(|e| {
-            HalconError::ToolExecutionFailed {
-                tool: "web_fetch".into(),
-                message: format!("request failed: {e}"),
-            }
-        })?;
+        let response =
+            client
+                .get(url)
+                .send()
+                .await
+                .map_err(|e| HalconError::ToolExecutionFailed {
+                    tool: "web_fetch".into(),
+                    message: format!("request failed: {e}"),
+                })?;
 
         let status = response.status().as_u16();
         let content_type = response
@@ -103,12 +107,13 @@ impl Tool for WebFetchTool {
         }
 
         // Read body with size limit.
-        let bytes = response.bytes().await.map_err(|e| {
-            HalconError::ToolExecutionFailed {
+        let bytes = response
+            .bytes()
+            .await
+            .map_err(|e| HalconError::ToolExecutionFailed {
                 tool: "web_fetch".into(),
                 message: format!("failed to read response body: {e}"),
-            }
-        })?;
+            })?;
 
         let truncated = bytes.len() > MAX_BODY_BYTES;
         let body_bytes = if truncated {

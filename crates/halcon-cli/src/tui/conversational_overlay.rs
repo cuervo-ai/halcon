@@ -214,7 +214,7 @@ impl ConversationalOverlay {
             &self.tool_args,
             aspect.clone(),
         );
-        details.title + "\n\n" + &details.summary
+        details.title + "\n\n" + details.summary.as_str()
     }
 
     /// Render the overlay into a ratatui buffer.
@@ -222,9 +222,9 @@ impl ConversationalOverlay {
         let chunks = Layout::default()
             .direction(Direction::Vertical)
             .constraints([
-                Constraint::Length(3),  // Title bar
-                Constraint::Min(10),     // Message history
-                Constraint::Length(3),  // Input box
+                Constraint::Length(3), // Title bar
+                Constraint::Min(10),   // Message history
+                Constraint::Length(3), // Input box
             ])
             .split(area);
 
@@ -251,9 +251,13 @@ impl ConversationalOverlay {
             .rev()
             .flat_map(|msg| {
                 let speaker_style = if msg.speaker == "Agent" {
-                    Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD)
                 } else {
-                    Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD)
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD)
                 };
                 let lines: Vec<Line> = msg
                     .text
@@ -281,12 +285,18 @@ impl ConversationalOverlay {
 
         // Input box with current buffer.
         let input_text = if self.input_buffer.is_empty() {
-            Span::styled("Type your response...", Style::default().fg(Color::DarkGray))
+            Span::styled(
+                "Type your response...",
+                Style::default().fg(Color::DarkGray),
+            )
         } else {
             Span::raw(&self.input_buffer)
         };
-        let input = Paragraph::new(Line::from(vec![input_text]))
-            .block(Block::default().borders(Borders::ALL).title("Your response"));
+        let input = Paragraph::new(Line::from(vec![input_text])).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .title("Your response"),
+        );
         input.render(chunks[2], buf);
     }
 }
@@ -322,11 +332,8 @@ mod tests {
 
     #[test]
     fn handle_input_approve_returns_approve_message() {
-        let mut overlay = ConversationalOverlay::new(
-            "bash",
-            json!({"command": "echo test"}),
-            RiskLevel::Low,
-        );
+        let mut overlay =
+            ConversationalOverlay::new("bash", json!({"command": "echo test"}), RiskLevel::Low);
         overlay.input_buffer = "yes".to_string();
         let result = overlay.handle_input('\n');
         assert!(matches!(result, Some(PermissionMessage::Approve)));
@@ -334,11 +341,8 @@ mod tests {
 
     #[test]
     fn handle_input_reject_returns_reject_message() {
-        let mut overlay = ConversationalOverlay::new(
-            "bash",
-            json!({"command": "echo test"}),
-            RiskLevel::Low,
-        );
+        let mut overlay =
+            ConversationalOverlay::new("bash", json!({"command": "echo test"}), RiskLevel::Low);
         overlay.input_buffer = "no".to_string();
         let result = overlay.handle_input('\n');
         assert!(matches!(result, Some(PermissionMessage::Reject)));
@@ -346,11 +350,8 @@ mod tests {
 
     #[test]
     fn handle_input_question_adds_to_history() {
-        let mut overlay = ConversationalOverlay::new(
-            "bash",
-            json!({"command": "echo test"}),
-            RiskLevel::Low,
-        );
+        let mut overlay =
+            ConversationalOverlay::new("bash", json!({"command": "echo test"}), RiskLevel::Low);
         overlay.input_buffer = "what does this do?".to_string();
         let result = overlay.handle_input('\n');
         assert!(result.is_none()); // Conversation continues
@@ -361,11 +362,8 @@ mod tests {
 
     #[test]
     fn scroll_up_increases_offset() {
-        let mut overlay = ConversationalOverlay::new(
-            "bash",
-            json!({"command": "echo test"}),
-            RiskLevel::Low,
-        );
+        let mut overlay =
+            ConversationalOverlay::new("bash", json!({"command": "echo test"}), RiskLevel::Low);
         // Add many messages.
         for i in 0..20 {
             overlay.message_history.push(ConversationMessage {
@@ -380,11 +378,8 @@ mod tests {
 
     #[test]
     fn scroll_down_decreases_offset() {
-        let mut overlay = ConversationalOverlay::new(
-            "bash",
-            json!({"command": "echo test"}),
-            RiskLevel::Low,
-        );
+        let mut overlay =
+            ConversationalOverlay::new("bash", json!({"command": "echo test"}), RiskLevel::Low);
         overlay.scroll_offset = 5;
         overlay.scroll_down();
         assert_eq!(overlay.scroll_offset, 4);
@@ -398,11 +393,8 @@ mod tests {
 
     #[test]
     fn backspace_removes_character() {
-        let mut overlay = ConversationalOverlay::new(
-            "bash",
-            json!({"command": "echo test"}),
-            RiskLevel::Low,
-        );
+        let mut overlay =
+            ConversationalOverlay::new("bash", json!({"command": "echo test"}), RiskLevel::Low);
         overlay.input_buffer = "test".to_string();
         overlay.handle_input('\x7f'); // Backspace
         assert_eq!(overlay.input_buffer, "tes");
@@ -410,11 +402,8 @@ mod tests {
 
     #[test]
     fn character_input_appends_to_buffer() {
-        let mut overlay = ConversationalOverlay::new(
-            "bash",
-            json!({"command": "echo test"}),
-            RiskLevel::Low,
-        );
+        let mut overlay =
+            ConversationalOverlay::new("bash", json!({"command": "echo test"}), RiskLevel::Low);
         overlay.handle_input('h');
         overlay.handle_input('i');
         assert_eq!(overlay.input_buffer, "hi");
@@ -436,11 +425,8 @@ mod tests {
 
     #[test]
     fn defer_adds_acknowledgment() {
-        let mut overlay = ConversationalOverlay::new(
-            "bash",
-            json!({"command": "echo test"}),
-            RiskLevel::Low,
-        );
+        let mut overlay =
+            ConversationalOverlay::new("bash", json!({"command": "echo test"}), RiskLevel::Low);
         overlay.input_buffer = "wait, let me check".to_string();
         let result = overlay.handle_input('\n');
         assert!(result.is_none()); // Conversation continues

@@ -42,15 +42,20 @@ halcon-mcp = { workspace = true }
 halcon-runtime = { workspace = true }
 halcon-api = { workspace = true, features = ["server"] }
 halcon-search = { path = "../halcon-search" }
+halcon-multimodal = { workspace = true }
+halcon-agent-core = { workspace = true, optional = true }
 
 async-trait = { workspace = true }
 clap = { workspace = true }
 tokio = { workspace = true }
+tokio-util = { workspace = true }
+dashmap = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 toml = { workspace = true }
 anyhow = { workspace = true }
+thiserror = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 futures = { workspace = true }
@@ -61,7 +66,10 @@ syntect = { workspace = true }
 chrono = { workspace = true }
 uuid = { workspace = true }
 sha2 = { workspace = true }
+hmac = { workspace = true }
 hex = { workspace = true }
+rusqlite = { workspace = true }
+printpdf = { workspace = true }
 glob = { workspace = true }
 regex = { workspace = true }
 tempfile = { workspace = true }
@@ -75,14 +83,41 @@ reqwest = { workspace = true, features = ["blocking"] }
 flate2 = "1"
 tar = "0.4"
 zip = { version = "2", default-features = false, features = ["deflate"] }
+libc = { workspace = true }
+git2 = { workspace = true }
+openssl = { workspace = true, optional = true }
+base64 = { workspace = true }
 ratatui = { workspace = true, optional = true }
 tui-textarea = { workspace = true, optional = true }
 arboard = { version = "3.4", optional = true } # Cross-platform clipboard (Phase A3)
+png = { version = "0.17", optional = true }     # PNG encoding for clipboard image paste (Phase 63)
+open = { workspace = true }                     # Browser launcher for SSO flows
+notify = "6"                                    # Filesystem watcher for HALCON.md hot-reload (Feature 1)
+rhai = { version = "1", default-features = false } # Sandboxed scripting for lifecycle hooks (Feature 2)
+croner = { workspace = true }                  # Cron expression parsing for scheduler (PASO 4-C)
 
 [features]
 default = ["color-science", "tui"]
 color-science = ["momoto-core", "momoto-metrics", "momoto-intelligence"]
-tui = ["ratatui", "tui-textarea", "arboard"]
+headless = []
+# tui: TUI rendering (ratatui + tui-textarea). Clipboard support is opt-in via tui-clipboard.
+# Use plain `tui` for Linux cross-compiled builds where X11/Wayland headers are unavailable.
+tui = ["headless", "ratatui", "tui-textarea", "png"]
+# tui-clipboard: Full TUI + OS clipboard (arboard). Use on macOS and native Linux builds.
+tui-clipboard = ["tui", "arboard"]
+vendored-openssl = ["openssl/vendored"]
+# ── Optional architectural additions (all off by default) ──────────────────
+## Enables the CompletionValidator trait and KeywordCompletionValidator.
+## When enabled, a semantic completion check is logged after convergence.
+## No existing return path is altered.
+completion-validator = []
+## Enables GDEM as the primary agent loop (experimental).
+## When enabled, agent_bridge uses halcon-agent-core's loop_driver instead of
+## the REPL loop.
+gdem-primary = ["halcon-agent-core"]
+## Enables Cenzontle agent orchestration, MCP bridge, and RAG integration.
+## When enabled, `halcon cenzontle` subcommands become available.
+cenzontle-agents = ["halcon-providers/cenzontle-agents"]
 
 [dev-dependencies]
 assert_cmd = { workspace = true }

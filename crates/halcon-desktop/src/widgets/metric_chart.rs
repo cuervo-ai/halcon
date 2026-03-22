@@ -47,11 +47,7 @@ impl MetricChart {
             return;
         }
 
-        let min_val = self
-            .values
-            .iter()
-            .copied()
-            .fold(f64::INFINITY, f64::min);
+        let min_val = self.values.iter().copied().fold(f64::INFINITY, f64::min);
         let max_val = self
             .values
             .iter()
@@ -71,8 +67,7 @@ impl MetricChart {
             .map(|(i, &val)| {
                 let x = chart_rect.min.x
                     + (i as f32 / (self.values.len() - 1).max(1) as f32) * chart_rect.width();
-                let y = chart_rect.max.y
-                    - ((val - min_val) / range) as f32 * chart_rect.height();
+                let y = chart_rect.max.y - ((val - min_val) / range) as f32 * chart_rect.height();
                 Pos2::new(x, y)
             })
             .collect();

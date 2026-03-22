@@ -170,9 +170,9 @@ impl Tool for FuzzyFindTool {
     }
 
     async fn execute(&self, input: ToolInput) -> Result<ToolOutput> {
-        let query = input.arguments["query"]
-            .as_str()
-            .ok_or_else(|| HalconError::InvalidInput("fuzzy_find requires 'query' string".into()))?;
+        let query = input.arguments["query"].as_str().ok_or_else(|| {
+            HalconError::InvalidInput("fuzzy_find requires 'query' string".into())
+        })?;
 
         let base_path = input.arguments["path"]
             .as_str()
@@ -303,7 +303,11 @@ mod tests {
         std::fs::write(base.join("src/utils/helpers.rs"), "pub fn help() {}").unwrap();
         std::fs::write(base.join("docs/readme.txt"), "readme").unwrap();
         std::fs::write(base.join(".hidden/secret.txt"), "secret").unwrap();
-        std::fs::write(base.join("node_modules/pkg/index.js"), "module.exports = {}").unwrap();
+        std::fs::write(
+            base.join("node_modules/pkg/index.js"),
+            "module.exports = {}",
+        )
+        .unwrap();
 
         dir
     }

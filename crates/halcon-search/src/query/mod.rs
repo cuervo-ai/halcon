@@ -1,25 +1,25 @@
 //! Query engine: search, ranking, snippet generation.
 
+pub mod hybrid_ranker;
 mod parser;
 mod ranker;
 mod snippeter;
-pub mod hybrid_ranker;
 
+pub use hybrid_ranker::{HybridRanker, HybridRankingConfig};
 pub use parser::QueryParser;
 pub use ranker::Ranker;
 pub use snippeter::Snippeter;
-pub use hybrid_ranker::{HybridRanker, HybridRankingConfig};
 
 use crate::cache::ResultCache;
 use crate::config::{CacheConfig, QueryConfig};
 use crate::embeddings::EmbeddingEngine;
 use crate::error::Result;
-use crate::index::InvertedIndex;
-use crate::types::{SearchResult, SearchResults};
 use crate::feedback::{FeedbackStore, QueryQualityMetrics};
+use crate::index::InvertedIndex;
+use crate::types::SearchResults;
 
-use std::sync::Arc;
 use halcon_storage::Database;
+use std::sync::Arc;
 
 /// Query engine orchestrator.
 pub struct QueryEngine {
@@ -27,7 +27,7 @@ pub struct QueryEngine {
     cache: Arc<ResultCache>,
     parser: QueryParser,
     ranker: Ranker,
-    snippeter: Snippeter,
+    _snippeter: Snippeter,
     config: QueryConfig,
     // Optional semantic search components (enabled via config)
     embedding_engine: Option<Arc<EmbeddingEngine>>,
@@ -54,12 +54,12 @@ impl QueryEngine {
         let (embedding_engine, hybrid_ranker) = if enable_semantic_search {
             tracing::info!("Semantic search enabled — embedding model will load on first query");
 
-            let engine = Arc::new(
-                EmbeddingEngine::new()
-                    .map_err(|e| crate::error::SearchError::ConfigError(
-                        format!("Failed to create embedding engine: {}", e)
-                    ))?
-            );
+            let engine = Arc::new(EmbeddingEngine::new().map_err(|e| {
+                crate::error::SearchError::ConfigError(format!(
+                    "Failed to create embedding engine: {}",
+                    e
+                ))
+            })?);
 
             let hybrid_config = HybridRankingConfig {
                 bm25_weight: query_config.ranking.bm25_weight,
@@ -70,11 +70,7 @@ impl QueryEngine {
                 min_semantic_similarity: query_config.ranking.min_semantic_similarity,
             };
 
-            let ranker = Arc::new(HybridRanker::new(
-                db.clone(),
-                engine.clone(),
-                hybrid_config,
-            ));
+            let ranker = Arc::new(HybridRanker::new(db.clone(), engine.clone(), hybrid_config));
 
             (Some(engine), Some(ranker))
         } else {
@@ -93,7 +89,7 @@ impl QueryEngine {
             cache,
             parser,
             ranker,
-            snippeter,
+            _snippeter: snippeter,
             config: query_config,
             embedding_engine,
             hybrid_ranker,
@@ -215,10 +211,16 @@ impl QueryEngine {
         let ctr = if execution_count > 0 { 1.0 } else { 0.0 };
 
         // Compute MRR: 1 / rank of first click (position + 1 for 1-indexed rank)
-        let mrr = interactions.first().map(|i| 1.0 / (i.position + 1) as f64).unwrap_or(0.0);
+        let mrr = interactions
+            .first()
+            .map(|i| 1.0 / (i.position + 1) as f64)
+            .unwrap_or(0.0);
 
         // Compute average dwell time
-        let dwell_times: Vec<f64> = interactions.iter().filter_map(|i| i.dwell_time_secs).collect();
+        let dwell_times: Vec<f64> = interactions
+            .iter()
+            .filter_map(|i| i.dwell_time_secs)
+            .collect();
         let avg_dwell_time = if !dwell_times.is_empty() {
             dwell_times.iter().sum::<f64>() / dwell_times.len() as f64
         } else {

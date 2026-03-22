@@ -41,27 +41,41 @@ impl Tool for FileInspectTool {
     }
 
     async fn execute(&self, input: ToolInput) -> Result<ToolOutput> {
-        let path_str = input.arguments["path"]
-            .as_str()
-            .ok_or_else(|| HalconError::InvalidInput("file_inspect requires 'path' string".into()))?;
+        let path_str = input.arguments["path"].as_str().ok_or_else(|| {
+            HalconError::InvalidInput("file_inspect requires 'path' string".into())
+        })?;
 
         let resolved = self.fs.resolve_path(path_str, &input.working_directory)?;
 
-        let token_budget = input.arguments["token_budget"]
-            .as_u64()
-            .unwrap_or(2000) as usize;
+        let token_budget = input.arguments["token_budget"].as_u64().unwrap_or(2000) as usize;
 
-        let metadata_only = input.arguments["metadata_only"]
-            .as_bool()
-            .unwrap_or(false);
+        let metadata_only = input.arguments["metadata_only"].as_bool().unwrap_or(false);
 
         let inspector = halcon_files::FileInspector::new();
 
         // Detect file type first.
         let info = inspector.detect(&resolved).await.map_err(|e| {
+            // Detect ENOENT separately so the agent loop's P1-C recovery path can
+            // recognise this as a "wrong path" condition rather than a hard failure,
+            // and inject a glob-search directive instead of forcing zero-evidence synthesis.
+            let msg_lower = e.to_string().to_lowercase();
+            let is_not_found = msg_lower.contains("no such file or directory")
+                || msg_lower.contains("os error 2")
+                || msg_lower.contains("not found")
+                || msg_lower.contains("entity not found");
+            let message = if is_not_found {
+                format!(
+                    "detection failed: No such file or directory — '{}' does not exist. \
+                     Use glob to find the file first (e.g. glob pattern=\"**/*.pdf\"), \
+                     then call file_inspect with the discovered path.",
+                    resolved.display()
+                )
+            } else {
+                format!("detection failed: {e}")
+            };
             HalconError::ToolExecutionFailed {
                 tool: "file_inspect".into(),
-                message: format!("detection failed: {e}"),
+                message,
             }
         })?;
 
@@ -212,7 +226,9 @@ mod tests {
         let output = tool().execute(input).await.unwrap();
         assert!(!output.is_error);
         assert!(output.content.contains("json"));
-        assert!(output.metadata.as_ref().unwrap()["valid"].as_bool().unwrap());
+        assert!(output.metadata.as_ref().unwrap()["valid"]
+            .as_bool()
+            .unwrap());
     }
 
     #[tokio::test]

@@ -186,7 +186,11 @@ impl RagasEvaluation {
     /// * `query` - Query text
     /// * `retrieved_chunks` - IDs of chunks retrieved by the system
     /// * `relevant_chunks` - IDs of chunks deemed relevant (ground truth)
-    pub fn evaluate(query: String, retrieved_chunks: &[String], relevant_chunks: &[String]) -> Self {
+    pub fn evaluate(
+        query: String,
+        retrieved_chunks: &[String],
+        relevant_chunks: &[String],
+    ) -> Self {
         let context_precision = ContextPrecision::compute(retrieved_chunks, relevant_chunks);
         let context_recall = ContextRecall::compute(retrieved_chunks, relevant_chunks);
         let f1_score = F1Score::compute(context_precision.score, context_recall.score);
@@ -243,7 +247,10 @@ impl AggregateRagasMetrics {
         let avg_context_recall = sum_recall / num_queries as f64;
         let avg_f1_score = sum_f1 / num_queries as f64;
 
-        let sota_passing = evaluations.iter().filter(|e| e.meets_all_sota_targets()).count();
+        let sota_passing = evaluations
+            .iter()
+            .filter(|e| e.meets_all_sota_targets())
+            .count();
         let sota_pass_rate = sota_passing as f64 / num_queries as f64;
 
         Self {
@@ -315,8 +322,16 @@ mod tests {
 
     #[test]
     fn test_context_precision_perfect() {
-        let retrieved = vec!["chunk1".to_string(), "chunk2".to_string(), "chunk3".to_string()];
-        let relevant = vec!["chunk1".to_string(), "chunk2".to_string(), "chunk3".to_string()];
+        let retrieved = vec![
+            "chunk1".to_string(),
+            "chunk2".to_string(),
+            "chunk3".to_string(),
+        ];
+        let relevant = vec![
+            "chunk1".to_string(),
+            "chunk2".to_string(),
+            "chunk3".to_string(),
+        ];
 
         let precision = ContextPrecision::compute(&retrieved, &relevant);
 
@@ -335,7 +350,11 @@ mod tests {
             "chunk4".to_string(),
             "chunk5".to_string(),
         ];
-        let relevant = vec!["chunk1".to_string(), "chunk3".to_string(), "chunk5".to_string()];
+        let relevant = vec![
+            "chunk1".to_string(),
+            "chunk3".to_string(),
+            "chunk5".to_string(),
+        ];
 
         let precision = ContextPrecision::compute(&retrieved, &relevant);
 
@@ -372,8 +391,16 @@ mod tests {
 
     #[test]
     fn test_context_recall_perfect() {
-        let retrieved = vec!["chunk1".to_string(), "chunk2".to_string(), "chunk3".to_string()];
-        let relevant = vec!["chunk1".to_string(), "chunk2".to_string(), "chunk3".to_string()];
+        let retrieved = vec![
+            "chunk1".to_string(),
+            "chunk2".to_string(),
+            "chunk3".to_string(),
+        ];
+        let relevant = vec![
+            "chunk1".to_string(),
+            "chunk2".to_string(),
+            "chunk3".to_string(),
+        ];
 
         let recall = ContextRecall::compute(&retrieved, &relevant);
 
@@ -471,8 +498,16 @@ mod tests {
 
     #[test]
     fn test_ragas_evaluation_high_quality() {
-        let retrieved = vec!["chunk1".to_string(), "chunk2".to_string(), "chunk3".to_string()];
-        let relevant = vec!["chunk1".to_string(), "chunk2".to_string(), "chunk3".to_string()];
+        let retrieved = vec![
+            "chunk1".to_string(),
+            "chunk2".to_string(),
+            "chunk3".to_string(),
+        ];
+        let relevant = vec![
+            "chunk1".to_string(),
+            "chunk2".to_string(),
+            "chunk3".to_string(),
+        ];
 
         let eval = RagasEvaluation::evaluate("test query".to_string(), &retrieved, &relevant);
 
@@ -491,7 +526,11 @@ mod tests {
             "chunk3".to_string(),
             "chunk4".to_string(),
         ];
-        let relevant = vec!["chunk1".to_string(), "chunk2".to_string(), "chunk5".to_string()];
+        let relevant = vec![
+            "chunk1".to_string(),
+            "chunk2".to_string(),
+            "chunk5".to_string(),
+        ];
 
         let eval = RagasEvaluation::evaluate("test query".to_string(), &retrieved, &relevant);
 
@@ -540,7 +579,10 @@ mod tests {
     fn test_ragas_test_set() {
         let mut test_set = RagasTestSet::new();
 
-        test_set.add_query("query1".to_string(), vec!["c1".to_string(), "c2".to_string()]);
+        test_set.add_query(
+            "query1".to_string(),
+            vec!["c1".to_string(), "c2".to_string()],
+        );
         test_set.add_query("query2".to_string(), vec!["c3".to_string()]);
 
         assert_eq!(test_set.len(), 2);

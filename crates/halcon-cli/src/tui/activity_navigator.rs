@@ -8,8 +8,8 @@
 //! - Search mode with match navigation (n/N)
 //! - Scroll offset for virtual scrolling
 
-use std::collections::HashSet;
 use super::activity_model::ActivityModel;
+use std::collections::HashSet;
 
 /// Navigation state for the activity zone.
 ///
@@ -96,14 +96,14 @@ impl ActivityNavigator {
             search_current: 0,
             auto_scroll: true,
             last_max_scroll: 0,
-            hovered_line: None, // Phase B4
-            viewport_height: None, // Phase 1 Remediation
-            pending_key: None, // Phase 2 NAV-001
-            fuzzy_mode: false, // Phase 3 SRCH-001
-            fuzzy_max_distance: 2, // Phase 3 SRCH-001
-            regex_mode: false, // Phase 3 SRCH-002
-            search_history: Vec::new(), // Phase 3 SRCH-004
-            history_index: 0, // Phase 3 SRCH-004
+            hovered_line: None,           // Phase B4
+            viewport_height: None,        // Phase 1 Remediation
+            pending_key: None,            // Phase 2 NAV-001
+            fuzzy_mode: false,            // Phase 3 SRCH-001
+            fuzzy_max_distance: 2,        // Phase 3 SRCH-001
+            regex_mode: false,            // Phase 3 SRCH-002
+            search_history: Vec::new(),   // Phase 3 SRCH-004
+            history_index: 0,             // Phase 3 SRCH-004
             current_input: String::new(), // Phase 3 SRCH-004
         }
     }
@@ -118,7 +118,7 @@ impl ActivityNavigator {
         self.selected_index = Some(match self.selected_index {
             Some(idx) if idx + 1 < total => idx + 1,
             Some(idx) => idx, // At last line, stay there
-            None => 0, // No selection → select first line
+            None => 0,        // No selection → select first line
         });
 
         // Disable auto-scroll when selecting
@@ -137,7 +137,7 @@ impl ActivityNavigator {
         self.selected_index = Some(match self.selected_index {
             Some(idx) if idx > 0 => idx - 1,
             Some(idx) => idx, // At first line, stay there
-            None => 0, // No selection → select first line
+            None => 0,        // No selection → select first line
         });
 
         self.auto_scroll = false;
@@ -1137,7 +1137,11 @@ mod tests {
     #[test]
     fn load_history_stores_queries() {
         let mut nav = ActivityNavigator::new();
-        let history = vec!["query1".to_string(), "query2".to_string(), "query3".to_string()];
+        let history = vec![
+            "query1".to_string(),
+            "query2".to_string(),
+            "query3".to_string(),
+        ];
 
         nav.load_history(history.clone());
 
@@ -1148,7 +1152,11 @@ mod tests {
     #[test]
     fn history_up_navigates_to_older_queries() {
         let mut nav = ActivityNavigator::new();
-        nav.load_history(vec!["recent".to_string(), "older".to_string(), "oldest".to_string()]);
+        nav.load_history(vec![
+            "recent".to_string(),
+            "older".to_string(),
+            "oldest".to_string(),
+        ]);
         nav.search_query = "current typing".to_string();
 
         // First Up: saves current input and returns most recent

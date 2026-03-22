@@ -1,16 +1,232 @@
-# Cuervo CLI - Documentación Técnica para Desarrolladores
+# HALCON CLI - Documentación Técnica para Desarrolladores
 
 ## Tabla de Contenidos
 1. [Arquitectura del Sistema](#arquitectura-del-sistema)
-2. [Extensión del Sistema](#extensión-del-sistema)
-3. [API Interna](#api-interna)
-4. [Sistema de Herramientas](#sistema-de-herramientas)
-5. [Sistema de Proveedores](#sistema-de-proveedores)
-6. [Sistema de Memoria](#sistema-de-memoria)
-7. [Sistema de Contexto](#sistema-de-contexto)
-8. [Testing y Debugging](#testing-y-debugging)
-9. [Performance y Optimización](#performance-y-optimización)
-10. [Contribución al Código](#contribución-al-código)
+2. [Sistema de Plugins V3](#sistema-de-plugins-v3)
+3. [Extensión del Sistema](#extensión-del-sistema)
+4. [API Interna](#api-interna)
+5. [Sistema de Herramientas](#sistema-de-herramientas)
+6. [Sistema de Proveedores](#sistema-de-proveedores)
+7. [Sistema de Memoria](#sistema-de-memoria)
+8. [Sistema de Contexto](#sistema-de-contexto)
+9. [Testing y Debugging](#testing-y-debugging)
+10. [Performance y Optimización](#performance-y-optimización)
+11. [Contribución al Código](#contribución-al-código)
+
+---
+
+## Sistema de Plugins V3
+
+HALCON V3 implementa un sistema de plugins que permite extender el agente con herramientas especializadas sin modificar el core. Los plugins se ejecutan como procesos externos (stdio) y se comunican via JSON-RPC 2.0.
+
+### Arquitectura del Sistema de Plugins
+
+```
+~/.halcon/plugins/
+├── mi-plugin.plugin.toml      ← Manifest TOML
+└── mi-plugin.py               ← Ejecutable (Python, Bash, cualquier binario)
+
+Plugin Flow:
+  PluginLoader::discover()
+    → lee *.plugin.toml
+    → valida manifest
+    → registra PluginProxyTool en ToolRegistry
+    → el LLM ve la herramienta en su tool list
+    → cuando invoca: PluginTransportRuntime::invoke()
+      → spawn proceso (stdio transport)
+      → escribe JSON-RPC a stdin
+      → lee resultado de stdout
+      → PluginCostTracker registra tokens usados
+      → PluginCircuitBreaker actualiza contador de fallos
+```
+
+### Módulos del Plugin System
+
+| Módulo | Responsabilidad |
+|--------|----------------|
+| `plugin_manifest.rs` | Deserialización y validación del TOML manifest |
+| `plugin_registry.rs` | Registro de plugins, estado FSM, UCB1 bandit |
+| `plugin_circuit_breaker.rs` | Circuit breaker: Closed → Open (3 fallos) → HalfOpen (60s) |
+| `plugin_cost_tracker.rs` | Tracking de tokens y costos por plugin |
+| `plugin_permission_gate.rs` | Control de permisos por risk_tier |
+| `capability_index.rs` | BM25 index + exact_match para resolución de herramientas |
+| `capability_resolver.rs` | Resolución de la mejor herramienta para una capacidad |
+
+### Crear un Plugin (Python)
+
+Un plugin mínimo requiere dos archivos:
+
+#### 1. Manifest TOML (`~/.halcon/plugins/mi-plugin.plugin.toml`)
+
+```toml
+[meta]
+id       = "mi-plugin"
+name     = "Mi Plugin"
+version  = "1.0.0"
+category = "backend"   # frontend | backend | architecture | security
+
+[meta.transport]
+type    = "stdio"
+command = "/Users/tu_usuario/.halcon/plugins/mi-plugin.py"
+args    = []
+
+[[capabilities]]
+name                   = "plugin_mi_plugin_mi_herramienta"
+description            = "Descripción detallada para el LLM — sé específico sobre qué hace y cuándo usarla"
+risk_tier              = "low"    # low | medium | high
+idempotent             = true
+permission_level       = "read_only"    # read_only | read_write | destructive
+budget_tokens_per_call = 600
+
+[permissions]
+env_read  = false
+db_write  = false
+
+[sandbox]
+subprocess_allowed = false
+timeout_ms         = 60000
+max_memory_mb      = 256
+
+[supervisor_policy]
+halt_on_failures           = 3
+reward_weight              = 1.0
+requires_explicit_approval = false
+```
+
+#### 2. Ejecutable Python (`~/.halcon/plugins/mi-plugin.py`)
+
+```python
+#!/usr/bin/env python3
+"""Mi Plugin — HALCON V3 Plugin via JSON-RPC 2.0 stdio transport."""
+import sys
+import json
+from typing import Optional
+
+# Prefijos que HALCON puede anteponer al nombre de la herramienta
+TOOL_PREFIXES = ("plugin_mi_plugin_", "mi_plugin_")
+
+
+def strip_prefix(name: str) -> str:
+    """Elimina el prefijo del nombre de la herramienta."""
+    for prefix in TOOL_PREFIXES:
+        if name.startswith(prefix):
+            return name[len(prefix):]
+    return name
+
+
+def mi_herramienta(path: str = ".", **kwargs) -> dict:
+    """Implementación de la herramienta."""
+    # Tu lógica aquí
+    return {
+        "result": "ok",
+        "details": f"Analizado: {path}"
+    }
+
+
+TOOLS = {
+    "mi_herramienta": mi_herramienta,
+}
+
+
+def handle_request(request: dict) -> dict:
+    """Despacha una solicitud JSON-RPC 2.0."""
+    req_id = request.get("id", 1)
+    method = request.get("method", "")
+    params = request.get("params", {})
+
+    if method != "tool/invoke":
+        return {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": "Method not found"}}
+
+    tool_name = strip_prefix(params.get("tool", ""))
+    arguments = params.get("arguments", {})
+
+    if tool_name not in TOOLS:
+        return {
+            "jsonrpc": "2.0", "id": req_id,
+            "result": {"content": f"Unknown tool: {tool_name}", "is_error": True, "tokens_used": 10, "cost_usd": 0.0}
+        }
+
+    try:
+        result = TOOLS[tool_name](**arguments)
+        content = json.dumps(result, indent=2, ensure_ascii=False)
+        return {
+            "jsonrpc": "2.0", "id": req_id,
+            "result": {"content": content, "is_error": False, "tokens_used": len(content) // 4, "cost_usd": 0.0}
+        }
+    except Exception as e:
+        return {
+            "jsonrpc": "2.0", "id": req_id,
+            "result": {"content": str(e), "is_error": True, "tokens_used": 10, "cost_usd": 0.0}
+        }
+
+
+def main():
+    """Loop principal: lee JSON-RPC de stdin, escribe respuesta a stdout."""
+    for line in sys.stdin:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            request = json.loads(line)
+            response = handle_request(request)
+        except json.JSONDecodeError as e:
+            response = {"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": str(e)}}
+        print(json.dumps(response), flush=True)
+
+
+if __name__ == "__main__":
+    main()
+```
+
+```bash
+# Hacer el script ejecutable
+chmod +x ~/.halcon/plugins/mi-plugin.py
+
+# Verificar que HALCON lo descubre
+halcon chat "¿qué herramientas tienes disponibles?"
+```
+
+### Convenciones de Nombres
+
+El nombre de cada herramienta (capability) **debe** seguir el patrón:
+```
+plugin_<id_con_guiones_a_guiones_bajos>_<nombre_de_herramienta>
+```
+
+Ejemplos:
+- Plugin id: `halcon-schema-oracle` → prefijo: `plugin_halcon_schema_oracle_`
+- Tool name: `plugin_halcon_schema_oracle_schema_health_report`
+
+### Ciclo de Vida del Plugin
+
+```
+Descubierto → Registrado → Activo
+                              ↓ (3 fallos)
+                           Degradado → Suspendido → (60s) → Activo
+                              ↓ (fallo catastrófico)
+                           Fallido (requiere reinicio manual)
+```
+
+### UCB1 por Plugin
+
+HALCON aplica un bandit UCB1 para seleccionar el mejor plugin cuando múltiples plugins ofrecen capacidades similares:
+
+```
+ucb1_score = avg_reward + C * sqrt(ln(total_uses) / plugin_uses)
+```
+
+- `C = 1.4` (factor de exploración)
+- `avg_reward = 0.5` como prior para plugins nuevos (máxima exploración)
+- Los rewards se persisten entre sesiones via SQLite (`plugin_metrics` table)
+
+### Gotchas Importantes
+
+1. **Python 3.9**: No usar `str | None`, usar `Optional[str]` de `typing`. No usar `tomllib` (añadido en 3.11).
+2. **SQL embebido en Rust**: Proyectos Rust que usan string constants para SQL (ej: HALCON migrations) no tienen archivos `.sql` — los plugins de schema deben manejar 0 tablas como resultado válido.
+3. **BM25 con un solo documento**: Con n=1, idf = ln(4/3) ≈ 0.288 < MIN_PLUGIN_SCORE=0.5. `CapabilityIndex::exact_match()` resuelve esto buscando por nombre exacto antes de BM25.
+4. **Regex alternación**: `re.compile(r"a|b?")` — el `?` bare después de `|` genera error. Usar `(?:a|b)?` o `(a|b)?`.
+
+---
 
 ## Arquitectura del Sistema
 

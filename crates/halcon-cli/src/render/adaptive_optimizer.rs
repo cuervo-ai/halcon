@@ -6,11 +6,134 @@
 //! - Quality-driven modification strategies
 //! - Early stopping when quality stabilizes
 
+// Local convergence + step-selection types that replace the momoto-intelligence
+// stubs (which are empty and have no methods/fields in the current workspace).
 #[cfg(feature = "color-science")]
-use momoto_intelligence::adaptive::{
-    ConvergenceConfig, ConvergenceDetector, ConvergenceStatus,
-    GoalTracker, StepRecommendation, StepScoringModel, StepSelector,
-};
+mod local_adaptive {
+    /// Convergence status returned by LocalConvergenceDetector::update().
+    pub struct ConvergenceStatus {
+        pub stopped: bool,
+        pub reason: String,
+    }
+    impl ConvergenceStatus {
+        pub fn should_stop(&self) -> bool {
+            self.stopped
+        }
+        pub fn description(&self) -> String {
+            self.reason.clone()
+        }
+    }
+
+    /// Simple convergence detector: halts when quality reaches target or
+    /// stalls for `stall_window` consecutive iterations.
+    pub struct ConvergenceDetector {
+        target: f64,
+        min_improvement: f64,
+        stall_window: usize,
+        history: Vec<f64>,
+    }
+    impl ConvergenceDetector {
+        pub fn new(target: f64, min_improvement: f64, stall_window: usize) -> Self {
+            Self {
+                target,
+                min_improvement,
+                stall_window,
+                history: Vec::new(),
+            }
+        }
+        pub fn reset(&mut self) {
+            self.history.clear();
+        }
+        pub fn update(&mut self, quality: f64) -> ConvergenceStatus {
+            self.history.push(quality);
+            if quality >= self.target {
+                return ConvergenceStatus {
+                    stopped: true,
+                    reason: format!("Target quality {:.4} reached", self.target),
+                };
+            }
+            if self.history.len() >= self.stall_window {
+                let window = &self.history[self.history.len() - self.stall_window..];
+                let max_q = window.iter().cloned().fold(f64::NEG_INFINITY, f64::max);
+                let min_q = window.iter().cloned().fold(f64::INFINITY, f64::min);
+                if max_q - min_q < self.min_improvement {
+                    return ConvergenceStatus {
+                        stopped: true,
+                        reason: format!(
+                            "Quality stalled (delta {:.5} < {:.5})",
+                            max_q - min_q,
+                            self.min_improvement
+                        ),
+                    };
+                }
+            }
+            ConvergenceStatus {
+                stopped: false,
+                reason: "Continuing".into(),
+            }
+        }
+    }
+
+    /// Step recommendation from LocalStepSelector.
+    pub struct StepRecommendation {
+        pub step_type: String,
+        pub confidence: f64,
+    }
+
+    /// Step selector: tracks per-step average improvement and recommends the
+    /// best-performing step (UCB-lite: exploit when history exists).
+    pub struct StepSelector {
+        steps: Vec<String>,
+        scores: std::collections::HashMap<String, (f64, usize)>, // (sum_improvement, count)
+        round_robin_idx: usize,
+    }
+    impl StepSelector {
+        pub fn new(available_steps: Vec<String>) -> Self {
+            Self {
+                steps: available_steps,
+                scores: Default::default(),
+                round_robin_idx: 0,
+            }
+        }
+        pub fn update_progress(&mut self, _quality: f64) {}
+        pub fn recommend_next_step(&mut self) -> Option<StepRecommendation> {
+            if self.steps.is_empty() {
+                return None;
+            }
+            // Pick step with best average improvement (min 2 samples); else round-robin.
+            let best = self
+                .steps
+                .iter()
+                .filter_map(|s| {
+                    let (sum, cnt) = self.scores.get(s).copied().unwrap_or((0.0, 0));
+                    if cnt >= 2 {
+                        Some((s.clone(), sum / cnt as f64))
+                    } else {
+                        None
+                    }
+                })
+                .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal));
+            if let Some((step, score)) = best {
+                return Some(StepRecommendation {
+                    step_type: step,
+                    confidence: (score + 1.0).min(1.0),
+                });
+            }
+            // Round-robin fallback
+            let step = self.steps[self.round_robin_idx % self.steps.len()].clone();
+            self.round_robin_idx += 1;
+            Some(StepRecommendation {
+                step_type: step,
+                confidence: 0.5,
+            })
+        }
+        pub fn record_outcome(&mut self, step: &str, improvement: f64, _cost: f64, _success: bool) {
+            let entry = self.scores.entry(step.to_string()).or_insert((0.0, 0));
+            entry.0 += improvement;
+            entry.1 += 1;
+        }
+    }
+}
 
 #[cfg(feature = "color-science")]
 use momoto_core::{Color, OKLCH};
@@ -163,10 +286,10 @@ impl OptimizationConfig {
 pub struct AdaptivePaletteOptimizer {
     /// Base palette builder
     builder: IntelligentPaletteBuilder,
-    /// Convergence detector
-    convergence: ConvergenceDetector,
-    /// Step selector
-    step_selector: StepSelector,
+    /// Convergence detector (local implementation — no momoto-intelligence dependency)
+    convergence: local_adaptive::ConvergenceDetector,
+    /// Step selector (local implementation)
+    step_selector: local_adaptive::StepSelector,
     /// Optimization configuration
     config: OptimizationConfig,
 }
@@ -180,35 +303,18 @@ impl AdaptivePaletteOptimizer {
 
     /// Create with custom configuration
     pub fn with_config(builder: IntelligentPaletteBuilder, config: OptimizationConfig) -> Self {
-        // Configure convergence detector
-        let convergence_config = ConvergenceConfig {
-            target_threshold: config.target_quality,
-            min_improvement: config.min_improvement,
-            stall_iterations: 5,
-            oscillation_window: 10,
-            oscillation_threshold: 0.01,
-            divergence_threshold: -0.001,
-            min_iterations: 3,
-        };
-        let convergence = ConvergenceDetector::new(convergence_config);
+        let convergence = local_adaptive::ConvergenceDetector::new(
+            config.target_quality,
+            config.min_improvement,
+            5, // stall_window
+        );
 
-        // Configure step selector
         let available_steps: Vec<String> = ModificationKind::all()
             .iter()
             .map(|k| k.as_str().to_string())
             .collect();
 
-        // Pre-populate scoring model with known effectiveness
-        let mut scoring_model = StepScoringModel::new();
-        scoring_model = scoring_model
-            .with_known_effectiveness("adjust_lightness", "palette_quality", 0.7)
-            .with_known_effectiveness("adjust_chroma", "palette_quality", 0.6)
-            .with_known_effectiveness("adjust_hue", "palette_quality", 0.5)
-            .with_known_effectiveness("refine_token", "palette_quality", 0.8);
-
-        let step_selector = StepSelector::new("palette_quality", config.target_quality)
-            .with_available_steps(available_steps)
-            .with_scoring_model(scoring_model);
+        let step_selector = local_adaptive::StepSelector::new(available_steps);
 
         Self {
             builder,
@@ -227,15 +333,16 @@ impl AdaptivePaletteOptimizer {
         let initial_quality = initial.quality_report.average_overall();
 
         if self.config.verbose {
-            println!("🎨 Starting adaptive optimization from hue {:.1}°", base_hue);
+            println!(
+                "🎨 Starting adaptive optimization from hue {:.1}°",
+                base_hue
+            );
             println!("   Initial quality: {:.4}", initial_quality);
         }
 
         // Refinement #4: Adaptive target quality - always try to improve by at least 5%
-        let adaptive_target = f64::max(
-            self.config.target_quality,
-            initial_quality + 0.05
-        ).min(0.99); // Cap at 0.99 (perfection is impossible)
+        let adaptive_target =
+            f64::max(self.config.target_quality, initial_quality + 0.05).min(0.99); // Cap at 0.99 (perfection is impossible)
 
         // Refinement #1: Skip optimization if initial quality already excellent
         // If initial quality exceeds adaptive target by 2%, no optimization needed
@@ -248,7 +355,10 @@ impl AdaptivePaletteOptimizer {
                 initial_palette: initial.palette.clone(),
                 final_palette: initial,
                 steps: vec![],
-                convergence_status: format!("Skipped: initial quality {:.4} already excellent", initial_quality),
+                convergence_status: format!(
+                    "Skipped: initial quality {:.4} already excellent",
+                    initial_quality
+                ),
                 total_duration_ms: start_time.elapsed().as_millis() as u64,
                 quality_improvement: 0.0,
                 iterations: 0,
@@ -256,8 +366,10 @@ impl AdaptivePaletteOptimizer {
         }
 
         if self.config.verbose {
-            println!("   Target quality: {:.4} (adaptive from initial {:.4})",
-                     adaptive_target, initial_quality);
+            println!(
+                "   Target quality: {:.4} (adaptive from initial {:.4})",
+                adaptive_target, initial_quality
+            );
         }
 
         let mut current_palette = initial.clone();
@@ -283,8 +395,10 @@ impl AdaptivePaletteOptimizer {
                     _ => unreachable!(),
                 };
                 if self.config.verbose {
-                    println!("   [{:02}] Trying: {:?} (forced exploration)",
-                             iterations, forced_strategy);
+                    println!(
+                        "   [{:02}] Trying: {:?} (forced exploration)",
+                        iterations, forced_strategy
+                    );
                 }
                 forced_strategy
             } else {
@@ -303,8 +417,10 @@ impl AdaptivePaletteOptimizer {
                     .unwrap_or(ModificationKind::AdjustLightness);
 
                 if self.config.verbose {
-                    println!("   [{:02}] Trying: {:?} (confidence: {:.2})",
-                             iterations, step_kind, recommendation.confidence);
+                    println!(
+                        "   [{:02}] Trying: {:?} (confidence: {:.2})",
+                        iterations, step_kind, recommendation.confidence
+                    );
                 }
                 step_kind
             };
@@ -337,7 +453,8 @@ impl AdaptivePaletteOptimizer {
 
             // Record outcome for step selector
             let cost = step_kind.base_cost();
-            self.step_selector.record_outcome(step_kind.as_str(), improvement, cost, success);
+            self.step_selector
+                .record_outcome(step_kind.as_str(), improvement, cost, success);
 
             // Update current palette if improved
             if let Some(modified_pal) = modified {
@@ -345,8 +462,10 @@ impl AdaptivePaletteOptimizer {
                     current_palette = modified_pal;
 
                     if self.config.verbose {
-                        println!("       ✓ Quality: {:.4} → {:.4} (+{:.4})",
-                                 quality_before, quality_after, improvement);
+                        println!(
+                            "       ✓ Quality: {:.4} → {:.4} (+{:.4})",
+                            quality_before, quality_after, improvement
+                        );
                     }
                 }
             }
@@ -375,8 +494,10 @@ impl AdaptivePaletteOptimizer {
         if self.config.verbose {
             println!("✅ Optimization complete:");
             println!("   Iterations: {}", iterations);
-            println!("   Quality: {:.4} → {:.4} (+{:.4})",
-                     initial_quality, final_quality, quality_improvement);
+            println!(
+                "   Quality: {:.4} → {:.4} (+{:.4})",
+                initial_quality, final_quality, quality_improvement
+            );
             println!("   Duration: {:.2}s", total_duration.as_secs_f64());
         }
 
@@ -407,7 +528,7 @@ impl AdaptivePaletteOptimizer {
 
     /// Adjust lightness of colors that need better contrast
     pub fn adjust_lightness(&self, palette: &Palette) -> Option<PaletteWithMetadata> {
-        use momoto_core::{OKLCH, ContrastMetric};
+        use momoto_core::{ContrastMetric, OKLCH};
         use momoto_metrics::WCAGMetric;
 
         let wcag = WCAGMetric;
@@ -441,18 +562,23 @@ impl AdaptivePaletteOptimizer {
         // Adjust lightness of the problematic token
         let oklch = OKLCH::from_color(target_color.color());
         let delta = if oklch.l < 0.5 { 0.05 } else { -0.05 }; // Lighten dark, darken light
-        let adjusted_oklch = OKLCH::new(
-            (oklch.l + delta).clamp(0.0, 1.0),
-            oklch.c,
-            oklch.h,
-        );
+        let adjusted_oklch = OKLCH::new((oklch.l + delta).clamp(0.0, 1.0), oklch.c, oklch.h);
 
         // Create modified palette
         let modified_color = ThemeColor::from_color(adjusted_oklch.to_color());
         let modified_palette = match target_token {
-            "text" => Palette { text: modified_color, ..palette.clone() },
-            "text_dim" => Palette { text_dim: modified_color, ..palette.clone() },
-            "text_label" => Palette { text_label: modified_color, ..palette.clone() },
+            "text" => Palette {
+                text: modified_color,
+                ..palette.clone()
+            },
+            "text_dim" => Palette {
+                text_dim: modified_color,
+                ..palette.clone()
+            },
+            "text_label" => Palette {
+                text_label: modified_color,
+                ..palette.clone()
+            },
             _ => return None,
         };
 
@@ -473,6 +599,8 @@ impl AdaptivePaletteOptimizer {
             quality_report,
             explanation,
             base_hue: 0.0, // Modified, not from hue
+            harmony_score: 0.0,
+            solver_result: None,
         })
     }
 
@@ -489,18 +617,15 @@ impl AdaptivePaletteOptimizer {
         }
 
         // Find semantic token with lowest perceptual quality (exclude text/bg)
-        let semantic_tokens = advanced_scores.iter()
-            .filter(|(name, _)| {
-                !name.starts_with("text") &&
-                !name.starts_with("bg_") &&
-                *name != "border"
-            });
+        let semantic_tokens = advanced_scores.iter().filter(|(name, _)| {
+            !name.starts_with("text") && !name.starts_with("bg_") && *name != "border"
+        });
 
-        let weakest = semantic_tokens
-            .min_by(|a, b| {
-                a.1.quality_overall.partial_cmp(&b.1.quality_overall)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })?;
+        let weakest = semantic_tokens.min_by(|a, b| {
+            a.1.quality_overall
+                .partial_cmp(&b.1.quality_overall)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })?;
 
         let (token_name, score) = weakest;
 
@@ -545,20 +670,62 @@ impl AdaptivePaletteOptimizer {
         // Create modified palette
         let modified_color = ThemeColor::from_color(adjusted_oklch.to_color());
         let modified_palette = match *token_name {
-            "primary" => Palette { primary: modified_color, ..palette.clone() },
-            "accent" => Palette { accent: modified_color, ..palette.clone() },
-            "warning" => Palette { warning: modified_color, ..palette.clone() },
-            "error" => Palette { error: modified_color, ..palette.clone() },
-            "success" => Palette { success: modified_color, ..palette.clone() },
-            "muted" => Palette { muted: modified_color, ..palette.clone() },
-            "running" => Palette { running: modified_color, ..palette.clone() },
-            "planning" => Palette { planning: modified_color, ..palette.clone() },
-            "reasoning" => Palette { reasoning: modified_color, ..palette.clone() },
-            "delegated" => Palette { delegated: modified_color, ..palette.clone() },
-            "destructive" => Palette { destructive: modified_color, ..palette.clone() },
-            "cached" => Palette { cached: modified_color, ..palette.clone() },
-            "retrying" => Palette { retrying: modified_color, ..palette.clone() },
-            "compacting" => Palette { compacting: modified_color, ..palette.clone() },
+            "primary" => Palette {
+                primary: modified_color,
+                ..palette.clone()
+            },
+            "accent" => Palette {
+                accent: modified_color,
+                ..palette.clone()
+            },
+            "warning" => Palette {
+                warning: modified_color,
+                ..palette.clone()
+            },
+            "error" => Palette {
+                error: modified_color,
+                ..palette.clone()
+            },
+            "success" => Palette {
+                success: modified_color,
+                ..palette.clone()
+            },
+            "muted" => Palette {
+                muted: modified_color,
+                ..palette.clone()
+            },
+            "running" => Palette {
+                running: modified_color,
+                ..palette.clone()
+            },
+            "planning" => Palette {
+                planning: modified_color,
+                ..palette.clone()
+            },
+            "reasoning" => Palette {
+                reasoning: modified_color,
+                ..palette.clone()
+            },
+            "delegated" => Palette {
+                delegated: modified_color,
+                ..palette.clone()
+            },
+            "destructive" => Palette {
+                destructive: modified_color,
+                ..palette.clone()
+            },
+            "cached" => Palette {
+                cached: modified_color,
+                ..palette.clone()
+            },
+            "retrying" => Palette {
+                retrying: modified_color,
+                ..palette.clone()
+            },
+            "compacting" => Palette {
+                compacting: modified_color,
+                ..palette.clone()
+            },
             _ => return None,
         };
 
@@ -567,8 +734,15 @@ impl AdaptivePaletteOptimizer {
 
         let explanation = ExplanationBuilder::new()
             .summary(format!("Adjusted chroma for {}", token_name))
-            .problem(format!("Low perceptual quality ({:.2})", score.quality_overall))
-            .benefit(if delta > 0.0 { "Increased vibrancy" } else { "Reduced oversaturation" })
+            .problem(format!(
+                "Low perceptual quality ({:.2})",
+                score.quality_overall
+            ))
+            .benefit(if delta > 0.0 {
+                "Increased vibrancy"
+            } else {
+                "Reduced oversaturation"
+            })
             .build();
 
         Some(PaletteWithMetadata {
@@ -576,6 +750,8 @@ impl AdaptivePaletteOptimizer {
             quality_report,
             explanation,
             base_hue: 0.0,
+            harmony_score: 0.0,
+            solver_result: None,
         })
     }
 
@@ -593,20 +769,28 @@ impl AdaptivePaletteOptimizer {
 
         // Find semantic token with lowest perceptual quality
         // Focus on color-coded semantic tokens where hue matters
-        let semantic_tokens = advanced_scores.iter()
-            .filter(|(name, _)| {
-                matches!(*name,
-                    "warning" | "error" | "success" | "running" |
-                    "planning" | "reasoning" | "delegated" | "destructive" |
-                    "cached" | "retrying" | "compacting"
-                )
-            });
+        let semantic_tokens = advanced_scores.iter().filter(|(name, _)| {
+            matches!(
+                *name,
+                "warning"
+                    | "error"
+                    | "success"
+                    | "running"
+                    | "planning"
+                    | "reasoning"
+                    | "delegated"
+                    | "destructive"
+                    | "cached"
+                    | "retrying"
+                    | "compacting"
+            )
+        });
 
-        let weakest = semantic_tokens
-            .min_by(|a, b| {
-                a.1.quality_overall.partial_cmp(&b.1.quality_overall)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            })?;
+        let weakest = semantic_tokens.min_by(|a, b| {
+            a.1.quality_overall
+                .partial_cmp(&b.1.quality_overall)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })?;
 
         let (token_name, score) = weakest;
 
@@ -636,16 +820,16 @@ impl AdaptivePaletteOptimizer {
         // Nudge hue toward semantic ideal
         // Warning: yellow (60-90°), Error: red (0-30°), Success: green (120-150°)
         let ideal_hue = match *token_name {
-            "warning" => 60.0,       // Yellow
-            "error" | "destructive" => 15.0,  // Red
-            "success" | "running" => 140.0,   // Green
-            "planning" => 210.0,     // Blue
-            "reasoning" => 280.0,    // Purple
-            "delegated" => 50.0,     // Orange
-            "cached" => 180.0,       // Cyan
-            "retrying" => 40.0,      // Amber
-            "compacting" => 260.0,   // Violet
-            _ => oklch.h, // Keep current
+            "warning" => 60.0,               // Yellow
+            "error" | "destructive" => 15.0, // Red
+            "success" | "running" => 140.0,  // Green
+            "planning" => 210.0,             // Blue
+            "reasoning" => 280.0,            // Purple
+            "delegated" => 50.0,             // Orange
+            "cached" => 180.0,               // Cyan
+            "retrying" => 40.0,              // Amber
+            "compacting" => 260.0,           // Violet
+            _ => oklch.h,                    // Keep current
         };
 
         // Calculate smallest angle to ideal hue
@@ -664,26 +848,55 @@ impl AdaptivePaletteOptimizer {
             return None;
         }
 
-        let adjusted_oklch = OKLCH::new(
-            oklch.l,
-            oklch.c,
-            (oklch.h + nudge) % 360.0,
-        );
+        let adjusted_oklch = OKLCH::new(oklch.l, oklch.c, (oklch.h + nudge) % 360.0);
 
         // Create modified palette
         let modified_color = ThemeColor::from_color(adjusted_oklch.to_color());
         let modified_palette = match *token_name {
-            "warning" => Palette { warning: modified_color, ..palette.clone() },
-            "error" => Palette { error: modified_color, ..palette.clone() },
-            "success" => Palette { success: modified_color, ..palette.clone() },
-            "running" => Palette { running: modified_color, ..palette.clone() },
-            "planning" => Palette { planning: modified_color, ..palette.clone() },
-            "reasoning" => Palette { reasoning: modified_color, ..palette.clone() },
-            "delegated" => Palette { delegated: modified_color, ..palette.clone() },
-            "destructive" => Palette { destructive: modified_color, ..palette.clone() },
-            "cached" => Palette { cached: modified_color, ..palette.clone() },
-            "retrying" => Palette { retrying: modified_color, ..palette.clone() },
-            "compacting" => Palette { compacting: modified_color, ..palette.clone() },
+            "warning" => Palette {
+                warning: modified_color,
+                ..palette.clone()
+            },
+            "error" => Palette {
+                error: modified_color,
+                ..palette.clone()
+            },
+            "success" => Palette {
+                success: modified_color,
+                ..palette.clone()
+            },
+            "running" => Palette {
+                running: modified_color,
+                ..palette.clone()
+            },
+            "planning" => Palette {
+                planning: modified_color,
+                ..palette.clone()
+            },
+            "reasoning" => Palette {
+                reasoning: modified_color,
+                ..palette.clone()
+            },
+            "delegated" => Palette {
+                delegated: modified_color,
+                ..palette.clone()
+            },
+            "destructive" => Palette {
+                destructive: modified_color,
+                ..palette.clone()
+            },
+            "cached" => Palette {
+                cached: modified_color,
+                ..palette.clone()
+            },
+            "retrying" => Palette {
+                retrying: modified_color,
+                ..palette.clone()
+            },
+            "compacting" => Palette {
+                compacting: modified_color,
+                ..palette.clone()
+            },
             _ => return None,
         };
 
@@ -691,8 +904,14 @@ impl AdaptivePaletteOptimizer {
         let quality_report = self.builder.assess_palette(&modified_palette);
 
         let explanation = ExplanationBuilder::new()
-            .summary(format!("Adjusted hue for {} toward semantic ideal", token_name))
-            .problem(format!("Low quality ({:.2}), hue off by {:.1}°", score.quality_overall, delta))
+            .summary(format!(
+                "Adjusted hue for {} toward semantic ideal",
+                token_name
+            ))
+            .problem(format!(
+                "Low quality ({:.2}), hue off by {:.1}°",
+                score.quality_overall, delta
+            ))
             .benefit("Better semantic meaning and visual clarity")
             .build();
 
@@ -701,12 +920,16 @@ impl AdaptivePaletteOptimizer {
             quality_report,
             explanation,
             base_hue: 0.0,
+            harmony_score: 0.0,
+            solver_result: None,
         })
     }
 
     /// Refine the weakest token using full re-recommendation
     pub fn refine_weakest_token(&self, palette: &Palette) -> Option<PaletteWithMetadata> {
-        use momoto_intelligence::{RecommendationEngine, RecommendationContext, ExplanationBuilder};
+        use momoto_intelligence::{
+            ExplanationBuilder, RecommendationContext, RecommendationEngine,
+        };
 
         // Score the palette to find weakest token
         let advanced_scores = self.builder.score_palette_advanced(palette);
@@ -716,8 +939,11 @@ impl AdaptivePaletteOptimizer {
         }
 
         // Find token with lowest priority score (most problematic)
-        let weakest = advanced_scores.iter()
-            .min_by(|a, b| a.1.priority.partial_cmp(&b.1.priority).unwrap_or(std::cmp::Ordering::Equal))?;
+        let weakest = advanced_scores.iter().min_by(|a, b| {
+            a.1.priority
+                .partial_cmp(&b.1.priority)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })?;
 
         let (token_name, _score) = weakest;
 
@@ -746,16 +972,46 @@ impl AdaptivePaletteOptimizer {
 
         // Create modified palette
         let modified_palette = match *token_name {
-            "text" => Palette { text: recommended_color, ..palette.clone() },
-            "text_dim" => Palette { text_dim: recommended_color, ..palette.clone() },
-            "text_label" => Palette { text_label: recommended_color, ..palette.clone() },
-            "primary" => Palette { primary: recommended_color, ..palette.clone() },
-            "accent" => Palette { accent: recommended_color, ..palette.clone() },
-            "warning" => Palette { warning: recommended_color, ..palette.clone() },
-            "error" => Palette { error: recommended_color, ..palette.clone() },
-            "success" => Palette { success: recommended_color, ..palette.clone() },
-            "running" => Palette { running: recommended_color, ..palette.clone() },
-            "destructive" => Palette { destructive: recommended_color, ..palette.clone() },
+            "text" => Palette {
+                text: recommended_color,
+                ..palette.clone()
+            },
+            "text_dim" => Palette {
+                text_dim: recommended_color,
+                ..palette.clone()
+            },
+            "text_label" => Palette {
+                text_label: recommended_color,
+                ..palette.clone()
+            },
+            "primary" => Palette {
+                primary: recommended_color,
+                ..palette.clone()
+            },
+            "accent" => Palette {
+                accent: recommended_color,
+                ..palette.clone()
+            },
+            "warning" => Palette {
+                warning: recommended_color,
+                ..palette.clone()
+            },
+            "error" => Palette {
+                error: recommended_color,
+                ..palette.clone()
+            },
+            "success" => Palette {
+                success: recommended_color,
+                ..palette.clone()
+            },
+            "running" => Palette {
+                running: recommended_color,
+                ..palette.clone()
+            },
+            "destructive" => Palette {
+                destructive: recommended_color,
+                ..palette.clone()
+            },
             _ => return None, // Unknown token
         };
 
@@ -773,6 +1029,8 @@ impl AdaptivePaletteOptimizer {
             quality_report,
             explanation,
             base_hue: 0.0,
+            harmony_score: 0.0,
+            solver_result: None,
         })
     }
 }
@@ -948,7 +1206,9 @@ mod tests {
         let builder = IntelligentPaletteBuilder::with_thresholds(thresholds);
         let mut optimizer = AdaptivePaletteOptimizer::new(builder);
 
-        let result = optimizer.optimize_from_hue(240.0).expect("Should generate palette");
+        let result = optimizer
+            .optimize_from_hue(240.0)
+            .expect("Should generate palette");
 
         // Verify all stats are populated
         assert!(result.steps.len() > 0 || result.iterations == 0);
@@ -972,7 +1232,9 @@ mod tests {
         let config = OptimizationConfig::fast();
         let mut optimizer = AdaptivePaletteOptimizer::with_config(builder, config.clone());
 
-        let result = optimizer.optimize_from_hue(60.0).expect("Should generate palette");
+        let result = optimizer
+            .optimize_from_hue(60.0)
+            .expect("Should generate palette");
 
         // Fast config should have fewer iterations
         assert!(result.iterations <= 20);
@@ -994,7 +1256,9 @@ mod tests {
         let config = OptimizationConfig::high_quality();
         let mut optimizer = AdaptivePaletteOptimizer::with_config(builder, config.clone());
 
-        let result = optimizer.optimize_from_hue(300.0).expect("Should generate palette");
+        let result = optimizer
+            .optimize_from_hue(300.0)
+            .expect("Should generate palette");
 
         // High quality config has more iterations available
         assert!(result.iterations <= 100);
@@ -1016,7 +1280,9 @@ mod tests {
         let optimizer = AdaptivePaletteOptimizer::new(builder);
 
         // Generate a test palette
-        let palette_meta = optimizer.builder.generate_from_hue(210.0)
+        let palette_meta = optimizer
+            .builder
+            .generate_from_hue(210.0)
             .expect("Should generate palette");
         let palette = &palette_meta.palette;
 
@@ -1061,10 +1327,9 @@ mod tests {
 
     #[test]
     fn test_convergence_status_descriptions_valid() {
-        use momoto_intelligence::adaptive::{ConvergenceDetector, ConvergenceConfig};
+        use super::local_adaptive::ConvergenceDetector;
 
-        let config = ConvergenceConfig::default();
-        let mut detector = ConvergenceDetector::new(config);
+        let mut detector = ConvergenceDetector::new(0.95, 0.001, 5);
 
         // Test that status descriptions are non-empty
         let status1 = detector.update(0.5);
@@ -1079,15 +1344,12 @@ mod tests {
 
     #[test]
     fn test_step_recommendation_confidence_in_range() {
-        use momoto_intelligence::adaptive::StepSelector;
+        use super::local_adaptive::StepSelector;
 
-        let selector = StepSelector::new("test_goal", 0.9)
-            .with_available_steps(vec!["step1".to_string(), "step2".to_string()]);
+        let mut selector = StepSelector::new(vec!["step1".to_string(), "step2".to_string()]);
 
         if let Some(rec) = selector.recommend_next_step() {
             assert!(rec.confidence >= 0.0 && rec.confidence <= 1.0);
-            assert!(rec.estimated_benefit >= 0.0 && rec.estimated_benefit <= 1.0);
-            assert!(rec.estimated_cost >= 0.0 && rec.estimated_cost <= 1.0);
         }
     }
 
@@ -1104,11 +1366,16 @@ mod tests {
         let builder = IntelligentPaletteBuilder::with_thresholds(thresholds);
         let mut optimizer = AdaptivePaletteOptimizer::new(builder);
 
-        let result = optimizer.optimize_from_hue(180.0).expect("Should generate palette");
+        let result = optimizer
+            .optimize_from_hue(180.0)
+            .expect("Should generate palette");
 
         // All steps should have valid duration (may be 0 on fast systems)
         for step in &result.steps {
-            assert!(step.duration_ms >= 0, "Step duration should be non-negative");
+            assert!(
+                step.duration_ms >= 0,
+                "Step duration should be non-negative"
+            );
             assert!(step.quality_before >= 0.0 && step.quality_before <= 1.0);
             assert!(step.quality_after >= 0.0 && step.quality_after <= 1.0);
         }
@@ -1141,7 +1408,9 @@ mod tests {
         let builder = IntelligentPaletteBuilder::with_thresholds(thresholds);
         let mut optimizer = AdaptivePaletteOptimizer::new(builder);
 
-        let result = optimizer.optimize_from_hue(210.0).expect("Should generate palette");
+        let result = optimizer
+            .optimize_from_hue(210.0)
+            .expect("Should generate palette");
 
         // If we made improvements, palettes should differ
         if result.quality_improvement > 0.01 {
@@ -1149,11 +1418,10 @@ mod tests {
             let initial = &result.initial_palette;
             let final_pal = &result.final_palette.palette;
 
-            let any_changed =
-                initial.text != final_pal.text ||
-                initial.primary != final_pal.primary ||
-                initial.accent != final_pal.accent ||
-                initial.warning != final_pal.warning;
+            let any_changed = initial.text != final_pal.text
+                || initial.primary != final_pal.primary
+                || initial.accent != final_pal.accent
+                || initial.warning != final_pal.warning;
 
             // This might fail if optimizer didn't find improvements, that's OK
             // Just checking the structure is valid

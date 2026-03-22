@@ -9,8 +9,8 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use super::{
-    ObservabilityStore, RegressionAlert, RegressionConfig, RegressionDetector,
-    RegressionSeverity, RegressionType, TimeSeriesMetrics,
+    ObservabilityStore, RegressionAlert, RegressionConfig, RegressionDetector, RegressionSeverity,
+    RegressionType, TimeSeriesMetrics,
 };
 use crate::Result;
 
@@ -473,17 +473,9 @@ mod tests {
 
         let notifier = AlertNotifier::new(config);
 
-        let alert1 = RegressionAlert::new(
-            RegressionType::QualityDrop,
-            0.90,
-            0.80,
-        );
+        let alert1 = RegressionAlert::new(RegressionType::QualityDrop, 0.90, 0.80);
 
-        let alert2 = RegressionAlert::new(
-            RegressionType::QualityDrop,
-            0.90,
-            0.78,
-        );
+        let alert2 = RegressionAlert::new(RegressionType::QualityDrop, 0.90, 0.78);
 
         // First alert should send
         notifier.notify(&alert1).await.unwrap();
@@ -505,11 +497,7 @@ mod tests {
         let mut notification_config = NotificationConfig::default();
         notification_config.channels = vec![NotificationChannel::Log];
 
-        let monitor = RegressionMonitor::new(
-            regression_config,
-            notification_config,
-            store,
-        );
+        let monitor = RegressionMonitor::new(regression_config, notification_config, store);
 
         let now = Utc::now();
         let mut ts = TimeSeriesMetrics::new(AggregationWindow::Hour, 10);
@@ -538,11 +526,7 @@ mod tests {
         let mut notification_config = NotificationConfig::default();
         notification_config.channels = vec![NotificationChannel::Log];
 
-        let monitor = RegressionMonitor::new(
-            regression_config,
-            notification_config,
-            store,
-        );
+        let monitor = RegressionMonitor::new(regression_config, notification_config, store);
 
         let now = Utc::now();
         let mut ts = TimeSeriesMetrics::new(AggregationWindow::Hour, 10);
@@ -572,11 +556,7 @@ mod tests {
         let mut notification_config = NotificationConfig::default();
         notification_config.channels = vec![NotificationChannel::Log];
 
-        let monitor = RegressionMonitor::new(
-            regression_config,
-            notification_config,
-            store,
-        );
+        let monitor = RegressionMonitor::new(regression_config, notification_config, store);
 
         let now = Utc::now();
         let mut ts = TimeSeriesMetrics::new(AggregationWindow::Hour, 10);

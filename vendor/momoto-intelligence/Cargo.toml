@@ -1,0 +1,22 @@
+[package]
+name = "momoto-intelligence"
+version = "7.1.0"
+authors = ["Zuclubit"]
+edition = "2021"
+rust-version = "1.70"
+license = "MIT"
+repository = "https://github.com/zuclubit/momoto-ui"
+description = "Intelligence layer - rules, scoring, and recommendation engines"
+keywords = ["intelligence", "rules", "scoring", "recommendation"]
+
+[lib]
+crate-type = ["rlib"]
+
+[features]
+default = []
+
+[dependencies]
+momoto-core = { path = "../momoto-core" }
+momoto-metrics = { path = "../momoto-metrics" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0" }

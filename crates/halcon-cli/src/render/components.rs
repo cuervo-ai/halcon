@@ -56,15 +56,16 @@ pub fn panel(title: &str, lines: &[&str], out: &mut impl Write) {
     // Content lines.
     for line in lines {
         let padding = inner_width.saturating_sub(line.chars().count() + 1);
-        let _ = writeln!(out, "  {muted}{v}{r} {line}{:>pad$}{muted}{v}{r}", "", pad = padding);
+        let _ = writeln!(
+            out,
+            "  {muted}{v}{r} {line}{:>pad$}{muted}{v}{r}",
+            "",
+            pad = padding
+        );
     }
 
     // Bottom border.
-    let _ = writeln!(
-        out,
-        "  {muted}{bl}{}{br}{r}",
-        h.repeat(inner_width + 1),
-    );
+    let _ = writeln!(out, "  {muted}{bl}{}{br}{r}", h.repeat(inner_width + 1),);
 }
 
 /// Create a colored status badge string.
@@ -91,7 +92,11 @@ pub fn kv_table(pairs: &[(&str, &str)], indent: usize, out: &mut impl Write) {
     let val_color = t.palette.text.fg();
     let pad_str = " ".repeat(indent);
 
-    let max_key = pairs.iter().map(|(k, _)| k.chars().count()).max().unwrap_or(0);
+    let max_key = pairs
+        .iter()
+        .map(|(k, _)| k.chars().count())
+        .max()
+        .unwrap_or(0);
 
     for (key, val) in pairs {
         let key_pad = max_key - key.chars().count();
@@ -209,7 +214,13 @@ mod tests {
 
     #[test]
     fn badge_all_levels() {
-        for level in [BadgeLevel::Success, BadgeLevel::Warning, BadgeLevel::Error, BadgeLevel::Info, BadgeLevel::Muted] {
+        for level in [
+            BadgeLevel::Success,
+            BadgeLevel::Warning,
+            BadgeLevel::Error,
+            BadgeLevel::Info,
+            BadgeLevel::Muted,
+        ] {
             let b = badge("X", level);
             assert!(b.contains("[X]"));
         }
@@ -252,7 +263,12 @@ mod tests {
     #[test]
     fn alert_error_renders() {
         let mut buf = capture();
-        alert(BadgeLevel::Error, "something broke", Some("try again"), &mut buf);
+        alert(
+            BadgeLevel::Error,
+            "something broke",
+            Some("try again"),
+            &mut buf,
+        );
         let output = String::from_utf8(buf).unwrap();
         assert!(output.contains("something broke"));
         assert!(output.contains("try again"));

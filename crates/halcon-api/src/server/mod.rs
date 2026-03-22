@@ -1,9 +1,11 @@
 pub mod auth;
 pub mod handlers;
+pub mod middleware;
 pub mod router;
 pub mod state;
 pub mod ws;
 
+use halcon_core::traits::ChatExecutor;
 use halcon_runtime::runtime::HalconRuntime;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -18,6 +20,8 @@ pub struct ServerConfig {
     pub bind_addr: String,
     pub port: u16,
     pub auth_token: Option<String>,
+    /// Optional path to persist chat sessions across restarts.
+    pub sessions_file: Option<std::path::PathBuf>,
 }
 
 impl Default for ServerConfig {
@@ -26,6 +30,7 @@ impl Default for ServerConfig {
             bind_addr: crate::DEFAULT_BIND.to_string(),
             port: crate::DEFAULT_PORT,
             auth_token: None,
+            sessions_file: None,
         }
     }
 }
@@ -48,8 +53,29 @@ pub async fn start_server_with_tools(
     config: ServerConfig,
     tool_names: &[&str],
 ) -> Result<(String, SocketAddr), Box<dyn std::error::Error + Send + Sync>> {
+    start_server_with_executor(runtime, config, tool_names, None).await
+}
+
+/// Start the control plane API server with a ChatExecutor for headless chat.
+///
+/// The `executor` is injected into AppState so `submit_message` can launch agent turns.
+/// Pass `None` to disable chat execution (returns 501 on /messages).
+pub async fn start_server_with_executor(
+    runtime: Arc<HalconRuntime>,
+    config: ServerConfig,
+    tool_names: &[&str],
+    executor: Option<Arc<dyn ChatExecutor>>,
+) -> Result<(String, SocketAddr), Box<dyn std::error::Error + Send + Sync>> {
     let token = config.auth_token.unwrap_or_else(generate_token);
-    let state = AppState::new(runtime, token.clone());
+    let mut state = AppState::new(runtime, token.clone());
+    if let Some(exec) = executor {
+        state = state.with_chat_executor(exec);
+    }
+    if let Some(path) = config.sessions_file {
+        state = state.with_sessions_file(path);
+        state.load_sessions_from_file().await;
+    }
+    let state = state;
 
     // Pre-register tools so they appear in the desktop.
     for name in tool_names {

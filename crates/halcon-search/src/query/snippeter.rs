@@ -1,12 +1,14 @@
 //! Snippet generation (KWIC - Keyword In Context).
 
 pub struct Snippeter {
-    max_length: usize,
+    _max_length: usize,
 }
 
 impl Snippeter {
     pub fn new(max_length: usize) -> Self {
-        Self { max_length }
+        Self {
+            _max_length: max_length,
+        }
     }
 
     /// Generate snippet around query terms.

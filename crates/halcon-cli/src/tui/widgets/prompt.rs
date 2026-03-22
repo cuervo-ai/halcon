@@ -36,15 +36,14 @@ impl PromptState {
             Style::default()
                 .bg(p.accent_ratatui())
                 .fg(p.bg_panel_ratatui())
-                .add_modifier(Modifier::BOLD)
+                .add_modifier(Modifier::BOLD),
         );
 
         // Subtle cursor line highlight
-        textarea.set_cursor_line_style(
-            Style::default().bg(p.bg_highlight_ratatui())
-        );
+        textarea.set_cursor_line_style(Style::default().bg(p.bg_highlight_ratatui()));
 
-        textarea.set_placeholder_text("Type your message... (Enter to send, Shift+Enter for new line)");
+        textarea
+            .set_placeholder_text("Type your message... (Enter to send, Shift+Enter for new line)");
 
         Self {
             textarea,
@@ -91,15 +90,11 @@ impl PromptState {
             Block::default()
                 .borders(Borders::ALL)
                 .title(title)
-                .border_style(
-                    Style::default()
-                        .fg(border_color)
-                        .add_modifier(if focused {
-                            Modifier::BOLD
-                        } else {
-                            Modifier::empty()
-                        }),
-                ),
+                .border_style(Style::default().fg(border_color).add_modifier(if focused {
+                    Modifier::BOLD
+                } else {
+                    Modifier::empty()
+                })),
         );
 
         frame.render_widget(&self.textarea, area);
@@ -115,16 +110,19 @@ impl PromptState {
     /// # Returns
     /// * `usize` - Number of content lines (for dynamic height)
     /// * `Option<Rect>` - Button area if rendered
-    pub fn render_compact(&mut self, frame: &mut Frame, area: Rect, focused: bool, typing: bool) -> (usize, Option<Rect>) {
+    pub fn render_compact(
+        &mut self,
+        frame: &mut Frame,
+        area: Rect,
+        focused: bool,
+        typing: bool,
+    ) -> (usize, Option<Rect>) {
         let p = &crate::render::theme::active().palette;
 
         // Split: [textarea (n lines)] + [separator (1 line)]
         let chunks = Layout::default()
             .direction(Direction::Vertical)
-            .constraints([
-                Constraint::Min(1),
-                Constraint::Length(1),
-            ])
+            .constraints([Constraint::Min(1), Constraint::Length(1)])
             .split(area);
 
         let input_area = chunks[0];
@@ -154,24 +152,20 @@ impl PromptState {
         };
 
         // Remove all borders, use background style
-        self.textarea.set_block(
-            Block::default()
-                .borders(Borders::NONE)
-                .style(bg_style),
-        );
+        self.textarea
+            .set_block(Block::default().borders(Borders::NONE).style(bg_style));
 
         // Enhanced cursor: block style with theme color
         self.textarea.set_cursor_style(
             Style::default()
                 .bg(state_color.to_ratatui_color())
                 .fg(p.bg_panel_ratatui())
-                .add_modifier(Modifier::BOLD)
+                .add_modifier(Modifier::BOLD),
         );
 
         // Subtle cursor line highlight
-        self.textarea.set_cursor_line_style(
-            Style::default().bg(p.bg_highlight_ratatui())
-        );
+        self.textarea
+            .set_cursor_line_style(Style::default().bg(p.bg_highlight_ratatui()));
 
         // Compact placeholder (no keybinding hints)
         let placeholder = if typing && char_count == 0 {
@@ -190,10 +184,7 @@ impl PromptState {
             // Split: [textarea] | [scrollbar (1 col)]
             let h_chunks = Layout::default()
                 .direction(Direction::Horizontal)
-                .constraints([
-                    Constraint::Min(1),
-                    Constraint::Length(1),
-                ])
+                .constraints([Constraint::Min(1), Constraint::Length(1)])
                 .split(input_area);
 
             let textarea_area = h_chunks[0];
@@ -217,10 +208,7 @@ impl PromptState {
         let (sep_area, button_area) = if show_button {
             let h_chunks = Layout::default()
                 .direction(Direction::Horizontal)
-                .constraints([
-                    Constraint::Min(1),
-                    Constraint::Length(button_width),
-                ])
+                .constraints([Constraint::Min(1), Constraint::Length(button_width)])
                 .split(separator_area);
             (h_chunks[0], Some(h_chunks[1]))
         } else {
@@ -238,7 +226,16 @@ impl PromptState {
         };
 
         // Render separator line with inline metadata
-        self.render_separator(frame, sep_area, focused, state_icon, state_label, state_color, char_count, scroll_info);
+        self.render_separator(
+            frame,
+            sep_area,
+            focused,
+            state_icon,
+            state_label,
+            state_color,
+            char_count,
+            scroll_info,
+        );
 
         // Return content line count + button area for external rendering
         (line_count, button_area)
@@ -271,7 +268,9 @@ impl PromptState {
             let style = if is_thumb {
                 Style::default().fg(p.accent_ratatui())
             } else {
-                Style::default().fg(p.border_ratatui()).add_modifier(Modifier::DIM)
+                Style::default()
+                    .fg(p.border_ratatui())
+                    .add_modifier(Modifier::DIM)
             };
 
             frame.render_widget(
@@ -306,7 +305,9 @@ impl PromptState {
             // Unfocused: simple thin line
             let line = Line::from(vec![Span::styled(
                 "─".repeat(area.width as usize),
-                Style::default().fg(p.border_ratatui()).add_modifier(Modifier::DIM),
+                Style::default()
+                    .fg(p.border_ratatui())
+                    .add_modifier(Modifier::DIM),
             )]);
             frame.render_widget(Paragraph::new(line), area);
             return;
@@ -320,7 +321,10 @@ impl PromptState {
         };
 
         let metadata = if char_count > 0 {
-            format!(" {} {} · {} chars{} · Enter", state_icon, state_label, char_count, scroll_suffix)
+            format!(
+                " {} {} · {} chars{} · Enter",
+                state_icon, state_label, char_count, scroll_suffix
+            )
         } else {
             format!(" {} {}{} · Enter", state_icon, state_label, scroll_suffix)
         };
@@ -349,7 +353,12 @@ impl PromptState {
 
     /// Take the current text and clear the editor. Returns the text.
     pub fn take_text(&mut self) -> String {
-        let lines: Vec<String> = self.textarea.lines().iter().map(|l| l.to_string()).collect();
+        let lines: Vec<String> = self
+            .textarea
+            .lines()
+            .iter()
+            .map(|l| l.to_string())
+            .collect();
         let text = lines.join("\n");
         if !text.trim().is_empty() {
             self.history.push(text.clone());
@@ -357,14 +366,16 @@ impl PromptState {
         self.history_index = None;
         // Clear textarea.
         self.textarea = TextArea::default();
-        self.textarea.set_placeholder_text("Type your message... (Enter to send, Shift+Enter for new line)");
+        self.textarea
+            .set_placeholder_text("Type your message... (Enter to send, Shift+Enter for new line)");
         text
     }
 
     /// Clear the prompt text.
     pub fn clear(&mut self) {
         self.textarea = TextArea::default();
-        self.textarea.set_placeholder_text("Type your message... (Enter to send, Shift+Enter for new line)");
+        self.textarea
+            .set_placeholder_text("Type your message... (Enter to send, Shift+Enter for new line)");
         self.history_index = None;
     }
 
@@ -418,7 +429,9 @@ impl PromptState {
 
     /// Navigate history forward.
     pub fn history_forward(&mut self) {
-        let Some(current) = self.history_index else { return };
+        let Some(current) = self.history_index else {
+            return;
+        };
         if current + 1 < self.history.len() {
             let idx = current + 1;
             self.history_index = Some(idx);
@@ -434,7 +447,9 @@ impl PromptState {
         if let Some(entry) = self.history.get(idx) {
             let lines: Vec<&str> = entry.lines().collect();
             self.textarea = TextArea::new(lines.iter().map(|l| l.to_string()).collect());
-            self.textarea.set_placeholder_text("Type your message... (Enter to send, Shift+Enter for new line)");
+            self.textarea.set_placeholder_text(
+                "Type your message... (Enter to send, Shift+Enter for new line)",
+            );
         }
     }
 

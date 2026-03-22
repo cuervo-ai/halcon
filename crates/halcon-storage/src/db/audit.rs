@@ -1,9 +1,17 @@
-use sha2::{Digest, Sha256};
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
 
 use halcon_core::error::{HalconError, Result};
 use halcon_core::types::{DomainEvent, EventPayload};
 
 use super::Database;
+
+/// HMAC-SHA256: keyed hash for tamper-evident audit chain.
+///
+/// Unlike bare SHA-256, an attacker who modifies the SQLite rows cannot
+/// recompute valid hashes without knowing the per-database HMAC key
+/// (stored in `audit_hmac_key`, never embedded in the audit log itself).
+type HmacSha256 = Hmac<Sha256>;
 
 impl Database {
     pub fn append_audit_event(&self, event: &DomainEvent) -> Result<()> {
@@ -23,6 +31,9 @@ impl Database {
         let payload_json = serde_json::to_string(&event.payload)
             .map_err(|e| HalconError::DatabaseError(format!("serialize event: {e}")))?;
 
+        // CircuitBreakerTripped is deprecated for new code but must remain here to map
+        // historical rows that were written before the variant was split into specific types.
+        #[allow(deprecated)]
         let event_type = match &event.payload {
             EventPayload::ModelInvoked { .. } => "model_invoked",
             EventPayload::ToolExecuted { .. } => "tool_executed",
@@ -36,6 +47,9 @@ impl Database {
             EventPayload::PermissionGranted { .. } => "permission_granted",
             EventPayload::PermissionDenied { .. } => "permission_denied",
             EventPayload::CircuitBreakerTripped { .. } => "circuit_breaker_tripped",
+            EventPayload::CircuitBreakerOpened { .. } => "circuit_breaker_opened",
+            EventPayload::CircuitBreakerRecovered { .. } => "circuit_breaker_recovered",
+            EventPayload::CircuitBreakerHalfOpen { .. } => "circuit_breaker_half_open",
             EventPayload::HealthChanged { .. } => "health_changed",
             EventPayload::BackpressureSaturated { .. } => "backpressure_saturated",
             EventPayload::ProviderFallback { .. } => "provider_fallback",
@@ -46,6 +60,7 @@ impl Database {
             EventPayload::ReflectionGenerated { .. } => "reflection_generated",
             EventPayload::EpisodeCreated { .. } => "episode_created",
             EventPayload::MemoryRetrieved { .. } => "memory_retrieved",
+            EventPayload::OrchestratorStarted { .. } => "orchestrator_started",
             EventPayload::SubAgentSpawned { .. } => "sub_agent_spawned",
             EventPayload::SubAgentCompleted { .. } => "sub_agent_completed",
             EventPayload::OrchestratorCompleted { .. } => "orchestrator_completed",
@@ -82,13 +97,16 @@ impl Database {
             .map_err(|e| HalconError::DatabaseError(e.to_string()))?
             .clone();
 
-        // Compute hash: SHA-256(previous_hash + event_id + timestamp + payload)
-        let mut hasher = Sha256::new();
-        hasher.update(previous_hash.as_bytes());
-        hasher.update(event.id.to_string().as_bytes());
-        hasher.update(event.timestamp.to_rfc3339().as_bytes());
-        hasher.update(payload_json.as_bytes());
-        let hash = hex::encode(hasher.finalize());
+        // Compute HMAC-SHA256(key, previous_hash ‖ event_id ‖ timestamp ‖ payload).
+        // Keyed MAC: without the per-database key the hash cannot be forged even if
+        // the raw DB file is modified (attacker cannot recompute the chain).
+        let mut mac = HmacSha256::new_from_slice(&self.audit_hmac_key)
+            .expect("HMAC accepts keys of any length");
+        mac.update(previous_hash.as_bytes());
+        mac.update(event.id.to_string().as_bytes());
+        mac.update(event.timestamp.to_rfc3339().as_bytes());
+        mac.update(payload_json.as_bytes());
+        let hash = hex::encode(mac.finalize().into_bytes());
 
         conn.execute(
             "INSERT INTO audit_log (event_id, timestamp, event_type, payload_json, previous_hash, hash, session_id)

@@ -40,6 +40,8 @@ impl Tool for FileReadTool {
             .ok_or_else(|| HalconError::InvalidInput("file_read requires 'path' string".into()))?;
 
         let resolved = self.fs.resolve_path(path_str, &input.working_directory)?;
+        // Close TOCTOU: reject symlinks before reading, consistent with file_write.
+        self.fs.check_not_symlink(&resolved).await?;
 
         let offset = input.arguments["offset"].as_u64().unwrap_or(0) as usize;
         let limit = input.arguments["limit"].as_u64().unwrap_or(0) as usize;
@@ -195,5 +197,38 @@ mod tests {
         );
         let output = tool().execute(input).await.unwrap();
         assert!(output.content.contains("hello"));
+    }
+
+    #[tokio::test]
+    async fn read_binary_file_is_handled_gracefully() {
+        // Binary files may fail to_string conversion — the tool should either return
+        // an error or produce some output, but NOT panic.
+        let dir = TempDir::new().unwrap();
+        let file = dir.path().join("binary.bin");
+        // Write bytes that are invalid UTF-8
+        std::fs::write(&file, b"\xFF\xFE\x00\x01\x80\xC0\xFE\xFF").unwrap();
+
+        let input = make_input(
+            dir.path().to_str().unwrap(),
+            json!({ "path": file.to_str().unwrap() }),
+        );
+        // Must not panic — either succeeds with replacement chars or returns an error
+        let _ = tool().execute(input).await;
+    }
+
+    #[tokio::test]
+    async fn read_permission_level_is_readonly() {
+        use halcon_core::types::PermissionLevel;
+        assert_eq!(tool().permission_level(), PermissionLevel::ReadOnly);
+    }
+
+    #[tokio::test]
+    async fn read_does_not_require_confirmation() {
+        let dummy = ToolInput {
+            tool_use_id: "x".into(),
+            arguments: json!({}),
+            working_directory: "/tmp".into(),
+        };
+        assert!(!tool().requires_confirmation(&dummy));
     }
 }

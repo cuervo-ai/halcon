@@ -319,7 +319,9 @@ mod tests {
     async fn extract_json_zero_budget() {
         let dir = tempfile::TempDir::new().unwrap();
         let path = dir.path().join("data.json");
-        tokio::fs::write(&path, r#"{"key": "value"}"#).await.unwrap();
+        tokio::fs::write(&path, r#"{"key": "value"}"#)
+            .await
+            .unwrap();
 
         let info = make_info(&path, 16);
         let result = JsonHandler.extract(&info, 0).await.unwrap();

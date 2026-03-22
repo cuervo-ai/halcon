@@ -47,9 +47,9 @@ impl Tool for BackgroundStartTool {
     }
 
     async fn execute(&self, input: ToolInput) -> Result<ToolOutput> {
-        let command = input.arguments["command"]
-            .as_str()
-            .ok_or_else(|| HalconError::InvalidInput("background_start requires 'command' string".into()))?;
+        let command = input.arguments["command"].as_str().ok_or_else(|| {
+            HalconError::InvalidInput("background_start requires 'command' string".into())
+        })?;
 
         let timeout_secs = input.arguments["timeout_secs"]
             .as_u64()
@@ -85,12 +85,12 @@ impl Tool for BackgroundStartTool {
             finished: false,
         };
 
-        self.registry.register(process).map_err(|e| {
-            HalconError::ToolExecutionFailed {
+        self.registry
+            .register(process)
+            .map_err(|e| HalconError::ToolExecutionFailed {
                 tool: "background_start".into(),
                 message: format!("background_start error: {e}"),
-            }
-        })?;
+            })?;
 
         // Spawn a tokio task to collect output and enforce timeout.
         let reg = self.registry.clone();
@@ -129,7 +129,9 @@ impl Tool for BackgroundStartTool {
             }
         });
 
-        let content = format!("Started background job: {job_id}\nCommand: {command}\nTimeout: {timeout_secs}s");
+        let content = format!(
+            "Started background job: {job_id}\nCommand: {command}\nTimeout: {timeout_secs}s"
+        );
 
         Ok(ToolOutput {
             tool_use_id: input.tool_use_id,
@@ -221,8 +223,14 @@ mod tests {
         let out1 = tool.execute(make_input("echo 1")).await.unwrap();
         let out2 = tool.execute(make_input("echo 2")).await.unwrap();
 
-        let id1 = out1.metadata.unwrap()["job_id"].as_str().unwrap().to_string();
-        let id2 = out2.metadata.unwrap()["job_id"].as_str().unwrap().to_string();
+        let id1 = out1.metadata.unwrap()["job_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        let id2 = out2.metadata.unwrap()["job_id"]
+            .as_str()
+            .unwrap()
+            .to_string();
         assert_ne!(id1, id2);
     }
 

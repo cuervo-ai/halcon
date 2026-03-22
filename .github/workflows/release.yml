@@ -86,59 +86,102 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # Linux x86_64 — static musl (primary Linux artifact)
+          # Linux x86_64 — dynamic glibc (primary Linux artifact)
+          # tui: TUI rendering without clipboard (arboard needs X11 headers at cross-compile time)
+          # cenzontle-agents: Cenzontle agent orchestration (v0.3.11)
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            use-cross: true
+            archive: tar.gz
+            features: tui,vendored-openssl,cenzontle-agents
+
+          # Linux x86_64 — static musl (Alpine/Docker)
           - os: ubuntu-latest
             target: x86_64-unknown-linux-musl
             use-cross: true
             archive: tar.gz
-            features: tui
+            features: tui,vendored-openssl,cenzontle-agents
 
-          # Linux ARM64
+          # Linux ARM64 glibc
           - os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             use-cross: true
             archive: tar.gz
-            features: ""
-
-          # macOS Intel
-          - os: macos-13
-            target: x86_64-apple-darwin
-            use-cross: false
-            archive: tar.gz
-            features: tui
-
-          # macOS Apple Silicon
-          - os: macos-latest
-            target: aarch64-apple-darwin
-            use-cross: false
-            archive: tar.gz
-            features: tui
-
-          # Windows x86_64
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
-            use-cross: false
-            archive: zip
-            features: ""
+            features: tui,vendored-openssl,cenzontle-agents
 
           # Linux ARM64 musl (for Alpine/Docker)
           - os: ubuntu-latest
             target: aarch64-unknown-linux-musl
             use-cross: true
             archive: tar.gz
-            features: ""
+            features: tui,vendored-openssl,cenzontle-agents
+
+          # macOS — single runner builds BOTH targets (ARM64 native + Intel cross)
+          # macos-latest is ARM64 (M-series); x86_64 cross-compile is fully supported
+          # tui-clipboard: Full TUI + OS clipboard (arboard has native macOS support)
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            use-cross: false
+            archive: tar.gz
+            features: tui-clipboard,vendored-openssl,cenzontle-agents
+            extra-target: x86_64-apple-darwin
+
+          # Windows x86_64 — native runner, MSVC target (prebuilt ORT binaries available)
+          # vendored-openssl NOT used on Windows: system OpenSSL set via OPENSSL_DIR
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            use-cross: false
+            archive: zip
+            features: headless,cenzontle-agents
 
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup Zuclubit (momoto-ui) path
+        shell: bash
+        run: |
+          # workspace Cargo.toml references ../Zuclubit/momoto-ui/momoto/crates/momoto-{core,metrics,intelligence}
+          # These are optional path deps (color-science feature) but cargo metadata resolves them always.
+          PARENT_DIR="$(cd .. && pwd)"
+          ZUCLUBIT_DIR="${PARENT_DIR}/Zuclubit"
+          MOMOTO_DIR="${ZUCLUBIT_DIR}/momoto-ui/momoto/crates"
+
+          # Try authenticated clone (succeeds if MOMOTO_TOKEN secret is configured)
+          CLONE_TOKEN="${{ secrets.MOMOTO_TOKEN }}"
+          if [ -n "$CLONE_TOKEN" ]; then
+            git clone --depth=1 \
+              "https://x-access-token:${CLONE_TOKEN}@github.com/cuervo-ai/momoto-ui.git" \
+              "${ZUCLUBIT_DIR}/momoto-ui" 2>/dev/null && echo "✓ momoto-ui cloned" && exit 0 || true
+          fi
+
+          # Fallback: minimal cargo-metadata stubs (color-science disabled → stubs never compiled)
+          echo "INFO: creating momoto stub crates for cargo metadata resolution"
+          for CRATE in momoto-core momoto-metrics momoto-intelligence; do
+            mkdir -p "${MOMOTO_DIR}/${CRATE}/src"
+            printf '[package]\nname = "%s"\nversion = "0.1.0"\nedition = "2021"\npublish = false\n' \
+              "${CRATE}" > "${MOMOTO_DIR}/${CRATE}/Cargo.toml"
+            echo "// stub" > "${MOMOTO_DIR}/${CRATE}/src/lib.rs"
+          done
+          echo "✓ momoto stubs created"
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.target }}
+          targets: >-
+            ${{ matrix.target }}
+            ${{ matrix.extra-target || '' }}
 
       - name: Install cross
         if: matrix.use-cross == true
         run: cargo install cross --git https://github.com/cross-rs/cross --locked
+
+      - name: Install cargo-zigbuild + zig (Windows cross from Linux)
+        if: matrix.use-zigbuild == true && runner.os == 'Linux'
+        run: |
+          pip install ziglang --quiet
+          cargo install cargo-zigbuild --locked
+          # mingw-w64 for gnu target linking
+          sudo apt-get install -y gcc-mingw-w64-x86-64 --no-install-recommends -q
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -151,83 +194,200 @@ jobs:
           echo "HALCON_BUILD_DATE=$(date -u +%Y-%m-%d)" >> $GITHUB_ENV
           echo "HALCON_TARGET=${{ matrix.target }}" >> $GITHUB_ENV
 
-      - name: Build (cross)
+      - name: Build (cross — Linux targets)
         if: matrix.use-cross == true
         shell: bash
+        env:
+          ORT_STRATEGY: ${{ contains(matrix.target, 'musl') && 'compile' || 'download' }}
+          LIBGIT2_SYS_USE_PKG_CONFIG: "0"
+          LIBGIT2_STATIC: "1"
+          # Allow pkg-config for cross builds (required for libdbus-sys on musl containers)
+          PKG_CONFIG_ALLOW_CROSS: "1"
         run: |
           FEATURES="${{ matrix.features }}"
           if [ -n "$FEATURES" ]; then
-            cross build --release --target ${{ matrix.target }} --features "$FEATURES" --locked -p halcon-cli
+            cross build --release --target ${{ matrix.target }} \
+              --no-default-features --features "$FEATURES" -p halcon-cli
           else
-            cross build --release --target ${{ matrix.target }} --no-default-features --locked -p halcon-cli
+            cross build --release --target ${{ matrix.target }} \
+              --no-default-features -p halcon-cli
           fi
 
-      - name: Build (cargo)
-        if: matrix.use-cross == false
+      - name: Build (zigbuild — Windows cross from Linux)
+        if: matrix.use-zigbuild == true && runner.os == 'Linux'
+        shell: bash
+        env:
+          ORT_STRATEGY: compile
+          LIBGIT2_SYS_USE_PKG_CONFIG: "0"
+          LIBGIT2_STATIC: "1"
+        run: |
+          FEATURES="${{ matrix.features }}"
+          if [ -n "$FEATURES" ]; then
+            cargo zigbuild --release --target ${{ matrix.target }} \
+              --no-default-features --features "$FEATURES" -p halcon-cli
+          else
+            cargo zigbuild --release --target ${{ matrix.target }} \
+              --no-default-features -p halcon-cli
+          fi
+
+      - name: Setup OpenSSL (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # Use pre-installed OpenSSL on the runner (avoids compiling from source)
+          $candidates = @(
+            "C:\Program Files\OpenSSL-Win64",
+            "C:\Program Files\OpenSSL",
+            "$env:VCPKG_ROOT\installed\x64-windows-static"
+          )
+          $found = $null
+          foreach ($dir in $candidates) {
+            if (Test-Path "$dir\include\openssl\ssl.h") {
+              $found = $dir; break
+            }
+          }
+          if (-not $found) {
+            Write-Host "OpenSSL not found in standard locations, installing via choco..."
+            choco install openssl -y --no-progress
+            $found = "C:\Program Files\OpenSSL-Win64"
+          }
+          Write-Host "Using OpenSSL at: $found"
+          "OPENSSL_DIR=$found" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "OPENSSL_STATIC=1" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Build (cargo — Windows native MSVC)
+        if: runner.os == 'Windows'
+        shell: bash
+        env:
+          ORT_STRATEGY: download
+          LIBGIT2_SYS_USE_PKG_CONFIG: "0"
+          LIBGIT2_STATIC: "1"
+        run: |
+          FEATURES="${{ matrix.features }}"
+          if [ -n "$FEATURES" ]; then
+            cargo build --release --target ${{ matrix.target }} \
+              --no-default-features --features "$FEATURES" -p halcon-cli
+          else
+            cargo build --release --target ${{ matrix.target }} \
+              --no-default-features -p halcon-cli
+          fi
+
+      - name: Build (cargo — macOS, builds both targets)
+        if: matrix.use-cross == false && matrix.use-zigbuild != true
+        shell: bash
+        env:
+          ORT_STRATEGY: download
+          LIBGIT2_SYS_USE_PKG_CONFIG: "0"
+          LIBGIT2_STATIC: "1"
+        run: |
+          FEATURES="${{ matrix.features }}"
+          # Primary target
+          if [ -n "$FEATURES" ]; then
+            cargo build --release --target ${{ matrix.target }} \
+              --no-default-features --features "$FEATURES" -p halcon-cli
+          else
+            cargo build --release --target ${{ matrix.target }} \
+              --no-default-features -p halcon-cli
+          fi
+          # Extra target (macOS: build x86_64 on the same ARM64 runner)
+          EXTRA="${{ matrix.extra-target }}"
+          if [ -n "$EXTRA" ]; then
+            if [ -n "$FEATURES" ]; then
+              cargo build --release --target "$EXTRA" \
+                --no-default-features --features "$FEATURES" -p halcon-cli
+            else
+              cargo build --release --target "$EXTRA" \
+                --no-default-features -p halcon-cli
+            fi
+          fi
+
+      - name: Package (Unix — tar.gz, includes extra-target if present)
+        if: matrix.archive == 'tar.gz'
         shell: bash
         run: |
-          FEATURES="${{ matrix.features }}"
-          if [ -n "$FEATURES" ]; then
-            cargo build --release --target ${{ matrix.target }} --features "$FEATURES" --locked -p halcon-cli
-          else
-            cargo build --release --target ${{ matrix.target }} --no-default-features --locked -p halcon-cli
+          VERSION="${{ needs.preflight.outputs.version_bare }}"
+          package_target() {
+            local T="$1"
+            local ARTIFACT="halcon-${VERSION}-${T}"
+            local BIN="target/${T}/release/halcon"
+            mkdir -p "artifacts/${ARTIFACT}"
+            cp "$BIN" "artifacts/${ARTIFACT}/halcon"
+            cp README.md "artifacts/${ARTIFACT}/" 2>/dev/null || true
+            cp LICENSE   "artifacts/${ARTIFACT}/" 2>/dev/null || true
+            tar czf "${ARTIFACT}.tar.gz" -C artifacts "${ARTIFACT}"
+            if command -v sha256sum &>/dev/null; then
+              sha256sum "${ARTIFACT}.tar.gz" | awk '{print $1}' > "${ARTIFACT}.tar.gz.sha256"
+            else
+              shasum -a 256 "${ARTIFACT}.tar.gz" | awk '{print $1}' > "${ARTIFACT}.tar.gz.sha256"
+            fi
+            echo "Packaged: ${ARTIFACT}.tar.gz"
+          }
+
+          package_target "${{ matrix.target }}"
+          EXTRA="${{ matrix.extra-target }}"
+          if [ -n "$EXTRA" ]; then
+            package_target "$EXTRA"
           fi
 
-      - name: Package (Unix)
-        if: matrix.archive == 'tar.gz'
+          # Set primary artifact env vars for the upload step
+          TARGET="${{ matrix.target }}"
+          ARTIFACT="halcon-${VERSION}-${TARGET}"
+          echo "ARTIFACT_ARCHIVE=${ARTIFACT}.tar.gz" >> $GITHUB_ENV
+          echo "ARTIFACT_SHA256=${ARTIFACT}.tar.gz.sha256" >> $GITHUB_ENV
+          # Signal extra artifact to upload step
+          if [ -n "$EXTRA" ]; then
+            echo "EXTRA_ARTIFACT=halcon-${VERSION}-${EXTRA}.tar.gz" >> $GITHUB_ENV
+            echo "EXTRA_SHA256=halcon-${VERSION}-${EXTRA}.tar.gz.sha256" >> $GITHUB_ENV
+          fi
+
+      - name: Package (Windows zip — native MSVC)
+        if: matrix.archive == 'zip'
         shell: bash
         run: |
           VERSION="${{ needs.preflight.outputs.version_bare }}"
           TARGET="${{ matrix.target }}"
           ARTIFACT="halcon-${VERSION}-${TARGET}"
-          BIN="target/${TARGET}/release/halcon"
+          BIN="target/${TARGET}/release/halcon.exe"
 
           mkdir -p "artifacts/${ARTIFACT}"
-          cp "$BIN" "artifacts/${ARTIFACT}/halcon"
+          cp "$BIN" "artifacts/${ARTIFACT}/halcon.exe"
           cp README.md "artifacts/${ARTIFACT}/" 2>/dev/null || true
-          cp LICENSE "artifacts/${ARTIFACT}/" 2>/dev/null || true
+          cp LICENSE   "artifacts/${ARTIFACT}/" 2>/dev/null || true
 
-          tar czf "${ARTIFACT}.tar.gz" -C artifacts "${ARTIFACT}"
+          cd artifacts && 7z a "../${ARTIFACT}.zip" "${ARTIFACT}"
+          cd ..
 
-          # SHA-256
           if command -v sha256sum &>/dev/null; then
-            sha256sum "${ARTIFACT}.tar.gz" | awk '{print $1}' > "${ARTIFACT}.tar.gz.sha256"
+            sha256sum "${ARTIFACT}.zip" | awk '{print $1}' > "${ARTIFACT}.zip.sha256"
           else
-            shasum -a 256 "${ARTIFACT}.tar.gz" | awk '{print $1}' > "${ARTIFACT}.tar.gz.sha256"
+            # certutil output varies by Windows version; strip header/footer lines and whitespace
+            certutil -hashfile "${ARTIFACT}.zip" SHA256 \
+              | grep -v "^CertUtil" | grep -v "^SHA256" | grep -v "^$" \
+              | head -1 | tr -d ' \r\n' > "${ARTIFACT}.zip.sha256"
           fi
+          # Verify the hash file is non-empty (guards against silent failures)
+          [ -s "${ARTIFACT}.zip.sha256" ] || { echo "ERROR: SHA256 hash is empty for ${ARTIFACT}.zip" >&2; exit 1; }
 
-          echo "ARTIFACT_ARCHIVE=${ARTIFACT}.tar.gz" >> $GITHUB_ENV
-          echo "ARTIFACT_SHA256=${ARTIFACT}.tar.gz.sha256" >> $GITHUB_ENV
+          echo "ARTIFACT_ARCHIVE=${ARTIFACT}.zip" >> $GITHUB_ENV
+          echo "ARTIFACT_SHA256=${ARTIFACT}.zip.sha256" >> $GITHUB_ENV
 
-      - name: Package (Windows)
-        if: matrix.archive == 'zip'
-        shell: pwsh
-        run: |
-          $Version = "${{ needs.preflight.outputs.version_bare }}"
-          $Target = "${{ matrix.target }}"
-          $Artifact = "halcon-${Version}-${Target}"
-          $Bin = "target/${Target}/release/halcon.exe"
-
-          New-Item -ItemType Directory -Path "artifacts/${Artifact}" -Force | Out-Null
-          Copy-Item $Bin "artifacts/${Artifact}/halcon.exe"
-          if (Test-Path "README.md") { Copy-Item "README.md" "artifacts/${Artifact}/" }
-          if (Test-Path "LICENSE")   { Copy-Item "LICENSE"   "artifacts/${Artifact}/" }
-
-          Compress-Archive -Path "artifacts/${Artifact}" -DestinationPath "${Artifact}.zip" -Force
-
-          $Hash = (Get-FileHash -Path "${Artifact}.zip" -Algorithm SHA256).Hash.ToLower()
-          $Hash | Out-File -FilePath "${Artifact}.zip.sha256" -Encoding ASCII -NoNewline
-
-          echo "ARTIFACT_ARCHIVE=${Artifact}.zip" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-          echo "ARTIFACT_SHA256=${Artifact}.zip.sha256" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-
-      - name: Upload artifact
+      - name: Upload artifact (primary)
         uses: actions/upload-artifact@v4
         with:
           name: ${{ env.ARTIFACT_ARCHIVE }}
           path: |
             ${{ env.ARTIFACT_ARCHIVE }}
             ${{ env.ARTIFACT_SHA256 }}
+          retention-days: 7
+
+      - name: Upload artifact (extra macOS target)
+        if: env.EXTRA_ARTIFACT != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.EXTRA_ARTIFACT }}
+          path: |
+            ${{ env.EXTRA_ARTIFACT }}
+            ${{ env.EXTRA_SHA256 }}
           retention-days: 7
 
   # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -309,28 +469,75 @@ jobs:
           version = os.environ.get("VERSION", "")
           dist = Path("dist")
 
+          # Map Rust target triple → (os, arch, ext)
+          TARGET_META = {
+              "aarch64-apple-darwin":       ("macos",   "aarch64", "tar.gz"),
+              "x86_64-apple-darwin":        ("macos",   "x86_64",  "tar.gz"),
+              "x86_64-unknown-linux-gnu":   ("linux",   "x86_64",  "tar.gz"),
+              "x86_64-unknown-linux-musl":  ("linux",   "x86_64",  "tar.gz"),
+              "aarch64-unknown-linux-gnu":  ("linux",   "aarch64", "tar.gz"),
+              "aarch64-unknown-linux-musl": ("linux",   "aarch64", "tar.gz"),
+              "x86_64-pc-windows-msvc":     ("windows", "x86_64",  "zip"),
+          }
+
           artifacts = []
           for f in sorted(dist.glob("*.tar.gz")) + sorted(dist.glob("*.zip")):
               if any(ext in f.name for ext in [".sig", ".pem", ".sbom"]):
                   continue
               sha256 = hashlib.sha256(f.read_bytes()).hexdigest()
               size = f.stat().st_size
-              target = f.stem.replace(f"halcon-{version}-", "").replace(".tar", "").replace(".zip", "")
+              stem = f.stem.replace(".tar", "")
+              target = stem.replace(f"halcon-{version}-", "")
+              meta = TARGET_META.get(target, ("unknown", "unknown", f.suffix.lstrip(".")))
               artifacts.append({
                   "name": f.name,
                   "target": target,
+                  "os": meta[0],
+                  "arch": meta[1],
+                  "ext": meta[2],
                   "sha256": sha256,
                   "size": size,
                   "url": f"https://releases.cli.cuervo.cloud/latest/{f.name}"
               })
 
+          # Determine channel from tag: alpha/beta/rc → beta; else stable
+          is_prerelease = os.environ.get("IS_PRERELEASE", "false").lower() == "true"
+          channel = "beta" if is_prerelease else "stable"
+
+          # Extract release notes from GITHUB_RELEASE_NOTES env var (set by GH action)
+          # or from CHANGELOG.md if it exists — first ## vX.Y.Z section
+          release_notes = os.environ.get("RELEASE_NOTES", "")
+          if not release_notes:
+              changelog = Path("CHANGELOG.md")
+              if changelog.exists():
+                  import re
+                  text = changelog.read_text()
+                  # Match from `## v{version}` to the next `## v` header
+                  pattern = rf"(?s)##\s+v?{re.escape(version)}[^\n]*\n(.*?)(?=\n##\s+v|\Z)"
+                  m = re.search(pattern, text)
+                  if m:
+                      release_notes = m.group(1).strip()[:2000]  # cap at 2000 chars
+
+          # Minimum OS versions (informational, enforced by installer)
+          MIN_OS = {
+              "macos": "12.0",   # Monterey — required for arm64 native
+              "linux": "glibc-2.17",
+              "windows": "10",
+          }
+
           manifest = {
               "version": version,
+              "channel": channel,
               "published_at": datetime.now(timezone.utc).isoformat(),
               "artifacts": artifacts,
               "checksums_url": "https://releases.cli.cuervo.cloud/latest/checksums.txt",
               "sbom_url": f"https://releases.cli.cuervo.cloud/latest/halcon-{version}.sbom.spdx.json",
+              "github_url": f"https://github.com/cuervo-ai/halcon-cli/releases/tag/v{version}",
+              "release_notes": release_notes or None,
+              "min_os": MIN_OS,
           }
+          # Strip None values for a cleaner manifest
+          manifest = {k: v for k, v in manifest.items() if v is not None}
 
           out = dist / "manifest.json"
           out.write_text(json.dumps(manifest, indent=2))
@@ -338,6 +545,7 @@ jobs:
           EOF
         env:
           VERSION: ${{ needs.preflight.outputs.version_bare }}
+          IS_PRERELEASE: ${{ needs.preflight.outputs.is_prerelease }}
 
       - name: Upload to Cloudflare R2 (versioned)
         uses: cloudflare/wrangler-action@v3
@@ -348,6 +556,7 @@ jobs:
         continue-on-error: true  # Fallback: upload via aws cli below
 
       - name: Upload to R2 (aws s3 compat)
+        continue-on-error: true  # Don't fail release if R2 credentials not configured
         run: |
           pip install awscli --quiet
           VERSION="${{ needs.preflight.outputs.version }}"
@@ -384,12 +593,12 @@ jobs:
 
             **Linux / macOS:**
             ```bash
-            curl -sSfL https://cli.cuervo.cloud/install.sh | sh
+            curl -sSfL https://halcon.cuervo.cloud/install.sh | sh
             ```
 
             **Windows (PowerShell):**
             ```powershell
-            iwr -useb https://cli.cuervo.cloud/install.ps1 | iex
+            iwr -useb https://halcon.cuervo.cloud/install.ps1 | iex
             ```
 
             **Homebrew:**
@@ -401,6 +610,22 @@ jobs:
             ```bash
             halcon update
             ```
+
+            ---
+
+            ### What's New in v0.3.0
+
+            - **Declarative Sub-Agent Registry** — define specialized agents in `.halcon/agents/*.md`, discovered across session/project/user scopes
+            - **Lifecycle Hooks** — pre/post tool execution hooks via `.halcon/hooks/` for audit, telemetry, and custom workflows
+            - **Semantic Memory Vector Store** — TF-IDF based local vector search over MEMORY.md for long-term context retrieval
+            - **Halcon as MCP Server** — expose Halcon's agent capabilities to Claude Code and other MCP clients (`halcon mcp serve`)
+            - **MCP OAuth 2.1** — PKCE-based OAuth flow for authenticated MCP server connections
+            - **Compliance Audit Export** — export session audit logs as JSONL, CSV, or PDF with HMAC-SHA256 integrity chains (`halcon audit export`)
+            - **HybridIntentClassifier** — 6-layer intent classification with embedding, LLM deliberation, and adaptive learning
+            - **VS Code Extension** — JSON-RPC subprocess bridge for editor integration
+            - **Agent Scheduler** — cron-based scheduled agent tasks (`halcon schedule add`)
+            - **Cenzontle SSO** — OAuth 2.1 PKCE enterprise SSO integration
+            - **Runtime Events** — structured `RuntimeEvent` bus for IDE observability and replay
 
             ---
 
@@ -420,15 +645,29 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Deploy website (Cloudflare Pages)
-        uses: cloudflare/pages-action@v1
+      - name: Build website
+        run: |
+          cd website
+          npm ci --prefer-offline 2>/dev/null || npm ci
+          npm run build
+        continue-on-error: true  # Don't fail release if website build fails
+
+      - name: Deploy website to Cloudflare Pages (halcon-website)
+        uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CF_API_TOKEN }}
           accountId: ${{ secrets.CF_ACCOUNT_ID }}
-          projectName: cuervo-website
-          directory: website/dist
-          gitHubToken: ${{ secrets.GITHUB_TOKEN }}
+          command: pages deploy website/dist --project-name=halcon-website --commit-dirty=true
         continue-on-error: true  # Don't fail release if pages deploy fails
+
+      - name: Deploy releases Worker (halcon-releases)
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+          workingDirectory: workers/releases
+          command: deploy
+        continue-on-error: true  # Don't fail release if worker deploy fails
 
   # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   # Smoke tests post-release
@@ -461,11 +700,25 @@ jobs:
           fi
         continue-on-error: true
 
-      - name: Test install script syntax
+      - name: Test install script syntax and reachability
         run: |
-          # Download and syntax-check install.sh
-          curl -sSfL https://cli.cuervo.cloud/install.sh -o /tmp/install.sh 2>/dev/null || true
-          if [ -f /tmp/install.sh ]; then
-            bash -n /tmp/install.sh && echo "✓ install.sh syntax OK" || echo "WARN: install.sh syntax error"
+          # Syntax-check local copy (always available)
+          bash -n website/public/install.sh && echo "✓ install.sh syntax OK"
+
+          # Verify install script is reachable over HTTPS (allow CDN propagation)
+          sleep 15
+          HTTP_CODE=$(curl -sSo /dev/null -w '%{http_code}' https://halcon.cuervo.cloud/install.sh 2>/dev/null || echo '000')
+          if [ "$HTTP_CODE" = "200" ]; then
+            echo "✓ halcon.cuervo.cloud/install.sh: HTTP 200"
+          else
+            echo "WARN: halcon.cuervo.cloud/install.sh returned HTTP ${HTTP_CODE}"
+          fi
+
+          # Verify releases Worker health
+          HTTP_WORKER=$(curl -sSo /dev/null -w '%{http_code}' https://releases.cli.cuervo.cloud/health 2>/dev/null || echo '000')
+          if [ "$HTTP_WORKER" = "200" ]; then
+            echo "✓ releases.cli.cuervo.cloud/health: HTTP 200"
+          else
+            echo "WARN: releases Worker returned HTTP ${HTTP_WORKER}"
           fi
         continue-on-error: true

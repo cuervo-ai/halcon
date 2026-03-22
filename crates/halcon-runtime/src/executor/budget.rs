@@ -87,7 +87,8 @@ impl RuntimeBudget {
         if self.token_limit == 0 {
             return u64::MAX;
         }
-        self.token_limit.saturating_sub(self.tokens_used.load(Ordering::Acquire))
+        self.token_limit
+            .saturating_sub(self.tokens_used.load(Ordering::Acquire))
     }
 }
 
@@ -104,7 +105,10 @@ impl std::fmt::Display for BudgetExceeded {
             BudgetExceeded::Tokens { used, limit } => {
                 write!(f, "token budget exceeded: {used}/{limit}")
             }
-            BudgetExceeded::Cost { used_usd, limit_usd } => {
+            BudgetExceeded::Cost {
+                used_usd,
+                limit_usd,
+            } => {
                 write!(f, "cost budget exceeded: ${used_usd:.4}/${limit_usd:.4}")
             }
             BudgetExceeded::Duration => write!(f, "duration budget exceeded"),

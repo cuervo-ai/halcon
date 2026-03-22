@@ -224,11 +224,7 @@ impl ToastStack {
                 Span::styled(&toast.message, style),
             ]);
             let paragraph = Paragraph::new(line)
-                .block(
-                    Block::default()
-                        .borders(Borders::ALL)
-                        .border_style(style),
-                )
+                .block(Block::default().borders(Borders::ALL).border_style(style))
                 .wrap(Wrap { trim: true });
 
             frame.render_widget(paragraph, area);
@@ -425,7 +421,9 @@ mod tests {
         let base_rgb = base_color.srgb8();
         let faded_rgb = faded.srgb8();
         assert!(
-            faded_rgb[0] <= base_rgb[0] && faded_rgb[1] <= base_rgb[1] && faded_rgb[2] <= base_rgb[2],
+            faded_rgb[0] <= base_rgb[0]
+                && faded_rgb[1] <= base_rgb[1]
+                && faded_rgb[2] <= base_rgb[2],
             "Faded RGB should be <= base RGB"
         );
     }

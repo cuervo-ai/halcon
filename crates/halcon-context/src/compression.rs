@@ -184,7 +184,9 @@ mod tests {
     #[test]
     fn compress_incompressible_returns_none() {
         // Random-like data that doesn't compress well.
-        let text: String = (0..300).map(|i| char::from(b'a' + (i % 26) as u8)).collect();
+        let text: String = (0..300)
+            .map(|i| char::from(b'a' + (i % 26) as u8))
+            .collect();
         // This may or may not compress; if it does, ratio should still be checked.
         if let Some(block) = compress(&text) {
             assert!(block.ratio() < 0.9);
@@ -244,7 +246,10 @@ mod tests {
         let decoded = delta_decode(base, &delta);
         assert_eq!(decoded, target);
         // Should have a mix of Copy and Insert ops.
-        let has_copy = delta.ops.iter().any(|op| matches!(op, DeltaOp::Copy { .. }));
+        let has_copy = delta
+            .ops
+            .iter()
+            .any(|op| matches!(op, DeltaOp::Copy { .. }));
         let has_insert = delta.ops.iter().any(|op| matches!(op, DeltaOp::Insert(_)));
         assert!(has_copy, "expected at least one Copy op");
         assert!(has_insert, "expected at least one Insert op");
@@ -288,7 +293,9 @@ mod tests {
     #[test]
     fn delta_is_efficient_similar() {
         // Longer text to ensure Copy ops amortize their overhead.
-        let base_lines: Vec<String> = (0..20).map(|i| format!("context line {} with some detail about the conversation", i)).collect();
+        let base_lines: Vec<String> = (0..20)
+            .map(|i| format!("context line {} with some detail about the conversation", i))
+            .collect();
         let mut target_lines = base_lines.clone();
         target_lines[10] = "modified line with new content".to_string();
         let base = base_lines.join("\n") + "\n";
@@ -322,7 +329,10 @@ mod tests {
             Tools: file_read, bash, grep.\n"
             .repeat(10);
         let block = compress(&segment).expect("should compress");
-        assert!(block.ratio() < 0.5, "expected >50% compression for repetitive context");
+        assert!(
+            block.ratio() < 0.5,
+            "expected >50% compression for repetitive context"
+        );
         let decompressed = decompress(&block).unwrap();
         assert_eq!(decompressed, segment);
     }

@@ -8,7 +8,7 @@ pub mod context_viz;
 pub mod panel;
 pub mod permission_modal;
 pub mod prompt;
-pub mod sudo_modal;
 pub mod queue_indicator;
 pub mod status;
+pub mod sudo_modal;
 pub mod toast;

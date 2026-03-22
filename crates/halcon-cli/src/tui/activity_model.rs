@@ -7,8 +7,8 @@
 //! - LineMetadata for cross-references (line → plan step, round, tool_id)
 //! - Filter state management (conversation, tools, errors, system, plans)
 
-use std::collections::{HashMap, HashSet};
 use super::activity_types::ActivityLine;
+use std::collections::{HashMap, HashSet};
 
 // Phase 3 SRCH-002: Regex pattern matching support
 use regex::Regex;
@@ -213,7 +213,11 @@ impl InvertedIndex {
         // Fill matrix
         for i in 1..=a_len {
             for j in 1..=b_len {
-                let cost = if a_chars[i - 1] == b_chars[j - 1] { 0 } else { 1 };
+                let cost = if a_chars[i - 1] == b_chars[j - 1] {
+                    0
+                } else {
+                    1
+                };
                 dp[i][j] = (dp[i - 1][j] + 1) // deletion
                     .min(dp[i][j - 1] + 1) // insertion
                     .min(dp[i - 1][j - 1] + cost); // substitution
@@ -255,6 +259,8 @@ pub struct LineMetadata {
     pub line_to_step: HashMap<usize, usize>,
     /// round number → line indices in that round
     pub round_to_lines: HashMap<usize, Vec<usize>>,
+    /// sub-agent step_index → SubAgentTask line index (for in-place mutation on completion)
+    pub sub_agent_lines: HashMap<usize, usize>,
 }
 
 impl LineMetadata {
@@ -292,7 +298,10 @@ impl LineMetadata {
 
     /// Get all lines in a given round.
     pub fn lines_in_round(&self, round: usize) -> &[usize] {
-        self.round_to_lines.get(&round).map(|v| v.as_slice()).unwrap_or(&[])
+        self.round_to_lines
+            .get(&round)
+            .map(|v| v.as_slice())
+            .unwrap_or(&[])
     }
 
     /// Clear all metadata.
@@ -300,6 +309,7 @@ impl LineMetadata {
         self.tool_to_line.clear();
         self.line_to_step.clear();
         self.round_to_lines.clear();
+        self.sub_agent_lines.clear();
     }
 }
 
@@ -457,21 +467,18 @@ impl ActivityModel {
             AL::UserPrompt(_) | AL::AssistantText(_) | AL::CodeBlock { .. } => {
                 self.filters.contains(ActivityFilter::CONVERSATION)
             }
-            AL::ToolExec { .. } => {
-                self.filters.contains(ActivityFilter::TOOLS)
-            }
-            AL::Error { .. } => {
-                self.filters.contains(ActivityFilter::ERRORS)
-            }
+            AL::ToolExec { .. } => self.filters.contains(ActivityFilter::TOOLS),
+            AL::Error { .. } => self.filters.contains(ActivityFilter::ERRORS),
             AL::Info(_) | AL::Warning { .. } | AL::RoundSeparator(_) => {
                 self.filters.contains(ActivityFilter::SYSTEM)
             }
-            AL::PlanOverview { .. } => {
-                self.filters.contains(ActivityFilter::PLANS)
-            }
-            AL::AgentThinking => {
+            AL::PlanOverview { .. } => self.filters.contains(ActivityFilter::PLANS),
+            AL::AgentThinking => self.filters.contains(ActivityFilter::SYSTEM),
+            AL::PhaseIndicator { .. } => self.filters.contains(ActivityFilter::SYSTEM),
+            AL::OrchestratorHeader { .. } | AL::SubAgentTask { .. } => {
                 self.filters.contains(ActivityFilter::SYSTEM)
             }
+            AL::ThinkingBubble { .. } => self.filters.contains(ActivityFilter::SYSTEM),
         }
     }
 
@@ -503,12 +510,19 @@ impl ActivityModel {
     }
 
     /// Complete a tool execution by filling in the result on the matching entry.
-    /// Finds the last ToolExec with matching name and no result, then updates it.
-    /// Phase A3: Enables ToolOutput dual-write.
-    pub fn complete_tool(&mut self, tool_name: &str, content: String, is_error: bool, duration_ms: u64) {
+    ///
+    /// Finds the last `ToolExec` with matching name and no result, then mutates it
+    /// in place. The shimmer animation stops automatically on the next render frame
+    /// because the `result` field is now `Some`.
+    pub fn complete_tool(
+        &mut self,
+        tool_name: &str,
+        content: String,
+        outcome: super::activity_types::ToolOutcome,
+        duration_ms: u64,
+    ) {
         use super::activity_types::{ActivityLine, ToolResult};
 
-        // Find the last ToolExec with matching name and no result
         for line in self.lines.iter_mut().rev() {
             if let ActivityLine::ToolExec {
                 name,
@@ -519,8 +533,39 @@ impl ActivityModel {
                 if name == tool_name && r.is_none() {
                     *r = Some(ToolResult {
                         content,
-                        is_error,
+                        outcome,
                         duration_ms,
+                        result_source:
+                            crate::repl::domain::tool_result::ToolResultSource::RealExecution,
+                    });
+                    break;
+                }
+            }
+        }
+    }
+
+    /// Mark a running tool execution as denied by the permission system.
+    ///
+    /// Stops the shimmer animation and transitions the `ToolExec` card to `⊘ Denied`
+    /// visual state. Without this call, `ToolDenied` events leave zombie spinners
+    /// (cards stuck at `result = None`) because `complete_tool` is never invoked.
+    pub fn deny_tool(&mut self, tool_name: &str) {
+        use super::activity_types::{ActivityLine, ToolOutcome, ToolResult};
+
+        for line in self.lines.iter_mut().rev() {
+            if let ActivityLine::ToolExec {
+                name,
+                result: ref mut r,
+                ..
+            } = line
+            {
+                if name == tool_name && r.is_none() {
+                    *r = Some(ToolResult {
+                        content: String::new(),
+                        outcome: ToolOutcome::Denied,
+                        duration_ms: 0,
+                        result_source:
+                            crate::repl::domain::tool_result::ToolResultSource::RealExecution,
                     });
                     break;
                 }
@@ -542,10 +587,7 @@ impl ActivityModel {
         };
 
         // Check if last line is AssistantText
-        let should_accumulate = matches!(
-            self.lines.last(),
-            Some(ActivityLine::AssistantText(_))
-        );
+        let should_accumulate = matches!(self.lines.last(), Some(ActivityLine::AssistantText(_)));
 
         if should_accumulate {
             if let Some(ActivityLine::AssistantText(ref mut existing)) = self.lines.last_mut() {
@@ -573,7 +615,8 @@ impl ActivityModel {
         current_step: usize,
     ) {
         // Find existing PlanOverview index
-        let existing_idx = self.lines
+        let existing_idx = self
+            .lines
             .iter()
             .enumerate()
             .rev()
@@ -646,7 +689,11 @@ impl ActivityModel {
     ///
     /// Shown between prompt submission and first model token. Removed by remove_thinking().
     pub fn push_thinking(&mut self) {
-        if !self.lines.iter().any(|l| matches!(l, ActivityLine::AgentThinking)) {
+        if !self
+            .lines
+            .iter()
+            .any(|l| matches!(l, ActivityLine::AgentThinking))
+        {
             self.push(ActivityLine::AgentThinking);
         }
     }
@@ -654,10 +701,46 @@ impl ActivityModel {
     /// Remove the AgentThinking indicator (called on first stream chunk or agent done).
     pub fn remove_thinking(&mut self) {
         let before = self.lines.len();
-        self.lines.retain(|l| !matches!(l, ActivityLine::AgentThinking));
+        self.lines
+            .retain(|l| !matches!(l, ActivityLine::AgentThinking));
         if self.lines.len() != before {
             self.rebuild_index();
         }
+    }
+
+    /// Push a phase indicator skeleton (idempotent — replaces any existing one).
+    ///
+    /// Shows a 2-line shimmer skeleton while an expensive LLM phase (planning, reasoning,
+    /// reflection) is running. Removed by remove_phase_indicator().
+    pub fn push_phase_indicator(&mut self, phase: super::activity_types::AgentPhase, label: &str) {
+        self.remove_phase_indicator(); // idempotent replacement
+        self.push(ActivityLine::PhaseIndicator {
+            phase,
+            label: label.to_string(),
+        });
+    }
+
+    /// Remove the PhaseIndicator (called when phase ends).
+    pub fn remove_phase_indicator(&mut self) {
+        let before = self.lines.len();
+        self.lines
+            .retain(|l| !matches!(l, ActivityLine::PhaseIndicator { .. }));
+        if self.lines.len() != before {
+            self.rebuild_index();
+        }
+    }
+
+    /// Replace AgentThinking/PhaseIndicator with a persistent ThinkingBubble.
+    ///
+    /// Called when ThinkingComplete arrives (before first StreamChunk).
+    /// The bubble persists in the activity feed as a collapsible summary.
+    pub fn push_thinking_bubble(&mut self, char_count: usize, preview: String) {
+        self.remove_thinking();
+        self.remove_phase_indicator();
+        self.push(ActivityLine::ThinkingBubble {
+            char_count,
+            preview,
+        });
     }
 
     /// Push a code block with syntax highlighting.
@@ -689,13 +772,106 @@ impl ActivityModel {
         self.len()
     }
 
+    // --- Sub-agent visibility methods ---
+
+    /// Push an OrchestratorHeader line (called on OrchestratorWave event).
+    pub fn push_orchestrator_header(&mut self, task_count: usize, wave_count: usize) {
+        self.push(super::activity_types::ActivityLine::OrchestratorHeader {
+            task_count,
+            wave_count,
+        });
+    }
+
+    /// Push a new SubAgentTask line in Running state (called on SubAgentSpawned event).
+    ///
+    /// Records the line index in `metadata.sub_agent_lines` keyed by `step_index`
+    /// so `update_sub_agent_complete()` can find it for in-place mutation.
+    pub fn push_sub_agent_spawn(
+        &mut self,
+        step_index: usize,
+        total_steps: usize,
+        description: &str,
+        agent_type: &str,
+    ) {
+        use super::activity_types::{ActivityLine, SubAgentStatus};
+        let line_idx = self.lines.len();
+        self.metadata.sub_agent_lines.insert(step_index, line_idx);
+        self.push(ActivityLine::SubAgentTask {
+            step_index,
+            total_steps,
+            description: description.to_string(),
+            agent_type: agent_type.to_string(),
+            status: SubAgentStatus::Running,
+            rounds: 0,
+            tools_used: Vec::new(),
+            summary: String::new(),
+        });
+    }
+
+    /// Mutate an existing SubAgentTask line in-place on completion.
+    ///
+    /// Looks up the line index from `metadata.sub_agent_lines[step_index]`,
+    /// then updates `status`, `tools_used`, `rounds`, and `summary` in the stored line.
+    /// Falls back to pushing a new Info line if the step_index is not found.
+    pub fn update_sub_agent_complete(
+        &mut self,
+        step_index: usize,
+        success: bool,
+        latency_ms: u64,
+        tools_used: Vec<String>,
+        rounds: usize,
+        summary: String,
+        error_hint: String,
+    ) {
+        use super::activity_types::{ActivityLine, SubAgentStatus};
+
+        // Look up the spawned line and mutate it in-place.
+        if let Some(&line_idx) = self.metadata.sub_agent_lines.get(&step_index) {
+            if let Some(ActivityLine::SubAgentTask {
+                status,
+                tools_used: ref mut t,
+                rounds: ref mut r,
+                summary: ref mut s,
+                ..
+            }) = self.lines.get_mut(line_idx)
+            {
+                *status = if success {
+                    SubAgentStatus::Success { latency_ms }
+                } else {
+                    SubAgentStatus::Failed { latency_ms }
+                };
+                *t = tools_used;
+                *r = rounds;
+                *s = summary;
+                // Rebuild index for the updated line — text_content changed.
+                let new_text = self.lines[line_idx].text_content();
+                self.index.index_line(line_idx, &new_text);
+                // When failed and an error hint is available, push a diagnostic line.
+                if !success && !error_hint.is_empty() {
+                    self.push_info(&format!("[sub-agent] error: {error_hint}"));
+                }
+                return;
+            }
+        }
+
+        // Fallback: no spawned line found — push a plain Info line.
+        let icon = if success { '✓' } else { '✗' };
+        self.push_info(&format!(
+            "[sub-agent] {icon} [{step_index}] ({:.1}s)",
+            latency_ms as f64 / 1000.0
+        ));
+        if !success && !error_hint.is_empty() {
+            self.push_info(&format!("[sub-agent] error: {error_hint}"));
+        }
+    }
+
     /// Check if there are any loading tools (ToolExec with result=None).
     ///
     /// P0.4A: Port from ActivityState for spinner detection.
     pub fn has_loading_tools(&self) -> bool {
-        self.lines.iter().any(|line| {
-            matches!(line, ActivityLine::ToolExec { result: None, .. })
-        })
+        self.lines
+            .iter()
+            .any(|line| matches!(line, ActivityLine::ToolExec { result: None, .. }))
     }
 
     // --- P0.4B: Temporary scroll methods (will be refactored to ScrollState) ---
@@ -942,7 +1118,7 @@ mod tests {
 
     #[test]
     fn set_plan_overview_creates_new() {
-        use crate::tui::events::{PlanStepStatus, PlanStepDisplayStatus};
+        use crate::tui::events::{PlanStepDisplayStatus, PlanStepStatus};
 
         let mut model = ActivityModel::new();
         let steps = vec![PlanStepStatus {
@@ -955,12 +1131,14 @@ mod tests {
         model.set_plan_overview("Goal: Fix bug".into(), steps.clone(), 0);
 
         assert_eq!(model.len(), 1);
-        assert!(matches!(model.get(0), Some(ActivityLine::PlanOverview { goal, .. }) if goal == "Goal: Fix bug"));
+        assert!(
+            matches!(model.get(0), Some(ActivityLine::PlanOverview { goal, .. }) if goal == "Goal: Fix bug")
+        );
     }
 
     #[test]
     fn set_plan_overview_replaces_existing() {
-        use crate::tui::events::{PlanStepStatus, PlanStepDisplayStatus};
+        use crate::tui::events::{PlanStepDisplayStatus, PlanStepStatus};
 
         let mut model = ActivityModel::new();
         let steps1 = vec![PlanStepStatus {
@@ -980,8 +1158,10 @@ mod tests {
         model.set_plan_overview("New goal".into(), steps2.clone(), 1);
 
         assert_eq!(model.len(), 1); // Still only 1 PlanOverview (replaced, not duplicated)
-        assert!(matches!(model.get(0), Some(ActivityLine::PlanOverview { goal, current_step, .. })
-            if goal == "New goal" && *current_step == 1));
+        assert!(
+            matches!(model.get(0), Some(ActivityLine::PlanOverview { goal, current_step, .. })
+            if goal == "New goal" && *current_step == 1)
+        );
     }
 
     #[test]
@@ -995,7 +1175,7 @@ mod tests {
 
     #[test]
     fn complete_tool_finds_last_matching() {
-        use super::super::activity_types::ToolResult;
+        use super::super::activity_types::{ToolOutcome, ToolResult};
 
         let mut model = ActivityModel::new();
 
@@ -1014,16 +1194,53 @@ mod tests {
         });
 
         // Complete should target the LAST one
-        model.complete_tool("file_read", "content".into(), false, 100);
+        model.complete_tool("file_read", "content".into(), ToolOutcome::Success, 100);
 
         // First should still be None
-        assert!(matches!(model.get(0), Some(ActivityLine::ToolExec { result: None, .. })));
+        assert!(matches!(
+            model.get(0),
+            Some(ActivityLine::ToolExec { result: None, .. })
+        ));
 
-        // Second should be completed
+        // Second should be completed with Success outcome
         assert!(matches!(model.get(1), Some(ActivityLine::ToolExec {
-            result: Some(ToolResult { ref content, is_error, duration_ms }),
+            result: Some(ToolResult { ref content, outcome, duration_ms, .. }),
             ..
-        }) if content == "content" && !is_error && *duration_ms == 100));
+        }) if content == "content" && *outcome == ToolOutcome::Success && *duration_ms == 100));
+    }
+
+    #[test]
+    fn deny_tool_stops_zombie_spinner() {
+        use super::super::activity_types::{ToolOutcome, ToolResult};
+
+        let mut model = ActivityModel::new();
+        model.push_tool_start("bash", "rm -rf /tmp/test");
+
+        // Before deny: card is in loading state
+        assert!(matches!(
+            model.get(0),
+            Some(ActivityLine::ToolExec { result: None, .. })
+        ));
+
+        model.deny_tool("bash");
+
+        // After deny: card shows Denied outcome with empty content
+        assert!(matches!(model.get(0), Some(ActivityLine::ToolExec {
+            result: Some(ToolResult { outcome, content, duration_ms, .. }),
+            ..
+        }) if *outcome == ToolOutcome::Denied && content.is_empty() && *duration_ms == 0));
+    }
+
+    #[test]
+    fn deny_tool_noop_when_no_match() {
+        let mut model = ActivityModel::new();
+        model.push_info("some info");
+
+        // deny_tool on unknown name should not panic
+        model.deny_tool("nonexistent");
+
+        // Model unchanged
+        assert_eq!(model.len(), 1);
     }
 
     // --- P0.4A: Convenience wrapper tests ---
@@ -1082,7 +1299,9 @@ mod tests {
         model.push_user_prompt("User input here");
 
         assert_eq!(model.len(), 1);
-        assert!(matches!(model.get(0), Some(ActivityLine::UserPrompt(s)) if s == "User input here"));
+        assert!(
+            matches!(model.get(0), Some(ActivityLine::UserPrompt(s)) if s == "User input here")
+        );
     }
 
     #[test]
@@ -1131,9 +1350,10 @@ mod tests {
 
     #[test]
     fn has_loading_tools_false_when_all_complete() {
+        use super::super::activity_types::ToolOutcome;
         let mut model = ActivityModel::new();
         model.push_tool_start("bash", "ls -la");
-        model.complete_tool("bash", "output".into(), false, 100);
+        model.complete_tool("bash", "output".into(), ToolOutcome::Success, 100);
 
         assert!(!model.has_loading_tools());
     }
@@ -1350,5 +1570,116 @@ mod tests {
         // Pattern that doesn't match
         let results = model.regex_search("xyz123");
         assert!(results.is_empty());
+    }
+
+    // --- Sub-agent visibility method tests ---
+
+    #[test]
+    fn push_orchestrator_header_creates_line() {
+        use super::super::activity_types::ActivityLine;
+        let mut model = ActivityModel::new();
+        model.push_orchestrator_header(3, 1);
+        assert_eq!(model.len(), 1);
+        assert!(matches!(
+            model.get(0),
+            Some(ActivityLine::OrchestratorHeader {
+                task_count: 3,
+                wave_count: 1
+            })
+        ));
+    }
+
+    #[test]
+    fn push_sub_agent_spawn_creates_running_line() {
+        use super::super::activity_types::{ActivityLine, SubAgentStatus};
+        let mut model = ActivityModel::new();
+        model.push_sub_agent_spawn(1, 3, "Analyze project", "General");
+
+        assert_eq!(model.len(), 1);
+        assert!(matches!(
+            model.get(0),
+            Some(ActivityLine::SubAgentTask {
+                step_index: 1,
+                total_steps: 3,
+                status: SubAgentStatus::Running,
+                ..
+            })
+        ));
+        // Metadata should record the line index
+        assert_eq!(model.metadata.sub_agent_lines.get(&1), Some(&0));
+    }
+
+    #[test]
+    fn update_sub_agent_complete_mutates_in_place() {
+        use super::super::activity_types::{ActivityLine, SubAgentStatus};
+        let mut model = ActivityModel::new();
+        model.push_sub_agent_spawn(2, 3, "Fix bug", "Coder");
+        assert_eq!(model.len(), 1);
+
+        model.update_sub_agent_complete(
+            2,
+            true,
+            1200,
+            vec!["bash".into(), "file_read".into()],
+            2,
+            "Fixed JWT bug".into(),
+            String::new(),
+        );
+
+        // Should still be 1 line (mutated in-place, not a new push)
+        assert_eq!(model.len(), 1);
+        match model.get(0) {
+            Some(ActivityLine::SubAgentTask {
+                status,
+                tools_used,
+                rounds,
+                summary,
+                ..
+            }) => {
+                assert!(matches!(
+                    status,
+                    SubAgentStatus::Success { latency_ms: 1200 }
+                ));
+                assert_eq!(tools_used, &["bash", "file_read"]);
+                assert_eq!(*rounds, 2);
+                assert_eq!(summary, "Fixed JWT bug");
+            }
+            other => panic!("Expected SubAgentTask, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn update_sub_agent_complete_fallback_when_no_spawned_line() {
+        let mut model = ActivityModel::new();
+        // Complete without a prior spawn → should fall back to push_info
+        model.update_sub_agent_complete(99, true, 500, vec![], 1, String::new(), String::new());
+        assert_eq!(model.len(), 1);
+        assert!(matches!(
+            model.get(0),
+            Some(super::super::activity_types::ActivityLine::Info(_))
+        ));
+    }
+
+    #[test]
+    fn update_sub_agent_complete_failed_sets_status() {
+        use super::super::activity_types::{ActivityLine, SubAgentStatus};
+        let mut model = ActivityModel::new();
+        model.push_sub_agent_spawn(1, 1, "Run tests", "Tester");
+        model.update_sub_agent_complete(
+            1,
+            false,
+            800,
+            vec!["bash".into()],
+            1,
+            "Tests failed".into(),
+            String::new(),
+        );
+
+        match model.get(0) {
+            Some(ActivityLine::SubAgentTask { status, .. }) => {
+                assert!(matches!(status, SubAgentStatus::Failed { latency_ms: 800 }));
+            }
+            other => panic!("Expected SubAgentTask, got {:?}", other),
+        }
     }
 }

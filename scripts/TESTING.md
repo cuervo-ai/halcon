@@ -29,31 +29,31 @@ Test on each target platform:
 #### Linux x86_64 (glibc)
 ```bash
 cargo build --release --target x86_64-unknown-linux-gnu --features tui
-./target/x86_64-unknown-linux-gnu/release/cuervo --version
+./target/x86_64-unknown-linux-gnu/release/halcon --version
 ```
 
 #### Linux x86_64 (musl - static)
 ```bash
 cross build --release --target x86_64-unknown-linux-musl --features tui
-./target/x86_64-unknown-linux-musl/release/cuervo --version
+./target/x86_64-unknown-linux-musl/release/halcon --version
 ```
 
 #### macOS Intel
 ```bash
 cargo build --release --target x86_64-apple-darwin --features tui
-./target/x86_64-apple-darwin/release/cuervo --version
+./target/x86_64-apple-darwin/release/halcon --version
 ```
 
 #### macOS Apple Silicon
 ```bash
 cargo build --release --target aarch64-apple-darwin --features tui
-./target/aarch64-apple-darwin/release/cuervo --version
+./target/aarch64-apple-darwin/release/halcon --version
 ```
 
 #### Windows x64
 ```powershell
 cargo build --release --target x86_64-pc-windows-msvc --features tui
-.\target\x86_64-pc-windows-msvc\release\cuervo.exe --version
+.\target\x86_64-pc-windows-msvc\release\halcon.exe --version
 ```
 
 ### ✅ Manual Installation Testing
@@ -61,33 +61,33 @@ cargo build --release --target x86_64-pc-windows-msvc --features tui
 #### Unix/Linux/macOS
 ```bash
 # Set test environment
-export CUERVO_INSTALL_DIR="/tmp/cuervo-test-$$"
-export CUERVO_REPO_OWNER="cuervo-ai"
-export CUERVO_REPO_NAME="cuervo-cli"
+export HALCON_INSTALL_DIR="/tmp/halcon-test-$$"
+export HALCON_REPO_OWNER="cuervo-ai"
+export HALCON_REPO_NAME="halcon-cli"
 
 # Run installer
 curl -fsSL https://raw.githubusercontent.com/cuervo-ai/cuervo-cli/main/scripts/install-binary.sh | sh
 
 # Verify
-$CUERVO_INSTALL_DIR/cuervo --version
+$HALCON_INSTALL_DIR/halcon --version
 
 # Cleanup
-rm -rf $CUERVO_INSTALL_DIR
+rm -rf $HALCON_INSTALL_DIR
 ```
 
 #### Windows (PowerShell)
 ```powershell
 # Set test environment
-$env:CUERVO_INSTALL_DIR = "$env:TEMP\cuervo-test"
+$env:HALCON_INSTALL_DIR = "$env:TEMP\halcon-test"
 
 # Run installer
 iwr -useb https://raw.githubusercontent.com/cuervo-ai/cuervo-cli/main/scripts/install-binary.ps1 | iex
 
 # Verify
-& "$env:CUERVO_INSTALL_DIR\cuervo.exe" --version
+& "$env:HALCON_INSTALL_DIR\halcon.exe" --version
 
 # Cleanup
-Remove-Item -Recurse -Force $env:CUERVO_INSTALL_DIR
+Remove-Item -Recurse -Force $env:HALCON_INSTALL_DIR
 ```
 
 ### ✅ GitHub Actions Workflow
@@ -95,7 +95,7 @@ Remove-Item -Recurse -Force $env:CUERVO_INSTALL_DIR
 - [ ] Workflow syntax is valid (`.github/workflows/release.yml`)
 - [ ] All matrix targets are configured correctly
 - [ ] Secrets are available: `GITHUB_TOKEN` (auto), `CARGO_REGISTRY_TOKEN` (optional)
-- [ ] Asset naming follows convention: `cuervo-{target}.{ext}`
+- [ ] Asset naming follows convention: `halcon-{version}-{target}.{ext}`
 - [ ] Checksums are generated for all assets
 - [ ] Release notes template is correct
 
@@ -104,12 +104,12 @@ Remove-Item -Recurse -Force $env:CUERVO_INSTALL_DIR
 1. **Update version in Cargo.toml**
    ```bash
    # Update workspace version
-   sed -i 's/version = "0.1.0"/version = "0.2.0"/' Cargo.toml
+   # Edit workspace Cargo.toml and bump version field
    ```
 
 2. **Update CHANGELOG.md**
    ```markdown
-   ## [0.2.0] - 2026-02-14
+   ## [0.4.0] - 2026-Q2
    ### Added
    - Feature X
    ### Fixed
@@ -119,14 +119,14 @@ Remove-Item -Recurse -Force $env:CUERVO_INSTALL_DIR
 3. **Commit changes**
    ```bash
    git add Cargo.toml CHANGELOG.md
-   git commit -m "chore: bump version to 0.2.0"
+   git commit -m "chore: bump version to 0.4.0"
    ```
 
 4. **Create and push tag**
    ```bash
-   git tag v0.2.0
+   git tag v0.4.0
    git push origin main
-   git push origin v0.2.0
+   git push origin v0.4.0
    ```
 
 5. **Monitor GitHub Actions**
@@ -171,8 +171,8 @@ Expected output:
 ### Installer fails to download
 
 - Verify release exists: `https://github.com/cuervo-ai/cuervo-cli/releases/latest`
-- Check asset naming matches: `cuervo-{target}.tar.gz`
-- Verify checksum file exists: `cuervo-{target}.tar.gz.sha256`
+- Check asset naming matches: `halcon-{version}-{target}.tar.gz`
+- Verify checksum file exists: `halcon-{version}-{target}.tar.gz.sha256`
 
 ### Checksum verification fails
 
@@ -189,10 +189,10 @@ Expected output:
 4. Verify PATH is updated
 
 ### Scenario 2: Upgrade existing installation
-1. Install v0.1.0
-2. Install v0.2.0
+1. Install previous version
+2. Run installer again
 3. Verify old binary is replaced
-4. Verify version command shows v0.2.0
+4. Verify version command shows new version
 
 ### Scenario 3: Fallback to cargo install
 1. Mock GitHub releases as unavailable
@@ -214,15 +214,15 @@ Record binary sizes for comparison:
 
 ```bash
 # Check binary size
-ls -lh target/release/cuervo
+ls -lh target/release/halcon
 
 # Check stripped size
-strip target/release/cuervo
-ls -lh target/release/cuervo
+strip target/release/halcon
+ls -lh target/release/halcon
 
 # Check compressed size
-tar czf cuervo.tar.gz -C target/release cuervo
-ls -lh cuervo.tar.gz
+tar czf halcon.tar.gz -C target/release halcon
+ls -lh halcon.tar.gz
 ```
 
 Target sizes:

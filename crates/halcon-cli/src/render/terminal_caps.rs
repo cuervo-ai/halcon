@@ -165,8 +165,8 @@ fn detect_terminal_size() -> (u16, u16) {
 fn rgb_to_256(r: u8, g: u8, b: u8) -> u8 {
     // Check if it's a grayscale color
     let is_gray = (r as i16 - g as i16).abs() < 10
-                && (g as i16 - b as i16).abs() < 10
-                && (r as i16 - b as i16).abs() < 10;
+        && (g as i16 - b as i16).abs() < 10
+        && (r as i16 - b as i16).abs() < 10;
 
     if is_gray {
         // Map to 24-step grayscale (232-255)
@@ -220,25 +220,49 @@ fn rgb_to_ansi(r: u8, g: u8, b: u8) -> Color {
     // Determine hue-based color using max channel brightness
     let color = if r > g && r > b {
         // Red dominant
-        if r > 128 { Color::LightRed } else { Color::Red }
+        if r > 128 {
+            Color::LightRed
+        } else {
+            Color::Red
+        }
     } else if g > r && g > b {
         // Green dominant
-        if g > 128 { Color::LightGreen } else { Color::Green }
+        if g > 128 {
+            Color::LightGreen
+        } else {
+            Color::Green
+        }
     } else if b > r && b > g {
         // Blue dominant
-        if b > 128 { Color::LightBlue } else { Color::Blue }
+        if b > 128 {
+            Color::LightBlue
+        } else {
+            Color::Blue
+        }
     } else if r > b && g > b {
         // Yellow (red + green)
         let brightness = (r.max(g) + r.min(g)) / 2;
-        if brightness > 128 { Color::LightYellow } else { Color::Yellow }
+        if brightness > 128 {
+            Color::LightYellow
+        } else {
+            Color::Yellow
+        }
     } else if r > g && b > g {
         // Magenta (red + blue)
         let brightness = (r.max(b) + r.min(b)) / 2;
-        if brightness > 128 { Color::LightMagenta } else { Color::Magenta }
+        if brightness > 128 {
+            Color::LightMagenta
+        } else {
+            Color::Magenta
+        }
     } else {
         // Cyan (green + blue)
         let brightness = (g.max(b) + g.min(b)) / 2;
-        if brightness > 128 { Color::LightCyan } else { Color::Cyan }
+        if brightness > 128 {
+            Color::LightCyan
+        } else {
+            Color::Cyan
+        }
     };
 
     color
@@ -264,7 +288,17 @@ pub fn caps() -> &'static TerminalCapabilities {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Mutex;
+
     use super::*;
+
+    /// Serialize all tests that mutate process-global environment variables.
+    ///
+    /// `std::env::set_var` / `remove_var` are process-wide operations.  Under
+    /// `--test-threads=16` two env-mutating tests can race, causing one to read
+    /// a value left behind by the other.  Every test that calls set_var/remove_var
+    /// must hold this lock for the entire duration of its env-dependent section.
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn color_level_ordering() {
@@ -276,6 +310,7 @@ mod tests {
 
     #[test]
     fn detect_respects_no_color() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         std::env::remove_var("COLORTERM");
         std::env::remove_var("TERM");
         std::env::set_var("NO_COLOR", "1");
@@ -287,7 +322,9 @@ mod tests {
 
     #[test]
     fn detect_colorterm_truecolor() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         std::env::remove_var("NO_COLOR");
+        std::env::remove_var("TERM");
         std::env::set_var("COLORTERM", "truecolor");
         let level = detect_color_support();
         std::env::remove_var("COLORTERM");
@@ -297,6 +334,7 @@ mod tests {
 
     #[test]
     fn detect_term_256color() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         std::env::remove_var("COLORTERM");
         std::env::remove_var("NO_COLOR");
         std::env::set_var("TERM", "xterm-256color");
@@ -308,6 +346,7 @@ mod tests {
 
     #[test]
     fn detect_term_xterm_fallback() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         std::env::remove_var("COLORTERM");
         std::env::remove_var("NO_COLOR");
         std::env::set_var("TERM", "xterm");
@@ -319,9 +358,11 @@ mod tests {
 
     #[test]
     fn unicode_detection_utf8() {
+        let _guard = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         std::env::set_var("LANG", "en_US.UTF-8");
-        assert!(detect_unicode_support());
+        let result = detect_unicode_support();
         std::env::remove_var("LANG");
+        assert!(result);
     }
 
     #[test]
@@ -358,7 +399,7 @@ mod tests {
     fn rgb_to_256_gray() {
         let index = rgb_to_256(128, 128, 128);
         // Should be in grayscale range (232-255)
-        assert!(index >= 232 && index <= 255);
+        assert!(index >= 232);
     }
 
     #[cfg(feature = "tui")]
@@ -454,7 +495,7 @@ mod tests {
         let tc = ThemeColor::rgb(200, 50, 50);
 
         match caps.downgrade_color(&tc) {
-            Color::LightRed => {},
+            Color::LightRed => {}
             _ => panic!("Expected LightRed ANSI color"),
         }
     }
@@ -477,7 +518,7 @@ mod tests {
     #[cfg(all(feature = "tui", feature = "color-science"))]
     #[test]
     fn m4_palette_colors_adapt_to_256() {
-        use crate::render::theme::{ThemeColor, Palette};
+        use crate::render::theme::{Palette, ThemeColor};
 
         let caps = TerminalCapabilities::with_color_level(ColorLevel::Color256);
 
@@ -502,9 +543,9 @@ mod tests {
 
         // Create test colors (avoiding overflow in rgb_to_ansi)
         let test_colors = [
-            ThemeColor::rgb(150, 50, 50),   // Red-ish
-            ThemeColor::rgb(50, 150, 50),   // Green-ish
-            ThemeColor::rgb(50, 50, 150),   // Blue-ish
+            ThemeColor::rgb(150, 50, 50), // Red-ish
+            ThemeColor::rgb(50, 150, 50), // Green-ish
+            ThemeColor::rgb(50, 50, 150), // Blue-ish
         ];
 
         for tc in &test_colors {
@@ -512,12 +553,26 @@ mod tests {
 
             // Should map to one of the ANSI colors (not Indexed or Rgb)
             match downgraded {
-                Color::Black | Color::Red | Color::Green | Color::Yellow
-                | Color::Blue | Color::Magenta | Color::Cyan | Color::White
-                | Color::Gray | Color::DarkGray | Color::LightRed | Color::LightGreen
-                | Color::LightYellow | Color::LightBlue | Color::LightMagenta
+                Color::Black
+                | Color::Red
+                | Color::Green
+                | Color::Yellow
+                | Color::Blue
+                | Color::Magenta
+                | Color::Cyan
+                | Color::White
+                | Color::Gray
+                | Color::DarkGray
+                | Color::LightRed
+                | Color::LightGreen
+                | Color::LightYellow
+                | Color::LightBlue
+                | Color::LightMagenta
                 | Color::LightCyan => { /* Expected */ }
-                _ => panic!("16-color downgrade should produce ANSI color, got {:?}", downgraded),
+                _ => panic!(
+                    "16-color downgrade should produce ANSI color, got {:?}",
+                    downgraded
+                ),
             }
         }
     }

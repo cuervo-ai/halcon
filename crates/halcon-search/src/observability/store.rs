@@ -1,7 +1,6 @@
 //! Persistence layer for observability data.
 
 use crate::{Result, SearchError};
-use chrono::{DateTime, Utc};
 use std::sync::Arc;
 
 use super::{QueryInstrumentation, RegressionAlert};
@@ -68,7 +67,9 @@ impl ObservabilityStore {
 
                 Ok::<(), rusqlite::Error>(())
             })
-            .map_err(|e| SearchError::DatabaseError(format!("Failed to record instrumentation: {}", e)))
+            .map_err(|e| {
+                SearchError::DatabaseError(format!("Failed to record instrumentation: {}", e))
+            })
         })
         .await
         .map_err(|e| SearchError::DatabaseError(format!("Task join error: {}", e)))??;
@@ -77,7 +78,10 @@ impl ObservabilityStore {
     }
 
     /// Get query instrumentation by ID.
-    pub async fn get_instrumentation(&self, query_id: &str) -> Result<Option<QueryInstrumentation>> {
+    pub async fn get_instrumentation(
+        &self,
+        query_id: &str,
+    ) -> Result<Option<QueryInstrumentation>> {
         let db = self.db.clone();
         let query_id = query_id.to_string();
 
@@ -153,7 +157,10 @@ impl ObservabilityStore {
     }
 
     /// Get recent query instrumentations (most recent first).
-    pub async fn get_recent_instrumentations(&self, limit: usize) -> Result<Vec<QueryInstrumentation>> {
+    pub async fn get_recent_instrumentations(
+        &self,
+        limit: usize,
+    ) -> Result<Vec<QueryInstrumentation>> {
         let db = self.db.clone();
 
         tokio::task::spawn_blocking(move || {
@@ -175,7 +182,9 @@ impl ObservabilityStore {
                             query_id: row.get(0)?,
                             query: row.get(1)?,
                             started_at: row.get::<_, String>(2)?.parse().unwrap(),
-                            completed_at: row.get::<_, Option<String>>(3)?.map(|s| s.parse().unwrap()),
+                            completed_at: row
+                                .get::<_, Option<String>>(3)?
+                                .map(|s| s.parse().unwrap()),
                             duration_ms: row.get::<_, Option<i64>>(4)?.map(|d| d as u64),
                             result_count: row.get::<_, i64>(5)? as usize,
                             quality_score: row.get(6)?,
@@ -190,7 +199,9 @@ impl ObservabilityStore {
 
                 Ok(instrs)
             })
-            .map_err(|e: rusqlite::Error| SearchError::DatabaseError(format!("Failed to get recent instrumentations: {}", e)))
+            .map_err(|e: rusqlite::Error| {
+                SearchError::DatabaseError(format!("Failed to get recent instrumentations: {}", e))
+            })
         })
         .await
         .map_err(|e| SearchError::DatabaseError(format!("Task join error: {}", e)))?
@@ -285,7 +296,9 @@ impl ObservabilityStore {
 
                 Ok(alerts)
             })
-            .map_err(|e: rusqlite::Error| SearchError::DatabaseError(format!("Failed to get recent alerts: {}", e)))
+            .map_err(|e: rusqlite::Error| {
+                SearchError::DatabaseError(format!("Failed to get recent alerts: {}", e))
+            })
         })
         .await
         .map_err(|e| SearchError::DatabaseError(format!("Task join error: {}", e)))?
@@ -363,17 +376,16 @@ mod tests {
         let db = setup_test_db().await;
         let store = ObservabilityStore::new(db);
 
-        let alert = RegressionAlert::new(
-            super::super::RegressionType::QualityDrop,
-            0.90,
-            0.80,
-        );
+        let alert = RegressionAlert::new(super::super::RegressionType::QualityDrop, 0.90, 0.80);
 
         store.record_alert(&alert).await.unwrap();
 
         let recent = store.get_recent_alerts(10).await.unwrap();
         assert_eq!(recent.len(), 1);
-        assert_eq!(recent[0].regression_type, super::super::RegressionType::QualityDrop);
+        assert_eq!(
+            recent[0].regression_type,
+            super::super::RegressionType::QualityDrop
+        );
         assert_eq!(recent[0].baseline_value, 0.90);
         assert_eq!(recent[0].current_value, 0.80);
     }

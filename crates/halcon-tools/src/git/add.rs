@@ -95,7 +95,11 @@ impl Tool for GitAddTool {
             });
         }
 
-        let content = format!("Staged {} file(s): {}", path_strs.len(), path_strs.join(", "));
+        let content = format!(
+            "Staged {} file(s): {}",
+            path_strs.len(),
+            path_strs.join(", ")
+        );
 
         Ok(ToolOutput {
             tool_use_id: input.tool_use_id,

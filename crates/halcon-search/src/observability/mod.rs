@@ -14,26 +14,28 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
 
-pub mod query_metrics;
-pub mod timeseries;
-pub mod regression;
-pub mod store;
 pub mod aggregator;
-pub mod snapshot;
-pub mod monitor;
 pub mod dashboard;
+pub mod monitor;
+pub mod query_metrics;
+pub mod regression;
+pub mod snapshot;
+pub mod store;
+pub mod timeseries;
 
-pub use query_metrics::{QueryMetrics, QueryPhase, PhaseMetrics};
-pub use timeseries::{TimeSeriesMetrics, MetricPoint, AggregationWindow};
-pub use regression::{RegressionDetector, RegressionAlert, RegressionSeverity, RegressionType, RegressionConfig};
-pub use store::ObservabilityStore;
-pub use aggregator::{MetricsAggregator, AggregatorConfig};
-pub use snapshot::{MetricsSnapshot, SnapshotStore};
-pub use monitor::{NotificationChannel, NotificationConfig, AlertNotifier, RegressionMonitor};
+pub use aggregator::{AggregatorConfig, MetricsAggregator};
 pub use dashboard::{
-    ObservabilitySnapshot, HealthStatus, TrendIndicator, TimeSeriesPoint, AlertSummary,
-    ChartConfig, ChartPoint, MetricType, extract_chart_data,
+    extract_chart_data, AlertSummary, ChartConfig, ChartPoint, HealthStatus, MetricType,
+    ObservabilitySnapshot, TimeSeriesPoint, TrendIndicator,
 };
+pub use monitor::{AlertNotifier, NotificationChannel, NotificationConfig, RegressionMonitor};
+pub use query_metrics::{PhaseMetrics, QueryMetrics, QueryPhase};
+pub use regression::{
+    RegressionAlert, RegressionConfig, RegressionDetector, RegressionSeverity, RegressionType,
+};
+pub use snapshot::{MetricsSnapshot, SnapshotStore};
+pub use store::ObservabilityStore;
+pub use timeseries::{AggregationWindow, MetricPoint, TimeSeriesMetrics};
 
 /// Instrumentation for a single search query execution.
 ///
@@ -148,7 +150,8 @@ impl QueryInstrumentation {
 
     /// Get the duration of a specific phase.
     pub fn phase_duration(&self, phase: QueryPhase) -> Option<u64> {
-        self.phases.iter()
+        self.phases
+            .iter()
             .find(|p| p.phase == phase)
             .map(|p| p.duration_ms)
     }

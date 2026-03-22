@@ -37,16 +37,25 @@ impl PermissionModal {
 
     /// Render the permission modal.
     ///
-    /// Modal is centered at 60% width, 50% height with momoto-backed colors.
+    /// Modal is centered at 60% width, 55% height with momoto-backed colors.
     ///
     /// # Arguments
     /// * `show_advanced` - Whether to show advanced permission options (AlwaysThisTool, ThisDirectory, etc.)
-    pub fn render(&self, frame: &mut Frame, area: Rect, show_advanced: bool) {
+    /// * `remaining_secs` - Countdown remaining (None = no deadline set).
+    /// * `total_secs` - Total countdown duration for progress bar fraction.
+    pub fn render(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        show_advanced: bool,
+        remaining_secs: Option<u64>,
+        total_secs: u64,
+    ) {
         let p = &theme::active().palette;
         let risk_color = self.context.risk_level.color(p);
 
-        // Centered modal (60% width, 50% height)
-        let rect = centered_rect(area, 60, 50);
+        // Centered modal (60% width, 55% height — extra row for countdown bar)
+        let rect = centered_rect(area, 60, 55);
         frame.render_widget(Clear, rect);
 
         // Build content with momoto colors
@@ -72,10 +81,7 @@ impl PermissionModal {
 
         // Tool name (prominent, accent color)
         lines.push(Line::from(vec![
-            Span::styled(
-                "Tool: ",
-                Style::default().fg(p.text_dim_ratatui()),
-            ),
+            Span::styled("Tool: ", Style::default().fg(p.text_dim_ratatui())),
             Span::styled(
                 &self.context.tool,
                 Style::default()
@@ -113,10 +119,7 @@ impl PermissionModal {
             for (key, value) in args_summary {
                 lines.push(Line::from(vec![
                     Span::styled("  • ", Style::default().fg(p.muted_ratatui())),
-                    Span::styled(
-                        format!("{}: ", key),
-                        Style::default().fg(p.text_ratatui()),
-                    ),
+                    Span::styled(format!("{}: ", key), Style::default().fg(p.text_ratatui())),
                     Span::styled(value, Style::default().fg(p.text_dim_ratatui())),
                 ]));
             }
@@ -220,6 +223,20 @@ impl PermissionModal {
             )));
         }
 
+        // Static pause indicator — agent is blocked waiting for user decision.
+        // No countdown: user has unlimited time to review and decide.
+        let _ = (remaining_secs, total_secs); // fields retained in struct for API compatibility
+        lines.push(Line::from(""));
+        lines.push(Line::from(vec![
+            Span::styled("⏸  ", Style::default().fg(p.warning_ratatui())),
+            Span::styled(
+                "Agent paused — approve or deny to continue",
+                Style::default()
+                    .fg(p.warning_ratatui())
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]));
+
         let modal = Paragraph::new(lines)
             .block(
                 Block::default()
@@ -313,15 +330,9 @@ mod tests {
         theme::init("neon", None);
         let p = &theme::active().palette;
 
-        let ctx_low = PermissionContext::new(
-            "test".to_string(),
-            serde_json::json!({}),
-            RiskLevel::Low,
-        );
-        assert_eq!(
-            ctx_low.risk_level.color(p).srgb8(),
-            p.success.srgb8()
-        );
+        let ctx_low =
+            PermissionContext::new("test".to_string(), serde_json::json!({}), RiskLevel::Low);
+        assert_eq!(ctx_low.risk_level.color(p).srgb8(), p.success.srgb8());
 
         let ctx_critical = PermissionContext::new(
             "test".to_string(),
@@ -336,11 +347,7 @@ mod tests {
 
     #[test]
     fn modal_with_empty_args() {
-        let ctx = PermissionContext::new(
-            "tool".to_string(),
-            serde_json::json!({}),
-            RiskLevel::Low,
-        );
+        let ctx = PermissionContext::new("tool".to_string(), serde_json::json!({}), RiskLevel::Low);
         let modal = PermissionModal::new(ctx);
         assert_eq!(modal.context().args_summary(3).len(), 0);
     }

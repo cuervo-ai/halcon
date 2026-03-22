@@ -117,7 +117,10 @@ impl Tool for GitLogTool {
             lines.len()
         } else {
             // In full format, each commit takes 3 lines (hash line, subject line, blank).
-            lines.iter().filter(|l| !l.trim().is_empty() && !l.starts_with("  ")).count()
+            lines
+                .iter()
+                .filter(|l| !l.trim().is_empty() && !l.starts_with("  "))
+                .count()
         };
 
         let newest_hash = if oneline {
@@ -254,7 +257,10 @@ mod tests {
 
         let tool = GitLogTool::new();
         let output = tool
-            .execute(make_input(dir.path().to_str().unwrap(), json!({"count": 2})))
+            .execute(make_input(
+                dir.path().to_str().unwrap(),
+                json!({"count": 2}),
+            ))
             .await
             .unwrap();
         assert!(!output.is_error);
@@ -330,10 +336,7 @@ mod tests {
             .await;
 
         let tool = GitLogTool::new();
-        let output = tool
-            .execute(make_input(path, json!({})))
-            .await
-            .unwrap();
+        let output = tool.execute(make_input(path, json!({}))).await.unwrap();
         assert!(!output.is_error);
         // Either "No commits yet" or "No commits found"
         assert!(

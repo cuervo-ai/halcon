@@ -11,7 +11,9 @@ use halcon_core::types::Session;
 
 use crate::cache::CacheEntry;
 use crate::memory::MemoryEntry;
-use crate::metrics::{InvocationMetric, ProviderWindowedMetrics, SystemMetrics, ToolExecutionMetric};
+use crate::metrics::{
+    InvocationMetric, ProviderWindowedMetrics, SystemMetrics, ToolExecutionMetric,
+};
 use crate::resilience::ResilienceEvent;
 use crate::trace::TraceStep;
 use crate::Database;
@@ -94,6 +96,47 @@ impl AsyncDatabase {
             .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
     }
 
+    pub async fn recent_tool_executions(
+        &self,
+        tool_name: String,
+        limit: usize,
+    ) -> Result<Vec<crate::db::ToolExecutionRow>> {
+        let db = self.inner.clone();
+        tokio::task::spawn_blocking(move || db.recent_tool_executions(&tool_name, limit))
+            .await
+            .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
+    }
+
+    pub async fn events_per_second_last_60s(&self) -> Result<f64> {
+        let db = self.inner.clone();
+        tokio::task::spawn_blocking(move || db.events_per_second_last_60s())
+            .await
+            .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
+    }
+
+    // --- Plugin circuit state (M34) ---
+
+    /// Persist circuit breaker states for all plugins (call post-loop).
+    pub async fn save_circuit_breaker_states(
+        &self,
+        rows: Vec<crate::db::CircuitBreakerStateRow>,
+    ) -> Result<()> {
+        let db = self.inner.clone();
+        tokio::task::spawn_blocking(move || db.save_circuit_breaker_states(&rows))
+            .await
+            .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
+    }
+
+    /// Load persisted circuit breaker states for all plugins (call at startup).
+    pub async fn load_circuit_breaker_states(
+        &self,
+    ) -> Result<Vec<crate::db::CircuitBreakerStateRow>> {
+        let db = self.inner.clone();
+        tokio::task::spawn_blocking(move || db.load_circuit_breaker_states())
+            .await
+            .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
+    }
+
     // --- Cache ---
 
     pub async fn lookup_cache(&self, key: &str) -> Result<Option<CacheEntry>> {
@@ -132,6 +175,14 @@ impl AsyncDatabase {
     pub async fn list_sessions(&self, limit: u32) -> Result<Vec<Session>> {
         let db = self.inner.clone();
         tokio::task::spawn_blocking(move || db.list_sessions(limit))
+            .await
+            .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
+    }
+
+    /// Set a session title only when none is stored yet (no-clobber).
+    pub async fn update_session_title(&self, id: uuid::Uuid, title: String) -> Result<()> {
+        let db = self.inner.clone();
+        tokio::task::spawn_blocking(move || db.update_session_title(id, &title))
             .await
             .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
     }
@@ -273,10 +324,7 @@ impl AsyncDatabase {
             .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
     }
 
-    pub async fn save_episode(
-        &self,
-        episode: &crate::memory::MemoryEpisode,
-    ) -> Result<()> {
+    pub async fn save_episode(&self, episode: &crate::memory::MemoryEpisode) -> Result<()> {
         let db = self.inner.clone();
         let episode = episode.clone();
         tokio::task::spawn_blocking(move || db.save_episode(&episode))
@@ -538,10 +586,7 @@ impl AsyncDatabase {
             .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
     }
 
-    pub async fn delete_structured_tasks_by_session(
-        &self,
-        session_id: String,
-    ) -> Result<u64> {
+    pub async fn delete_structured_tasks_by_session(&self, session_id: String) -> Result<u64> {
         let db = self.inner.clone();
         tokio::task::spawn_blocking(move || db.delete_structured_tasks_by_session(&session_id))
             .await
@@ -598,9 +643,51 @@ impl AsyncDatabase {
         .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
     }
 
+    // --- Model Quality Stats (Phase 4: cross-session ModelPerformanceTracker) ---
+
+    /// Persist accumulated model quality stats for a provider after a session message completes.
+    ///
+    /// Non-fatal: errors are logged but do not propagate — quality persistence is best-effort.
+    pub async fn save_model_quality_stats(
+        &self,
+        provider: &str,
+        stats: Vec<(String, u32, u32, f64)>,
+    ) -> Result<()> {
+        let db = self.inner.clone();
+        let provider = provider.to_string();
+        tokio::task::spawn_blocking(move || {
+            let conn = db.conn()?;
+            crate::db::model_quality::save_all_model_quality_stats(&conn, &provider, &stats)
+                .map_err(|e| HalconError::DatabaseError(e.to_string()))
+        })
+        .await
+        .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
+    }
+
+    /// Load model quality stats for a provider at session start for seeding ModelSelector.
+    ///
+    /// Returns Vec of (model_id, success_count, failure_count, total_reward) tuples.
+    pub async fn load_model_quality_stats(
+        &self,
+        provider: &str,
+    ) -> Result<Vec<(String, u32, u32, f64)>> {
+        let db = self.inner.clone();
+        let provider = provider.to_string();
+        tokio::task::spawn_blocking(move || {
+            let conn = db.conn()?;
+            crate::db::model_quality::load_model_quality_stats(&conn, &provider)
+                .map_err(|e| HalconError::DatabaseError(e.to_string()))
+        })
+        .await
+        .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
+    }
+
     // --- Permission Rules ---
 
-    pub async fn save_permission_rule(&self, rule: &halcon_core::types::PermissionRule) -> Result<()> {
+    pub async fn save_permission_rule(
+        &self,
+        rule: &halcon_core::types::PermissionRule,
+    ) -> Result<()> {
         let db = self.inner.clone();
         let rule = rule.clone();
         tokio::task::spawn_blocking(move || db.save_permission_rule(&rule))
@@ -608,7 +695,10 @@ impl AsyncDatabase {
             .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
     }
 
-    pub async fn update_permission_rule(&self, rule: &halcon_core::types::PermissionRule) -> Result<()> {
+    pub async fn update_permission_rule(
+        &self,
+        rule: &halcon_core::types::PermissionRule,
+    ) -> Result<()> {
         let db = self.inner.clone();
         let rule = rule.clone();
         tokio::task::spawn_blocking(move || db.update_permission_rule(&rule))
@@ -624,7 +714,10 @@ impl AsyncDatabase {
             .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
     }
 
-    pub async fn load_permission_rule(&self, rule_id: &str) -> Result<Option<halcon_core::types::PermissionRule>> {
+    pub async fn load_permission_rule(
+        &self,
+        rule_id: &str,
+    ) -> Result<Option<halcon_core::types::PermissionRule>> {
         let db = self.inner.clone();
         let rule_id = rule_id.to_string();
         tokio::task::spawn_blocking(move || db.load_permission_rule(&rule_id))
@@ -642,7 +735,10 @@ impl AsyncDatabase {
             .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
     }
 
-    pub async fn find_permission_rules_by_tool(&self, tool_name: &str) -> Result<Vec<halcon_core::types::PermissionRule>> {
+    pub async fn find_permission_rules_by_tool(
+        &self,
+        tool_name: &str,
+    ) -> Result<Vec<halcon_core::types::PermissionRule>> {
         let db = self.inner.clone();
         let tool_name = tool_name.to_string();
         tokio::task::spawn_blocking(move || db.find_permission_rules_by_tool(&tool_name))
@@ -657,12 +753,16 @@ impl AsyncDatabase {
     ) -> Result<Vec<halcon_core::types::PermissionRule>> {
         let db = self.inner.clone();
         let scope_value = scope_value.to_string();
-        tokio::task::spawn_blocking(move || db.find_permission_rules_by_scope_value(scope, &scope_value))
-            .await
-            .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
+        tokio::task::spawn_blocking(move || {
+            db.find_permission_rules_by_scope_value(scope, &scope_value)
+        })
+        .await
+        .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
     }
 
-    pub async fn load_all_permission_rules(&self) -> Result<Vec<halcon_core::types::PermissionRule>> {
+    pub async fn load_all_permission_rules(
+        &self,
+    ) -> Result<Vec<halcon_core::types::PermissionRule>> {
         let db = self.inner.clone();
         tokio::task::spawn_blocking(move || db.load_all_permission_rules())
             .await
@@ -674,6 +774,34 @@ impl AsyncDatabase {
         tokio::task::spawn_blocking(move || db.cleanup_expired_permission_rules())
             .await
             .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
+    }
+
+    // --- Runtime Metrics ---
+
+    /// Insert a runtime metric into the `runtime_metrics` table (fire-and-forget async).
+    pub async fn insert_runtime_metric(
+        &self,
+        metric_name: &str,
+        metric_type: &str,
+        metric_value: f64,
+        labels_json: Option<String>,
+        service_name: Option<&str>,
+    ) -> halcon_core::error::Result<()> {
+        let db = self.inner.clone();
+        let metric_name = metric_name.to_string();
+        let metric_type = metric_type.to_string();
+        let service_name = service_name.unwrap_or("agent_loop").to_string();
+        tokio::task::spawn_blocking(move || {
+            db.insert_runtime_metric_sync(
+                &metric_name,
+                &metric_type,
+                metric_value,
+                labels_json,
+                &service_name,
+            )
+        })
+        .await
+        .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
     }
 
     // --- Activity Search History (Phase 3 SRCH-004) ---
@@ -690,10 +818,11 @@ impl AsyncDatabase {
             db.save_search_history(&query, &search_mode, match_count, session_id.as_deref())
         })
         .await
-        .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            format!("spawn_blocking: {e}"),
-        ))))?
+        .map_err(|e| {
+            rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::other(format!(
+                "spawn_blocking: {e}"
+            ))))
+        })?
     }
 
     pub async fn load_search_history(
@@ -703,38 +832,254 @@ impl AsyncDatabase {
         let db = self.inner.clone();
         tokio::task::spawn_blocking(move || db.load_search_history(limit))
             .await
-            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("spawn_blocking: {e}"),
-            ))))?
+            .map_err(|e| {
+                rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::other(format!(
+                    "spawn_blocking: {e}"
+                ))))
+            })?
     }
 
     pub async fn get_recent_queries(&self, limit: usize) -> rusqlite::Result<Vec<String>> {
         let db = self.inner.clone();
         tokio::task::spawn_blocking(move || db.get_recent_queries(limit))
             .await
-            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("spawn_blocking: {e}"),
-            ))))?
+            .map_err(|e| {
+                rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::other(format!(
+                    "spawn_blocking: {e}"
+                ))))
+            })?
     }
 
     pub async fn clear_search_history(&self) -> rusqlite::Result<()> {
         let db = self.inner.clone();
         tokio::task::spawn_blocking(move || db.clear_search_history())
             .await
-            .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::new(
-                std::io::ErrorKind::Other,
-                format!("spawn_blocking: {e}"),
-            ))))?
+            .map_err(|e| {
+                rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::other(format!(
+                    "spawn_blocking: {e}"
+                ))))
+            })?
+    }
+
+    // ── Media Cache (M27) ────────────────────────────────────────────────────
+
+    /// Get a media analysis from the cache.
+    pub async fn get_media_cache(
+        &self,
+        content_hash: &str,
+    ) -> halcon_core::error::Result<Option<crate::media::MediaCacheEntry>> {
+        let db = self.inner.clone();
+        let hash = content_hash.to_owned();
+        tokio::task::spawn_blocking(move || db.get_media_cache(&hash))
+            .await
+            .map_err(|e| {
+                halcon_core::error::HalconError::Internal(format!("spawn_blocking: {e}"))
+            })?
+    }
+
+    /// Store a media analysis result in the cache.
+    pub async fn store_media_cache(
+        &self,
+        entry: &crate::media::MediaCacheEntry,
+    ) -> halcon_core::error::Result<()> {
+        let db = self.inner.clone();
+        let entry = entry.clone();
+        tokio::task::spawn_blocking(move || db.store_media_cache(&entry))
+            .await
+            .map_err(|e| {
+                halcon_core::error::HalconError::Internal(format!("spawn_blocking: {e}"))
+            })?
+    }
+
+    /// Evict expired media cache entries (older than TTL seconds).
+    pub async fn evict_expired_media_cache(
+        &self,
+        ttl_secs: u64,
+    ) -> halcon_core::error::Result<usize> {
+        let db = self.inner.clone();
+        tokio::task::spawn_blocking(move || db.evict_expired_media_cache(ttl_secs))
+            .await
+            .map_err(|e| {
+                halcon_core::error::HalconError::Internal(format!("spawn_blocking: {e}"))
+            })?
+    }
+
+    // ── Media Index (M28) ────────────────────────────────────────────────────
+
+    /// Store a media embedding in the index.
+    pub async fn store_media_index_entry(
+        &self,
+        entry: &crate::media::MediaIndexEntry,
+    ) -> halcon_core::error::Result<()> {
+        let db = self.inner.clone();
+        let entry = entry.clone();
+        tokio::task::spawn_blocking(move || db.store_media_index_entry(&entry))
+            .await
+            .map_err(|e| {
+                halcon_core::error::HalconError::Internal(format!("spawn_blocking: {e}"))
+            })?
+    }
+
+    /// Search media index by cosine similarity (linear scan, returns top-k).
+    pub async fn search_media_index(
+        &self,
+        query_embedding: Vec<f32>,
+        modality: Option<&str>,
+        top_k: usize,
+    ) -> halcon_core::error::Result<Vec<crate::media::MediaIndexEntry>> {
+        let db = self.inner.clone();
+        let modality = modality.map(|s| s.to_owned());
+        tokio::task::spawn_blocking(move || {
+            db.search_media_index(&query_embedding, modality.as_deref(), top_k)
+        })
+        .await
+        .map_err(|e| halcon_core::error::HalconError::Internal(format!("spawn_blocking: {e}")))?
+    }
+
+    // --- Palette Optimization History ---
+
+    /// Persist the result of an adaptive palette optimization run.
+    ///
+    /// Non-fatal: errors are logged but do not propagate to the caller.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn save_palette_optimization(
+        &self,
+        session_id: &str,
+        base_hue: f64,
+        initial_quality: f64,
+        final_quality: f64,
+        quality_delta: f64,
+        iterations: usize,
+        convergence_status: &str,
+        duration_ms: u64,
+        steps_json: &str,
+    ) -> Result<()> {
+        let db = self.inner.clone();
+        let session_id = session_id.to_string();
+        let convergence_status = convergence_status.to_string();
+        let steps_json = steps_json.to_string();
+        tokio::task::spawn_blocking(move || {
+            db.with_connection(|conn| {
+                crate::db::palette_optimization::save_palette_optimization(
+                    conn,
+                    &session_id,
+                    base_hue,
+                    initial_quality,
+                    final_quality,
+                    quality_delta,
+                    iterations,
+                    &convergence_status,
+                    duration_ms,
+                    &steps_json,
+                )
+            })
+        })
+        .await
+        .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
+        .map_err(|e| HalconError::DatabaseError(e.to_string()))
+    }
+
+    /// Load the best prior palette optimization for a hue bucket (±`tolerance_deg`).
+    ///
+    /// Returns `None` if no prior run exists for that hue range.
+    pub async fn load_best_palette_for_hue(
+        &self,
+        base_hue: f64,
+        tolerance_deg: f64,
+    ) -> Result<Option<crate::db::PaletteOptimizationRecord>> {
+        let db = self.inner.clone();
+        tokio::task::spawn_blocking(move || {
+            db.with_connection(|conn| {
+                crate::db::palette_optimization::load_best_palette_for_hue(
+                    conn,
+                    base_hue,
+                    tolerance_deg,
+                )
+            })
+        })
+        .await
+        .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
+        .map_err(|e| HalconError::DatabaseError(e.to_string()))
+    }
+
+    // --- Plugin System (M31) ---
+
+    /// Persist an installed plugin manifest record.
+    pub async fn save_installed_plugin(
+        &self,
+        plugin: crate::db::plugins::InstalledPlugin,
+    ) -> Result<()> {
+        let db = self.inner.clone();
+        tokio::task::spawn_blocking(move || {
+            db.save_installed_plugin(&plugin)
+                .map_err(|e| HalconError::DatabaseError(e.to_string()))
+        })
+        .await
+        .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
+    }
+
+    /// Load all installed plugin records.
+    pub async fn load_installed_plugins(&self) -> Result<Vec<crate::db::plugins::InstalledPlugin>> {
+        let db = self.inner.clone();
+        tokio::task::spawn_blocking(move || {
+            db.load_installed_plugins()
+                .map_err(|e| HalconError::DatabaseError(e.to_string()))
+        })
+        .await
+        .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
+    }
+
+    /// Persist plugin UCB1 metrics (fire-and-forget from session end).
+    pub async fn save_plugin_metrics(
+        &self,
+        metrics: Vec<crate::db::plugins::PluginMetricsRecord>,
+    ) -> Result<()> {
+        let db = self.inner.clone();
+        tokio::task::spawn_blocking(move || {
+            db.save_plugin_metrics(&metrics)
+                .map_err(|e| HalconError::DatabaseError(e.to_string()))
+        })
+        .await
+        .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
+    }
+
+    /// Load all plugin metrics records.
+    pub async fn load_plugin_metrics(
+        &self,
+    ) -> Result<Vec<crate::db::plugins::PluginMetricsRecord>> {
+        let db = self.inner.clone();
+        tokio::task::spawn_blocking(move || {
+            db.load_plugin_metrics()
+                .map_err(|e| HalconError::DatabaseError(e.to_string()))
+        })
+        .await
+        .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
+    }
+
+    // --- Phase 1: Loop Observability ---
+
+    /// Persist one structured loop event to `execution_loop_events` (Phase 1).
+    pub async fn save_loop_event(
+        &self,
+        session_id: String,
+        round: u32,
+        event_type: String,
+        event_json: String,
+    ) -> Result<()> {
+        let db = self.inner.clone();
+        tokio::task::spawn_blocking(move || {
+            db.save_loop_event(&session_id, round, &event_type, &event_json)
+        })
+        .await
+        .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use chrono::Utc;
     use crate::trace::TraceStepType;
+    use chrono::Utc;
     use sha2::{Digest, Sha256};
     use uuid::Uuid;
 
@@ -849,7 +1194,8 @@ mod tests {
     async fn async_db_load_session() {
         let adb = test_async_db();
 
-        let mut session = halcon_core::types::Session::new("model".into(), "provider".into(), "/tmp".into());
+        let mut session =
+            halcon_core::types::Session::new("model".into(), "provider".into(), "/tmp".into());
         session.tool_invocations = 5;
         session.agent_rounds = 3;
         session.total_latency_ms = 1500;
@@ -869,7 +1215,8 @@ mod tests {
     async fn resume_preserves_metrics() {
         let adb = test_async_db();
 
-        let mut session = halcon_core::types::Session::new("claude".into(), "anthropic".into(), "/home".into());
+        let mut session =
+            halcon_core::types::Session::new("claude".into(), "anthropic".into(), "/home".into());
         session.tool_invocations = 12;
         session.agent_rounds = 7;
         session.total_latency_ms = 5200;
@@ -931,7 +1278,8 @@ mod tests {
     async fn concurrent_save_does_not_corrupt() {
         let adb = test_async_db();
 
-        let mut session = halcon_core::types::Session::new("echo".into(), "echo".into(), "/tmp".into());
+        let mut session =
+            halcon_core::types::Session::new("echo".into(), "echo".into(), "/tmp".into());
         let id = session.id;
 
         // Save multiple times concurrently.
@@ -970,6 +1318,7 @@ mod tests {
             goal: "Fix the bug".into(),
             steps: vec![
                 halcon_core::traits::PlanStep {
+                    step_id: Uuid::new_v4(),
                     description: "Read the file".into(),
                     tool_name: Some("read_file".into()),
                     parallel: false,
@@ -978,6 +1327,7 @@ mod tests {
                     outcome: None,
                 },
                 halcon_core::traits::PlanStep {
+                    step_id: Uuid::new_v4(),
                     description: "Edit the file".into(),
                     tool_name: Some("edit_file".into()),
                     parallel: false,
@@ -990,6 +1340,7 @@ mod tests {
             plan_id: Uuid::new_v4(),
             replan_count: 0,
             parent_plan_id: None,
+            ..Default::default()
         };
 
         // Should succeed without error.
@@ -1012,6 +1363,7 @@ mod tests {
         let plan = halcon_core::traits::ExecutionPlan {
             goal: "Test outcome update".into(),
             steps: vec![halcon_core::traits::PlanStep {
+                step_id: Uuid::new_v4(),
                 description: "Step one".into(),
                 tool_name: Some("bash".into()),
                 parallel: false,
@@ -1023,6 +1375,7 @@ mod tests {
             plan_id,
             replan_count: 0,
             parent_plan_id: None,
+            ..Default::default()
         };
 
         adb.save_plan_steps(&session_id, &plan).await.unwrap();
@@ -1058,7 +1411,10 @@ mod tests {
         adb.insert_memory(&entry).await.unwrap();
 
         // Boost relevance via async wrapper.
-        let updated = adb.update_memory_relevance(entry.entry_id, 1.8).await.unwrap();
+        let updated = adb
+            .update_memory_relevance(entry.entry_id, 1.8)
+            .await
+            .unwrap();
         assert!(updated);
 
         // Verify via sync inner.
@@ -1116,8 +1472,77 @@ mod tests {
         adb.insert_resilience_event(&event).await.unwrap();
 
         // Verify via sync inner.
-        let events = adb.inner().resilience_events(Some("test"), None, 10).unwrap();
+        let events = adb
+            .inner()
+            .resilience_events(Some("test"), None, 10)
+            .unwrap();
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type, "breaker_transition");
+    }
+
+    // ─── New query method tests (FASE D) ─────────────────────────────────────
+
+    #[tokio::test]
+    async fn async_db_recent_tool_executions_empty_for_unknown_tool() {
+        let adb = test_async_db();
+        let rows = adb
+            .recent_tool_executions("no_such_tool".to_string(), 10)
+            .await
+            .unwrap();
+        assert!(rows.is_empty());
+    }
+
+    #[tokio::test]
+    async fn async_db_recent_tool_executions_returns_inserted_rows() {
+        let adb = test_async_db();
+        let metric = crate::metrics::ToolExecutionMetric {
+            tool_name: "bash".to_string(),
+            session_id: None,
+            duration_ms: 75,
+            success: true,
+            is_parallel: false,
+            input_summary: Some("echo hello".into()),
+            created_at: Utc::now(),
+        };
+        adb.insert_tool_metric(&metric).await.unwrap();
+
+        let rows = adb
+            .recent_tool_executions("bash".to_string(), 5)
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].tool_name, "bash");
+        assert_eq!(rows[0].duration_ms, 75);
+        assert!(rows[0].success);
+    }
+
+    #[tokio::test]
+    async fn async_db_events_per_second_zero_when_empty() {
+        let adb = test_async_db();
+        let eps = adb.events_per_second_last_60s().await.unwrap();
+        assert_eq!(eps, 0.0);
+    }
+
+    #[tokio::test]
+    async fn async_db_events_per_second_increases_after_insert() {
+        let adb = test_async_db();
+        let metric = InvocationMetric {
+            provider: "test".to_string(),
+            model: "m".to_string(),
+            latency_ms: 50,
+            input_tokens: 10,
+            output_tokens: 5,
+            estimated_cost_usd: 0.0,
+            success: true,
+            stop_reason: "end_turn".into(),
+            session_id: None,
+            created_at: Utc::now(),
+        };
+        adb.insert_metric(&metric).await.unwrap();
+        let eps = adb.events_per_second_last_60s().await.unwrap();
+        assert!(
+            eps > 0.0,
+            "eps should be > 0 after inserting a recent metric"
+        );
     }
 }

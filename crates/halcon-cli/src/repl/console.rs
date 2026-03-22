@@ -160,7 +160,11 @@ pub fn render_metrics(
         let t = theme::active();
         let r = theme::reset();
         let dim = t.palette.text_dim.fg();
-        let cached_color = if spec.hits > 0 { t.palette.cached.fg() } else { dim.clone() };
+        let cached_color = if spec.hits > 0 {
+            t.palette.cached.fg()
+        } else {
+            dim.clone()
+        };
         let _ = writeln!(out, "    {dim}Tool Speculation:{r}");
         let hit_rate = format!("{:.1}%", spec.hit_rate * 100.0);
         let latency = format!("{}ms", spec.latency_saved_ms);
@@ -180,11 +184,7 @@ pub fn render_metrics(
 }
 
 /// Render logs/trace timeline for a session.
-pub fn render_logs(
-    steps: &[TraceStep],
-    filter_task_id: Option<&str>,
-    out: &mut impl Write,
-) {
+pub fn render_logs(steps: &[TraceStep], filter_task_id: Option<&str>, out: &mut impl Write) {
     components::section_header("Trace Timeline", out);
 
     if steps.is_empty() {
@@ -262,15 +262,13 @@ pub fn inspect_memory(stats: Option<&MemoryStats>, episode_count: u64, out: &mut
 }
 
 /// Render database inspection.
-pub fn inspect_db(
-    db_info: Option<&[(String, String)]>,
-    out: &mut impl Write,
-) {
+pub fn inspect_db(db_info: Option<&[(String, String)]>, out: &mut impl Write) {
     components::section_header("Database", out);
 
     match db_info {
         Some(info) => {
-            let pairs: Vec<(&str, &str)> = info.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+            let pairs: Vec<(&str, &str)> =
+                info.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
             components::kv_table(&pairs, 4, out);
         }
         None => {
@@ -308,7 +306,11 @@ pub fn browse_trace(steps: &[TraceStep], out: &mut impl Write) {
     }
 
     components::section_header(
-        &format!("Trace: {} ({} steps)", &steps[0].session_id.to_string()[..8], steps.len()),
+        &format!(
+            "Trace: {} ({} steps)",
+            &steps[0].session_id.to_string()[..8],
+            steps.len()
+        ),
         out,
     );
 
@@ -358,11 +360,7 @@ pub fn render_plan(
         };
 
         let tool_str = tool.as_deref().unwrap_or("(none)");
-        let _ = writeln!(
-            out,
-            "    {badge} {}. {desc} {dim}[{tool_str}]{r}",
-            i + 1,
-        );
+        let _ = writeln!(out, "    {badge} {}. {desc} {dim}[{tool_str}]{r}", i + 1,);
     }
 }
 
@@ -500,8 +498,14 @@ pub fn diff_sessions(
     let _ = writeln!(out, "    {dim}{rule}{r}");
 
     for i in 0..max_rows {
-        let (ka, va) = session_a.get(i).map(|(k, v)| (k.as_str(), v.as_str())).unwrap_or(("", ""));
-        let (_, vb) = session_b.get(i).map(|(k, v)| (k.as_str(), v.as_str())).unwrap_or(("", ""));
+        let (ka, va) = session_a
+            .get(i)
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .unwrap_or(("", ""));
+        let (_, vb) = session_b
+            .get(i)
+            .map(|(k, v)| (k.as_str(), v.as_str()))
+            .unwrap_or(("", ""));
 
         let delta = if va != vb && !va.is_empty() && !vb.is_empty() {
             components::badge("!=", components::BadgeLevel::Warning)
@@ -509,10 +513,7 @@ pub fn diff_sessions(
             "  ".to_string()
         };
 
-        let _ = writeln!(
-            out,
-            "    {dim}{ka:<12}{r} {va:<14} {delta} {vb:<14}",
-        );
+        let _ = writeln!(out, "    {dim}{ka:<12}{r} {va:<14} {delta} {vb:<14}",);
     }
 }
 
@@ -587,7 +588,10 @@ pub fn render_benchmark(
         return;
     }
 
-    let pairs: Vec<(&str, &str)> = results.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
+    let pairs: Vec<(&str, &str)> = results
+        .iter()
+        .map(|(k, v)| (k.as_str(), v.as_str()))
+        .collect();
     components::kv_table(&pairs, 4, out);
 }
 
@@ -617,7 +621,7 @@ pub fn render_optimize(
 /// Render analysis: model/tool rankings and bottlenecks.
 pub fn render_analyze(
     model_rankings: &[(String, u64, f64, f64)], // (name, invocations, cost, avg_latency)
-    tool_rankings: &[(String, u64, f64, bool)],  // (name, executions, avg_duration, is_bottleneck)
+    tool_rankings: &[(String, u64, f64, bool)], // (name, executions, avg_duration, is_bottleneck)
     out: &mut impl Write,
 ) {
     components::section_header("Analysis", out);
@@ -643,7 +647,10 @@ pub fn render_analyze(
         let _ = writeln!(out, "    {dim}Tool Rankings (by usage):{r}");
         for (name, executions, avg_dur, is_bottleneck) in tool_rankings {
             let suffix = if *is_bottleneck {
-                format!(" {}", components::badge("BOTTLENECK", components::BadgeLevel::Error))
+                format!(
+                    " {}",
+                    components::badge("BOTTLENECK", components::BadgeLevel::Error)
+                )
             } else {
                 String::new()
             };
@@ -669,6 +676,7 @@ fn step_type_badge(step_type: TraceStepType) -> String {
         TraceStepType::ToolCall => components::badge("CALL", components::BadgeLevel::Warning),
         TraceStepType::ToolResult => components::badge("RES", components::BadgeLevel::Muted),
         TraceStepType::Error => components::badge("ERR", components::BadgeLevel::Error),
+        TraceStepType::LoopEvent => components::badge("EVT", components::BadgeLevel::Muted),
     }
 }
 
@@ -686,8 +694,14 @@ mod tests {
     fn render_status_basic() {
         let mut buf = capture();
         let info = StatusInfo {
-            session_id: "abc12345", rounds: 3, tokens: 1500, cost: 0.042,
-            provider: "echo", model: "echo", provider_diagnostics: &[], registered_models: &[],
+            session_id: "abc12345",
+            rounds: 3,
+            tokens: 1500,
+            cost: 0.042,
+            provider: "echo",
+            model: "echo",
+            provider_diagnostics: &[],
+            registered_models: &[],
         };
         render_status(&info, &mut buf);
         let output = String::from_utf8(buf).unwrap();
@@ -705,8 +719,14 @@ mod tests {
         ];
         let models = vec!["echo".to_string()];
         let info = StatusInfo {
-            session_id: "abc", rounds: 1, tokens: 100, cost: 0.0,
-            provider: "echo", model: "echo", provider_diagnostics: &diag, registered_models: &models,
+            session_id: "abc",
+            rounds: 1,
+            tokens: 100,
+            cost: 0.0,
+            provider: "echo",
+            model: "echo",
+            provider_diagnostics: &diag,
+            registered_models: &models,
         };
         render_status(&info, &mut buf);
         let output = String::from_utf8(buf).unwrap();
@@ -720,8 +740,14 @@ mod tests {
         let mut buf = capture();
         let models = vec!["echo".to_string(), "gpt-4o".to_string()];
         let info = StatusInfo {
-            session_id: "x", rounds: 0, tokens: 0, cost: 0.0,
-            provider: "echo", model: "echo", provider_diagnostics: &[], registered_models: &models,
+            session_id: "x",
+            rounds: 0,
+            tokens: 0,
+            cost: 0.0,
+            provider: "echo",
+            model: "echo",
+            provider_diagnostics: &[],
+            registered_models: &models,
         };
         render_status(&info, &mut buf);
         let output = String::from_utf8(buf).unwrap();
@@ -896,8 +922,16 @@ mod tests {
     fn render_plan_format() {
         let mut buf = capture();
         let steps = vec![
-            ("Read the file".to_string(), Some("read_file".to_string()), 0.9),
-            ("Edit the file".to_string(), Some("edit_file".to_string()), 0.6),
+            (
+                "Read the file".to_string(),
+                Some("read_file".to_string()),
+                0.9,
+            ),
+            (
+                "Edit the file".to_string(),
+                Some("edit_file".to_string()),
+                0.6,
+            ),
             ("Test".to_string(), None, 0.3),
         ];
         render_plan("plan-abc", "Fix the bug", &steps, &mut buf);
@@ -914,8 +948,13 @@ mod tests {
     fn render_replay_result_match() {
         let mut buf = capture();
         let info = ReplayInfo {
-            original_id: "aaa", replay_id: "bbb", original_fp: Some("fp1"),
-            replay_fp: "fp1", fp_match: true, rounds: 3, steps: 10,
+            original_id: "aaa",
+            replay_id: "bbb",
+            original_fp: Some("fp1"),
+            replay_fp: "fp1",
+            fp_match: true,
+            rounds: 3,
+            steps: 10,
         };
         render_replay_result(&info, &mut buf);
         let output = String::from_utf8(buf).unwrap();
@@ -928,8 +967,13 @@ mod tests {
     fn render_replay_result_mismatch() {
         let mut buf = capture();
         let info = ReplayInfo {
-            original_id: "aaa", replay_id: "bbb", original_fp: Some("fp1"),
-            replay_fp: "fp2", fp_match: false, rounds: 3, steps: 10,
+            original_id: "aaa",
+            replay_id: "bbb",
+            original_fp: Some("fp1"),
+            replay_fp: "fp2",
+            fp_match: false,
+            rounds: 3,
+            steps: 10,
         };
         render_replay_result(&info, &mut buf);
         let output = String::from_utf8(buf).unwrap();
@@ -963,8 +1007,14 @@ mod tests {
     #[test]
     fn diff_sessions_format() {
         let mut buf = capture();
-        let a = vec![("Messages".into(), "10".into()), ("Tokens".into(), "500".into())];
-        let b = vec![("Messages".into(), "12".into()), ("Tokens".into(), "500".into())];
+        let a = vec![
+            ("Messages".into(), "10".into()),
+            ("Tokens".into(), "500".into()),
+        ];
+        let b = vec![
+            ("Messages".into(), "12".into()),
+            ("Tokens".into(), "500".into()),
+        ];
         diff_sessions(&a, &b, &mut buf);
         let output = String::from_utf8(buf).unwrap();
         assert!(output.contains("Session Diff"));
@@ -1078,6 +1128,7 @@ mod tests {
             TraceStepType::ToolCall,
             TraceStepType::ToolResult,
             TraceStepType::Error,
+            TraceStepType::LoopEvent,
         ] {
             let badge = step_type_badge(st);
             assert!(!badge.is_empty());

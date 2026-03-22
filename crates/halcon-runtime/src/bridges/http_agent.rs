@@ -147,8 +147,7 @@ mod tests {
 
     #[tokio::test]
     async fn invoke_connection_refused() {
-        let agent =
-            HttpRemoteAgent::new("api", "http://127.0.0.1:19999/agent", None, vec![]);
+        let agent = HttpRemoteAgent::new("api", "http://127.0.0.1:19999/agent", None, vec![]);
         let req = AgentRequest::new("hello");
         let result = agent.invoke(req).await;
         assert!(result.is_err());
@@ -156,8 +155,7 @@ mod tests {
 
     #[tokio::test]
     async fn health_connection_refused() {
-        let agent =
-            HttpRemoteAgent::new("api", "http://127.0.0.1:19999/health", None, vec![]);
+        let agent = HttpRemoteAgent::new("api", "http://127.0.0.1:19999/health", None, vec![]);
         let health = agent.health().await;
         assert!(matches!(health, AgentHealth::Unavailable { .. }));
     }

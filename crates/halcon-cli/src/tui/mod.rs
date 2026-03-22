@@ -13,25 +13,25 @@ pub mod app;
 #[cfg(feature = "tui")]
 pub mod constants;
 #[cfg(feature = "tui")]
-pub mod input;
-#[cfg(feature = "tui")]
-pub mod layout;
-#[cfg(feature = "tui")]
-pub mod state;
-#[cfg(feature = "tui")]
-pub mod overlay;
-#[cfg(feature = "tui")]
 pub mod conversational_overlay;
 #[cfg(feature = "tui")]
-pub mod theme_bridge;
+pub mod highlight;
+#[cfg(feature = "tui")]
+pub mod input;
 #[cfg(feature = "tui")]
 pub mod input_state;
 #[cfg(feature = "tui")]
+pub mod layout;
+#[cfg(feature = "tui")]
+pub mod overlay;
+#[cfg(feature = "tui")]
 pub mod permission_context;
 #[cfg(feature = "tui")]
-pub mod transition_engine;
+pub mod state;
 #[cfg(feature = "tui")]
-pub mod highlight;
+pub mod theme_bridge;
+#[cfg(feature = "tui")]
+pub mod transition_engine;
 #[cfg(feature = "tui")]
 pub mod widgets;
 
@@ -41,11 +41,11 @@ pub mod activity_types;
 
 // Phase A1: SOTA Activity Architecture — Modular redesign
 #[cfg(feature = "tui")]
+pub mod activity_controller;
+#[cfg(feature = "tui")]
 pub mod activity_model;
 #[cfg(feature = "tui")]
 pub mod activity_navigator;
-#[cfg(feature = "tui")]
-pub mod activity_controller;
 
 // Phase A2: Virtual Scroll Optimization
 #[cfg(feature = "tui")]
@@ -54,3 +54,10 @@ pub mod activity_renderer;
 // Phase A3: Clipboard support
 #[cfg(feature = "tui")]
 pub mod clipboard;
+
+// Phase 99: /init wizard — background project analyzer
+pub mod project_analyzer;
+
+// Phase 93: Cross-Platform SOTA — platform detection for key labels
+#[cfg(feature = "tui")]
+pub mod platform;

@@ -12,12 +12,53 @@
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
 
+use crate::repl::domain::tool_result::ToolResultSource;
+
+/// Outcome of a completed tool execution.
+///
+/// Separating success, error, and denied as distinct variants lets the renderer
+/// apply the correct icon and color without boolean-flag ambiguity.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ToolOutcome {
+    /// Tool executed and returned a result.
+    Success,
+    /// Tool executed but returned an error result.
+    Error,
+    /// Tool was denied by the permission system before execution.
+    Denied,
+}
+
 /// Result of a completed tool execution.
 #[derive(Debug, Clone)]
 pub struct ToolResult {
     pub content: String,
-    pub is_error: bool,
+    pub outcome: ToolOutcome,
     pub duration_ms: u64,
+    /// Provenance of this result — real execution or governance-layer synthetic.
+    pub result_source: ToolResultSource,
+}
+
+/// Status of a sub-agent task (running, completed, failed).
+#[derive(Debug, Clone, PartialEq)]
+pub enum SubAgentStatus {
+    Running,
+    Success { latency_ms: u64 },
+    Failed { latency_ms: u64 },
+}
+
+/// The current phase the agent is executing (for skeleton/spinner overlay).
+#[derive(Debug, Clone, PartialEq)]
+pub enum AgentPhase {
+    /// LLM planning call — generating execution plan.
+    Planning,
+    /// Reasoning pre-loop — selecting optimal strategy via UCB1.
+    Reasoning,
+    /// Reflection LLM call — analyzing conversation quality.
+    Reflecting,
+    /// Search operation.
+    Searching,
+    /// Delegating to N sub-agents.
+    Delegating { count: usize },
 }
 
 /// A single line/block in the activity feed.
@@ -32,9 +73,15 @@ pub enum ActivityLine {
     /// Informational message (round separators, status, etc.).
     Info(String),
     /// Warning message with optional hint.
-    Warning { message: String, hint: Option<String> },
+    Warning {
+        message: String,
+        hint: Option<String>,
+    },
     /// Error message with optional hint.
-    Error { message: String, hint: Option<String> },
+    Error {
+        message: String,
+        hint: Option<String>,
+    },
     /// Visual separator between agent rounds.
     RoundSeparator(usize),
     /// Tool execution — shows skeleton while loading, result when done.
@@ -54,6 +101,31 @@ pub enum ActivityLine {
     /// Transient "waiting for model" indicator shown between prompt submit and first stream chunk.
     /// Removed automatically when the model starts streaming.
     AgentThinking,
+    /// Transient phase indicator showing a shimmer skeleton while an expensive LLM phase runs.
+    /// Removed automatically when the phase ends.
+    PhaseIndicator { phase: AgentPhase, label: String },
+    /// Orchestrator header line — shown once per wave above the sub-agent pills.
+    OrchestratorHeader {
+        task_count: usize,
+        wave_count: usize,
+    },
+    /// A delegated sub-agent task pill.
+    ///
+    /// `status` is `Running` while the agent executes; mutated to `Success`/`Failed` on completion.
+    /// `tools_used`, `rounds`, and `summary` are populated on completion.
+    SubAgentTask {
+        step_index: usize,
+        total_steps: usize,
+        description: String,
+        agent_type: String,
+        status: SubAgentStatus,
+        rounds: usize,
+        tools_used: Vec<String>,
+        summary: String,
+    },
+    /// Completed chain-of-thought bubble — dim, collapsible summary of model reasoning.
+    /// Persists in the activity feed after thinking ends.
+    ThinkingBubble { char_count: usize, preview: String },
 }
 
 impl ActivityLine {
@@ -98,7 +170,12 @@ impl ActivityLine {
                 s
             }
             ActivityLine::RoundSeparator(n) => format!("Round {n}"),
-            ActivityLine::ToolExec { name, input_preview, result, .. } => {
+            ActivityLine::ToolExec {
+                name,
+                input_preview,
+                result,
+                ..
+            } => {
                 let mut s = format!("{name} {input_preview}");
                 if let Some(r) = result {
                     s.push(' ');
@@ -108,6 +185,31 @@ impl ActivityLine {
             }
             ActivityLine::PlanOverview { goal, .. } => goal.clone(),
             ActivityLine::AgentThinking => String::new(),
+            ActivityLine::PhaseIndicator { label, .. } => label.clone(),
+            ActivityLine::OrchestratorHeader {
+                task_count,
+                wave_count,
+            } => {
+                format!("orchestrator {task_count} tasks wave {wave_count}")
+            }
+            ActivityLine::SubAgentTask {
+                description,
+                tools_used,
+                summary,
+                ..
+            } => {
+                let mut s = description.clone();
+                if !tools_used.is_empty() {
+                    s.push(' ');
+                    s.push_str(&tools_used.join(" "));
+                }
+                if !summary.is_empty() {
+                    s.push(' ');
+                    s.push_str(summary);
+                }
+                s
+            }
+            ActivityLine::ThinkingBubble { preview, .. } => preview.clone(),
         }
     }
 }
@@ -116,22 +218,24 @@ impl ActivityLine {
 
 /// Render a single line of text with markdown formatting.
 /// Accepts palette colors to avoid hardcoded Color:: values.
-pub fn render_md_line(text: &str, c_text: Color, c_accent: Color, c_warning: Color, c_muted: Color) -> Line<'static> {
+pub fn render_md_line(
+    text: &str,
+    c_text: Color,
+    c_accent: Color,
+    c_warning: Color,
+    c_muted: Color,
+) -> Line<'static> {
     // Headers
     if let Some(rest) = text.strip_prefix("### ") {
         return Line::from(Span::styled(
             rest.to_string(),
-            Style::default()
-                .fg(c_text)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(c_text).add_modifier(Modifier::BOLD),
         ));
     }
     if let Some(rest) = text.strip_prefix("## ") {
         return Line::from(Span::styled(
             rest.to_string(),
-            Style::default()
-                .fg(c_accent)
-                .add_modifier(Modifier::BOLD),
+            Style::default().fg(c_accent).add_modifier(Modifier::BOLD),
         ));
     }
     if let Some(rest) = text.strip_prefix("# ") {
@@ -158,9 +262,7 @@ pub fn render_md_line(text: &str, c_text: Color, c_accent: Color, c_warning: Col
         spans.extend(parse_md_spans(rest, c_warning).into_iter().map(|s| {
             Span::styled(
                 s.content,
-                s.style
-                    .fg(c_muted)
-                    .add_modifier(Modifier::ITALIC),
+                s.style.fg(c_muted).add_modifier(Modifier::ITALIC),
             )
         }));
         return Line::from(spans);

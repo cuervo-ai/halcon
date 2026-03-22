@@ -1,0 +1,1352 @@
+#!/usr/bin/env sh
+# Halcón CLI installer
+# Usage: curl -sSfL https://halcon.cuervo.cloud/install.sh | sh
+# Or:    curl -sSfL https://halcon.cuervo.cloud/install.sh | sh -s -- --version v0.3.0
+set -e
+
+HALCON_VERSION="${HALCON_VERSION:-latest}"
+RELEASES_URL="${HALCON_RELEASES_URL:-https://releases.cli.cuervo.cloud}"
+MANIFEST_URL="${RELEASES_URL}/latest/manifest.json"
+INSTALL_DIR="${HALCON_INSTALL_DIR:-}"
+BINARY_NAME="halcon"
+
+# ─── Colors ────────────────────────────────────────────────────────────────
+if [ -t 1 ] && command -v tput >/dev/null 2>&1; then
+    RED="$(tput setaf 1)"
+    GREEN="$(tput setaf 2)"
+    YELLOW="$(tput setaf 3)"
+    CYAN="$(tput setaf 6)"
+    BOLD="$(tput bold)"
+    RESET="$(tput sgr0)"
+else
+    RED="" GREEN="" YELLOW="" CYAN="" BOLD="" RESET=""
+fi
+
+info()  { printf "${CYAN}  →${RESET} %s\n" "$*"; }
+ok()    { printf "${GREEN}  ✓${RESET} %s\n" "$*"; }
+warn()  { printf "${YELLOW}  !${RESET} %s\n" "$*" >&2; }
+error() { printf "${RED}  ✗${RESET} %s\n" "$*" >&2; exit 1; }
+
+# ─── Parse args ────────────────────────────────────────────────────────────
+parse_args() {
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --version) HALCON_VERSION="$2"; shift 2 ;;
+            --dir)     INSTALL_DIR="$2";    shift 2 ;;
+            --help|-h)
+                printf "Halcon CLI Installer\n\n"
+                printf "Options:\n"
+                printf "  --version VERSION   Install specific version (default: latest)\n"
+                printf "  --dir DIR           Install directory (default: auto-detected)\n"
+                printf "\nExamples:\n"
+                printf "  curl -sSfL https://halcon.cuervo.cloud/install.sh | sh\n"
+                printf "  curl -sSfL https://halcon.cuervo.cloud/install.sh | sh -s -- --version v0.3.0\n"
+                printf "  curl -sSfL https://halcon.cuervo.cloud/install.sh | sh -s -- --dir /usr/local/bin\n"
+                exit 0 ;;
+            *) error "Unknown argument: $1" ;;
+        esac
+    done
+}
+
+# ─── Platform detection ─────────────────────────────────────────────────────
+detect_platform() {
+    OS="$(uname -s)"
+    ARCH="$(uname -m)"
+
+    case "$OS" in
+        Linux)
+            # Detect musl vs glibc — musl has no /lib/ld-linux* but has /lib/ld-musl*
+            # or ldd reports "musl" in version output
+            _IS_MUSL=0
+            if ldd --version 2>&1 | grep -qi musl; then
+                _IS_MUSL=1
+            elif ls /lib/ld-musl* >/dev/null 2>&1; then
+                _IS_MUSL=1
+            fi
+            case "$ARCH" in
+                x86_64)  TARGET="x86_64-unknown-linux-musl" ;;  # always musl for x86_64 (static binary)
+                aarch64|arm64)
+                    if [ "$_IS_MUSL" = "1" ]; then
+                        TARGET="aarch64-unknown-linux-musl"
+                    else
+                        TARGET="aarch64-unknown-linux-gnu"
+                    fi
+                    ;;
+                armv7l)  TARGET="armv7-unknown-linux-musleabihf" ;;
+                *) error "Unsupported Linux architecture: $ARCH" ;;
+            esac
+            EXT="tar.gz"
+            ;;
+        Darwin)
+            case "$ARCH" in
+                x86_64)  TARGET="x86_64-apple-darwin" ;;
+                arm64)   TARGET="aarch64-apple-darwin" ;;
+                *) error "Unsupported macOS architecture: $ARCH" ;;
+            esac
+            EXT="tar.gz"
+            ;;
+        *) error "Unsupported OS: $OS. Use install.ps1 on Windows." ;;
+    esac
+
+    info "Platform: ${OS} ${ARCH} → ${TARGET}"
+}
+
+# ─── Install directory resolution ──────────────────────────────────────────
+# Finds a writable install directory, fixing ownership if needed.
+# Priority: user-specified > ~/.local/bin > ~/bin > /usr/local/bin
+resolve_install_dir() {
+    # If user explicitly specified --dir, honor it (create + fail loudly if unwritable)
+    if [ -n "$INSTALL_DIR" ]; then
+        _ensure_writable_dir "$INSTALL_DIR" || \
+            error "Cannot write to --dir '${INSTALL_DIR}'. Check permissions."
+        return
+    fi
+
+    # Candidates in preference order
+    for candidate in \
+        "$HOME/.local/bin" \
+        "$HOME/bin" \
+        "/usr/local/bin"
+    do
+        if _ensure_writable_dir "$candidate" 2>/dev/null; then
+            INSTALL_DIR="$candidate"
+            return
+        fi
+    done
+
+    error "No writable install directory found. Try: --dir \$HOME/bin"
+}
+
+# Returns 0 if dir is (or can be made) writable by the current user.
+# Fixes root-owned directories under $HOME by reclaiming ownership.
+_ensure_writable_dir() {
+    local dir="$1"
+
+    # Does it exist?
+    if [ -d "$dir" ]; then
+        # Writable already → done
+        if [ -w "$dir" ]; then
+            return 0
+        fi
+
+        # Under $HOME and owned by root? Reclaim it.
+        case "$dir" in
+            "$HOME"*)
+                _dir_owner="$(ls -ld "$dir" 2>/dev/null | awk '{print $3}')"
+                if [ "$_dir_owner" = "root" ]; then
+                    warn "Fixing ownership of ${dir} (was owned by root from a previous sudo install)"
+                    if command -v sudo >/dev/null 2>&1; then
+                        sudo chown "$(id -un)" "$dir" 2>/dev/null && return 0
+                    fi
+                fi
+                ;;
+        esac
+        return 1
+    fi
+
+    # Does not exist — try to create it
+    if mkdir -p "$dir" 2>/dev/null; then
+        return 0
+    fi
+
+    # Under $HOME it might need a sudo mkdir if a parent is root-owned
+    case "$dir" in
+        "$HOME"*)
+            if command -v sudo >/dev/null 2>&1; then
+                sudo mkdir -p "$dir" 2>/dev/null && \
+                sudo chown "$(id -un)" "$dir" 2>/dev/null && \
+                return 0
+            fi
+            ;;
+    esac
+
+    return 1
+}
+
+# ─── Download helpers ───────────────────────────────────────────────────────
+download() {
+    local url="$1"
+    local dest="$2"
+    if command -v curl >/dev/null 2>&1; then
+        curl -sSfL --retry 3 --retry-delay 2 -o "$dest" "$url"
+    elif command -v wget >/dev/null 2>&1; then
+        wget -q --tries=3 -O "$dest" "$url"
+    else
+        error "Neither curl nor wget found. Install one and retry."
+    fi
+}
+
+# ─── SHA-256 verification ───────────────────────────────────────────────────
+verify_sha256() {
+    local file="$1"
+    local expected="$2"
+
+    if command -v sha256sum >/dev/null 2>&1; then
+        actual="$(sha256sum "$file" | cut -d' ' -f1)"
+    elif command -v shasum >/dev/null 2>&1; then
+        actual="$(shasum -a 256 "$file" | cut -d' ' -f1)"
+    else
+        warn "Cannot verify SHA-256: sha256sum/shasum not found"
+        return 0
+    fi
+
+    if [ "$actual" != "$expected" ]; then
+        error "SHA-256 mismatch!\n  Expected: $expected\n  Got:      $actual"
+    fi
+    ok "SHA-256 verified"
+}
+
+# ─── PATH configuration ──────────────────────────────────────────────────────
+configure_path() {
+    local dir="$1"
+
+    # Already in PATH
+    case ":${PATH}:" in
+        *":${dir}:"*)
+            ok "Already in PATH — no shell config change needed"
+            return
+            ;;
+    esac
+
+    local export_line="export PATH=\"\$PATH:${dir}\""
+    local rc_file=""
+
+    SHELL_NAME="$(basename "${SHELL:-sh}")"
+    case "$SHELL_NAME" in
+        zsh)  rc_file="$HOME/.zshrc" ;;
+        bash) rc_file="$HOME/.bashrc" ;;
+        fish)
+            rc_file="$HOME/.config/fish/config.fish"
+            export_line="fish_add_path ${dir}"
+            ;;
+        *)    rc_file="$HOME/.profile" ;;
+    esac
+
+    # Create rc file if it doesn't exist
+    if [ ! -f "$rc_file" ]; then
+        mkdir -p "$(dirname "$rc_file")" 2>/dev/null || true
+        touch "$rc_file" 2>/dev/null || true
+    fi
+
+    if [ -f "$rc_file" ] && grep -qF "$dir" "$rc_file" 2>/dev/null; then
+        ok "PATH already in ${rc_file}"
+    elif [ -w "$rc_file" ] || [ -w "$(dirname "$rc_file")" ]; then
+        printf '\n# Halcon CLI\n%s\n' "$export_line" >> "$rc_file"
+        ok "PATH added to ${rc_file}"
+    else
+        warn "Could not update ${rc_file} — add manually:"
+        warn "  ${export_line}"
+    fi
+
+    printf "\n${YELLOW}  To use halcon in this terminal session:${RESET}\n"
+    printf "    ${BOLD}export PATH=\"\$PATH:${dir}\"${RESET}\n"
+}
+
+# ─── Main ────────────────────────────────────────────────────────────────────
+main() {
+    parse_args "$@"
+    detect_platform
+
+    printf "\n${BOLD}  Halcon CLI Installer${RESET}\n"
+    printf "  ──────────────────────\n\n"
+
+    TMPDIR_WORK="$(mktemp -d)"
+    trap 'rm -rf "$TMPDIR_WORK"' EXIT
+
+    # ─── Resolve version ────────────────────────────────────────────────────
+    REQUESTED_VERSION="$(printf '%s' "$HALCON_VERSION" | sed 's/^v//')"
+
+    if [ "$REQUESTED_VERSION" = "latest" ]; then
+        info "Fetching release manifest..."
+        MANIFEST_FILE="$TMPDIR_WORK/manifest.json"
+        download "$MANIFEST_URL" "$MANIFEST_FILE"
+
+        if grep -q '"error"' "$MANIFEST_FILE" 2>/dev/null; then
+            ERR="$(grep -o '"error": *"[^"]*"' "$MANIFEST_FILE" | sed 's/.*"\([^"]*\)".*/\1/')"
+            error "Release API error: ${ERR}. Check https://releases.cli.cuervo.cloud/health"
+        fi
+
+        VERSION="$(grep -o '"version": *"[^"]*"' "$MANIFEST_FILE" | head -1 | sed 's/.*"\([^"]*\)".*/\1/')"
+        if [ -z "$VERSION" ]; then
+            error "Failed to parse version from manifest"
+        fi
+        info "Latest version: ${VERSION}"
+    else
+        VERSION="$REQUESTED_VERSION"
+        info "Installing version: ${VERSION}"
+    fi
+
+    # ─── Resolve install directory ───────────────────────────────────────────
+    resolve_install_dir
+    info "Install directory: ${INSTALL_DIR}"
+
+    # ─── Build artifact name & URLs ──────────────────────────────────────────
+    ARTIFACT_NAME="halcon-${VERSION}-${TARGET}.${EXT}"
+    if [ "$REQUESTED_VERSION" = "latest" ]; then
+        DOWNLOAD_URL="${RELEASES_URL}/latest/${ARTIFACT_NAME}"
+        CS_URL="${RELEASES_URL}/latest/checksums.txt"
+        GITHUB_URL="https://github.com/cuervo-ai/halcon-cli/releases/latest"
+    else
+        DOWNLOAD_URL="${RELEASES_URL}/v${VERSION}/${ARTIFACT_NAME}"
+        CS_URL="${RELEASES_URL}/v${VERSION}/checksums.txt"
+        GITHUB_URL="https://github.com/cuervo-ai/halcon-cli/releases/tag/v${VERSION}"
+    fi
+
+    # ─── Check artifact is listed in manifest (fast-fail before download) ───
+    # We already have the manifest if REQUESTED_VERSION=latest; fetch it for
+    # specific versions too so we can give a helpful error.
+    if [ -z "${MANIFEST_FILE:-}" ]; then
+        MANIFEST_FILE="$TMPDIR_WORK/manifest.json"
+        _MURL="${RELEASES_URL}/v${VERSION}/manifest.json"
+        download "$_MURL" "$MANIFEST_FILE" 2>/dev/null || true
+    fi
+    if [ -f "$MANIFEST_FILE" ] && ! grep -q "\"${ARTIFACT_NAME}\"" "$MANIFEST_FILE" 2>/dev/null; then
+        printf "\n${RED}  ✗${RESET} No pre-built binary for ${BOLD}${OS} ${ARCH}${RESET} (${TARGET}) in v${VERSION}.\n" >&2
+        printf "\n  Available artifacts in this release:\n" >&2
+        grep -o '"name": *"[^"]*"' "$MANIFEST_FILE" | sed 's/.*"\([^"]*\)".*/    • \1/' >&2 || true
+        printf "\n  ${YELLOW}Install via script (recommended):${RESET}\n" >&2
+        printf "    — Wait for the next release which may include your platform, or\n" >&2
+        printf "    — Build from source: https://github.com/cuervo-ai/halcon-cli\n" >&2
+        printf "    — Check available releases: ${GITHUB_URL}\n\n" >&2
+        exit 1
+    fi
+
+    # ─── Fetch SHA-256 ──────────────────────────────────────────────────────
+    EXPECTED_SHA=""
+    CS_FILE="$TMPDIR_WORK/checksums.txt"
+    if download "$CS_URL" "$CS_FILE" 2>/dev/null; then
+        EXPECTED_SHA="$(grep "${ARTIFACT_NAME}" "$CS_FILE" | awk '{print $1}' | head -1)"
+    fi
+
+    # ─── Download artifact ──────────────────────────────────────────────────
+    info "Downloading ${ARTIFACT_NAME}..."
+    ARCHIVE_FILE="$TMPDIR_WORK/${ARTIFACT_NAME}"
+    download "$DOWNLOAD_URL" "$ARCHIVE_FILE" || \
+        error "Download failed. Check available artifacts: ${GITHUB_URL}"
+    ok "Downloaded ($(du -sh "$ARCHIVE_FILE" | cut -f1))"
+
+    # ─── Verify SHA-256 ─────────────────────────────────────────────────────
+    if [ -n "$EXPECTED_SHA" ]; then
+        info "Verifying SHA-256..."
+        verify_sha256 "$ARCHIVE_FILE" "$EXPECTED_SHA"
+    else
+        warn "SHA-256 not available, skipping verification"
+    fi
+
+    # ─── Extract binary ─────────────────────────────────────────────────────
+    info "Extracting..."
+    EXTRACT_DIR="$TMPDIR_WORK/extract"
+    mkdir -p "$EXTRACT_DIR"
+    tar xzf "$ARCHIVE_FILE" -C "$EXTRACT_DIR"
+
+    BINARY_SRC=""
+    for candidate in \
+        "$EXTRACT_DIR/${BINARY_NAME}" \
+        "$EXTRACT_DIR/halcon-${VERSION}-${TARGET}/${BINARY_NAME}" \
+        "$EXTRACT_DIR/${BINARY_NAME}-${VERSION}-${TARGET}/${BINARY_NAME}"
+    do
+        if [ -f "$candidate" ]; then
+            BINARY_SRC="$candidate"
+            break
+        fi
+    done
+
+    if [ -z "$BINARY_SRC" ]; then
+        BINARY_SRC="$(find "$EXTRACT_DIR" -name "${BINARY_NAME}" -type f 2>/dev/null | head -1)"
+    fi
+
+    if [ -z "$BINARY_SRC" ]; then
+        error "Binary '${BINARY_NAME}' not found in archive. Contents: $(ls -la "$EXTRACT_DIR" 2>/dev/null)"
+    fi
+
+    # ─── Install ─────────────────────────────────────────────────────────────
+    DEST="${INSTALL_DIR}/${BINARY_NAME}"
+    chmod +x "$BINARY_SRC"
+
+    # Remove existing binary first — if it's root-owned the cp would fail,
+    # but rm succeeds as long as the parent directory is user-writable.
+    rm -f "$DEST" 2>/dev/null || true
+
+    # Use cp instead of mv — avoids cross-device and permission edge cases
+    if cp "$BINARY_SRC" "$DEST" 2>/dev/null; then
+        ok "Installed to ${DEST}"
+    else
+        # Last resort: try with sudo (only for system dirs like /usr/local/bin)
+        case "$INSTALL_DIR" in
+            /usr/local/bin|/usr/bin|/opt/*)
+                if command -v sudo >/dev/null 2>&1; then
+                    warn "Using sudo to install to ${INSTALL_DIR}"
+                    sudo cp "$BINARY_SRC" "$DEST" && sudo chmod +x "$DEST" || \
+                        error "Installation failed — try: --dir \$HOME/bin"
+                    ok "Installed to ${DEST} (via sudo)"
+                else
+                    error "Cannot write to ${INSTALL_DIR} and sudo not available. Try: --dir \$HOME/bin"
+                fi
+                ;;
+            *)
+                error "Cannot write to ${INSTALL_DIR}. Try: curl ... | sh -s -- --dir \$HOME/bin"
+                ;;
+        esac
+    fi
+
+    # ─── Verify installation ─────────────────────────────────────────────────
+    if "${DEST}" --version >/dev/null 2>&1; then
+        ok "Halcon CLI ${VERSION} ready"
+    else
+        warn "Binary installed but could not verify — may need PATH update"
+    fi
+
+    # ─── PATH configuration ──────────────────────────────────────────────────
+    configure_path "$INSTALL_DIR"
+
+    # ─── Full-capacity configuration ─────────────────────────────────────────
+    configure_halcon
+
+    # ─── Smart API key detection ──────────────────────────────────────────────
+    detect_and_save_api_keys "$DEST"
+
+    # ─── Provider readiness summary ───────────────────────────────────────────
+    show_provider_status "$DEST"
+
+    printf "\n${GREEN}${BOLD}  Installation complete!${RESET}\n"
+    printf "\n  ${BOLD}Start chatting:${RESET}\n"
+    printf "    ${BOLD}halcon chat --tui --full --expert${RESET}\n"
+    printf "    ${BOLD}halcon -p openai    chat${RESET}\n"
+    printf "    ${BOLD}halcon -p deepseek  chat${RESET}   ${CYAN}# cheapest${RESET}\n"
+    printf "\n  ${BOLD}Add a missing key anytime:${RESET}\n"
+    printf "    ${BOLD}halcon auth login anthropic${RESET}\n\n"
+}
+
+# ─── Smart API key detection and storage ─────────────────────────────────────
+# Checks well-known env vars (ANTHROPIC_API_KEY, OPENAI_API_KEY, etc.).
+# On macOS: persists found keys to the OS keychain so they survive new shells.
+# On Linux: writes a sourced credentials file (~/.halcon/.env) with 0600 perms.
+# Skips any provider whose key is already saved (idempotent).
+detect_and_save_api_keys() {
+    _halcon_bin="${1:-halcon}"
+    _HALCON_CRED_FILE="$HOME/.halcon/.env"
+
+    printf "\n  ${BOLD}Detecting API keys...${RESET}\n"
+
+    # provider name | env var name | keychain account
+    # (keychain account matches what halcon-auth uses: {provider}_api_key)
+    _PROVIDERS="anthropic:ANTHROPIC_API_KEY:anthropic_api_key openai:OPENAI_API_KEY:openai_api_key deepseek:DEEPSEEK_API_KEY:deepseek_api_key gemini:GEMINI_API_KEY:gemini_api_key"
+
+    _FOUND_ANY=0
+    for _entry in $_PROVIDERS; do
+        _prov="${_entry%%:*}"
+        _rest="${_entry#*:}"
+        _envvar="${_rest%%:*}"
+        _acct="${_rest#*:}"
+
+        # Read the key from the env var.
+        eval "_key=\${${_envvar}:-}"
+        [ -z "$_key" ] && continue
+
+        # Check if already stored (avoid writing twice).
+        _already=0
+        _OS_NOW="$(uname -s)"
+        if [ "$_OS_NOW" = "Darwin" ]; then
+            security find-generic-password -s "halcon-cli" -a "$_acct" >/dev/null 2>&1 && _already=1
+        else
+            grep -qs "^${_envvar}=" "$_HALCON_CRED_FILE" 2>/dev/null && _already=1
+        fi
+
+        if [ "$_already" = "1" ]; then
+            ok "${_prov}: key already stored — skipping"
+            _FOUND_ANY=1
+            continue
+        fi
+
+        # Store the key.
+        if [ "$_OS_NOW" = "Darwin" ]; then
+            security add-generic-password -s "halcon-cli" -a "$_acct" -w "$_key" -U 2>/dev/null \
+                && ok "${_prov}: API key saved to macOS keychain" \
+                || warn "${_prov}: failed to save to keychain — set ${_envvar} in your shell profile"
+        else
+            # Linux: append to ~/.halcon/.env (sourced by shell profile below)
+            mkdir -p "$HOME/.halcon"
+            printf 'export %s="%s"\n' "$_envvar" "$_key" >> "$_HALCON_CRED_FILE"
+            chmod 0600 "$_HALCON_CRED_FILE"
+            ok "${_prov}: API key saved to ${_HALCON_CRED_FILE}"
+        fi
+        _FOUND_ANY=1
+    done
+
+    if [ "$_FOUND_ANY" = "0" ]; then
+        info "No API key env vars detected — use 'halcon auth login <provider>' to add one"
+    fi
+
+    # Linux: inject the credential file sourcing into shell profiles (idempotent)
+    _OS_NOW2="$(uname -s)"
+    if [ "$_OS_NOW2" != "Darwin" ] && [ -f "$_HALCON_CRED_FILE" ]; then
+        _CRED_LINE=". \"\$HOME/.halcon/.env\" 2>/dev/null || true"
+        for _prof in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile"; do
+            [ -f "$_prof" ] || continue
+            grep -qF ".halcon/.env" "$_prof" 2>/dev/null && continue
+            printf '\n# Halcón CLI credentials\n%s\n' "$_CRED_LINE" >> "$_prof"
+            ok "Added credential sourcing to ${_prof}"
+        done
+    fi
+}
+
+# ─── Provider readiness table ─────────────────────────────────────────────────
+# Runs `halcon auth status` and prints a formatted provider readiness table.
+# If a provider is ready and the binary is accessible, runs a quick ping test.
+show_provider_status() {
+    _halcon_bin="${1:-halcon}"
+
+    # Only proceed if binary is executable (PATH may not be refreshed yet)
+    if ! command -v "$_halcon_bin" >/dev/null 2>&1 && ! [ -x "$_halcon_bin" ]; then
+        return
+    fi
+
+    printf "\n  ${BOLD}Provider status:${RESET}\n"
+
+    # Parse `halcon auth status` output
+    _status_out="$("$_halcon_bin" auth status 2>/dev/null)" || _status_out=""
+    if [ -z "$_status_out" ]; then
+        warn "Could not read provider status"
+        return
+    fi
+
+    printf "%s\n" "$_status_out" | while IFS= read -r _line; do
+        case "$_line" in
+            *"anthropic:"*|*"openai:"*|*"deepseek:"*|*"gemini:"*|*"ollama:"*)
+                # "not set" → ○, anything else → ✓
+                case "$_line" in
+                    *"not set"*) _icon="  ○" ;;
+                    *)           _icon="  ${GREEN}✓${RESET}" ;;
+                esac
+                printf "%s %s\n" "$_icon" "$_line" ;;
+        esac
+    done
+
+    # Quick connectivity smoke-test with the first ready provider
+    # Detect which provider is configured (ordered by preference)
+    # Verify every configured provider via direct curl probe.
+    # No halcon overhead, no model downloads — just an auth check (<1s per call).
+    printf "\n  ${BOLD}Verifying API keys...${RESET}\n"
+    _any_verified=0
+
+    # Helper: resolve key from env var, then macOS keychain, then ~/.halcon/.env
+    _resolve_key() {
+        _rv_envvar="$1"; _rv_acct="$2"
+        eval "_rv_val=\${${_rv_envvar}:-}"
+        [ -n "$_rv_val" ] && { printf '%s' "$_rv_val"; return; }
+        _rv_kc="$(security find-generic-password -s "halcon-cli" -a "$_rv_acct" -w 2>/dev/null)" || true
+        [ -n "$_rv_kc" ] && { printf '%s' "$_rv_kc"; return; }
+        if [ -f "$HOME/.halcon/.env" ]; then
+            _rv_file="$(grep "^export ${_rv_envvar}=" "$HOME/.halcon/.env" 2>/dev/null \
+                | head -1 | sed "s/^export ${_rv_envvar}=\"\(.*\)\"/\1/")" || true
+            [ -n "$_rv_file" ] && printf '%s' "$_rv_file"
+        fi
+    }
+
+    if command -v curl >/dev/null 2>&1; then
+        # Anthropic
+        _k="$(_resolve_key ANTHROPIC_API_KEY anthropic_api_key)"
+        if [ -n "$_k" ]; then
+            _h="$(curl -sf -o /dev/null -w "%{http_code}" --max-time 10 \
+                -H "x-api-key: $_k" -H "anthropic-version: 2023-06-01" \
+                https://api.anthropic.com/v1/models 2>/dev/null)" || _h=0
+            case "$_h" in
+                200) ok "anthropic: HTTP 200 — key valid" ; _any_verified=1 ;;
+                401) warn "anthropic: HTTP 401 — key rejected by API" ;;
+                *)   warn "anthropic: HTTP ${_h} — could not reach API" ;;
+            esac
+        fi
+
+        # OpenAI
+        _k="$(_resolve_key OPENAI_API_KEY openai_api_key)"
+        if [ -n "$_k" ]; then
+            _h="$(curl -sf -o /dev/null -w "%{http_code}" --max-time 10 \
+                -H "Authorization: Bearer $_k" \
+                https://api.openai.com/v1/models 2>/dev/null)" || _h=0
+            case "$_h" in
+                200) ok "openai: HTTP 200 — key valid" ; _any_verified=1 ;;
+                401) warn "openai: HTTP 401 — key rejected by API" ;;
+                *)   warn "openai: HTTP ${_h} — could not reach API" ;;
+            esac
+        fi
+
+        # DeepSeek
+        _k="$(_resolve_key DEEPSEEK_API_KEY deepseek_api_key)"
+        if [ -n "$_k" ]; then
+            _h="$(curl -sf -o /dev/null -w "%{http_code}" --max-time 10 \
+                -H "Authorization: Bearer $_k" \
+                https://api.deepseek.com/models 2>/dev/null)" || _h=0
+            case "$_h" in
+                200) ok "deepseek: HTTP 200 — key valid" ; _any_verified=1 ;;
+                401) warn "deepseek: HTTP 401 — key rejected by API" ;;
+                *)   warn "deepseek: HTTP ${_h} — could not reach API" ;;
+            esac
+        fi
+
+        # Gemini
+        _k="$(_resolve_key GEMINI_API_KEY gemini_api_key)"
+        if [ -n "$_k" ]; then
+            _h="$(curl -sf -o /dev/null -w "%{http_code}" --max-time 10 \
+                "https://generativelanguage.googleapis.com/v1beta/models?key=${_k}" \
+                2>/dev/null)" || _h=0
+            case "$_h" in
+                200) ok "gemini: HTTP 200 — key valid" ; _any_verified=1 ;;
+                400) warn "gemini: HTTP 400 — key may be invalid" ;;
+                *)   warn "gemini: HTTP ${_h} — could not reach API" ;;
+            esac
+        fi
+
+        [ "$_any_verified" = "0" ] && \
+            info "No keys verified — add one with: halcon auth login <provider>"
+    fi
+}
+
+# ─── System detection ────────────────────────────────────────────────────────
+# Probes hardware, OS, environment, and installed tools.
+# Sets _SYS_* variables consumed by _write_config / _write_mcp_config.
+detect_system() {
+    _SYS_OS="$(uname -s)"        # Darwin | Linux
+    _SYS_ARCH="$(uname -m)"      # x86_64 | aarch64 | arm64
+
+    # ── CPU cores ────────────────────────────────────────────────────────────
+    if command -v nproc >/dev/null 2>&1; then
+        _SYS_CORES="$(nproc)"
+    elif command -v sysctl >/dev/null 2>&1; then
+        _SYS_CORES="$(sysctl -n hw.logicalcpu 2>/dev/null || echo 4)"
+    else
+        _SYS_CORES=4
+    fi
+
+    # ── RAM (MB) ─────────────────────────────────────────────────────────────
+    if [ "$_SYS_OS" = "Darwin" ]; then
+        _SYS_RAM_MB="$(( $(sysctl -n hw.memsize 2>/dev/null || echo 4294967296) / 1048576 ))"
+    elif [ -f /proc/meminfo ]; then
+        _SYS_RAM_MB="$(awk '/MemTotal/{print int($2/1024)}' /proc/meminfo)"
+    else
+        _SYS_RAM_MB=4096
+    fi
+    _SYS_RAM_GB="$(( _SYS_RAM_MB / 1024 ))"
+
+    # ── Free disk (GB, measured at $HOME) ────────────────────────────────────
+    _SYS_DISK_GB="$(df -k "$HOME" 2>/dev/null | awk 'NR==2{print int($4/1048576)}' || echo 10)"
+    [ -z "$_SYS_DISK_GB" ] || [ "$_SYS_DISK_GB" = "0" ] && _SYS_DISK_GB=10
+
+    # ── Environment ──────────────────────────────────────────────────────────
+    _SYS_IS_CI=0
+    [ -n "${CI:-}" ] || [ -n "${GITHUB_ACTIONS:-}" ] || [ -n "${GITLAB_CI:-}" ] \
+        || [ -n "${CIRCLECI:-}" ] || [ -n "${BUILDKITE:-}" ] \
+        || [ -n "${TF_BUILD:-}" ] && _SYS_IS_CI=1 || true
+
+    _SYS_IS_CONTAINER=0
+    { [ -f /.dockerenv ] \
+        || grep -qE "docker|lxc|containerd" /proc/1/cgroup 2>/dev/null; } \
+        && _SYS_IS_CONTAINER=1 || true
+
+    _SYS_IS_WSL=0
+    grep -qi microsoft /proc/version 2>/dev/null && _SYS_IS_WSL=1 || true
+
+    # ── GPU ──────────────────────────────────────────────────────────────────
+    _SYS_HAS_GPU=0
+    if command -v nvidia-smi >/dev/null 2>&1 && nvidia-smi -L >/dev/null 2>&1; then
+        _SYS_HAS_GPU=1
+    elif [ "$_SYS_OS" = "Darwin" ]; then
+        # Apple Silicon always has Metal GPU; Intel Macs usually have discrete GPU
+        _SYS_HAS_GPU=1
+    fi
+
+    # ── Ollama ───────────────────────────────────────────────────────────────
+    _SYS_OLLAMA_ENABLED="false"
+    _SYS_OLLAMA_MODEL="llama3.2"
+    if command -v ollama >/dev/null 2>&1; then
+        _SYS_OLLAMA_ENABLED="true"
+        # Try to get installed model list (non-blocking)
+        _first="$(curl -sf --max-time 2 http://localhost:11434/api/tags 2>/dev/null \
+            | grep -o '"name":"[^"]*"' | head -1 | sed 's/"name":"//;s/"//')"
+        [ -n "$_first" ] && _SYS_OLLAMA_MODEL="$_first"
+    fi
+
+    # ── Claude CLI ───────────────────────────────────────────────────────────
+    _SYS_CLAUDE_CMD=""
+    for _c in \
+        "$HOME/.local/bin/claude" \
+        "/usr/local/bin/claude" \
+        "/opt/homebrew/bin/claude" \
+        "$(command -v claude 2>/dev/null)"
+    do
+        [ -x "$_c" ] && { _SYS_CLAUDE_CMD="$_c"; break; }
+    done
+
+    # ── Derive tuned values ───────────────────────────────────────────────────
+
+    # max_parallel_tools: 2× cores, clamped [4, 20]
+    _SYS_MAX_PARALLEL=$(( _SYS_CORES * 2 ))
+    [ "$_SYS_MAX_PARALLEL" -lt 4 ]  && _SYS_MAX_PARALLEL=4
+    [ "$_SYS_MAX_PARALLEL" -gt 20 ] && _SYS_MAX_PARALLEL=20
+
+    # max_concurrent_agents: cores/4, clamped [1, 5]
+    _SYS_MAX_AGENTS=$(( _SYS_CORES / 4 ))
+    [ "$_SYS_MAX_AGENTS" -lt 1 ] && _SYS_MAX_AGENTS=1
+    [ "$_SYS_MAX_AGENTS" -gt 5 ] && _SYS_MAX_AGENTS=5
+
+    # sandbox max_memory_mb: RAM/2, clamped [512, 16384]
+    _SYS_SANDBOX_MEM=$(( _SYS_RAM_MB / 2 ))
+    [ "$_SYS_SANDBOX_MEM" -lt 512 ]   && _SYS_SANDBOX_MEM=512
+    [ "$_SYS_SANDBOX_MEM" -gt 16384 ] && _SYS_SANDBOX_MEM=16384
+
+    # max_context_tokens: tiered by RAM
+    if   [ "$_SYS_RAM_GB" -ge 32 ]; then _SYS_MAX_CTX=180000
+    elif [ "$_SYS_RAM_GB" -ge 16 ]; then _SYS_MAX_CTX=120000
+    elif [ "$_SYS_RAM_GB" -ge 8  ]; then _SYS_MAX_CTX=80000
+    else                                  _SYS_MAX_CTX=40000
+    fi
+
+    # search max_documents: tiered by disk
+    if   [ "$_SYS_DISK_GB" -ge 50 ]; then _SYS_MAX_DOCS=100000
+    elif [ "$_SYS_DISK_GB" -ge 20 ]; then _SYS_MAX_DOCS=50000
+    else                                   _SYS_MAX_DOCS=20000
+    fi
+
+    # tool / provider timeouts: CI gets tighter, slow networks get looser
+    if [ "$_SYS_IS_CI" = "1" ]; then
+        _SYS_TOOL_TIMEOUT=60
+        _SYS_PROVIDER_TIMEOUT=120
+        _SYS_MAX_DURATION=900
+        _SYS_CONFIRM_DESTRUCTIVE="false"
+        _SYS_AUTO_APPROVE_CI="true"
+    else
+        _SYS_TOOL_TIMEOUT=120
+        _SYS_PROVIDER_TIMEOUT=300
+        _SYS_MAX_DURATION=1800
+        _SYS_CONFIRM_DESTRUCTIVE="true"
+        _SYS_AUTO_APPROVE_CI="false"
+    fi
+
+    # theme: fire on macOS/rich terminals; auto elsewhere
+    if [ "$_SYS_OS" = "Darwin" ]; then
+        _SYS_THEME="fire"
+    else
+        _SYS_THEME="auto"
+    fi
+
+    # animations: off in CI or containers (no TTY)
+    if [ "$_SYS_IS_CI" = "1" ] || [ "$_SYS_IS_CONTAINER" = "1" ]; then
+        _SYS_ANIMATIONS="false"
+    else
+        _SYS_ANIMATIONS="true"
+    fi
+
+    # logging: debug in CI, info otherwise
+    if [ "$_SYS_IS_CI" = "1" ]; then
+        _SYS_LOG_LEVEL="debug"
+    else
+        _SYS_LOG_LEVEL="info"
+    fi
+
+    # multimodal mode: local if GPU + ARM (Apple Silicon), api otherwise
+    if [ "$_SYS_HAS_GPU" = "1" ] && [ "$_SYS_ARCH" = "arm64" ]; then
+        _SYS_MULTIMODAL_MODE="hybrid"
+    else
+        _SYS_MULTIMODAL_MODE="api"
+    fi
+
+    # max_file_size for multimodal: 50MB on GPU, 20MB otherwise
+    if [ "$_SYS_HAS_GPU" = "1" ]; then
+        _SYS_MULTIMODAL_MAX_FILE=52428800
+    else
+        _SYS_MULTIMODAL_MAX_FILE=20971520
+    fi
+
+    # allowed_directories — OS-aware
+    # Build as newline-separated quoted entries for the TOML array
+    _SYS_ALLOWED_DIRS="    \".\",
+    \"/tmp\""
+
+    if [ "$_SYS_OS" = "Darwin" ]; then
+        _SYS_ALLOWED_DIRS="${_SYS_ALLOWED_DIRS},
+    \"/private/tmp\",
+    \"$HOME\",
+    \"$HOME/Documents\",
+    \"$HOME/Downloads\",
+    \"$HOME/Desktop\""
+    else
+        # Linux: only add directories that actually exist
+        _SYS_ALLOWED_DIRS="${_SYS_ALLOWED_DIRS},
+    \"$HOME\""
+        for _d in "$HOME/Documents" "$HOME/Downloads" "$HOME/projects" "$HOME/dev" "$HOME/src"; do
+            [ -d "$_d" ] && _SYS_ALLOWED_DIRS="${_SYS_ALLOWED_DIRS},
+    \"$_d\""
+        done
+        # WSL: also expose Windows user directory if accessible
+        if [ "$_SYS_IS_WSL" = "1" ]; then
+            _WIN_HOME="$(cmd.exe /c "echo %USERPROFILE%" 2>/dev/null | tr -d '\r' | sed 's|\\\\|/|g; s|C:|/mnt/c|')" || true
+            [ -d "$_WIN_HOME" ] && _SYS_ALLOWED_DIRS="${_SYS_ALLOWED_DIRS},
+    \"$_WIN_HOME\""
+        fi
+    fi
+
+    # MCP filesystem dirs — reuse for .mcp.json
+    _SYS_MCP_DIRS="\"$HOME\",
+        \"/tmp\""
+    if [ "$_SYS_OS" = "Darwin" ]; then
+        _SYS_MCP_DIRS="\"$HOME/Documents\",
+        \"$HOME/Downloads\",
+        \"$HOME/Desktop\",
+        \"/tmp\""
+    else
+        for _d in "$HOME/Documents" "$HOME/Downloads" "$HOME/projects" "$HOME/dev"; do
+            [ -d "$_d" ] && _SYS_MCP_DIRS="${_SYS_MCP_DIRS},
+        \"$_d\""
+        done
+    fi
+
+    # claude_code section string (included only when claude CLI is found)
+    if [ -n "$_SYS_CLAUDE_CMD" ]; then
+        _SYS_CLAUDE_SECTION="[models.providers.claude_code]
+enabled              = true
+command              = \"$_SYS_CLAUDE_CMD\"
+default_model        = \"claude-sonnet-4-6\"
+mode                 = \"chat\"
+drain_timeout_secs   = 30
+auto_restart         = true
+request_timeout_secs = 120
+
+[models.providers.claude_code.http]
+connect_timeout_secs = 10
+request_timeout_secs = 300
+max_retries          = 3
+retry_base_delay_ms  = 1000"
+    else
+        _SYS_CLAUDE_SECTION="# claude_code provider: claude CLI not found at install time.
+# Install from https://claude.ai/download, then re-run: halcon config set models.providers.claude_code.enabled true
+# [models.providers.claude_code]
+# enabled = false"
+    fi
+}
+
+# ─── Full-capacity configuration ─────────────────────────────────────────────
+# Writes ~/.halcon/config.toml and ~/.halcon/.mcp.json if they don't exist.
+# Skips gracefully if the user already has a config.
+configure_halcon() {
+    HALCON_DIR="$HOME/.halcon"
+    CONFIG_FILE="$HALCON_DIR/config.toml"
+    MCP_FILE="$HALCON_DIR/.mcp.json"
+
+    printf "\n  ${BOLD}Detecting system...${RESET}\n"
+    detect_system
+
+    # Print summary of what was detected
+    printf "    OS: %s %s" "$_SYS_OS" "$_SYS_ARCH"
+    [ "$_SYS_IS_WSL"       = "1" ] && printf " (WSL)"
+    [ "$_SYS_IS_CONTAINER" = "1" ] && printf " (container)"
+    [ "$_SYS_IS_CI"        = "1" ] && printf " (CI)"
+    printf "\n"
+    printf "    CPU: %s cores  RAM: %s GB  Disk: %s GB free\n" \
+        "$_SYS_CORES" "$_SYS_RAM_GB" "$_SYS_DISK_GB"
+    [ "$_SYS_HAS_GPU"        = "1" ] && printf "    GPU: detected (%s)\n" "$_SYS_MULTIMODAL_MODE"
+    [ "$_SYS_OLLAMA_ENABLED" = "true" ] && printf "    Ollama: found (%s)\n" "$_SYS_OLLAMA_MODEL"
+    [ -n "$_SYS_CLAUDE_CMD" ] && printf "    Claude CLI: %s\n" "$_SYS_CLAUDE_CMD"
+
+    printf "\n  ${BOLD}Configuring Halcón...${RESET}\n"
+    mkdir -p "$HALCON_DIR" 2>/dev/null || true
+
+    # ── config.toml ──────────────────────────────────────────────────────────
+    if [ -f "$CONFIG_FILE" ]; then
+        ok "Config already exists — skipping (${CONFIG_FILE})"
+    else
+        info "Writing system-adapted config..."
+        _write_config "$CONFIG_FILE"
+        ok "Config written: ${CONFIG_FILE}"
+    fi
+
+    # ── .mcp.json ────────────────────────────────────────────────────────────
+    if [ -f "$MCP_FILE" ]; then
+        ok "MCP config already exists — skipping"
+    else
+        _write_mcp_config "$MCP_FILE"
+    fi
+}
+
+_write_config() {
+    local dest="$1"
+    # NOTE: unquoted heredoc — shell variables expand intentionally.
+    # Dollar signs that should be literal in TOML (none here) would need \$.
+    cat > "$dest" << HALCON_CONFIG
+# ═══════════════════════════════════════════════════════════════════════════════
+#  HALCÓN CLI — System-Adapted Configuration
+#  Generated by install.sh on $(date '+%Y-%m-%d %H:%M %Z')
+#
+#  System profile:
+#    OS   : ${_SYS_OS} ${_SYS_ARCH}
+#    CPU  : ${_SYS_CORES} cores
+#    RAM  : ${_SYS_RAM_GB} GB
+#    Disk : ${_SYS_DISK_GB} GB free
+#    GPU  : ${_SYS_HAS_GPU}  |  Ollama: ${_SYS_OLLAMA_ENABLED}
+#
+#  Usage:
+#    halcon chat --tui --full --expert
+#    halcon -p openai    chat --tui --full --expert
+#    halcon -p deepseek  chat --tui --full --expert   # cheapest
+#    halcon -p ollama    chat --tui --full --expert   # local / no API key
+#
+#  Add API keys:
+#    halcon auth login anthropic
+#    halcon auth login openai
+#    halcon auth login deepseek
+# ═══════════════════════════════════════════════════════════════════════════════
+
+# ── General ───────────────────────────────────────────────────────────────────
+[general]
+default_provider = "anthropic"
+default_model    = "claude-sonnet-4-6"
+max_tokens       = 16000
+temperature      = 0.0
+
+# ── Display ───────────────────────────────────────────────────────────────────
+[display]
+show_banner         = true
+animations          = ${_SYS_ANIMATIONS}
+theme               = "${_SYS_THEME}"
+ui_mode             = "expert"
+brand_color         = "#e85200"
+terminal_background = "#1a1a1a"
+compact_width       = 0
+
+# ── Agent Limits ─────────────────────────────────────────────────────────────
+# Tuned for: ${_SYS_CORES} cores / ${_SYS_RAM_GB} GB RAM
+[agent.limits]
+max_rounds              = 40
+max_total_tokens        = 0
+max_duration_secs       = ${_SYS_MAX_DURATION}
+tool_timeout_secs       = ${_SYS_TOOL_TIMEOUT}
+provider_timeout_secs   = ${_SYS_PROVIDER_TIMEOUT}
+max_parallel_tools      = ${_SYS_MAX_PARALLEL}
+max_tool_output_chars   = 100000
+max_concurrent_agents   = ${_SYS_MAX_AGENTS}
+max_cost_usd            = 0.0
+clarification_threshold = 0.6
+
+# ── Agent Routing ─────────────────────────────────────────────────────────────
+[agent.routing]
+strategy    = "quality"
+mode        = "failover"
+max_retries = 1
+fallback_models = [
+    "claude-haiku-4-5-20251001",
+    "claude-sonnet-4-6",
+    "gpt-4o-mini",
+]
+speculation_providers = []
+
+# ── Compaction ────────────────────────────────────────────────────────────────
+# max_context_tokens tuned for ${_SYS_RAM_GB} GB RAM
+[agent.compaction]
+enabled            = true
+threshold_fraction = 0.55
+keep_recent        = 8
+max_context_tokens = ${_SYS_MAX_CTX}
+
+# ── Model Selection ───────────────────────────────────────────────────────────
+[agent.model_selection]
+enabled                    = true
+budget_cap_usd             = 0.0
+complexity_token_threshold = 2000
+
+# ── Planning ──────────────────────────────────────────────────────────────────
+[planning]
+enabled              = true
+adaptive             = true
+max_replans          = 3
+min_confidence       = 0.65
+timeout_secs         = 45
+auto_learn_playbooks = false
+
+# ── Reasoning ─────────────────────────────────────────────────────────────────
+[reasoning]
+enabled             = true
+success_threshold   = 0.6
+max_retries         = 2
+exploration_factor  = 1.4
+learning            = true
+enable_loop_critic  = true
+critic_timeout_secs = 60
+critic_model        = "claude-haiku-4-5-20251001"
+critic_provider     = "anthropic"
+
+# ── Reflexion ─────────────────────────────────────────────────────────────────
+[reflexion]
+enabled            = true
+max_reflections    = 5
+reflect_on_success = false
+
+# ── Memory ────────────────────────────────────────────────────────────────────
+[memory]
+enabled                = true
+max_entries            = 10000
+auto_summarize         = true
+episodic               = true
+retrieval_top_k        = 5
+retrieval_token_budget = 2000
+decay_half_life_days   = 14.0
+rrf_k                  = 60.0
+
+# ── Orchestrator ──────────────────────────────────────────────────────────────
+[orchestrator]
+enabled                   = true
+max_concurrent_agents     = ${_SYS_MAX_AGENTS}
+sub_agent_timeout_secs    = 270
+shared_budget             = true
+enable_communication      = false
+min_delegation_confidence = 0.7
+
+# ── Task Framework ────────────────────────────────────────────────────────────
+[task_framework]
+enabled               = true
+persist_tasks         = true
+default_max_retries   = 3
+default_retry_base_ms = 500
+resume_on_startup     = false
+strict_enforcement    = false
+
+# ── Context ───────────────────────────────────────────────────────────────────
+[context]
+dynamic_tool_selection = true
+
+[context.governance]
+default_max_tokens_per_source = 0
+default_ttl_secs              = 0
+
+# ── Context Servers ───────────────────────────────────────────────────────────
+[context_servers]
+enabled = true
+
+[context_servers.requirements]
+enabled = true
+priority = 100
+token_budget = 2000
+cache_ttl_secs = 3600
+
+[context_servers.architecture]
+enabled = true
+priority = 90
+token_budget = 2000
+cache_ttl_secs = 3600
+
+[context_servers.codebase]
+enabled = true
+priority = 80
+token_budget = 2000
+cache_ttl_secs = 3600
+
+[context_servers.workflow]
+enabled = true
+priority = 70
+token_budget = 1500
+cache_ttl_secs = 3600
+
+[context_servers.testing]
+enabled = true
+priority = 60
+token_budget = 1500
+cache_ttl_secs = 3600
+
+[context_servers.security]
+enabled = true
+priority = 40
+token_budget = 1000
+cache_ttl_secs = 3600
+
+# ── Security ──────────────────────────────────────────────────────────────────
+[security]
+pii_detection          = false
+pii_action             = "redact"
+audit_enabled          = true
+tbac_enabled           = true
+pre_execution_critique = false
+session_grant_ttl_secs = 300
+scan_system_prompts    = false
+
+[security.guardrails]
+enabled  = true
+builtins = true
+rules    = []
+
+[security.analysis_mode]
+enabled                  = true
+allow_grep_recursive     = true
+allow_find_project_files = true
+analysis_tool_whitelist  = [
+    "grep ", "grep -", "rg ",
+    "find . ", "find src", "find crates",
+    "cat ", "head ", "tail ", "wc ", "ls ",
+    "cargo audit", "cargo check", "cargo test --",
+    "npm audit", "npm ls", "yarn audit",
+    "git log ", "git diff ", "git status", "git show ",
+]
+
+# ── Tools ─────────────────────────────────────────────────────────────────────
+[tools]
+confirm_destructive       = ${_SYS_CONFIRM_DESTRUCTIVE}
+timeout_secs              = ${_SYS_TOOL_TIMEOUT}
+prompt_timeout_secs       = 45
+auto_approve_in_ci        = ${_SYS_AUTO_APPROVE_CI}
+allow_write_in_ci         = false
+allow_destructive_in_ci   = false
+dry_run                   = false
+command_blacklist         = []
+disable_builtin_blacklist = false
+allowed_directories = [
+${_SYS_ALLOWED_DIRS}
+]
+blocked_patterns = [
+    "**/.env",
+    "**/.env.*",
+    "**/*.pem",
+    "**/*.key",
+    "**/credentials.json",
+    "**/.ssh/**",
+]
+
+[tools.sandbox]
+enabled             = true
+max_output_bytes    = 10485760
+max_memory_mb       = ${_SYS_SANDBOX_MEM}
+max_cpu_secs        = 60
+max_file_size_bytes = 104857600
+
+[tools.retry]
+max_retries   = 3
+base_delay_ms = 500
+max_delay_ms  = 10000
+
+# ── Cache ─────────────────────────────────────────────────────────────────────
+[cache]
+enabled          = true
+default_ttl_secs = 3600
+max_entries      = 1000
+prompt_cache     = true
+
+# ── Search ────────────────────────────────────────────────────────────────────
+# max_documents tuned for ${_SYS_DISK_GB} GB free disk
+[search]
+enabled         = true
+max_documents   = ${_SYS_MAX_DOCS}
+enable_semantic = true
+enable_cache    = true
+
+[search.ranking]
+bm25_weight             = 0.6
+semantic_weight         = 0.3
+pagerank_weight         = 0.1
+use_rrf                 = true
+min_semantic_similarity = 0.25
+
+[search.query]
+default_results      = 10
+enable_feedback_loop = true
+
+# ── Multimodal ────────────────────────────────────────────────────────────────
+# mode = "${_SYS_MULTIMODAL_MODE}" (GPU detected: ${_SYS_HAS_GPU})
+[multimodal]
+enabled                 = true
+mode                    = "${_SYS_MULTIMODAL_MODE}"
+max_file_size_bytes     = ${_SYS_MULTIMODAL_MAX_FILE}
+local_threshold_bytes   = 2097152
+strip_exif              = true
+privacy_strict          = false
+max_audio_duration_secs = 300
+max_video_duration_secs = 120
+video_sample_fps        = 2
+max_video_frames        = 25
+max_concurrent_analyses = ${_SYS_MAX_AGENTS}
+cache_enabled           = true
+cache_ttl_secs          = 3600
+api_timeout_ms          = 30000
+
+# ── Resilience ────────────────────────────────────────────────────────────────
+[resilience]
+enabled = true
+
+[resilience.circuit_breaker]
+failure_threshold  = 5
+window_secs        = 60
+open_duration_secs = 30
+half_open_probes   = 2
+
+[resilience.health]
+window_minutes      = 60
+degraded_threshold  = 50
+unhealthy_threshold = 30
+
+[resilience.backpressure]
+max_concurrent_per_provider = 5
+queue_timeout_secs          = 30
+
+# ── Storage ───────────────────────────────────────────────────────────────────
+[storage]
+max_sessions         = 1000
+max_session_age_days = 90
+
+# ── Plugins ───────────────────────────────────────────────────────────────────
+[plugins]
+enabled    = true
+plugin_dir = "$HOME/.halcon/plugins"
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+[logging]
+level  = "${_SYS_LOG_LEVEL}"
+format = "pretty"
+
+# ── MCP ───────────────────────────────────────────────────────────────────────
+[mcp]
+max_reconnect_attempts = 3
+
+# ── MCP Server (Halcon as MCP server for Claude Code etc.) ────────────────────
+[mcp_server]
+enabled          = false
+transport        = "stdio"
+port             = 7777
+expose_agents    = true
+require_auth     = true
+session_ttl_secs = 1800
+
+# ── Providers ─────────────────────────────────────────────────────────────────
+[models.providers.anthropic]
+enabled       = true
+api_key_env   = "ANTHROPIC_API_KEY"
+api_base      = "https://api.anthropic.com"
+default_model = "claude-sonnet-4-6"
+
+[models.providers.anthropic.http]
+connect_timeout_secs = 10
+request_timeout_secs = ${_SYS_PROVIDER_TIMEOUT}
+max_retries          = 3
+retry_base_delay_ms  = 1000
+
+[models.providers.openai]
+enabled       = true
+api_key_env   = "OPENAI_API_KEY"
+api_base      = "https://api.openai.com/v1"
+default_model = "gpt-4o"
+
+[models.providers.openai.http]
+connect_timeout_secs = 10
+request_timeout_secs = ${_SYS_PROVIDER_TIMEOUT}
+max_retries          = 3
+retry_base_delay_ms  = 1000
+
+[models.providers.deepseek]
+enabled       = true
+api_key_env   = "DEEPSEEK_API_KEY"
+api_base      = "https://api.deepseek.com"
+default_model = "deepseek-chat"
+
+[models.providers.deepseek.http]
+connect_timeout_secs = 15
+request_timeout_secs = ${_SYS_PROVIDER_TIMEOUT}
+max_retries          = 3
+retry_base_delay_ms  = 1000
+
+[models.providers.gemini]
+enabled       = true
+api_key_env   = "GEMINI_API_KEY"
+api_base      = "https://generativelanguage.googleapis.com"
+default_model = "gemini-2.5-flash"
+
+[models.providers.gemini.http]
+connect_timeout_secs = 10
+request_timeout_secs = ${_SYS_PROVIDER_TIMEOUT}
+max_retries          = 3
+retry_base_delay_ms  = 1000
+
+[models.providers.ollama]
+enabled       = ${_SYS_OLLAMA_ENABLED}
+api_base      = "http://localhost:11434"
+default_model = "${_SYS_OLLAMA_MODEL}"
+
+[models.providers.ollama.http]
+connect_timeout_secs = 10
+request_timeout_secs = 300
+max_retries          = 3
+retry_base_delay_ms  = 1000
+
+# ── Claude Code CLI ───────────────────────────────────────────────────────────
+${_SYS_CLAUDE_SECTION}
+
+# ── Policy ────────────────────────────────────────────────────────────────────
+[policy]
+use_intent_pipeline          = true
+use_boundary_decision_engine = true
+use_halcon_md                = true
+enable_hooks                 = false
+enable_auto_memory           = true
+memory_importance_threshold  = 0.30
+enable_agent_registry        = true
+enable_semantic_memory       = false
+semantic_memory_top_k        = 5
+success_threshold            = 0.6
+halt_confidence_threshold    = 0.8
+max_round_iterations         = 12
+HALCON_CONFIG
+}
+
+_write_mcp_config() {
+    local dest="$1"
+
+    # Detect mcp-server-filesystem binary
+    _MCP_BIN=""
+    for _c in \
+        "/opt/homebrew/bin/mcp-server-filesystem" \
+        "/usr/local/bin/mcp-server-filesystem" \
+        "$HOME/.local/bin/mcp-server-filesystem" \
+        "$(command -v mcp-server-filesystem 2>/dev/null)"
+    do
+        [ -x "$_c" ] && { _MCP_BIN="$_c"; break; }
+    done
+
+    # Build JSON args array — one entry per line, OS-aware
+    _mcp_args_json="        \"/tmp\""
+    if [ "$_SYS_OS" = "Darwin" ]; then
+        _mcp_args_json="        \"$HOME/Documents\",
+        \"$HOME/Downloads\",
+        \"$HOME/Desktop\",
+        \"/tmp\""
+    else
+        _mcp_args_json="        \"$HOME\",
+        \"/tmp\""
+        for _d in "$HOME/Documents" "$HOME/Downloads" "$HOME/projects" "$HOME/dev" "$HOME/src"; do
+            [ -d "$_d" ] && _mcp_args_json="$_mcp_args_json,
+        \"$_d\""
+        done
+        if [ "$_SYS_IS_WSL" = "1" ] && [ -n "${_WIN_HOME:-}" ] && [ -d "$_WIN_HOME" ]; then
+            _mcp_args_json="$_mcp_args_json,
+        \"$_WIN_HOME\""
+        fi
+    fi
+
+    if [ -n "$_MCP_BIN" ]; then
+        cat > "$dest" << MCPEOF
+{
+  "mcpServers": {
+    "filesystem": {
+      "command": "$_MCP_BIN",
+      "args": [
+${_mcp_args_json}
+      ]
+    }
+  }
+}
+MCPEOF
+        ok "MCP filesystem server configured: ${_MCP_BIN}"
+    else
+        cat > "$dest" << 'MCPEOF'
+{
+  "mcpServers": {}
+}
+MCPEOF
+        warn "mcp-server-filesystem not found — MCP left empty"
+        warn "Install: npm install -g @modelcontextprotocol/server-filesystem"
+    fi
+    ok "MCP config written: ${dest}"
+}
+
+main "$@"

@@ -28,6 +28,19 @@ const MIGRATIONS: &[(u32, &str, &str)] = &[
     (24, "observability", MIGRATION_024),
     (25, "metrics_snapshots", MIGRATION_025),
     (26, "session_messages_compression", MIGRATION_026),
+    (27, "media_cache", MIGRATION_027),
+    (28, "media_index", MIGRATION_028),
+    (29, "palette_optimization_history", MIGRATION_029),
+    (30, "model_quality_stats", MIGRATION_030),
+    (31, "plugin_system", MIGRATION_031),
+    (32, "audit_hmac_key", MIGRATION_032),
+    (33, "media_index_description", MIGRATION_033),
+    (34, "plugin_circuit_state", MIGRATION_034),
+    (35, "execution_loop_events", MIGRATION_035),
+    (36, "daily_user_metrics", MIGRATION_036),
+    (37, "mailbox_messages", MIGRATION_037),
+    (38, "scheduled_tasks", MIGRATION_038),
+    (39, "audit_integrity_indexes", MIGRATION_039),
 ];
 
 const MIGRATION_001: &str = r#"
@@ -996,6 +1009,249 @@ const MIGRATION_026: &str = r#"
 ALTER TABLE sessions ADD COLUMN messages_compressed BLOB;
 "#;
 
+const MIGRATION_027: &str = r#"
+-- M27: media_cache — content-addressed analysis result cache
+CREATE TABLE IF NOT EXISTS media_cache (
+    content_hash   TEXT    PRIMARY KEY,
+    modality       TEXT    NOT NULL CHECK (modality IN ('image','audio','video')),
+    analysis_json  TEXT    NOT NULL,
+    tile_count     INTEGER NOT NULL DEFAULT 1,
+    token_estimate INTEGER NOT NULL DEFAULT 0,
+    created_at     TEXT    NOT NULL,
+    accessed_at    TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_media_cache_accessed ON media_cache(accessed_at);
+CREATE INDEX IF NOT EXISTS idx_media_cache_modality ON media_cache(modality);
+"#;
+
+const MIGRATION_028: &str = r#"
+-- M28: media_index — CLIP embedding store for cross-modal retrieval
+CREATE TABLE IF NOT EXISTS media_index (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    content_hash   TEXT    NOT NULL,
+    modality       TEXT    NOT NULL CHECK (modality IN ('image','audio','video')),
+    embedding_data BLOB    NOT NULL,
+    embedding_dim  INTEGER NOT NULL,
+    clip_start_secs REAL,
+    clip_end_secs   REAL,
+    session_id     TEXT,
+    source_path    TEXT,
+    created_at     TEXT    NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_media_index_hash     ON media_index(content_hash);
+CREATE INDEX IF NOT EXISTS idx_media_index_modality ON media_index(modality);
+CREATE INDEX IF NOT EXISTS idx_media_index_session  ON media_index(session_id);
+"#;
+
+const MIGRATION_031: &str = r#"
+-- M31: plugin_system — V3 plugin registry persistence.
+-- installed_plugins stores manifest metadata for each registered plugin.
+-- plugin_metrics stores per-plugin call counts and UCB1 reward signals for
+-- cross-session bandit learning.
+CREATE TABLE IF NOT EXISTS installed_plugins (
+    plugin_id     TEXT NOT NULL,
+    name          TEXT NOT NULL,
+    version       TEXT NOT NULL,
+    category      TEXT NOT NULL DEFAULT 'custom',
+    manifest_toml TEXT NOT NULL DEFAULT '',
+    installed_at  TEXT NOT NULL DEFAULT (datetime('now')),
+    trust_level   TEXT NOT NULL DEFAULT 'local',
+    PRIMARY KEY (plugin_id)
+);
+CREATE TABLE IF NOT EXISTS plugin_metrics (
+    plugin_id        TEXT    NOT NULL,
+    calls_made       INTEGER NOT NULL DEFAULT 0,
+    calls_failed     INTEGER NOT NULL DEFAULT 0,
+    tokens_used      INTEGER NOT NULL DEFAULT 0,
+    ucb1_n_uses      INTEGER NOT NULL DEFAULT 0,
+    ucb1_sum_rewards REAL    NOT NULL DEFAULT 0.0,
+    updated_at       TEXT    NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (plugin_id)
+);
+"#;
+
+const MIGRATION_030: &str = r#"
+-- M30: model_quality_stats — cross-session ModelPerformanceTracker persistence.
+-- Stores per-model (success_count, failure_count, total_reward) so the ModelSelector
+-- balanced routing strategy learns which models perform well across sessions.
+CREATE TABLE IF NOT EXISTS model_quality_stats (
+    model_id      TEXT    NOT NULL,
+    provider      TEXT    NOT NULL,
+    success_count INTEGER NOT NULL DEFAULT 0,
+    failure_count INTEGER NOT NULL DEFAULT 0,
+    total_reward  REAL    NOT NULL DEFAULT 0.0,
+    updated_at    INTEGER NOT NULL,
+    PRIMARY KEY (model_id, provider)
+);
+CREATE INDEX IF NOT EXISTS idx_model_quality_provider ON model_quality_stats(provider, updated_at DESC);
+"#;
+
+const MIGRATION_029: &str = r#"
+-- M29: palette_optimization_history — cross-session warm-start for adaptive optimizer.
+-- Append-only: each optimization run is recorded for future sessions to warm-start from.
+CREATE TABLE IF NOT EXISTS palette_optimization_history (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id          TEXT    NOT NULL,
+    base_hue            REAL    NOT NULL,
+    initial_quality     REAL    NOT NULL,
+    final_quality       REAL    NOT NULL,
+    quality_delta       REAL    NOT NULL,
+    iterations          INTEGER NOT NULL,
+    convergence_status  TEXT    NOT NULL,
+    duration_ms         INTEGER NOT NULL,
+    steps_json          TEXT    NOT NULL DEFAULT '[]',
+    created_at          TEXT    NOT NULL
+);
+-- Index for warm-start queries: hue bucket lookup (most recent first, best quality first).
+CREATE INDEX IF NOT EXISTS idx_pal_opt_hue ON palette_optimization_history(base_hue, final_quality DESC);
+CREATE INDEX IF NOT EXISTS idx_pal_opt_session ON palette_optimization_history(session_id, created_at DESC);
+"#;
+
+const MIGRATION_032: &str = r#"
+-- M32: audit_hmac_key — per-database HMAC-SHA256 signing key for audit chain integrity.
+-- Stores a single 256-bit key (hex-encoded) used to sign each audit log entry.
+-- Without the key, an adversary who compromises the database cannot recompute valid hashes
+-- to cover tampered entries (unlike bare SHA-256 which only requires the previous hash).
+-- The key is generated on first open and never leaves the database host.
+CREATE TABLE IF NOT EXISTS audit_hmac_key (
+    key_id   INTEGER PRIMARY KEY CHECK(key_id = 1),
+    key_hex  TEXT    NOT NULL,
+    created_at TEXT  NOT NULL
+);
+"#;
+
+const MIGRATION_033: &str = r#"
+-- M33: media_index_description — add human-readable description to media_index.
+-- Existing rows receive NULL (no re-analysis required).
+-- New entries store the analysis description so MediaContextSource.gather() can
+-- return useful chunk content without a separate cache lookup.
+ALTER TABLE media_index ADD COLUMN description TEXT;
+"#;
+
+const MIGRATION_034: &str = r#"
+-- M34: plugin_circuit_state — persist plugin circuit breaker state across sessions.
+-- Plugins with historical failures restart in 'degraded' state (not 'clean'), preventing
+-- repeated invocations of broken plugins across cold restarts.
+-- state TEXT: clean | degraded | suspended | failed
+CREATE TABLE IF NOT EXISTS plugin_circuit_state (
+    plugin_id TEXT PRIMARY KEY,
+    state TEXT NOT NULL DEFAULT 'clean' CHECK(state IN ('clean', 'degraded', 'suspended', 'failed')),
+    failure_count INTEGER NOT NULL DEFAULT 0,
+    last_failure_at TEXT,
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+"#;
+
+const MIGRATION_035: &str = r#"
+-- M35: execution_loop_events — structured event log emitted by the agent loop.
+-- Phase 1: State Externalization & Observability (additive — zero behavior change).
+-- Each row captures one typed event (round_started, guard_fired, convergence_decided,
+-- checkpoint_saved, intent_rescored, critic_evaluated, critic_failed) with its full
+-- JSON payload for offline analysis and post-mortem debugging.
+CREATE TABLE IF NOT EXISTS execution_loop_events (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id  TEXT    NOT NULL,
+    round       INTEGER NOT NULL,
+    event_type  TEXT    NOT NULL,
+    event_json  TEXT    NOT NULL,
+    emitted_at  TEXT    NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%SZ', 'now'))
+);
+CREATE INDEX IF NOT EXISTS idx_loop_events_session
+    ON execution_loop_events (session_id, round);
+"#;
+
+const MIGRATION_036: &str = r#"
+-- M36: daily_user_metrics — per-user per-day usage aggregates for admin analytics API.
+-- DECISION: denormalised daily rollup table rather than querying sessions on every admin
+-- request. Keeps admin reads O(1) regardless of session table size.
+-- Populated by the CLI agent loop at session end (upsert on PRIMARY KEY).
+CREATE TABLE IF NOT EXISTS daily_user_metrics (
+    date          TEXT NOT NULL,
+    user_id       TEXT NOT NULL,
+    sessions      INTEGER DEFAULT 0,
+    lines_added   INTEGER DEFAULT 0,
+    lines_removed INTEGER DEFAULT 0,
+    commits       INTEGER DEFAULT 0,
+    prs           INTEGER DEFAULT 0,
+    tokens_in     INTEGER DEFAULT 0,
+    tokens_out    INTEGER DEFAULT 0,
+    cost_usd      REAL DEFAULT 0.0,
+    PRIMARY KEY (date, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_daily_user_metrics_date
+    ON daily_user_metrics (date);
+CREATE INDEX IF NOT EXISTS idx_daily_user_metrics_user
+    ON daily_user_metrics (user_id);
+"#;
+
+const MIGRATION_037: &str = r#"
+-- M37: mailbox_messages — agent-to-agent P2P messaging within a team.
+-- DECISION: stored in SQLite for durability across process restarts and
+-- automatic audit trail inclusion. WAL mode (set at DB open) allows
+-- multiple concurrent readers (agents) with a single writer.
+-- 'broadcast' is the reserved to_agent sentinel for team-wide messages.
+CREATE TABLE IF NOT EXISTS mailbox_messages (
+    id           TEXT PRIMARY KEY,
+    from_agent   TEXT NOT NULL,
+    to_agent     TEXT NOT NULL,   -- agent id or 'broadcast'
+    team_id      TEXT NOT NULL,
+    payload_json TEXT NOT NULL,
+    created_at   TEXT NOT NULL,
+    expires_at   TEXT,            -- NULL = never expires
+    consumed     INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS idx_mailbox_team_to
+    ON mailbox_messages(team_id, to_agent, consumed, expires_at);
+"#;
+
+const MIGRATION_038: &str = r#"
+-- M38: scheduled_tasks — cron-based scheduled agent tasks (PASO 4-C).
+-- DECISION: stored in SQLite for persistence across process restarts.
+-- The scheduler polls this table every 60s in a tokio background task.
+-- 'enabled' allows pausing without deleting the task.
+CREATE TABLE IF NOT EXISTS scheduled_tasks (
+    id          TEXT PRIMARY KEY,
+    name        TEXT NOT NULL,
+    agent_id    TEXT,
+    instruction TEXT NOT NULL,
+    cron_expr   TEXT NOT NULL,
+    enabled     INTEGER NOT NULL DEFAULT 1,
+    last_run_at TEXT,
+    created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_scheduled_tasks_enabled
+    ON scheduled_tasks(enabled);
+"#;
+
+const MIGRATION_039: &str = r#"
+-- M39: audit integrity indexes + reasoning_experience session tracking (P1-2, P2-2, P3-1).
+--
+-- Composite index on (session_id, id) makes audit export queries O(log n) instead of full scan.
+-- The idx_audit_log_emitted_at index supports TTL archiving queries.
+-- reasoning_experience gains session_id and is_test_data columns to allow production/test
+-- data isolation in UCB1 learning (prevents CI runs from contaminating production UCB1).
+CREATE INDEX IF NOT EXISTS idx_audit_log_session_id
+    ON audit_log(session_id, id);
+
+CREATE INDEX IF NOT EXISTS idx_audit_log_emitted_at
+    ON audit_log(timestamp);
+
+CREATE INDEX IF NOT EXISTS idx_tool_metrics_session_tool
+    ON tool_execution_metrics(session_id, tool_name);
+
+CREATE INDEX IF NOT EXISTS idx_invocation_session_model
+    ON invocation_metrics(session_id, model);
+
+-- Add session tracking to reasoning_experience for UCB1 data isolation.
+-- is_test_data=1 marks records written by test/CI runs so they can be excluded
+-- from production UCB1 queries without deleting them.
+ALTER TABLE reasoning_experience ADD COLUMN session_id TEXT;
+ALTER TABLE reasoning_experience ADD COLUMN is_test_data INTEGER NOT NULL DEFAULT 0;
+
+CREATE INDEX IF NOT EXISTS idx_reasoning_session
+    ON reasoning_experience(session_id);
+"#;
+
 /// Run all pending migrations.
 pub fn run_migrations(conn: &Connection) -> Result<(), halcon_core::error::HalconError> {
     // Ensure migrations table exists
@@ -1050,7 +1306,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(version, 26);
+        assert_eq!(version, 39); // 36 original + 37 (mailbox_messages) + 38 (scheduled_tasks) + 39 (audit_integrity_indexes)
     }
 
     #[test]
@@ -1064,7 +1320,127 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(count, 26);
+        assert_eq!(count, 39); // 36 original + 37 (mailbox_messages) + 38 (scheduled_tasks) + 39 (audit_integrity_indexes)
+    }
+
+    #[test]
+    fn migration_033_adds_description_column_to_media_index() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+
+        // Verify the description column exists by inserting a row with it.
+        conn.execute(
+            "INSERT INTO media_index (content_hash, modality, embedding_data, embedding_dim, created_at, description)
+             VALUES ('test_hash', 'image', X'00', 1, datetime('now'), 'test description')",
+            [],
+        ).expect("should insert row with description column");
+
+        let desc: Option<String> = conn
+            .query_row(
+                "SELECT description FROM media_index WHERE content_hash = 'test_hash'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(desc.as_deref(), Some("test description"));
+    }
+
+    #[test]
+    fn migration_034_creates_plugin_circuit_state_table() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+
+        // Verify the table exists.
+        let table_exists: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='plugin_circuit_state'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(
+            table_exists,
+            "plugin_circuit_state table must exist after M34"
+        );
+
+        // Verify insert with valid state works.
+        conn.execute(
+            "INSERT INTO plugin_circuit_state (plugin_id, state, failure_count, last_failure_at)
+             VALUES ('test-plugin', 'degraded', 3, '2026-02-21T00:00:00Z')",
+            [],
+        )
+        .expect("should insert into plugin_circuit_state");
+
+        let (state, count): (String, i32) = conn
+            .query_row(
+                "SELECT state, failure_count FROM plugin_circuit_state WHERE plugin_id = 'test-plugin'",
+                [],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(state, "degraded");
+        assert_eq!(count, 3);
+
+        // Verify state CHECK constraint rejects invalid values.
+        let bad_insert = conn.execute(
+            "INSERT INTO plugin_circuit_state (plugin_id, state, failure_count) VALUES ('bad', 'unknown_state', 0)",
+            [],
+        );
+        assert!(
+            bad_insert.is_err(),
+            "invalid state must be rejected by CHECK constraint"
+        );
+    }
+
+    #[test]
+    fn migration_035_creates_execution_loop_events_table() {
+        let conn = Connection::open_in_memory().unwrap();
+        run_migrations(&conn).unwrap();
+
+        // Verify table exists.
+        let table_exists: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='table' AND name='execution_loop_events'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(
+            table_exists,
+            "execution_loop_events table must exist after M35"
+        );
+
+        // Verify index exists.
+        let index_exists: bool = conn
+            .query_row(
+                "SELECT COUNT(*) > 0 FROM sqlite_master WHERE type='index' AND name='idx_loop_events_session'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert!(
+            index_exists,
+            "idx_loop_events_session index must exist after M35"
+        );
+
+        // Verify insert and retrieval work.
+        let session_id = uuid::Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO execution_loop_events (session_id, round, event_type, event_json)
+             VALUES (?1, 0, 'round_started', '{\"type\":\"round_started\",\"round\":0}')",
+            rusqlite::params![session_id],
+        )
+        .expect("should insert loop event");
+
+        let (event_type, json): (String, String) = conn
+            .query_row(
+                "SELECT event_type, event_json FROM execution_loop_events WHERE session_id = ?1",
+                rusqlite::params![session_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(event_type, "round_started");
+        assert!(json.contains("round_started"), "json={json}");
     }
 
     #[test]
@@ -1198,7 +1574,10 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(idx_count, 4, "should have 4 metrics indexes (3 original + 1 composite)");
+        assert_eq!(
+            idx_count, 4,
+            "should have 4 metrics indexes (3 original + 1 composite)"
+        );
     }
 
     #[test]
@@ -1370,7 +1749,10 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert!(idx_count >= 3, "should have at least 3 episode indexes, got {idx_count}");
+        assert!(
+            idx_count >= 3,
+            "should have at least 3 episode indexes, got {idx_count}"
+        );
     }
 
     #[test]
@@ -1396,7 +1778,10 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(idx_count, 3, "should have 3 tool_metrics indexes");
+        assert_eq!(
+            idx_count, 4,
+            "should have 4 tool_metrics indexes (3 original + 1 from M39 session_tool composite)"
+        );
 
         // Verify audit_log session_id column exists.
         let has_session_col: bool = conn
@@ -1496,7 +1881,10 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert!(has_fingerprint, "sessions should have execution_fingerprint column");
+        assert!(
+            has_fingerprint,
+            "sessions should have execution_fingerprint column"
+        );
 
         let has_replay_source: bool = conn
             .query_row(
@@ -1505,7 +1893,10 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert!(has_replay_source, "sessions should have replay_source_session column");
+        assert!(
+            has_replay_source,
+            "sessions should have replay_source_session column"
+        );
 
         // Insert a checkpoint.
         conn.execute(
@@ -1702,7 +2093,10 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert!(has_col, "sessions should have messages_compressed column after M26");
+        assert!(
+            has_col,
+            "sessions should have messages_compressed column after M26"
+        );
 
         // Verify NULL is accepted (old rows without compression).
         conn.execute(
@@ -1719,7 +2113,10 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert!(compressed.is_none(), "messages_compressed should be NULL for old-style row");
+        assert!(
+            compressed.is_none(),
+            "messages_compressed should be NULL for old-style row"
+        );
     }
 
     #[test]
@@ -1745,7 +2142,10 @@ mod tests {
                 |row| row.get(0),
             )
             .unwrap();
-        assert_eq!(idx_count, 2, "should have 2 activity_search_history indexes");
+        assert_eq!(
+            idx_count, 2,
+            "should have 2 activity_search_history indexes"
+        );
 
         // Verify trigger exists
         let trigger_exists: bool = conn

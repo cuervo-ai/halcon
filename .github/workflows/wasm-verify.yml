@@ -1,0 +1,134 @@
+name: WASM Verify
+
+on:
+  push:
+    paths:
+      - 'vendor/momoto-ui/**'
+      - 'website/src/lib/momoto/momoto_ui_core_bg.wasm'
+      - 'website/src/lib/momoto/momoto_ui_core.js'
+      - 'website/src/lib/momoto/momoto_ui_core.d.ts'
+  pull_request:
+    paths:
+      - 'vendor/momoto-ui/**'
+      - 'website/src/lib/momoto/**'
+  workflow_dispatch:
+    inputs:
+      force_rebuild:
+        description: 'Force WASM rebuild even if checksums match'
+        required: false
+        default: 'false'
+
+env:
+  WASM_CRATE_PATH: vendor/momoto-ui/momoto/crates/momoto-ui-core
+  WASM_OUTPUT_DIR: website/src/lib/momoto
+
+jobs:
+  verify-wasm-sync:
+    name: Verify WASM is synchronized
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Check submodule present
+        id: check_submodule
+        run: |
+          if [ ! -d "${{ env.WASM_CRATE_PATH }}" ]; then
+            echo "present=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::momoto-ui submodule not present — cannot verify WASM sync"
+          else
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install wasm-pack
+        if: steps.check_submodule.outputs.present == 'true'
+        run: curl https://rustwasm.github.io/wasm-pack/installer/init.sh -sSf | sh
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: steps.check_submodule.outputs.present == 'true'
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        if: steps.check_submodule.outputs.present == 'true'
+        with:
+          workspaces: ${{ env.WASM_CRATE_PATH }}
+          key: wasm-pack
+
+      - name: Build WASM from source
+        if: steps.check_submodule.outputs.present == 'true'
+        working-directory: ${{ env.WASM_CRATE_PATH }}
+        run: |
+          wasm-pack build --target web --release --out-dir /tmp/wasm-fresh
+          echo "WASM build complete"
+          ls -lh /tmp/wasm-fresh/
+
+      - name: Compute checksums (committed)
+        if: steps.check_submodule.outputs.present == 'true'
+        id: committed_hash
+        run: |
+          WASM_HASH=$(sha256sum "${{ env.WASM_OUTPUT_DIR }}/momoto_ui_core_bg.wasm" | cut -d' ' -f1)
+          JS_HASH=$(sha256sum "${{ env.WASM_OUTPUT_DIR }}/momoto_ui_core.js" | cut -d' ' -f1)
+          echo "wasm=$WASM_HASH" >> "$GITHUB_OUTPUT"
+          echo "js=$JS_HASH" >> "$GITHUB_OUTPUT"
+          echo "Committed WASM: $WASM_HASH"
+          echo "Committed JS:   $JS_HASH"
+
+      - name: Compute checksums (freshly built)
+        if: steps.check_submodule.outputs.present == 'true'
+        id: fresh_hash
+        run: |
+          WASM_HASH=$(sha256sum /tmp/wasm-fresh/momoto_ui_core_bg.wasm | cut -d' ' -f1)
+          JS_HASH=$(sha256sum /tmp/wasm-fresh/momoto_ui_core.js | cut -d' ' -f1)
+          echo "wasm=$WASM_HASH" >> "$GITHUB_OUTPUT"
+          echo "js=$JS_HASH" >> "$GITHUB_OUTPUT"
+          echo "Fresh WASM: $WASM_HASH"
+          echo "Fresh JS:   $JS_HASH"
+
+      - name: Fail if WASM is out of sync
+        if: steps.check_submodule.outputs.present == 'true'
+        run: |
+          COMMITTED_WASM="${{ steps.committed_hash.outputs.wasm }}"
+          FRESH_WASM="${{ steps.fresh_hash.outputs.wasm }}"
+          COMMITTED_JS="${{ steps.committed_hash.outputs.js }}"
+          FRESH_JS="${{ steps.fresh_hash.outputs.js }}"
+
+          FAIL=0
+
+          if [ "$COMMITTED_WASM" != "$FRESH_WASM" ]; then
+            echo "::error::WASM binary is OUT OF SYNC!"
+            echo "  Committed: $COMMITTED_WASM"
+            echo "  Fresh:     $FRESH_WASM"
+            echo ""
+            echo "Run 'make wasm-rebuild' locally and commit the result."
+            FAIL=1
+          fi
+
+          if [ "$COMMITTED_JS" != "$FRESH_JS" ]; then
+            echo "::error::WASM JS bindings are OUT OF SYNC!"
+            echo "  Committed: $COMMITTED_JS"
+            echo "  Fresh:     $FRESH_JS"
+            echo ""
+            echo "Run 'make wasm-rebuild' locally and commit the result."
+            FAIL=1
+          fi
+
+          if [ "$FAIL" = "0" ]; then
+            echo "✅ WASM binaries are synchronized with source"
+          else
+            exit 1
+          fi
+
+      - name: Upload fresh WASM (for auto-update PR)
+        if: |
+          steps.check_submodule.outputs.present == 'true' &&
+          failure() &&
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: wasm-rebuild
+          path: /tmp/wasm-fresh/
+          retention-days: 7

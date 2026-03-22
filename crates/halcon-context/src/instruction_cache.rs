@@ -56,11 +56,7 @@ impl InstructionCache {
             return None;
         }
         let tokens = estimate_tokens(&content) as u32;
-        let mtime = path
-            .metadata()
-            .ok()?
-            .modified()
-            .ok()?;
+        let mtime = path.metadata().ok()?.modified().ok()?;
 
         self.entries.insert(
             path.to_owned(),

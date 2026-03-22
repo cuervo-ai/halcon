@@ -48,12 +48,12 @@ fn infer_permission_from_definition(def: &McpToolDefinition) -> PermissionLevel 
     let text = format!("{name} {desc}");
 
     let write_signals = [
-        "write", "create", "update", "delete", "remove", "set", "put", "post", "push",
-        "commit", "execute", "run", "send", "modify",
+        "write", "create", "update", "delete", "remove", "set", "put", "post", "push", "commit",
+        "execute", "run", "send", "modify",
     ];
     let read_signals = [
-        "read", "get", "list", "search", "fetch", "show", "find", "query", "describe",
-        "count", "view",
+        "read", "get", "list", "search", "fetch", "show", "find", "query", "describe", "count",
+        "view",
     ];
 
     let has_write = write_signals.iter().any(|p| text.contains(p));
@@ -148,21 +148,30 @@ mod tests {
     fn infer_permission_read_tool() {
         let def = make_def("github_search", "Search repositories and code");
         // "search" is a read signal → ReadOnly
-        assert_eq!(infer_permission_from_definition(&def), PermissionLevel::ReadOnly);
+        assert_eq!(
+            infer_permission_from_definition(&def),
+            PermissionLevel::ReadOnly
+        );
     }
 
     #[test]
     fn infer_permission_write_tool() {
         let def = make_def("file_create", "Create a new file on disk");
         // "create" is a write signal → Destructive
-        assert_eq!(infer_permission_from_definition(&def), PermissionLevel::Destructive);
+        assert_eq!(
+            infer_permission_from_definition(&def),
+            PermissionLevel::Destructive
+        );
     }
 
     #[test]
     fn infer_permission_unknown_is_destructive() {
         let def = make_def("custom_tool", "Does something custom");
         // No recognized signals → Destructive (safe default)
-        assert_eq!(infer_permission_from_definition(&def), PermissionLevel::Destructive);
+        assert_eq!(
+            infer_permission_from_definition(&def),
+            PermissionLevel::Destructive
+        );
     }
 
     #[test]

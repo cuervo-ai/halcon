@@ -68,6 +68,14 @@ pub enum InputAction {
     /// Open the session browser overlay (F6).
     OpenSessionList,
 
+    // --- Phase 93: Cross-Platform SOTA ---
+    /// Open native file picker for media attachment (Ctrl+O).
+    ///
+    /// In terminal context: shows a toast with drag-and-drop instructions.
+    OpenFilePicker,
+    /// Remove the last pending media attachment (Ctrl+Backspace).
+    RemoveLastAttachment,
+
     // Activity Navigation actions — these are NOT returned by dispatch_key().
     // They are handled by handle_action() for direct/programmatic invocation (tests, etc.).
     // Actual activity navigation goes through ActivityController → ControlAction.
@@ -94,6 +102,12 @@ pub enum InputAction {
     /// Clear activity selection (programmatic use).
     ClearSelection,
 
+    /// Toggle sub-agent detail view: collapsed pills ↔ expanded tool list + summary (Ctrl+B).
+    ToggleSubAgentDetail,
+
+    /// Open the model selector overlay (Ctrl+M).
+    OpenModelSelector,
+
     /// Pass the key to the currently focused widget (e.g. tui-textarea).
     ForwardToWidget(KeyEvent),
 }
@@ -114,9 +128,13 @@ pub fn dispatch_key(key: KeyEvent) -> InputAction {
         // Shift+Enter: insert newline (multi-line input without submitting)
         (m, KeyCode::Enter) if m.contains(KeyModifiers::SHIFT) => InputAction::InsertNewline,
         // Ctrl+S: open Context Servers overlay (was hardcoded before dispatch_key)
-        (m, KeyCode::Char('s')) if m.contains(KeyModifiers::CONTROL) => InputAction::OpenContextServers,
+        (m, KeyCode::Char('s')) if m.contains(KeyModifiers::CONTROL) => {
+            InputAction::OpenContextServers
+        }
         // Ctrl+V: paste from clipboard into prompt
-        (m, KeyCode::Char('v')) if m.contains(KeyModifiers::CONTROL) => InputAction::PasteFromClipboard,
+        (m, KeyCode::Char('v')) if m.contains(KeyModifiers::CONTROL) => {
+            InputAction::PasteFromClipboard
+        }
         // Ctrl+K: clear prompt
         (m, KeyCode::Char('k')) if m.contains(KeyModifiers::CONTROL) => InputAction::ClearPrompt,
         // Ctrl+Up: history back
@@ -124,7 +142,9 @@ pub fn dispatch_key(key: KeyEvent) -> InputAction {
         // Ctrl+Down: history forward
         (m, KeyCode::Down) if m.contains(KeyModifiers::CONTROL) => InputAction::HistoryForward,
         // Ctrl+P: open command palette
-        (m, KeyCode::Char('p')) if m.contains(KeyModifiers::CONTROL) => InputAction::OpenCommandPalette,
+        (m, KeyCode::Char('p')) if m.contains(KeyModifiers::CONTROL) => {
+            InputAction::OpenCommandPalette
+        }
         // Ctrl+F: open search overlay
         (m, KeyCode::Char('f')) if m.contains(KeyModifiers::CONTROL) => InputAction::OpenSearch,
         // Ctrl+T: dismiss active toasts
@@ -145,6 +165,20 @@ pub fn dispatch_key(key: KeyEvent) -> InputAction {
         (_, KeyCode::F(5)) => InputAction::ToggleConversationFilter,
         // F6: session browser
         (_, KeyCode::F(6)) => InputAction::OpenSessionList,
+        // Ctrl+O: open file picker / show attachment instructions
+        (m, KeyCode::Char('o')) if m.contains(KeyModifiers::CONTROL) => InputAction::OpenFilePicker,
+        // Ctrl+Backspace: remove last attachment chip
+        (m, KeyCode::Backspace) if m.contains(KeyModifiers::CONTROL) => {
+            InputAction::RemoveLastAttachment
+        }
+        // Ctrl+B: toggle sub-agent detail view (collapsed pills ↔ tool list + summary)
+        (m, KeyCode::Char('b')) if m.contains(KeyModifiers::CONTROL) => {
+            InputAction::ToggleSubAgentDetail
+        }
+        // Ctrl+M: open model selector overlay
+        (m, KeyCode::Char('m')) if m.contains(KeyModifiers::CONTROL) => {
+            InputAction::OpenModelSelector
+        }
         // Tab: cycle focus
         (_, KeyCode::Tab) => InputAction::CycleFocus,
         // Shift+Up / PageUp: scroll activity up
@@ -335,5 +369,25 @@ mod tests {
     fn f6_opens_session_list() {
         let action = dispatch_key(key(KeyModifiers::NONE, KeyCode::F(6)));
         assert_eq!(action, InputAction::OpenSessionList);
+    }
+
+    // --- Phase 93: Cross-Platform SOTA key tests ---
+
+    #[test]
+    fn ctrl_o_opens_file_picker() {
+        let action = dispatch_key(key(KeyModifiers::CONTROL, KeyCode::Char('o')));
+        assert_eq!(action, InputAction::OpenFilePicker);
+    }
+
+    #[test]
+    fn ctrl_backspace_removes_last_attachment() {
+        let action = dispatch_key(key(KeyModifiers::CONTROL, KeyCode::Backspace));
+        assert_eq!(action, InputAction::RemoveLastAttachment);
+    }
+
+    #[test]
+    fn ctrl_b_toggles_sub_agent_detail() {
+        let action = dispatch_key(key(KeyModifiers::CONTROL, KeyCode::Char('b')));
+        assert_eq!(action, InputAction::ToggleSubAgentDetail);
     }
 }

@@ -11,7 +11,8 @@ use async_trait::async_trait;
 use eventsource_stream::Eventsource as _;
 use futures::stream::{self, BoxStream};
 use futures::StreamExt;
-use tracing::{debug, warn};
+use tokio_stream::StreamExt as TokioStreamExt;
+use tracing::{debug, instrument, warn};
 
 use halcon_core::error::{HalconError, Result};
 use halcon_core::traits::ModelProvider;
@@ -22,9 +23,103 @@ use halcon_core::types::{
 
 use crate::http;
 use types::{
-    OpenAIChatMessage, OpenAIChatRequest, OpenAIFunctionDef, OpenAIMessageContent, OpenAISseChunk,
-    OpenAITool, OpenAIToolCall, OpenAIFunctionCall, StreamOptions,
+    OpenAIChatMessage, OpenAIChatRequest, OpenAIContentPart, OpenAIFunctionCall, OpenAIFunctionDef,
+    OpenAIImageUrl, OpenAIMessageContent, OpenAISseChunk, OpenAITool, OpenAIToolCall,
+    StreamOptions,
 };
+
+/// Normalize a JSON Schema for OpenAI compatibility.
+///
+/// OpenAI requires that every parameter schema with `"type": "object"` also
+/// includes a `"properties"` key (even if empty). MCP servers and other sources
+/// sometimes emit bare `{"type": "object"}` without `properties`, which causes
+/// OpenAI to return HTTP 400 `invalid_function_parameters`.
+/// Recursively normalize a JSON Schema to comply with OpenAI's API requirements.
+///
+/// OpenAI (gpt-4o, o1, o3) and DeepSeek enforce stricter JSON Schema rules than
+/// Anthropic:
+///
+/// 1. **Union type arrays rejected**: `"type": ["string","array"]` is not valid.
+///    Convert to `anyOf: [{type:string},{type:array,items:{}}]`.
+/// 2. **Array without items**: `"type":"array"` must have an `"items"` sibling.
+///    Inject `"items": {}` (permissive — accepts any element type).
+/// 3. **Object without properties**: `"type":"object"` should declare `"properties"`.
+///    Inject `"properties": {}` (passthrough — existing behaviour).
+///
+/// The function is applied recursively to `properties`, `items`, `anyOf`, `oneOf`,
+/// `allOf`, and `not` so that nested schemas are also fixed.
+fn normalize_schema_for_openai(schema: serde_json::Value) -> serde_json::Value {
+    normalize_schema_node(schema)
+}
+
+fn normalize_schema_node(schema: serde_json::Value) -> serde_json::Value {
+    let serde_json::Value::Object(mut obj) = schema else {
+        return schema; // null / bool / number / string / array-literal — pass through
+    };
+
+    // ── 1. Union "type" array → anyOf ─────────────────────────────────────────
+    // e.g. "type": ["object","array","string"]  becomes
+    //   "anyOf": [{"type":"object","properties":{}},{"type":"array","items":{}},{"type":"string"}]
+    if let Some(serde_json::Value::Array(type_arr)) = obj.get("type").cloned() {
+        let any_of: Vec<serde_json::Value> = type_arr
+            .iter()
+            .filter_map(|t| t.as_str())
+            .map(|t| match t {
+                "array" => serde_json::json!({"type": "array", "items": {}}),
+                "object" => serde_json::json!({"type": "object", "properties": {}}),
+                other => serde_json::json!({"type": other}),
+            })
+            .collect();
+        obj.remove("type");
+        // Preserve any sibling keys (description, default, …) alongside anyOf.
+        obj.insert("anyOf".to_string(), serde_json::Value::Array(any_of));
+    }
+
+    // ── 2. Bare "type":"array" without "items" ─────────────────────────────────
+    if obj.get("type").and_then(|t| t.as_str()) == Some("array") && !obj.contains_key("items") {
+        obj.insert("items".to_string(), serde_json::json!({}));
+    }
+
+    // ── 3. "type":"object" without "properties" ────────────────────────────────
+    if obj.get("type").and_then(|t| t.as_str()) == Some("object") && !obj.contains_key("properties")
+    {
+        obj.insert("properties".to_string(), serde_json::json!({}));
+    }
+
+    // ── 4. Recurse into nested schema nodes ────────────────────────────────────
+    // properties: { field_name: schema, … }
+    if let Some(serde_json::Value::Object(mut props)) = obj.remove("properties") {
+        for v in props.values_mut() {
+            *v = normalize_schema_node(v.clone());
+        }
+        obj.insert("properties".to_string(), serde_json::Value::Object(props));
+    }
+
+    // items: schema  (array element schema)
+    if let Some(items) = obj.remove("items") {
+        obj.insert("items".to_string(), normalize_schema_node(items));
+    }
+
+    // anyOf / oneOf / allOf: [schema, …]
+    for kw in ["anyOf", "oneOf", "allOf"] {
+        if let Some(serde_json::Value::Array(arr)) = obj.remove(kw) {
+            let normalized: Vec<serde_json::Value> =
+                arr.into_iter().map(normalize_schema_node).collect();
+            obj.insert(kw.to_string(), serde_json::Value::Array(normalized));
+        }
+    }
+
+    // not: schema
+    if let Some(not_schema) = obj.remove("not") {
+        if not_schema.is_object() {
+            obj.insert("not".to_string(), normalize_schema_node(not_schema));
+        } else {
+            obj.insert("not".to_string(), not_schema);
+        }
+    }
+
+    serde_json::Value::Object(obj)
+}
 
 /// A provider that speaks the OpenAI Chat Completions protocol.
 ///
@@ -99,8 +194,9 @@ impl OpenAICompatibleProvider {
                     });
                 }
                 MessageContent::Blocks(blocks) => {
-                    // Separate text, tool_use, and tool_result blocks.
-                    let mut text_parts = Vec::new();
+                    // Separate text, vision, tool_use, and tool_result blocks.
+                    let mut text_parts: Vec<String> = Vec::new();
+                    let mut image_parts: Vec<OpenAIContentPart> = Vec::new();
                     let mut tool_calls = Vec::new();
                     let mut tool_results = Vec::new();
 
@@ -115,8 +211,7 @@ impl OpenAICompatibleProvider {
                                     call_type: "function".into(),
                                     function: OpenAIFunctionCall {
                                         name: name.clone(),
-                                        arguments: serde_json::to_string(input)
-                                            .unwrap_or_default(),
+                                        arguments: serde_json::to_string(input).unwrap_or_default(),
                                     },
                                 });
                             }
@@ -126,6 +221,45 @@ impl OpenAICompatibleProvider {
                                 ..
                             } => {
                                 tool_results.push((tool_use_id.clone(), content.clone()));
+                            }
+                            ContentBlock::Image { source } => {
+                                use halcon_core::types::ImageSource;
+                                match source {
+                                    ImageSource::Base64 { media_type, data } => {
+                                        // Real OpenAI Vision API format: data URI
+                                        let data_uri = format!(
+                                            "data:{};base64,{}",
+                                            media_type.as_mime_str(),
+                                            data
+                                        );
+                                        image_parts.push(OpenAIContentPart::ImageUrl {
+                                            image_url: OpenAIImageUrl {
+                                                url: data_uri,
+                                                detail: Some("auto".into()),
+                                            },
+                                        });
+                                    }
+                                    ImageSource::Url { url } => {
+                                        image_parts.push(OpenAIContentPart::ImageUrl {
+                                            image_url: OpenAIImageUrl {
+                                                url: url.clone(),
+                                                detail: Some("auto".into()),
+                                            },
+                                        });
+                                    }
+                                    ImageSource::LocalPath { path } => {
+                                        // Local paths must never reach an external API.
+                                        // Log a security warning and skip.
+                                        tracing::warn!(
+                                            path = %path,
+                                            "LocalPath image blocked from API transmission (security guard)"
+                                        );
+                                    }
+                                }
+                            }
+                            ContentBlock::AudioTranscript { text, .. } => {
+                                // Audio transcripts are included as text context.
+                                text_parts.push(format!("[Audio transcript]: {text}"));
                             }
                         }
                     }
@@ -141,6 +275,21 @@ impl OpenAICompatibleProvider {
                             role: "assistant".into(),
                             content,
                             tool_calls: Some(tool_calls),
+                            tool_call_id: None,
+                        });
+                    } else if !image_parts.is_empty() {
+                        // Vision message: combine text and image parts.
+                        let mut parts: Vec<OpenAIContentPart> = image_parts;
+                        if !text_parts.is_empty() {
+                            // Text comes after images (matches OpenAI convention).
+                            parts.push(OpenAIContentPart::Text {
+                                text: text_parts.join("\n"),
+                            });
+                        }
+                        messages.push(OpenAIChatMessage {
+                            role: role.into(),
+                            content: Some(OpenAIMessageContent::Parts(parts)),
+                            tool_calls: None,
                             tool_call_id: None,
                         });
                     } else if !text_parts.is_empty() {
@@ -173,7 +322,7 @@ impl OpenAICompatibleProvider {
                 function: OpenAIFunctionDef {
                     name: t.name.clone(),
                     description: t.description.clone(),
-                    parameters: t.input_schema.clone(),
+                    parameters: normalize_schema_for_openai(t.input_schema.clone()),
                 },
             })
             .collect();
@@ -225,6 +374,18 @@ impl OpenAICompatibleProvider {
                     }
                 }
 
+                // DeepSeek Reasoner / o1 / o3-mini: chain-of-thought thinking tokens
+                // arrive in `reasoning_content` while `content` is empty/null.
+                // When thinking finishes, the final answer appears in `content`.
+                // We emit as `ThinkingDelta` (not TextDelta) for visual distinction
+                // and to prevent thinking tokens from entering episodic memory.
+                // Guard: only emit when `content` is absent to avoid double-emission.
+                if let Some(ref reasoning) = delta.reasoning_content {
+                    if !reasoning.is_empty() && delta.content.as_deref().unwrap_or("").is_empty() {
+                        results.push(ModelChunk::ThinkingDelta(reasoning.clone()));
+                    }
+                }
+
                 // Tool calls.
                 if let Some(ref tool_calls) = delta.tool_calls {
                     for tc in tool_calls {
@@ -271,9 +432,14 @@ impl OpenAICompatibleProvider {
         // We achieve this by inserting Usage at the position BEFORE the last Done
         // if Done is already in results.
         if let Some(ref usage) = chunk.usage {
+            let reasoning_tokens = usage
+                .completion_tokens_details
+                .as_ref()
+                .and_then(|d| d.reasoning_tokens);
             let usage_chunk = ModelChunk::Usage(TokenUsage {
                 input_tokens: usage.prompt_tokens,
                 output_tokens: usage.completion_tokens,
+                reasoning_tokens,
                 ..Default::default()
             });
             // If there's a Done at the end, insert Usage just before it.
@@ -289,47 +455,92 @@ impl OpenAICompatibleProvider {
     }
 
     /// Build the SSE stream from an HTTP response.
-    fn build_sse_stream(
+    ///
+    /// `chunk_timeout_secs`: maximum seconds to wait for the NEXT chunk after the
+    /// previous one arrived.  A value of `0` disables per-chunk timeout (not recommended
+    /// for production — use ≥30s).  Detects stalled Azure Container Apps backends that
+    /// send the first byte but then hang without ever sending the next chunk.
+    pub(crate) fn build_sse_stream(
         response: reqwest::Response,
         provider_name: String,
+    ) -> BoxStream<'static, Result<ModelChunk>> {
+        Self::build_sse_stream_with_timeout(response, provider_name, 120)
+    }
+
+    /// Like `build_sse_stream` but with explicit per-chunk timeout.
+    pub(crate) fn build_sse_stream_with_timeout(
+        response: reqwest::Response,
+        provider_name: String,
+        chunk_timeout_secs: u64,
     ) -> BoxStream<'static, Result<ModelChunk>> {
         let byte_stream = response.bytes_stream();
         let sse_stream = byte_stream.eventsource();
 
-        let chunk_stream = sse_stream
-            .flat_map(move |sse_result| {
-                // Use &provider_name (captured by move) — no per-chunk clone.
-                match sse_result {
-                    Ok(event) => {
-                        let data = event.data;
-                        if data.trim() == "[DONE]" {
-                            return stream::iter(vec![]);
-                        }
-                        match serde_json::from_str::<OpenAISseChunk>(&data) {
-                            Ok(chunk) => {
-                                let mapped: Vec<Result<ModelChunk>> =
-                                    Self::map_sse_chunk(&chunk).into_iter().map(Ok).collect();
-                                stream::iter(mapped)
-                            }
-                            Err(e) => {
-                                warn!(
-                                    provider = %provider_name,
-                                    error = %e,
-                                    data = %data,
-                                    "Failed to parse SSE chunk"
-                                );
-                                stream::iter(vec![])
-                            }
-                        }
+        // Wrap with per-chunk timeout so stalled streams are detected.
+        // Without this, a server that sends the first SSE byte and then stalls
+        // would cause the agent to hang indefinitely (the 300s request-level timeout
+        // only applies to connection + headers, not inter-chunk gaps in the body).
+        let timed_stream = if chunk_timeout_secs > 0 {
+            let timeout = Duration::from_secs(chunk_timeout_secs);
+            // Branch A: timeout-wrapped stream
+            let mapped = futures::StreamExt::map(
+                TokioStreamExt::timeout(sse_stream, timeout),
+                move |item| -> std::result::Result<_, String> {
+                    match item {
+                        Ok(sse_r) => Ok(sse_r),
+                        Err(_elapsed) => Err(format!(
+                            "SSE stream stalled: no chunk received within {chunk_timeout_secs}s"
+                        )),
+                    }
+                },
+            );
+            Box::pin(mapped) as BoxStream<'static, std::result::Result<_, String>>
+        } else {
+            // Branch B: pass-through (no timeout)
+            // Wrap each SSE result in Ok so the flat_map consumer sees the same
+            // Result<Result<Event, _>, String> shape as branch A.
+            Box::pin(futures::StreamExt::map(
+                sse_stream,
+                |r| -> std::result::Result<_, String> { Ok(r) },
+            ))
+        };
+
+        let chunk_stream = timed_stream.flat_map(move |outer| match outer {
+            Err(timeout_msg) => {
+                warn!(provider = %provider_name, msg = %timeout_msg, "SSE per-chunk timeout");
+                stream::iter(vec![Err(HalconError::StreamError(format!(
+                    "{provider_name}: {timeout_msg}"
+                )))])
+            }
+            Ok(Ok(event)) => {
+                let data = event.data;
+                if data.trim() == "[DONE]" {
+                    return stream::iter(vec![]);
+                }
+                match serde_json::from_str::<OpenAISseChunk>(&data) {
+                    Ok(chunk) => {
+                        let mapped: Vec<Result<ModelChunk>> =
+                            Self::map_sse_chunk(&chunk).into_iter().map(Ok).collect();
+                        stream::iter(mapped)
                     }
                     Err(e) => {
-                        warn!(provider = %provider_name, error = %e, "SSE stream error");
-                        stream::iter(vec![Err(HalconError::StreamError(format!(
-                            "{} SSE error: {e}", provider_name
-                        )))])
+                        warn!(
+                            provider = %provider_name,
+                            error = %e,
+                            data = %data,
+                            "Failed to parse SSE chunk"
+                        );
+                        stream::iter(vec![])
                     }
                 }
-            });
+            }
+            Ok(Err(e)) => {
+                warn!(provider = %provider_name, error = %e, "SSE stream error");
+                stream::iter(vec![Err(HalconError::StreamError(format!(
+                    "{provider_name} SSE error: {e}"
+                )))])
+            }
+        });
 
         Box::pin(chunk_stream)
     }
@@ -347,6 +558,8 @@ impl OpenAICompatibleProvider {
                         ContentBlock::Text { text } => text.len(),
                         ContentBlock::ToolResult { content, .. } => content.len(),
                         ContentBlock::ToolUse { input, .. } => estimate_value_size(input),
+                        ContentBlock::Image { .. } => 1024,
+                        ContentBlock::AudioTranscript { text, .. } => text.len(),
                     })
                     .sum(),
             })
@@ -359,12 +572,22 @@ impl OpenAICompatibleProvider {
 pub(crate) fn estimate_value_size(value: &serde_json::Value) -> usize {
     match value {
         serde_json::Value::Null => 4,
-        serde_json::Value::Bool(b) => if *b { 4 } else { 5 },
+        serde_json::Value::Bool(b) => {
+            if *b {
+                4
+            } else {
+                5
+            }
+        }
         serde_json::Value::Number(n) => {
             // itoa is typically 1-20 digits; use display len as approximation.
             // Avoid allocation — estimate based on magnitude.
             let n64 = n.as_f64().unwrap_or(0.0);
-            if n64 == 0.0 { 1 } else { (n64.abs().log10() as usize).saturating_add(2) }
+            if n64 == 0.0 {
+                1
+            } else {
+                (n64.abs().log10() as usize).saturating_add(2)
+            }
         }
         serde_json::Value::String(s) => s.len() + 2, // quotes
         serde_json::Value::Array(arr) => {
@@ -392,6 +615,7 @@ impl ModelProvider for OpenAICompatibleProvider {
         &self.models
     }
 
+    #[instrument(skip_all, fields(provider = %self.provider_name, model = %request.model, msgs = request.messages.len()))]
     async fn invoke(
         &self,
         request: &ModelRequest,
@@ -526,6 +750,17 @@ impl ModelProvider for OpenAICompatibleProvider {
         TokenCost {
             estimated_input_tokens: estimated_tokens,
             estimated_cost_usd: estimated_tokens as f64 * cost_per_input,
+        }
+    }
+
+    fn tool_format(&self) -> halcon_core::types::ToolFormat {
+        halcon_core::types::ToolFormat::OpenAIFunctionObject
+    }
+
+    fn tokenizer_hint(&self) -> halcon_core::types::TokenizerHint {
+        match self.provider_name.as_str() {
+            "deepseek" => halcon_core::types::TokenizerHint::DeepSeekBpe,
+            _ => halcon_core::types::TokenizerHint::TiktokenCl100k,
         }
     }
 }
@@ -773,6 +1008,7 @@ mod tests {
                     role: None,
                     content: Some("Hello".into()),
                     tool_calls: None,
+                    reasoning_content: None,
                 }),
                 finish_reason: None,
             }],
@@ -800,6 +1036,7 @@ mod tests {
                             arguments: Some("{\"cmd\":".into()),
                         }),
                     }]),
+                    reasoning_content: None,
                 }),
                 finish_reason: None,
             }],
@@ -808,7 +1045,9 @@ mod tests {
         let mapped = OpenAICompatibleProvider::map_sse_chunk(&chunk);
         assert_eq!(mapped.len(), 2); // ToolUseStart + ToolUseDelta
         assert!(matches!(&mapped[0], ModelChunk::ToolUseStart { name, .. } if name == "bash"));
-        assert!(matches!(&mapped[1], ModelChunk::ToolUseDelta { partial_json, .. } if partial_json == "{\"cmd\":"));
+        assert!(
+            matches!(&mapped[1], ModelChunk::ToolUseDelta { partial_json, .. } if partial_json == "{\"cmd\":")
+        );
     }
 
     #[test]
@@ -821,6 +1060,7 @@ mod tests {
                     role: None,
                     content: None,
                     tool_calls: None,
+                    reasoning_content: None,
                 }),
                 finish_reason: Some("stop".into()),
             }],
@@ -832,6 +1072,89 @@ mod tests {
     }
 
     #[test]
+    fn map_sse_chunk_reasoning_content_emitted_as_thinking_delta() {
+        // DeepSeek Reasoner bug: first response puts entire answer in reasoning_content
+        // with empty content → nothing rendered in TUI (Phase 92 root cause fix).
+        // When content is absent, reasoning_content must be emitted as TextDelta.
+        let chunk = OpenAISseChunk {
+            id: Some("chatcmpl-reasoner".into()),
+            choices: vec![types::OpenAIChoice {
+                index: 0,
+                delta: Some(types::OpenAIDelta {
+                    role: None,
+                    content: None, // empty — the bug case
+                    tool_calls: None,
+                    reasoning_content: Some("Thinking: hola is a greeting.".into()),
+                }),
+                finish_reason: None,
+            }],
+            usage: None,
+        };
+        let mapped = OpenAICompatibleProvider::map_sse_chunk(&chunk);
+        // Must emit ThinkingDelta so TUI can render thinking tokens with visual distinction.
+        assert_eq!(
+            mapped.len(),
+            1,
+            "reasoning_content should produce one ThinkingDelta"
+        );
+        assert!(
+            matches!(&mapped[0], ModelChunk::ThinkingDelta(t) if t == "Thinking: hola is a greeting."),
+            "reasoning_content should be emitted as ThinkingDelta (not TextDelta)"
+        );
+    }
+
+    #[test]
+    fn map_sse_chunk_reasoning_content_suppressed_when_content_present() {
+        // When BOTH content and reasoning_content are populated in the same chunk,
+        // only content is emitted — prevents double-emission during transition phase.
+        let chunk = OpenAISseChunk {
+            id: Some("chatcmpl-reasoner".into()),
+            choices: vec![types::OpenAIChoice {
+                index: 0,
+                delta: Some(types::OpenAIDelta {
+                    role: None,
+                    content: Some("Final answer.".into()),
+                    tool_calls: None,
+                    reasoning_content: Some("Thinking phase.".into()),
+                }),
+                finish_reason: None,
+            }],
+            usage: None,
+        };
+        let mapped = OpenAICompatibleProvider::map_sse_chunk(&chunk);
+        // Only content emitted — no double TextDelta
+        assert_eq!(
+            mapped.len(),
+            1,
+            "only content should be emitted when both fields present"
+        );
+        assert!(
+            matches!(&mapped[0], ModelChunk::TextDelta(t) if t == "Final answer."),
+            "content takes priority over reasoning_content"
+        );
+    }
+
+    #[test]
+    fn map_sse_chunk_reasoning_content_serde_deserializes() {
+        // Verify the new field round-trips through serde (the actual SSE path).
+        let json = r#"{
+            "id": "chatcmpl-r1",
+            "choices": [{
+                "index": 0,
+                "delta": {
+                    "reasoning_content": "step 1: think",
+                    "content": null
+                },
+                "finish_reason": null
+            }]
+        }"#;
+        let chunk: types::OpenAISseChunk = serde_json::from_str(json).unwrap();
+        let delta = chunk.choices[0].delta.as_ref().unwrap();
+        assert_eq!(delta.reasoning_content.as_deref(), Some("step 1: think"));
+        assert!(delta.content.is_none());
+    }
+
+    #[test]
     fn map_sse_chunk_usage() {
         let chunk = OpenAISseChunk {
             id: Some("chatcmpl-1".into()),
@@ -839,11 +1162,14 @@ mod tests {
             usage: Some(types::OpenAIUsage {
                 prompt_tokens: 50,
                 completion_tokens: 100,
+                completion_tokens_details: None,
             }),
         };
         let mapped = OpenAICompatibleProvider::map_sse_chunk(&chunk);
         assert_eq!(mapped.len(), 1);
-        assert!(matches!(&mapped[0], ModelChunk::Usage(u) if u.input_tokens == 50 && u.output_tokens == 100));
+        assert!(
+            matches!(&mapped[0], ModelChunk::Usage(u) if u.input_tokens == 50 && u.output_tokens == 100)
+        );
     }
 
     #[test]

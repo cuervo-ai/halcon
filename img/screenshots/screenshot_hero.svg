@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="884" height="1285"
+     viewBox="0 0 884 1285" role="img"
+     aria-label="Halcon CLI — Command Showcase">
+
+  <!-- Background -->
+  <rect width="884" height="1285" fill="#070401" rx="12"/>
+
+  <!-- Header branding -->
+  <text x="442" y="26" text-anchor="middle"
+        font-family="'Rajdhani','Montserrat',sans-serif" font-size="18px"
+        font-weight="700" fill="#e85200">HALCON CLI</text>
+  <text x="442" y="42" text-anchor="middle"
+        font-family="'Rajdhani',sans-serif" font-size="11px"
+        fill="#c4b49a">AI-native terminal agent · v0.3.0</text>
+
+  
+  <!-- Panel: halcon status -->
+  <rect x="32" y="32" width="820" height="357"
+        rx="8" fill="#0d0500" stroke="#e85200" stroke-width="1" stroke-opacity="0.5"/>
+  <rect x="32" y="32" width="820" height="36"
+        rx="8" fill="#e85200" fill-opacity="0.12"/>
+  <rect x="32" y="42" width="820" height="26"
+        fill="#e85200" fill-opacity="0.12"/>
+  <circle cx="46" cy="49" r="5" fill="#ee343b"/>
+  <circle cx="60" cy="49" r="5" fill="#fdd506"/>
+  <circle cx="74" cy="49" r="5" fill="#57cb60"/>
+  <text x="442" y="54" text-anchor="middle"
+        font-family="'Rajdhani',sans-serif" font-size="12px" font-weight="600"
+        fill="#f0e8d8" opacity="0.9">halcon status</text>
+  <line x1="32" y1="68" x2="852" y2="68"
+        stroke="#e85200" stroke-width="0.6" stroke-opacity="0.4"/>
+  <text x="44" y="78"
+        font-family="'JetBrains Mono',monospace" font-size="11px">
+    <tspan fill="#c4b49a">~ </tspan><tspan fill="#e85200" font-weight="bold">❯ </tspan><tspan fill="#f0e8d8">halcon status</tspan>
+  </text>
+  <text x="44" y="82" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >Halcon CLI v0.3.0</tspan></text><text x="44" y="99" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"></text><text x="44" y="116" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >Provider: anthropic</tspan></text><text x="44" y="133" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >Model:    claude-sonnet-4-6</tspan></text><text x="44" y="150" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"></text><text x="44" y="167" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >Configured providers:</tspan></text><text x="44" y="184" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >  openai: enabled, key set</tspan></text><text x="44" y="201" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >  deepseek: enabled, key missing</tspan></text><text x="44" y="218" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >  ollama: enabled, no key needed</tspan></text><text x="44" y="235" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >  anthropic: enabled, key set</tspan></text><text x="44" y="252" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >  gemini: enabled, key missing</tspan></text><text x="44" y="269" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >  claude_code: enabled, no key needed</tspan></text><text x="44" y="286" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >  cenzontle: not logged in  (run `halcon login cenzontle` to authenticate)</tspan></text><text x="44" y="303" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"></text><text x="44" y="320" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >Security:</tspan></text><text x="44" y="337" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >  PII detection: off</tspan></text><text x="44" y="354" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >  Audit trail:   on</tspan></text>
+  <!-- Panel: halcon doctor -->
+  <rect x="32" y="405" width="820" height="408"
+        rx="8" fill="#0d0500" stroke="#e85200" stroke-width="1" stroke-opacity="0.5"/>
+  <rect x="32" y="405" width="820" height="36"
+        rx="8" fill="#e85200" fill-opacity="0.12"/>
+  <rect x="32" y="415" width="820" height="26"
+        fill="#e85200" fill-opacity="0.12"/>
+  <circle cx="46" cy="422" r="5" fill="#ee343b"/>
+  <circle cx="60" cy="422" r="5" fill="#fdd506"/>
+  <circle cx="74" cy="422" r="5" fill="#57cb60"/>
+  <text x="442" y="427" text-anchor="middle"
+        font-family="'Rajdhani',sans-serif" font-size="12px" font-weight="600"
+        fill="#f0e8d8" opacity="0.9">halcon doctor</text>
+  <line x1="32" y1="441" x2="852" y2="441"
+        stroke="#e85200" stroke-width="0.6" stroke-opacity="0.4"/>
+  <text x="44" y="451"
+        font-family="'JetBrains Mono',monospace" font-size="11px">
+    <tspan fill="#c4b49a">~ </tspan><tspan fill="#e85200" font-weight="bold">❯ </tspan><tspan fill="#f0e8d8">halcon doctor</tspan>
+  </text>
+  <text x="44" y="455" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"></text><text x="44" y="472" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"></text><text x="44" y="489" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >  ╭─ Halcon Doctor ──────────────────────────────────────╮</tspan></text><text x="44" y="506" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"></text><text x="44" y="523" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >  Configuration</tspan></text><text x="44" y="540" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >    All settings valid</tspan></text><text x="44" y="557" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"></text><text x="44" y="574" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >  Providers</tspan></text><text x="44" y="591" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >    Primary: anthropic/claude-sonnet-4-6</tspan></text><text x="44" y="608" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >    anthropic/claude-haiku-4-5-20251001: [OK] (100% success, 10848ms avg, 205 calls)</tspan></text><text x="44" y="625" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >    anthropic/claude-opus-4-6: [OK] (96% success, 26530ms avg, 178 calls)</tspan></text><text x="44" y="642" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >    anthropic/claude-sonnet-4-6: [OK] (99% success, 9151ms avg, 139 calls)</tspan></text><text x="44" y="659" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >    claude_code/claude-opus-4-6: [OK] (100% success, 1943ms avg, 4 calls)</tspan></text><text x="44" y="676" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >    claude_code/claude-sonnet-4-6: [DEGRADED] (94% success, 9728ms avg, 32 calls)</tspan></text><text x="44" y="693" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >    deepseek/deepseek-chat: [OK] (98% success, 13398ms avg, 2065 calls)</tspan></text><text x="44" y="710" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >    deepseek/deepseek-coder: [OK] (100% success, 16977ms avg, 148 calls)</tspan></text><text x="44" y="727" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >    deepseek/deepseek-reasoner: [OK] (98% success, 6643ms avg, 43 calls)</tspan></text><text x="44" y="744" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >    ollama/claude-haiku-4-5-20251001: [OK] (100% success, 22802ms avg, 17 calls)</tspan></text><text x="44" y="761" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >    ollama/deepseek-coder-v2:latest: [OK] (97% success, 37395ms avg, 233 calls)</tspan></text><text x="44" y="778" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >    openai/gpt-4o: [OK] (95% success, 9831ms avg, 38 calls)</tspan></text>
+  <!-- Panel: halcon tools list -->
+  <rect x="32" y="829" width="820" height="408"
+        rx="8" fill="#0d0500" stroke="#e85200" stroke-width="1" stroke-opacity="0.5"/>
+  <rect x="32" y="829" width="820" height="36"
+        rx="8" fill="#e85200" fill-opacity="0.12"/>
+  <rect x="32" y="839" width="820" height="26"
+        fill="#e85200" fill-opacity="0.12"/>
+  <circle cx="46" cy="846" r="5" fill="#ee343b"/>
+  <circle cx="60" cy="846" r="5" fill="#fdd506"/>
+  <circle cx="74" cy="846" r="5" fill="#57cb60"/>
+  <text x="442" y="851" text-anchor="middle"
+        font-family="'Rajdhani',sans-serif" font-size="12px" font-weight="600"
+        fill="#f0e8d8" opacity="0.9">halcon tools list</text>
+  <line x1="32" y1="865" x2="852" y2="865"
+        stroke="#e85200" stroke-width="0.6" stroke-opacity="0.4"/>
+  <text x="44" y="875"
+        font-family="'JetBrains Mono',monospace" font-size="11px">
+    <tspan fill="#c4b49a">~ </tspan><tspan fill="#e85200" font-weight="bold">❯ </tspan><tspan fill="#f0e8d8">halcon tools list</tspan>
+  </text>
+  <text x="44" y="879" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"></text><text x="44" y="896" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >  Available Tools (63):</tspan></text><text x="44" y="913" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"></text><text x="44" y="930" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >  archive                [RW]  Create, extract, or list archive files (zip, ta...</tspan></text><text x="44" y="947" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >  background_kill        [D!]  Terminate a background job by its job ID.</tspan></text><text x="44" y="964" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >  background_output      [RO]  Check the output and status of a background job...</tspan></text><text x="44" y="981" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >  background_start       [D!] *  Start a long-running command in the background....</tspan></text><text x="44" y="998" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >  bash                   [D!] *  Execute a bash command and return its output. C...</tspan></text><text x="44" y="1015" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >  changelog_gen          [RO]  Generate a structured Markdown changelog from g...</tspan></text><text x="44" y="1032" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >  checksum               [RO]  Compute and verify SHA-256 checksums. Operation...</tspan></text><text x="44" y="1049" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >  ci_logs                [RO]  Fetch and display CI/CD pipeline logs from GitH...</tspan></text><text x="44" y="1066" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >  code_coverage          [RO]  Read and summarize code coverage reports. Suppo...</tspan></text><text x="44" y="1083" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >  code_metrics           [RO]  Compute static code metrics for files or direct...</tspan></text><text x="44" y="1100" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >  config_validate        [RO]  Validate configuration files (TOML, JSON, YAML,...</tspan></text><text x="44" y="1117" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >  dep_check              [RO]  Audit project dependencies: list packages and c...</tspan></text><text x="44" y="1134" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >  dependency_graph       [RO]  Visualize package dependency graphs as ASCII tr...</tspan></text><text x="44" y="1151" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >  diff_apply             [RW]  Apply a unified diff patch to a file. Supports ...</tspan></text><text x="44" y="1168" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >  directory_tree         [RO]  List the contents of a directory as a tree stru...</tspan></text><text x="44" y="1185" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >  docker                 [RW]  Inspect and manage Docker containers, images, n...</tspan></text><text x="44" y="1202" font-family="'JetBrains Mono',monospace" font-size="11px" xml:space="preserve"><tspan fill="#f0e8d8" >  env_inspect            [RO]  Inspect environment variables. List all env var...</tspan></text>
+
+  <!-- Footer -->
+  <text x="442" y="1275" text-anchor="middle"
+        font-family="'Rajdhani',sans-serif" font-size="10px"
+        fill="#c4b49a" opacity="0.6">halcon.cuervo.cloud</text>
+</svg>
