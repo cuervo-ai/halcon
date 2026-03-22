@@ -327,6 +327,18 @@ async fn fetch_models(
 
 fn model_info_from_cenzontle(m: CenzontleModel) -> ModelInfo {
     let tier = m.tier.as_deref();
+    let id_lower = m.id.to_ascii_lowercase();
+
+    // ── Infer supports_reasoning from backend OR model ID patterns ──────
+    let supports_reasoning = m
+        .supports_reasoning
+        .unwrap_or_else(|| infer_reasoning_capability(&id_lower));
+
+    // ── Infer relative cost from backend cost_tier OR tier field ────────
+    // This produces a synthetic cost that preserves correct tier ordering
+    // in ModelRouter::from_provider_models() without real pricing data.
+    let (cost_in, cost_out) = infer_relative_cost(tier, m.cost_tier.as_deref());
+
     ModelInfo {
         id: m.id.clone(),
         name: m.name.unwrap_or_else(|| m.id.clone()),
@@ -338,9 +350,63 @@ fn model_info_from_cenzontle(m: CenzontleModel) -> ModelInfo {
         supports_streaming: m.supports_streaming,
         supports_tools: m.supports_tools,
         supports_vision: m.supports_vision,
-        supports_reasoning: false,
-        cost_per_input_token: 0.0, // billed through Cenzontle account
-        cost_per_output_token: 0.0,
+        supports_reasoning,
+        cost_per_input_token: cost_in,
+        cost_per_output_token: cost_out,
+    }
+}
+
+// ── Model ID Pattern Registry ────────────────────────────────────────────
+//
+// Frontier pattern (Continue.dev + LiteLLM): infer capabilities from model
+// ID when the backend doesn't provide explicit flags. This is the same
+// approach used by LiteLLM's 2000+ model JSON and Aider's model-settings.yml.
+
+/// Infer reasoning/chain-of-thought capability from model ID.
+///
+/// Models that support extended thinking typically have identifiable patterns
+/// in their IDs. This covers all major providers proxied through Cenzontle.
+fn infer_reasoning_capability(id_lower: &str) -> bool {
+    // OpenAI reasoning models
+    if id_lower.contains("o1") || id_lower.contains("o3") || id_lower.contains("o4") {
+        return true;
+    }
+    // DeepSeek reasoning
+    if id_lower.contains("deepseek-reasoner") || id_lower.contains("deepseek-r1") {
+        return true;
+    }
+    // Claude Opus (supports extended thinking)
+    if id_lower.contains("opus") {
+        return true;
+    }
+    // Gemini thinking models
+    if id_lower.contains("thinking") || id_lower.contains("think") {
+        return true;
+    }
+    false
+}
+
+/// Produce synthetic relative costs so ModelRouter can sort tiers correctly.
+///
+/// Real Cenzontle pricing is opaque (billed via account), but the router
+/// needs cost ordering to classify Fast < Balanced < Deep. We assign
+/// synthetic values that preserve the correct sort order:
+///
+/// | Tier      | Synthetic $/M output | Purpose                    |
+/// |-----------|---------------------|----------------------------|
+/// | ECONOMY   | 0.10                | Cheapest, simple tasks     |
+/// | FAST      | 1.00                | Quick responses, low cost  |
+/// | BALANCED  | 5.00                | General purpose            |
+/// | FLAGSHIP  | 15.00               | Highest capability         |
+fn infer_relative_cost(tier: Option<&str>, cost_tier: Option<&str>) -> (f64, f64) {
+    // Prefer explicit cost_tier from backend
+    let effective = cost_tier.or(tier);
+    match effective {
+        Some("FLAGSHIP") | Some("high") => (0.003, 0.015),
+        Some("BALANCED") | Some("medium") => (0.001, 0.005),
+        Some("FAST") | Some("low") => (0.0003, 0.001),
+        Some("ECONOMY") | Some("free") => (0.0001, 0.0001),
+        _ => (0.001, 0.005), // default to balanced
     }
 }
 
@@ -720,6 +786,8 @@ mod tests {
             supports_streaming: true,
             supports_tools: true,
             supports_vision: false,
+            supports_reasoning: None,
+            cost_tier: None,
         };
         let info = model_info_from_cenzontle(m);
         assert_eq!(info.id, "gpt-4o-mini");
@@ -730,9 +798,11 @@ mod tests {
         assert!(info.supports_streaming);
         assert!(info.supports_tools);
         assert!(!info.supports_vision);
-        // Cost is always 0 — billed through Cenzontle account.
-        assert_eq!(info.cost_per_input_token, 0.0);
-        assert_eq!(info.cost_per_output_token, 0.0);
+        // Synthetic cost based on BALANCED tier
+        assert!(
+            info.cost_per_output_token > 0.0,
+            "synthetic cost for BALANCED tier"
+        );
     }
 
     #[test]
@@ -746,6 +816,8 @@ mod tests {
             supports_streaming: true,
             supports_tools: false,
             supports_vision: false,
+            supports_reasoning: None,
+            cost_tier: None,
         };
         let info = model_info_from_cenzontle(m);
         assert_eq!(info.name, "my-model");
@@ -778,6 +850,8 @@ mod tests {
             supports_streaming: true,
             supports_tools: true,
             supports_vision: false,
+            supports_reasoning: None,
+            cost_tier: None,
         };
         let info = model_info_from_cenzontle(m);
         // FAST tier → context 64k, max_output 4096
@@ -888,5 +962,113 @@ mod tests {
         let json = r#"{"data": []}"#;
         let resp: CenzontleModelsResponse = serde_json::from_str(json).unwrap();
         assert!(resp.data.is_empty());
+    }
+
+    // ── Dynamic model discovery tests ────────────────────────────────────
+
+    #[test]
+    fn infer_reasoning_from_model_id() {
+        // Reasoning models
+        assert!(infer_reasoning_capability("o1-preview"));
+        assert!(infer_reasoning_capability("o3-mini"));
+        assert!(infer_reasoning_capability("o4-mini-2025-04-16"));
+        assert!(infer_reasoning_capability("deepseek-reasoner"));
+        assert!(infer_reasoning_capability("deepseek-r1-distill"));
+        assert!(infer_reasoning_capability("claude-opus-4-6"));
+        assert!(infer_reasoning_capability("gemini-2.5-flash-thinking"));
+
+        // Non-reasoning models
+        assert!(!infer_reasoning_capability("claude-sonnet-4-6"));
+        assert!(!infer_reasoning_capability("gpt-4o"));
+        assert!(!infer_reasoning_capability("deepseek-chat"));
+        assert!(!infer_reasoning_capability("gemini-2.0-flash"));
+        assert!(!infer_reasoning_capability("claude-haiku-4-5"));
+    }
+
+    #[test]
+    fn relative_cost_tier_ordering() {
+        let (_, economy) = infer_relative_cost(Some("ECONOMY"), None);
+        let (_, fast) = infer_relative_cost(Some("FAST"), None);
+        let (_, balanced) = infer_relative_cost(Some("BALANCED"), None);
+        let (_, flagship) = infer_relative_cost(Some("FLAGSHIP"), None);
+
+        // Cost must be strictly increasing: ECONOMY < FAST < BALANCED < FLAGSHIP
+        assert!(economy < fast, "ECONOMY < FAST");
+        assert!(fast < balanced, "FAST < BALANCED");
+        assert!(balanced < flagship, "BALANCED < FLAGSHIP");
+    }
+
+    #[test]
+    fn cost_tier_field_overrides_tier() {
+        // Backend's cost_tier should take precedence over tier
+        let (_, cost) = infer_relative_cost(Some("FLAGSHIP"), Some("low"));
+        let (_, flagship_cost) = infer_relative_cost(Some("FLAGSHIP"), None);
+        assert!(
+            cost < flagship_cost,
+            "cost_tier='low' should override tier='FLAGSHIP'"
+        );
+    }
+
+    #[test]
+    fn model_info_from_cenzontle_reasoning_inference() {
+        let m = CenzontleModel {
+            id: "claude-opus-4-6".to_string(),
+            name: Some("Claude Opus 4.6".to_string()),
+            tier: Some("FLAGSHIP".to_string()),
+            context_window: Some(200_000),
+            max_output_tokens: Some(32_000),
+            supports_streaming: true,
+            supports_tools: true,
+            supports_vision: true,
+            supports_reasoning: None, // backend doesn't provide it
+            cost_tier: None,
+        };
+        let info = model_info_from_cenzontle(m);
+        assert!(
+            info.supports_reasoning,
+            "opus should be inferred as reasoning-capable"
+        );
+        assert!(
+            info.cost_per_output_token > 0.0,
+            "synthetic cost should be positive"
+        );
+    }
+
+    #[test]
+    fn model_info_from_cenzontle_backend_reasoning_override() {
+        let m = CenzontleModel {
+            id: "custom-model-v2".to_string(),
+            name: None,
+            tier: Some("BALANCED".to_string()),
+            context_window: None,
+            max_output_tokens: None,
+            supports_streaming: true,
+            supports_tools: true,
+            supports_vision: false,
+            supports_reasoning: Some(true), // backend explicitly says yes
+            cost_tier: None,
+        };
+        let info = model_info_from_cenzontle(m);
+        assert!(
+            info.supports_reasoning,
+            "backend explicit flag should be respected"
+        );
+    }
+
+    #[test]
+    fn deserialize_new_fields_backward_compatible() {
+        // Old backend response without supports_reasoning and cost_tier
+        let json = r#"{"data": [{"id": "claude-sonnet-4-6", "tier": "BALANCED"}]}"#;
+        let resp: CenzontleModelsResponse = serde_json::from_str(json).unwrap();
+        let m = &resp.data[0];
+        assert!(m.supports_reasoning.is_none());
+        assert!(m.cost_tier.is_none());
+
+        // New backend response with explicit fields
+        let json2 = r#"{"data": [{"id": "o3", "supports_reasoning": true, "cost_tier": "high"}]}"#;
+        let resp2: CenzontleModelsResponse = serde_json::from_str(json2).unwrap();
+        let m2 = &resp2.data[0];
+        assert_eq!(m2.supports_reasoning, Some(true));
+        assert_eq!(m2.cost_tier.as_deref(), Some("high"));
     }
 }
