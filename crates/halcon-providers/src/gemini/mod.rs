@@ -52,34 +52,7 @@ impl std::fmt::Debug for GeminiProvider {
 
 impl GeminiProvider {
     fn default_models() -> Vec<ModelInfo> {
-        vec![
-            ModelInfo {
-                id: "gemini-2.0-flash".into(),
-                name: "Gemini 2.0 Flash".into(),
-                provider: "gemini".into(),
-                context_window: 1_048_576,
-                max_output_tokens: 8192,
-                supports_streaming: true,
-                supports_tools: true,
-                supports_vision: true,
-                supports_reasoning: false,
-                cost_per_input_token: 0.10 / 1_000_000.0,
-                cost_per_output_token: 0.40 / 1_000_000.0,
-            },
-            ModelInfo {
-                id: "gemini-2.5-pro".into(),
-                name: "Gemini 2.5 Pro".into(),
-                provider: "gemini".into(),
-                context_window: 1_048_576,
-                max_output_tokens: 65536,
-                supports_streaming: true,
-                supports_tools: true,
-                supports_vision: true,
-                supports_reasoning: true,
-                cost_per_input_token: 1.25 / 1_000_000.0,
-                cost_per_output_token: 10.0 / 1_000_000.0,
-            },
-        ]
+        crate::model_registry::static_fallback_models("gemini")
     }
 
     /// Create a new Gemini provider.
