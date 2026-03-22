@@ -152,11 +152,8 @@ jobs:
   build-website:
     name: Build Website
     runs-on: ubuntu-latest
-    # Only rebuild website when website source actually changes
-    if: |
-      contains(github.event.head_commit.modified, 'website/') ||
-      github.event_name == 'pull_request' ||
-      github.event_name == 'workflow_dispatch'
+    # Build website on every PR, push to main, and manual dispatch.
+    # Path filtering via head_commit.modified is unreliable for merge commits.
     defaults:
       run:
         working-directory: website
