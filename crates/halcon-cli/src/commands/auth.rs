@@ -494,9 +494,8 @@ pub fn status() -> Result<()> {
 fn validate_cenzontle_token(token: &str) -> bool {
     use std::time::Duration;
 
-    let base_url = std::env::var("CENZONTLE_BASE_URL").unwrap_or_else(|_| {
-        "https://ca-cenzontle-backend.graypond-e35bfdd8.eastus2.azurecontainerapps.io".to_string()
-    });
+    let base_url = std::env::var("CENZONTLE_BASE_URL")
+        .unwrap_or_else(|_| crate::commands::sso::default_cenzontle_url());
     let url = format!("{base_url}/v1/auth/me");
 
     // Synchronous HTTP call (auth status is a CLI command, not async runtime)
