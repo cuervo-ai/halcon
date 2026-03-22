@@ -3,7 +3,11 @@
 use serde::Deserialize;
 
 /// A single model returned by `GET /v1/llm/models`.
-#[derive(Debug, Deserialize)]
+///
+/// Fields marked `Option` may not be present in every backend version.
+/// The client infers missing capabilities from model ID patterns (see
+/// `infer_model_capabilities`).
+#[derive(Debug, Clone, Deserialize)]
 pub struct CenzontleModel {
     pub id: String,
     pub name: Option<String>,
@@ -18,6 +22,14 @@ pub struct CenzontleModel {
     pub supports_tools: bool,
     #[serde(default)]
     pub supports_vision: bool,
+    /// Extended thinking / chain-of-thought capability.
+    /// If the backend doesn't provide this, the client infers it from model ID.
+    #[serde(default)]
+    pub supports_reasoning: Option<bool>,
+    /// Relative cost tier for routing: "high", "medium", "low", "free".
+    /// If absent, inferred from the model's `tier` field.
+    #[serde(default)]
+    pub cost_tier: Option<String>,
 }
 
 fn default_true() -> bool {
