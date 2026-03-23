@@ -34,8 +34,18 @@ use tokio::net::TcpListener;
 
 const SERVICE_NAME: &str = "halcon-cli";
 const DEFAULT_SSO_URL: &str = "https://sso.zuclubit.com";
-const DEFAULT_CENZONTLE_URL: &str = "https://api.cenzontle.app";
 const CLIENT_ID: &str = "halcon-cli";
+
+/// Default Cenzontle backend URL. Shared with auth.rs validation.
+/// Override with `CENZONTLE_BASE_URL` env var.
+pub fn default_cenzontle_url() -> String {
+    halcon_providers::cenzontle::DEFAULT_BASE_URL.to_string()
+}
+
+/// Default SSO URL. Shared for consistency.
+pub fn default_sso_url() -> String {
+    DEFAULT_SSO_URL.to_string()
+}
 
 /// Default OAuth callback port.  Override with `HALCON_SSO_PORT`.
 const DEFAULT_REDIRECT_PORT: u16 = 9_876;
@@ -72,7 +82,7 @@ pub enum StoreOutcome {
 pub async fn login() -> Result<()> {
     let sso_url = std::env::var("ZUCLUBIT_SSO_URL").unwrap_or_else(|_| DEFAULT_SSO_URL.to_string());
     let cenzontle_url =
-        std::env::var("CENZONTLE_BASE_URL").unwrap_or_else(|_| DEFAULT_CENZONTLE_URL.to_string());
+        std::env::var("CENZONTLE_BASE_URL").unwrap_or_else(|_| default_cenzontle_url());
 
     // CI bypass: client_credentials grant when a non-empty secret is available.
     if let Ok(secret) = std::env::var("HALCON_SSO_CLIENT_SECRET") {
@@ -632,9 +642,7 @@ pub(crate) fn activate_cenzontle_in_config() {
         lines.push("# Added by 'halcon auth login cenzontle'".to_string());
         lines.push("[models.providers.cenzontle]".to_string());
         lines.push("enabled       = true".to_string());
-        lines.push(
-            "api_base      = \"https://ca-cenzontle-backend.graypond-e35bfdd8.eastus2.azurecontainerapps.io\"".to_string(),
-        );
+        lines.push(format!("api_base      = \"{}\"", default_cenzontle_url()));
         lines.push("api_key_env   = \"CENZONTLE_ACCESS_TOKEN\"".to_string());
         lines.push("default_model = \"claude-sonnet-4-6\"".to_string());
         cenzontle_enabled_patched = true;

@@ -41,6 +41,7 @@ const MIGRATIONS: &[(u32, &str, &str)] = &[
     (37, "mailbox_messages", MIGRATION_037),
     (38, "scheduled_tasks", MIGRATION_038),
     (39, "audit_integrity_indexes", MIGRATION_039),
+    (40, "mailbox_hmac_signing", MIGRATION_040),
 ];
 
 const MIGRATION_001: &str = r#"
@@ -1252,6 +1253,14 @@ CREATE INDEX IF NOT EXISTS idx_reasoning_session
     ON reasoning_experience(session_id);
 "#;
 
+const MIGRATION_040: &str = r#"
+-- M40: HMAC signing for mailbox messages (Agent Communication Security).
+-- Adds signature and nonce columns to prevent agent impersonation,
+-- message tampering, and replay attacks within agent teams.
+ALTER TABLE mailbox_messages ADD COLUMN signature TEXT;
+ALTER TABLE mailbox_messages ADD COLUMN nonce INTEGER NOT NULL DEFAULT 0;
+"#;
+
 /// Run all pending migrations.
 pub fn run_migrations(conn: &Connection) -> Result<(), halcon_core::error::HalconError> {
     // Ensure migrations table exists
@@ -1306,7 +1315,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(version, 39); // 36 original + 37 (mailbox_messages) + 38 (scheduled_tasks) + 39 (audit_integrity_indexes)
+        assert_eq!(version, 40); // ... + 40 (mailbox_hmac_signing)
     }
 
     #[test]
@@ -1320,7 +1329,7 @@ mod tests {
                 row.get(0)
             })
             .unwrap();
-        assert_eq!(count, 39); // 36 original + 37 (mailbox_messages) + 38 (scheduled_tasks) + 39 (audit_integrity_indexes)
+        assert_eq!(count, 40); // ... + 40 (mailbox_hmac_signing)
     }
 
     #[test]

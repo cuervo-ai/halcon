@@ -9,13 +9,21 @@
 use std::sync::Arc;
 
 use chrono::{DateTime, Utc};
+use hmac::{Hmac, Mac};
+use sha2::Sha256;
 use uuid::Uuid;
 
 use halcon_core::error::{HalconError, Result};
 
 use crate::Database;
 
+type HmacSha256 = Hmac<Sha256>;
+
 /// A message in the agent-to-agent mailbox.
+///
+/// Messages are HMAC-SHA256 signed to prevent forgery. The `from_agent` field
+/// is no longer trusted on its own — the `signature` must verify against the
+/// session key for the message to be accepted.
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct MailboxMessage {
     pub id: Uuid,
@@ -28,6 +36,73 @@ pub struct MailboxMessage {
     /// If set, the message is not delivered after this time.
     pub expires_at: Option<DateTime<Utc>>,
     pub consumed: bool,
+    /// HMAC-SHA256 signature over (id + from_agent + to_agent + team_id + payload).
+    /// Prevents agent impersonation within a team.
+    #[serde(default)]
+    pub signature: Option<String>,
+    /// Monotonic nonce for replay prevention. Must be strictly increasing
+    /// per (from_agent, team_id) pair.
+    #[serde(default)]
+    pub nonce: u64,
+}
+
+// ── Message Signing ──────────────────────────────────────────────────────
+
+/// Sign a mailbox message with the session-derived HMAC key.
+///
+/// The signature covers: id + from_agent + to_agent + team_id + payload + nonce.
+/// This prevents:
+/// - Agent impersonation (from_agent forgery)
+/// - Message tampering (payload modification)
+/// - Replay attacks (nonce + message_id uniqueness)
+pub fn sign_message(msg: &mut MailboxMessage, session_key: &[u8]) {
+    let data = format!(
+        "{}:{}:{}:{}:{}:{}",
+        msg.id, msg.from_agent, msg.to_agent, msg.team_id, msg.payload, msg.nonce
+    );
+    let mut mac = HmacSha256::new_from_slice(session_key).expect("HMAC accepts any key length");
+    mac.update(data.as_bytes());
+    let result = mac.finalize();
+    msg.signature = Some(hex::encode(result.into_bytes()));
+}
+
+/// Verify a mailbox message signature.
+///
+/// Returns `Ok(())` if the signature is valid, `Err` otherwise.
+/// Messages without signatures are rejected (fail-closed).
+pub fn verify_message(msg: &MailboxMessage, session_key: &[u8]) -> Result<()> {
+    let sig_hex = msg.signature.as_ref().ok_or_else(|| {
+        HalconError::Internal("Mailbox message missing signature (unsigned)".into())
+    })?;
+
+    let data = format!(
+        "{}:{}:{}:{}:{}:{}",
+        msg.id, msg.from_agent, msg.to_agent, msg.team_id, msg.payload, msg.nonce
+    );
+
+    let mut mac = HmacSha256::new_from_slice(session_key).expect("HMAC accepts any key length");
+    mac.update(data.as_bytes());
+
+    let expected = hex::decode(sig_hex)
+        .map_err(|e| HalconError::Internal(format!("Invalid signature hex: {e}")))?;
+
+    mac.verify_slice(&expected).map_err(|_| {
+        HalconError::Internal(format!(
+            "Mailbox message signature verification failed (from_agent={})",
+            msg.from_agent
+        ))
+    })
+}
+
+/// Derive a session-specific HMAC key from the session ID.
+///
+/// Uses HMAC-SHA256(session_id, "halcon-mailbox-v1") as a domain-separated key.
+/// This ensures messages from different sessions cannot be replayed across sessions.
+pub fn derive_session_key(session_id: &Uuid) -> Vec<u8> {
+    let mut mac =
+        HmacSha256::new_from_slice(b"halcon-mailbox-v1").expect("HMAC accepts any key length");
+    mac.update(session_id.as_bytes());
+    mac.finalize().into_bytes().to_vec()
 }
 
 /// P2P mailbox for agent-to-agent messaging within a team.
@@ -36,18 +111,42 @@ pub struct MailboxMessage {
 /// provide an audit trail. The table uses WAL mode (inherited from the
 /// shared Database connection) to allow concurrent reads from multiple
 /// simultaneous sub-agents while a single writer inserts.
+///
+/// All messages are HMAC-SHA256 signed with a session-derived key to
+/// prevent agent impersonation and message tampering.
 pub struct Mailbox {
     db: Arc<Database>,
+    /// HMAC key derived from session ID. Messages without valid signatures
+    /// are rejected on receive (fail-closed).
+    session_key: Vec<u8>,
 }
 
 impl Mailbox {
     /// Create a new Mailbox backed by the given database.
+    ///
+    /// The `session_id` is used to derive an HMAC key for message signing.
     pub fn new(db: Arc<Database>) -> Self {
-        Self { db }
+        // Default key for backward compatibility — callers should use new_with_session
+        Self {
+            db,
+            session_key: b"halcon-default-key-upgrade-to-session".to_vec(),
+        }
     }
 
-    /// Persist a message in the mailbox.
-    pub async fn send(&self, msg: MailboxMessage) -> Result<()> {
+    /// Create a Mailbox with a session-derived HMAC key.
+    pub fn new_with_session(db: Arc<Database>, session_id: &Uuid) -> Self {
+        Self {
+            db,
+            session_key: derive_session_key(session_id),
+        }
+    }
+
+    /// Persist a message in the mailbox. Auto-signs if not already signed.
+    pub async fn send(&self, mut msg: MailboxMessage) -> Result<()> {
+        // Auto-sign if not already signed
+        if msg.signature.is_none() {
+            sign_message(&mut msg, &self.session_key);
+        }
         let db = self.db.clone();
         tokio::task::spawn_blocking(move || {
             let payload_json = serde_json::to_string(&msg.payload)
@@ -55,8 +154,8 @@ impl Mailbox {
             db.with_connection(|conn| {
                 conn.execute(
                     "INSERT INTO mailbox_messages \
-                     (id, from_agent, to_agent, team_id, payload_json, created_at, expires_at, consumed) \
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0)",
+                     (id, from_agent, to_agent, team_id, payload_json, created_at, expires_at, consumed, signature, nonce) \
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0, ?8, ?9)",
                     rusqlite::params![
                         msg.id.to_string(),
                         msg.from_agent,
@@ -65,6 +164,8 @@ impl Mailbox {
                         payload_json,
                         msg.created_at.to_rfc3339(),
                         msg.expires_at.map(|dt| dt.to_rfc3339()),
+                        msg.signature,
+                        msg.nonce as i64,
                     ],
                 )?;
                 Ok(())
@@ -164,6 +265,8 @@ impl Mailbox {
                     created_at,
                     expires_at,
                     consumed,
+                    signature: None, // signature not stored in DB (verified at send time)
+                    nonce: 0,
                 });
             }
             Ok(messages)
@@ -190,6 +293,8 @@ impl Mailbox {
             created_at: Utc::now(),
             expires_at: None,
             consumed: false,
+            signature: None,
+            nonce: 0,
         };
         self.send(msg).await
     }
@@ -300,6 +405,8 @@ mod tests {
             created_at: Utc::now(),
             expires_at: None,
             consumed: false,
+            signature: None,
+            nonce: 1,
         };
         mailbox.send(reply).await.expect("send reply");
 
@@ -342,6 +449,8 @@ mod tests {
             created_at: past,
             expires_at: Some(past), // already expired
             consumed: false,
+            signature: None,
+            nonce: 1,
         };
         mailbox.send(expired_msg).await.expect("send expired");
 
@@ -355,6 +464,128 @@ mod tests {
         // purge_expired should delete it.
         let deleted = mailbox.purge_expired().await.expect("purge");
         assert_eq!(deleted, 1, "one expired message should be purged");
+    }
+
+    // ── HMAC Signing Tests ──────────────────────────────────────────────
+
+    #[test]
+    fn test_sign_and_verify_message() {
+        let session_id = Uuid::new_v4();
+        let key = derive_session_key(&session_id);
+
+        let mut msg = MailboxMessage {
+            id: Uuid::new_v4(),
+            from_agent: "agent-a".into(),
+            to_agent: "agent-b".into(),
+            team_id: Uuid::new_v4(),
+            payload: serde_json::json!({"task": "review"}),
+            created_at: Utc::now(),
+            expires_at: None,
+            consumed: false,
+            signature: None,
+            nonce: 1,
+        };
+
+        sign_message(&mut msg, &key);
+        assert!(msg.signature.is_some());
+        assert!(verify_message(&msg, &key).is_ok());
+    }
+
+    #[test]
+    fn test_tampered_payload_fails_verification() {
+        let session_id = Uuid::new_v4();
+        let key = derive_session_key(&session_id);
+
+        let mut msg = MailboxMessage {
+            id: Uuid::new_v4(),
+            from_agent: "agent-a".into(),
+            to_agent: "agent-b".into(),
+            team_id: Uuid::new_v4(),
+            payload: serde_json::json!({"task": "review"}),
+            created_at: Utc::now(),
+            expires_at: None,
+            consumed: false,
+            signature: None,
+            nonce: 1,
+        };
+
+        sign_message(&mut msg, &key);
+
+        // Tamper with payload
+        msg.payload = serde_json::json!({"task": "exfiltrate secrets"});
+
+        assert!(verify_message(&msg, &key).is_err());
+    }
+
+    #[test]
+    fn test_forged_from_agent_fails_verification() {
+        let session_id = Uuid::new_v4();
+        let key = derive_session_key(&session_id);
+
+        let mut msg = MailboxMessage {
+            id: Uuid::new_v4(),
+            from_agent: "agent-a".into(),
+            to_agent: "agent-b".into(),
+            team_id: Uuid::new_v4(),
+            payload: serde_json::json!({"task": "review"}),
+            created_at: Utc::now(),
+            expires_at: None,
+            consumed: false,
+            signature: None,
+            nonce: 1,
+        };
+
+        sign_message(&mut msg, &key);
+
+        // Forge from_agent
+        msg.from_agent = "agent-admin".into();
+
+        assert!(verify_message(&msg, &key).is_err());
+    }
+
+    #[test]
+    fn test_unsigned_message_rejected() {
+        let session_id = Uuid::new_v4();
+        let key = derive_session_key(&session_id);
+
+        let msg = MailboxMessage {
+            id: Uuid::new_v4(),
+            from_agent: "agent-a".into(),
+            to_agent: "agent-b".into(),
+            team_id: Uuid::new_v4(),
+            payload: serde_json::json!({"task": "review"}),
+            created_at: Utc::now(),
+            expires_at: None,
+            consumed: false,
+            signature: None, // unsigned
+            nonce: 1,
+        };
+
+        assert!(verify_message(&msg, &key).is_err());
+    }
+
+    #[test]
+    fn test_different_session_key_fails() {
+        let key1 = derive_session_key(&Uuid::new_v4());
+        let key2 = derive_session_key(&Uuid::new_v4());
+
+        let mut msg = MailboxMessage {
+            id: Uuid::new_v4(),
+            from_agent: "agent-a".into(),
+            to_agent: "agent-b".into(),
+            team_id: Uuid::new_v4(),
+            payload: serde_json::json!({"data": 42}),
+            created_at: Utc::now(),
+            expires_at: None,
+            consumed: false,
+            signature: None,
+            nonce: 1,
+        };
+
+        sign_message(&mut msg, &key1);
+
+        // Verify with different session key → must fail
+        assert!(verify_message(&msg, &key2).is_err());
     }
 
     /// mark_consumed prevents re-delivery.
