@@ -320,13 +320,15 @@ fn clean_duplicate_binaries(active: &Path) {
         }
     }
     // Also clean legacy "cuervo" binaries
+    let local_bin = home.join(".local/bin");
+    let cargo_bin = home.join(".cargo/bin");
     for legacy in ["cuervo", "cuervo-desktop"] {
         for dir in [
-            "/usr/local/bin",
-            &home.join(".local/bin").to_string_lossy().into_owned(),
-            &home.join(".cargo/bin").to_string_lossy().into_owned(),
+            Path::new("/usr/local/bin"),
+            local_bin.as_path(),
+            cargo_bin.as_path(),
         ] {
-            let p = PathBuf::from(dir).join(legacy);
+            let p = dir.join(legacy);
             if p.exists() {
                 let _ = std::fs::remove_file(&p);
             }

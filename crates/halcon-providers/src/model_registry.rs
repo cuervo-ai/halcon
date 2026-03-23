@@ -370,6 +370,7 @@ fn infer_cost(id: &str) -> (f64, f64) {
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
+#[allow(clippy::too_many_arguments)]
 fn model(
     id: &str,
     name: &str,
