@@ -341,8 +341,10 @@ pub async fn run_orchestrator(
         }
 
         // Capture shared context snapshot for this wave (if communication enabled).
+        // SECURITY: sanitized_snapshot() strips injection patterns, truncates values,
+        // and limits key count to prevent prompt injection from adversarial sub-agents.
         let context_snapshot = if let Some(ref ctx) = shared_context {
-            let snap = ctx.snapshot().await;
+            let snap = ctx.sanitized_snapshot().await;
             if snap.is_empty() {
                 None
             } else {
@@ -511,6 +513,8 @@ pub async fn run_orchestrator(
                 let agent_system_prefix = task.system_prompt_prefix.clone();
 
                 // Inject shared context from previous waves into system prompt.
+                // SECURITY: context_snapshot is already sanitized at capture time
+                // (sanitized_snapshot() strips injection patterns + truncates values).
                 let system_prompt = if let Some(ref snap) = context_snapshot {
                     let context_json = serde_json::to_string_pretty(snap).unwrap_or_default();
                     let base = system_prompt.unwrap_or("");
