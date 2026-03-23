@@ -60,64 +60,16 @@ impl std::fmt::Debug for AnthropicProvider {
 }
 
 impl AnthropicProvider {
+    /// Static fallback models — used when live discovery fails or at construction.
+    /// These are replaced by live-discovered models via `discover_models()`.
     fn default_models() -> Vec<ModelInfo> {
-        vec![
-            ModelInfo {
-                id: "claude-sonnet-4-6".into(),
-                name: "Claude Sonnet 4.6".into(),
-                provider: "anthropic".into(),
-                context_window: 200_000,
-                max_output_tokens: 16_000,
-                supports_streaming: true,
-                supports_tools: true,
-                supports_vision: true,
-                supports_reasoning: false,
-                cost_per_input_token: 3.0 / 1_000_000.0,
-                cost_per_output_token: 15.0 / 1_000_000.0,
-            },
-            ModelInfo {
-                id: "claude-sonnet-4-5-20250929".into(),
-                name: "Claude Sonnet 4.5".into(),
-                provider: "anthropic".into(),
-                context_window: 200_000,
-                max_output_tokens: 8192,
-                supports_streaming: true,
-                supports_tools: true,
-                supports_vision: true,
-                supports_reasoning: false,
-                cost_per_input_token: 3.0 / 1_000_000.0,
-                cost_per_output_token: 15.0 / 1_000_000.0,
-            },
-            ModelInfo {
-                id: "claude-haiku-4-5-20251001".into(),
-                name: "Claude Haiku 4.5".into(),
-                provider: "anthropic".into(),
-                context_window: 200_000,
-                max_output_tokens: 8192,
-                supports_streaming: true,
-                supports_tools: true,
-                supports_vision: true,
-                supports_reasoning: false,
-                cost_per_input_token: 0.80 / 1_000_000.0,
-                cost_per_output_token: 4.0 / 1_000_000.0,
-            },
-            ModelInfo {
-                id: "claude-opus-4-6".into(),
-                name: "Claude Opus 4.6".into(),
-                provider: "anthropic".into(),
-                context_window: 200_000,
-                max_output_tokens: 32_000,
-                supports_streaming: true,
-                supports_tools: true,
-                supports_vision: true,
-                supports_reasoning: false,
-                cost_per_input_token: 15.0 / 1_000_000.0,
-                cost_per_output_token: 75.0 / 1_000_000.0,
-            },
-        ]
+        crate::model_registry::static_fallback_models("anthropic")
     }
 
     /// Create a new provider with the given API key and default HTTP config.
+    ///
+    /// Starts with static fallback models. Call `discover_models()` to upgrade
+    /// to live-discovered models from the Anthropic API.
     pub fn new(api_key: String) -> Self {
         let http_config = HttpConfig::default();
         Self {
@@ -127,6 +79,18 @@ impl AnthropicProvider {
             http_config,
             models: Self::default_models(),
         }
+    }
+
+    /// Discover available models from the provider API.
+    ///
+    /// Anthropic doesn't have a standard /v1/models endpoint, so we use the
+    /// static registry which is kept up-to-date with each Halcon release.
+    /// The static_fallback_models already contains the correct capabilities.
+    pub async fn discover_models(&mut self) {
+        // Anthropic has no public model listing API — static registry is authoritative.
+        // New models are discovered via Cenzontle gateway (/v1/llm/models) which
+        // proxies Anthropic models with dynamic discovery.
+        debug!("Anthropic: using static model registry (no live /v1/models API)");
     }
 
     /// Create a provider with a custom base URL (for testing / proxies).

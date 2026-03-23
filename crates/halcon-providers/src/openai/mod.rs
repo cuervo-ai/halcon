@@ -44,61 +44,28 @@ impl OpenAIProvider {
         }
     }
 
+    /// Static fallback — used at construction, replaced by live discovery.
     fn default_models() -> Vec<ModelInfo> {
-        vec![
-            ModelInfo {
-                id: "gpt-4o".into(),
-                name: "GPT-4o".into(),
-                provider: "openai".into(),
-                context_window: 128_000,
-                max_output_tokens: 16384,
-                supports_streaming: true,
-                supports_tools: true,
-                supports_vision: true,
-                supports_reasoning: false,
-                cost_per_input_token: 2.50 / 1_000_000.0,
-                cost_per_output_token: 10.0 / 1_000_000.0,
-            },
-            ModelInfo {
-                id: "gpt-4o-mini".into(),
-                name: "GPT-4o Mini".into(),
-                provider: "openai".into(),
-                context_window: 128_000,
-                max_output_tokens: 16384,
-                supports_streaming: true,
-                supports_tools: true,
-                supports_vision: true,
-                supports_reasoning: false,
-                cost_per_input_token: 0.15 / 1_000_000.0,
-                cost_per_output_token: 0.60 / 1_000_000.0,
-            },
-            ModelInfo {
-                id: "o1".into(),
-                name: "o1".into(),
-                provider: "openai".into(),
-                context_window: 200_000,
-                max_output_tokens: 100_000,
-                supports_streaming: true,
-                supports_tools: true,
-                supports_vision: false,
-                supports_reasoning: true,
-                cost_per_input_token: 15.0 / 1_000_000.0,
-                cost_per_output_token: 60.0 / 1_000_000.0,
-            },
-            ModelInfo {
-                id: "o3-mini".into(),
-                name: "o3 Mini".into(),
-                provider: "openai".into(),
-                context_window: 200_000,
-                max_output_tokens: 100_000,
-                supports_streaming: true,
-                supports_tools: true,
-                supports_vision: false,
-                supports_reasoning: true,
-                cost_per_input_token: 1.10 / 1_000_000.0,
-                cost_per_output_token: 4.40 / 1_000_000.0,
-            },
-        ]
+        crate::model_registry::static_fallback_models("openai")
+    }
+
+    /// Discover models from OpenAI's live `/v1/models` endpoint.
+    ///
+    /// OpenAI implements the standard `/v1/models` API. We query it, then
+    /// enrich model IDs with known capabilities from the static registry.
+    /// New models released after the Halcon build are automatically discovered
+    /// and get inferred capabilities.
+    pub async fn discover_models(&mut self) {
+        let models = crate::model_registry::discover_provider_models(
+            self.inner.client(),
+            "openai",
+            self.inner.base_url(),
+            self.inner.api_key(),
+        )
+        .await;
+        if !models.is_empty() {
+            self.inner.set_models(models);
+        }
     }
 }
 
@@ -167,7 +134,10 @@ mod tests {
     fn supported_models_count() {
         let provider = OpenAIProvider::new("sk-test".into(), None, HttpConfig::default());
         let models = provider.supported_models();
-        assert_eq!(models.len(), 4);
+        assert!(
+            models.len() >= 3,
+            "should have at least gpt-4o-mini + gpt-4o + o3-mini"
+        );
         for m in models {
             assert_eq!(m.provider, "openai");
         }

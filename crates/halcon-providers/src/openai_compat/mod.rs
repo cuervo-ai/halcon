@@ -163,6 +163,24 @@ impl OpenAICompatibleProvider {
         }
     }
 
+    // ── Accessors for unified model registry ────────────────────────────
+    /// HTTP client reference.
+    pub fn client(&self) -> &reqwest::Client {
+        &self.client
+    }
+    /// Provider's base URL.
+    pub fn base_url(&self) -> &str {
+        &self.base_url
+    }
+    /// Provider's API key.
+    pub fn api_key(&self) -> &str {
+        &self.api_key
+    }
+    /// Replace model list (called after live discovery).
+    pub fn set_models(&mut self, models: Vec<ModelInfo>) {
+        self.models = models;
+    }
+
     /// Build the OpenAI chat request from a `ModelRequest`.
     pub fn build_request(&self, request: &ModelRequest) -> OpenAIChatRequest {
         let mut messages = Vec::new();

@@ -271,9 +271,9 @@ mod tests {
         let providers = all_providers();
         let total: usize = providers.iter().map(|p| p.supported_models().len()).sum();
         assert!(
-            total >= 16,
-            "expected at least 16 total models across all providers, got {total} — \
-             if you removed a model, update this threshold to reflect the new minimum"
+            total >= 13,
+            "expected at least 13 total models across all providers, got {total} — \
+             static fallback registry should cover all major providers"
         );
     }
 

@@ -45,49 +45,21 @@ impl DeepSeekProvider {
     }
 
     fn default_models() -> Vec<ModelInfo> {
-        vec![
-            ModelInfo {
-                id: "deepseek-chat".into(),
-                name: "DeepSeek Chat".into(),
-                provider: "deepseek".into(),
-                context_window: 64_000,
-                max_output_tokens: 8192,
-                supports_streaming: true,
-                supports_tools: true,
-                supports_vision: false,
-                supports_reasoning: false,
-                cost_per_input_token: 0.14 / 1_000_000.0,
-                cost_per_output_token: 0.28 / 1_000_000.0,
-            },
-            ModelInfo {
-                id: "deepseek-coder".into(),
-                name: "DeepSeek Coder".into(),
-                provider: "deepseek".into(),
-                context_window: 64_000,
-                max_output_tokens: 8192,
-                supports_streaming: true,
-                supports_tools: true,
-                supports_vision: false,
-                supports_reasoning: false,
-                cost_per_input_token: 0.14 / 1_000_000.0,
-                cost_per_output_token: 0.28 / 1_000_000.0,
-            },
-            ModelInfo {
-                id: "deepseek-reasoner".into(),
-                name: "DeepSeek Reasoner".into(),
-                provider: "deepseek".into(),
-                context_window: 64_000,
-                // Reasoning models need large output budgets for chain-of-thought;
-                // 32 768 tokens gives ~25K thinking + ~8K final answer headroom.
-                max_output_tokens: 32_768,
-                supports_streaming: true,
-                supports_tools: false, // Reasoner uses extended thinking — tools unsupported
-                supports_vision: false,
-                supports_reasoning: true,
-                cost_per_input_token: 0.55 / 1_000_000.0,
-                cost_per_output_token: 2.19 / 1_000_000.0,
-            },
-        ]
+        crate::model_registry::static_fallback_models("deepseek")
+    }
+
+    /// Discover models from DeepSeek's live `/v1/models` API.
+    pub async fn discover_models(&mut self) {
+        let models = crate::model_registry::discover_provider_models(
+            self.inner.client(),
+            "deepseek",
+            self.inner.base_url(),
+            self.inner.api_key(),
+        )
+        .await;
+        if !models.is_empty() {
+            self.inner.set_models(models);
+        }
     }
 }
 
@@ -156,7 +128,10 @@ mod tests {
     fn supported_models_count() {
         let provider = DeepSeekProvider::new("sk-test".into(), None, HttpConfig::default());
         let models = provider.supported_models();
-        assert_eq!(models.len(), 3);
+        assert!(
+            models.len() >= 2,
+            "should have at least deepseek-chat + deepseek-reasoner"
+        );
         for m in models {
             assert_eq!(m.provider, "deepseek");
         }

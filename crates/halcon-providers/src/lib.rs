@@ -32,6 +32,8 @@ pub mod vertex;
 pub mod azure_foundry;
 // US-sso: Cenzontle AI platform provider (OAuth 2.1 PKCE via Zuclubit SSO)
 pub mod cenzontle;
+// Unified model registry — dynamic discovery with layered fallback (frontier 2026)
+pub mod model_registry;
 // Intelligent model routing (intent-based, cost-aware, fallback chain)
 pub mod router;
 
