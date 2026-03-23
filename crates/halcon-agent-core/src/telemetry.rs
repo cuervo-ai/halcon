@@ -112,7 +112,10 @@ impl ToolTelemetry {
             round,
             timestamp: Utc::now(),
         };
-        self.records.lock().unwrap_or_else(|e| e.into_inner()).push(record);
+        self.records
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(record);
         id
     }
 
@@ -133,7 +136,10 @@ impl ToolTelemetry {
 
     /// All records in this session (cloned).
     pub fn all_records(&self) -> Vec<InvocationRecord> {
-        self.records.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.records
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     /// Per-tool aggregated statistics.

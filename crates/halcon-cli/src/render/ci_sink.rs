@@ -127,7 +127,10 @@ impl RenderSink for CiSink {
     }
 
     fn stream_full_text(&self) -> String {
-        self.stream_buf.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.stream_buf
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     fn tool_start(&self, name: &str, input: &serde_json::Value) {
@@ -254,7 +257,10 @@ impl RenderSink for CiSink {
         self.total_output_tokens
             .fetch_add(output_tokens as usize, Ordering::Relaxed);
         {
-            let mut c = self.total_cost_usd.lock().unwrap_or_else(|e| e.into_inner());
+            let mut c = self
+                .total_cost_usd
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             *c += cost;
         }
         self.rounds_total.store(round, Ordering::Relaxed);
@@ -330,12 +336,19 @@ impl CiSink {
     /// Called explicitly from main.rs after the agent loop returns so that
     /// the full token / cost data is available.
     pub fn emit_session_end(&self) {
-        let session_id = self.session_id.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let session_id = self
+            .session_id
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         let rounds = self.rounds_total.load(Ordering::Relaxed);
         let input_tokens = self.total_input_tokens.load(Ordering::Relaxed);
         let output_tokens = self.total_output_tokens.load(Ordering::Relaxed);
         let tokens_used = input_tokens + output_tokens;
-        let cost_usd = *self.total_cost_usd.lock().unwrap_or_else(|e| e.into_inner());
+        let cost_usd = *self
+            .total_cost_usd
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         self.emit(json!({
             "type": "session_end",
             "session_id": session_id,

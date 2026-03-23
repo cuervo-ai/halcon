@@ -208,7 +208,10 @@ impl VectorMemory {
 
     /// Total number of stored episodes.
     pub fn len(&self) -> usize {
-        self.episodes.lock().unwrap_or_else(|e| e.into_inner()).len()
+        self.episodes
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -234,7 +237,10 @@ impl VectorMemory {
 
     /// Clear all episodes (e.g., on logout or explicit memory wipe).
     pub fn clear(&self) {
-        self.episodes.lock().unwrap_or_else(|e| e.into_inner()).clear();
+        self.episodes
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clear();
     }
 
     /// Serialise all episodes to zstd-compressed JSON bytes for persistence.

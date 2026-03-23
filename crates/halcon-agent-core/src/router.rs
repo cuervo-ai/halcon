@@ -195,7 +195,10 @@ impl SemanticToolRouter {
         // 3. Compute cosine similarities (linear scan over normalised embeddings).
         //    For <= 10k tools this is fast enough; HNSW adds complexity without benefit.
         let tools = self.tools.lock().unwrap_or_else(|e| e.into_inner());
-        let embeddings = self.index_embeddings.lock().unwrap_or_else(|e| e.into_inner());
+        let embeddings = self
+            .index_embeddings
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
 
         let mut scored: Vec<(f32, usize)> = embeddings
             .iter()
@@ -253,7 +256,9 @@ impl SemanticToolRouter {
                 .collect()
         };
 
-        if names_needing_embed.is_empty() && !*self.index_dirty.lock().unwrap_or_else(|e| e.into_inner()) {
+        if names_needing_embed.is_empty()
+            && !*self.index_dirty.lock().unwrap_or_else(|e| e.into_inner())
+        {
             return Ok(());
         }
 
@@ -273,7 +278,10 @@ impl SemanticToolRouter {
         // Rebuild the flat embedding index.
         {
             let tools = self.tools.lock().unwrap_or_else(|e| e.into_inner());
-            let mut idx = self.index_embeddings.lock().unwrap_or_else(|e| e.into_inner());
+            let mut idx = self
+                .index_embeddings
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             *idx = tools
                 .iter()
                 .map(|t| t.embedding.clone().unwrap_or_default())

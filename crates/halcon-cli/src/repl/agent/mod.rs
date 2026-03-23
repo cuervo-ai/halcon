@@ -720,7 +720,10 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
         .iter()
         .find(|m| m.id == request.model)
         .cloned();
-    let model_supports_tools = model_info.as_ref().map(|m| m.supports_tools).unwrap_or(false);
+    let model_supports_tools = model_info
+        .as_ref()
+        .map(|m| m.supports_tools)
+        .unwrap_or(false);
     let has_tools_in_request = !request.tools.is_empty();
 
     // When true, cached_tools will be emptied below to prevent tool injection.

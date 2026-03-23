@@ -276,7 +276,9 @@ pub async fn run_gdem_loop(user_message: &str, mut ctx: GdemContext) -> Result<G
 
         // ── Transition to Executing ────────────────────────────────────────
         if !matches!(fsm.state(), AgentState::Executing) {
-            if let Err(e) = fsm.transition(AgentState::Executing) { tracing::debug!(error = %e, "FSM transition to Executing failed"); }
+            if let Err(e) = fsm.transition(AgentState::Executing) {
+                tracing::debug!(error = %e, "FSM transition to Executing failed");
+            }
         }
 
         // ── Get current plan step ─────────────────────────────────────────
@@ -369,7 +371,9 @@ pub async fn run_gdem_loop(user_message: &str, mut ctx: GdemContext) -> Result<G
         }
 
         // ── L4: Verify ────────────────────────────────────────────────────
-        if let Err(e) = fsm.transition(AgentState::Verifying) { tracing::debug!(error = %e, "FSM transition to Verifying failed"); }
+        if let Err(e) = fsm.transition(AgentState::Verifying) {
+            tracing::debug!(error = %e, "FSM transition to Verifying failed");
+        }
         let verifier_decision = verifier.verify(&evidence);
         let post_confidence = verifier_decision.confidence().unwrap_or(pre_confidence);
 
@@ -387,7 +391,9 @@ pub async fn run_gdem_loop(user_message: &str, mut ctx: GdemContext) -> Result<G
                 confidence = post_confidence,
                 "Goal ACHIEVED — exiting loop"
             );
-            if let Err(e) = fsm.transition(AgentState::Converged) { tracing::debug!(error = %e, "FSM transition to Converged failed"); }
+            if let Err(e) = fsm.transition(AgentState::Converged) {
+                tracing::debug!(error = %e, "FSM transition to Converged failed");
+            }
             break 'agent;
         }
 
@@ -406,23 +412,35 @@ pub async fn run_gdem_loop(user_message: &str, mut ctx: GdemContext) -> Result<G
 
         match critic_signal {
             CriticSignal::Continue => {
-                if let Err(e) = fsm.transition(AgentState::Executing) { tracing::debug!(error = %e, "FSM transition to Executing failed"); }
+                if let Err(e) = fsm.transition(AgentState::Executing) {
+                    tracing::debug!(error = %e, "FSM transition to Executing failed");
+                }
             }
             CriticSignal::InjectHint { hint, .. } => {
                 hint_injection = Some(hint);
-                if let Err(e) = fsm.transition(AgentState::Executing) { tracing::debug!(error = %e, "FSM transition to Executing failed"); }
+                if let Err(e) = fsm.transition(AgentState::Executing) {
+                    tracing::debug!(error = %e, "FSM transition to Executing failed");
+                }
             }
             CriticSignal::Replan { reason, .. } => {
                 warn!(round = round, reason = %reason, "Critic triggering replan");
-                if let Err(e) = fsm.transition(AgentState::Replanning) { tracing::debug!(error = %e, "FSM transition to Replanning failed"); }
+                if let Err(e) = fsm.transition(AgentState::Replanning) {
+                    tracing::debug!(error = %e, "FSM transition to Replanning failed");
+                }
                 plan_tree = planner.replan(&goal, &plan_tree);
                 critic.reset_stall();
-                if let Err(e) = fsm.transition(AgentState::Planning) { tracing::debug!(error = %e, "FSM transition to Planning failed"); }
-                if let Err(e) = fsm.transition(AgentState::Executing) { tracing::debug!(error = %e, "FSM transition to Executing failed"); }
+                if let Err(e) = fsm.transition(AgentState::Planning) {
+                    tracing::debug!(error = %e, "FSM transition to Planning failed");
+                }
+                if let Err(e) = fsm.transition(AgentState::Executing) {
+                    tracing::debug!(error = %e, "FSM transition to Executing failed");
+                }
             }
             CriticSignal::Terminate { reason } => {
                 warn!(round = round, reason = %reason, "Critic terminating loop");
-                if let Err(e) = fsm.transition(AgentState::Terminating) { tracing::debug!(error = %e, "FSM transition to Terminating failed"); }
+                if let Err(e) = fsm.transition(AgentState::Terminating) {
+                    tracing::debug!(error = %e, "FSM transition to Terminating failed");
+                }
                 break 'agent;
             }
         }
@@ -483,19 +501,25 @@ pub async fn run_gdem_loop(user_message: &str, mut ctx: GdemContext) -> Result<G
 
     // ── Prepare persistence data ───────────────────────────────────────────
     let updated_strategy_learner_json = if ctx.config.enable_strategy_learning {
-        strategy_learner.to_json().map_err(|e| {
-            tracing::warn!("Strategy learner serialization failed: {e}");
-            e
-        }).ok()
+        strategy_learner
+            .to_json()
+            .map_err(|e| {
+                tracing::warn!("Strategy learner serialization failed: {e}");
+                e
+            })
+            .ok()
     } else {
         None
     };
 
     let updated_memory_bytes = if ctx.config.enable_memory {
-        memory.to_bytes().map_err(|e| {
-            tracing::warn!("Memory serialization failed: {e}");
-            e
-        }).ok()
+        memory
+            .to_bytes()
+            .map_err(|e| {
+                tracing::warn!("Memory serialization failed: {e}");
+                e
+            })
+            .ok()
     } else {
         None
     };
