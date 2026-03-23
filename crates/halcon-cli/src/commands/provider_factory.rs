@@ -433,7 +433,14 @@ pub async fn ensure_cenzontle_models(registry: &mut ProviderRegistry) {
         });
 
     let Some(token) = token else { return };
-    let base_url = std::env::var("CENZONTLE_BASE_URL").ok();
+    // Resolve base URL: env var > config api_base > built-in default
+    let base_url = std::env::var("CENZONTLE_BASE_URL").ok().or_else(|| {
+        crate::config_loader::load_config(None)
+            .ok()
+            .and_then(|cfg| cfg.models.providers.get("cenzontle").cloned())
+            .and_then(|c| c.api_base)
+            .filter(|s| !s.is_empty())
+    });
 
     // Fast path: use disk cache if still fresh (< 1 hour old).
     // This avoids a GET /v1/llm/models API call on every startup — saves 2-10s
@@ -594,27 +601,43 @@ async fn precheck_providers_with_explicit(
             let resolved_model = if p.validate_model(model).is_ok() {
                 model.to_string()
             } else {
-                // Find the FIRST model with the highest context_window that supports tools.
-                // Using max_by_key alone returns the LAST model on equal keys (Rust iterator
-                // semantics), which can pick a low-priority fallback (e.g. command-path alias)
-                // when all models have the same context window.
+                // Model not found on this provider. Resolution order:
+                // 1. Provider-specific default_model from config (most intentional)
+                // 2. First supported model with tool support (for agent loop)
+                // 3. First supported model regardless (at least something works)
                 let supported = p.supported_models();
-                let max_ctx = supported
-                    .iter()
-                    .filter(|m| m.supports_tools)
-                    .map(|m| m.context_window)
-                    .max()
-                    .unwrap_or(0);
-                let best = supported
-                    .iter()
-                    .find(|m| m.supports_tools && m.context_window >= max_ctx) // first model wins on ties (order = priority in supported_models())
-                    .map(|m| m.id.clone())
-                    .unwrap_or_else(|| {
-                        supported
-                            .first()
-                            .map(|m| m.id.clone())
-                            .unwrap_or_else(|| model.to_string())
-                    });
+
+                // Step 1: Check provider-specific default_model from config
+                let provider_default = crate::config_loader::load_config(None)
+                    .ok()
+                    .and_then(|cfg| cfg.models.providers.get(primary).cloned())
+                    .and_then(|pc| pc.default_model);
+                let best = if let Some(ref pd) = provider_default {
+                    if supported.iter().any(|m| m.id == *pd) {
+                        pd.clone()
+                    } else {
+                        String::new() // provider default not in list, fall through
+                    }
+                } else {
+                    String::new()
+                };
+
+                let best = if best.is_empty() {
+                    // Step 2: First model with tool support (needed for agent loop)
+                    supported
+                        .iter()
+                        .find(|m| m.supports_tools)
+                        .map(|m| m.id.clone())
+                        // Step 3: Absolute fallback — first model in list
+                        .unwrap_or_else(|| {
+                            supported
+                                .first()
+                                .map(|m| m.id.clone())
+                                .unwrap_or_else(|| model.to_string())
+                        })
+                } else {
+                    best
+                };
                 // Only warn when the user explicitly passed -m <model>.
                 // When model came from the global config default_model (explicit_model=false),
                 // the mismatch is expected (e.g. default_model="claude-sonnet-4-6" on openai)
