@@ -2,6 +2,13 @@
 //!
 //! Provides typed message passing between sub-agents and a shared
 //! context store (blackboard) for cross-agent data sharing.
+//!
+//! ## Versioned context store
+//!
+//! The [`SharedContextStore`] uses monotonic version counters per key.
+//! - `set()` always succeeds (last-write-wins, backward compatible).
+//! - `compare_and_set()` fails if the key's version has changed since the
+//!   caller last read it — enabling optimistic concurrency control.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -42,12 +49,49 @@ pub enum AgentMessageKind {
     ErrorSignal,
 }
 
-/// Thread-safe shared context store (blackboard pattern).
+// ── Versioned Context Store ─────────────────────────────────────────────
+
+/// A value in the shared context store, annotated with version metadata.
+#[derive(Debug, Clone)]
+pub struct VersionedValue {
+    /// The actual data.
+    pub value: serde_json::Value,
+    /// Monotonically increasing version counter (starts at 1).
+    pub version: u64,
+    /// Agent that last wrote this key.
+    pub writer: Option<Uuid>,
+    /// When this version was written.
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Error returned by `compare_and_set` when the expected version doesn't match.
+#[derive(Debug, Clone)]
+pub struct VersionConflict {
+    pub key: String,
+    pub expected_version: u64,
+    pub actual_version: u64,
+    pub actual_writer: Option<Uuid>,
+}
+
+impl std::fmt::Display for VersionConflict {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "version conflict on key '{}': expected v{}, found v{} (writer={:?})",
+            self.key, self.expected_version, self.actual_version, self.actual_writer
+        )
+    }
+}
+
+impl std::error::Error for VersionConflict {}
+
+/// Thread-safe shared context store (blackboard pattern) with versioning.
 ///
 /// Allows agents to read/write shared key-value data concurrently.
+/// Each key tracks a monotonic version counter for optimistic concurrency control.
 #[derive(Debug, Clone)]
 pub struct SharedContextStore {
-    inner: Arc<RwLock<HashMap<String, serde_json::Value>>>,
+    inner: Arc<RwLock<HashMap<String, VersionedValue>>>,
 }
 
 impl SharedContextStore {
@@ -58,26 +102,98 @@ impl SharedContextStore {
         }
     }
 
-    /// Set a key-value pair in the shared context.
-    pub async fn set(&self, key: String, value: serde_json::Value) {
-        self.inner.write().await.insert(key, value);
+    /// Set a key-value pair (last-write-wins, backward compatible).
+    ///
+    /// Returns the new version number.
+    pub async fn set(&self, key: String, value: serde_json::Value) -> u64 {
+        self.set_with_writer(key, value, None).await
+    }
+
+    /// Set a key-value pair with writer attribution.
+    ///
+    /// Returns the new version number.
+    pub async fn set_with_writer(
+        &self,
+        key: String,
+        value: serde_json::Value,
+        writer: Option<Uuid>,
+    ) -> u64 {
+        let mut map = self.inner.write().await;
+        let new_version = map.get(&key).map_or(1, |v| v.version + 1);
+        map.insert(
+            key,
+            VersionedValue {
+                value,
+                version: new_version,
+                writer,
+                updated_at: Utc::now(),
+            },
+        );
+        new_version
+    }
+
+    /// Compare-and-set: atomically update a key only if its version matches.
+    ///
+    /// - For new keys, pass `expected_version = 0`.
+    /// - Returns `Ok(new_version)` on success.
+    /// - Returns `Err(VersionConflict)` if the version has changed.
+    pub async fn compare_and_set(
+        &self,
+        key: String,
+        expected_version: u64,
+        value: serde_json::Value,
+        writer: Option<Uuid>,
+    ) -> std::result::Result<u64, VersionConflict> {
+        let mut map = self.inner.write().await;
+        let current_version = map.get(&key).map_or(0, |v| v.version);
+        let current_writer = map.get(&key).and_then(|v| v.writer);
+
+        if current_version != expected_version {
+            return Err(VersionConflict {
+                key,
+                expected_version,
+                actual_version: current_version,
+                actual_writer: current_writer,
+            });
+        }
+
+        let new_version = current_version + 1;
+        map.insert(
+            key,
+            VersionedValue {
+                value,
+                version: new_version,
+                writer,
+                updated_at: Utc::now(),
+            },
+        );
+        Ok(new_version)
     }
 
     /// Get a value by key from the shared context.
-    #[allow(dead_code)] // Used in tests; production will use it via delegation.
     pub async fn get(&self, key: &str) -> Option<serde_json::Value> {
+        self.inner.read().await.get(key).map(|v| v.value.clone())
+    }
+
+    /// Get a value with its version metadata.
+    pub async fn get_versioned(&self, key: &str) -> Option<VersionedValue> {
         self.inner.read().await.get(key).cloned()
     }
 
     /// Get all keys in the shared context.
-    #[allow(dead_code)] // Used in tests; production will use it via delegation.
+    #[allow(dead_code)]
     pub async fn keys(&self) -> Vec<String> {
         self.inner.read().await.keys().cloned().collect()
     }
 
-    /// Take a snapshot of the entire shared context.
+    /// Take a snapshot of the entire shared context (values only, for backward compat).
     pub async fn snapshot(&self) -> HashMap<String, serde_json::Value> {
-        self.inner.read().await.clone()
+        self.inner
+            .read()
+            .await
+            .iter()
+            .map(|(k, v)| (k.clone(), v.value.clone()))
+            .collect()
     }
 
     /// Take a **sanitized** snapshot safe for system prompt injection.
@@ -90,7 +206,13 @@ impl SharedContextStore {
     /// 3. **Instruction stripping**: removes lines that look like prompt overrides
     /// 4. **Null/empty removal**: drops keys with null or empty string values
     pub async fn sanitized_snapshot(&self) -> HashMap<String, serde_json::Value> {
-        let raw = self.inner.read().await;
+        let raw: HashMap<String, serde_json::Value> = self
+            .inner
+            .read()
+            .await
+            .iter()
+            .map(|(k, v)| (k.clone(), v.value.clone()))
+            .collect();
         sanitize_context_map(&raw)
     }
 }
@@ -284,6 +406,65 @@ mod tests {
         store.set("key1".into(), serde_json::json!("value1")).await;
         let val = store.get("key1").await;
         assert_eq!(val, Some(serde_json::json!("value1")));
+    }
+
+    #[tokio::test]
+    async fn shared_context_set_returns_version() {
+        let store = SharedContextStore::new();
+        let v1 = store.set("k".into(), serde_json::json!(1)).await;
+        let v2 = store.set("k".into(), serde_json::json!(2)).await;
+        assert_eq!(v1, 1);
+        assert_eq!(v2, 2);
+    }
+
+    #[tokio::test]
+    async fn shared_context_cas_succeeds() {
+        let store = SharedContextStore::new();
+        // Insert new key (expected version 0).
+        let v = store
+            .compare_and_set("k".into(), 0, serde_json::json!("first"), None)
+            .await
+            .expect("CAS should succeed for new key");
+        assert_eq!(v, 1);
+
+        // Update with correct version.
+        let v2 = store
+            .compare_and_set("k".into(), 1, serde_json::json!("second"), None)
+            .await
+            .expect("CAS should succeed with correct version");
+        assert_eq!(v2, 2);
+        assert_eq!(store.get("k").await, Some(serde_json::json!("second")));
+    }
+
+    #[tokio::test]
+    async fn shared_context_cas_fails_on_conflict() {
+        let store = SharedContextStore::new();
+        store.set("k".into(), serde_json::json!("v1")).await;
+
+        // Try CAS with stale version 0 (actual is 1).
+        let err = store
+            .compare_and_set("k".into(), 0, serde_json::json!("v2"), None)
+            .await
+            .expect_err("CAS should fail with stale version");
+        assert_eq!(err.expected_version, 0);
+        assert_eq!(err.actual_version, 1);
+
+        // Value unchanged.
+        assert_eq!(store.get("k").await, Some(serde_json::json!("v1")));
+    }
+
+    #[tokio::test]
+    async fn shared_context_get_versioned() {
+        let store = SharedContextStore::new();
+        let writer = Uuid::new_v4();
+        store
+            .set_with_writer("k".into(), serde_json::json!(42), Some(writer))
+            .await;
+
+        let vv = store.get_versioned("k").await.unwrap();
+        assert_eq!(vv.version, 1);
+        assert_eq!(vv.writer, Some(writer));
+        assert_eq!(vv.value, serde_json::json!(42));
     }
 
     #[tokio::test]
@@ -509,5 +690,19 @@ mod tests {
         let hub = AgentCommHub::new(&[], 1);
         let _sender = hub.sender();
         let _store = hub.shared_context.clone();
+    }
+
+    #[test]
+    fn version_conflict_display() {
+        let err = VersionConflict {
+            key: "result".into(),
+            expected_version: 1,
+            actual_version: 3,
+            actual_writer: Some(Uuid::nil()),
+        };
+        let msg = format!("{err}");
+        assert!(msg.contains("result"));
+        assert!(msg.contains("v1"));
+        assert!(msg.contains("v3"));
     }
 }

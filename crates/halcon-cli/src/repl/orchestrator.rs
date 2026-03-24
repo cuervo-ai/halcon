@@ -2334,11 +2334,10 @@ mod tests {
         let s1 = store.clone();
         let s2 = store.clone();
 
-        let (r1, r2): ((), ()) = tokio::join!(
+        let (_r1, _r2) = tokio::join!(
             s1.set("key1".into(), serde_json::json!("val1")),
             s2.set("key2".into(), serde_json::json!("val2")),
         );
-        let _ = (r1, r2);
 
         let snap = store.snapshot().await;
         assert_eq!(snap.len(), 2);

@@ -1,5 +1,13 @@
 //! Writes memory entries to `.halcon/memory/MEMORY.md` and topic files.
 //!
+//! # Safety guarantees
+//!
+//! - **Atomic writes**: All file mutations use a temp-file + fsync + rename pattern.
+//!   A crash at any point leaves the previous version intact (POSIX rename semantics).
+//! - **File locking**: A `.memory.lock` advisory lock serialises concurrent writers
+//!   (e.g. parallel sub-agents or overlapping sessions).  The lock is held only for
+//!   the duration of the read-modify-write cycle.
+//!
 //! # Bounded growth
 //!
 //! - `MEMORY.md` index: capped at `MAX_INDEX_LINES` (180).  When the cap is reached,
@@ -19,6 +27,7 @@
 //! ```
 
 use std::fs;
+use std::io::Write as IoWrite;
 use std::path::{Path, PathBuf};
 
 use super::SessionSummary;
@@ -32,6 +41,64 @@ pub const MAX_TOPIC_ENTRIES: usize = 50;
 const MEMORY_SUBDIR: &str = "memory";
 /// Index filename.
 const INDEX_FILE: &str = "MEMORY.md";
+/// Lock filename for advisory file locking.
+const LOCK_FILE: &str = ".memory.lock";
+
+// ── Atomic I/O primitives ───────────────────────────────────────────────────
+
+/// Write `content` to `target` atomically via temp-file + fsync + rename.
+///
+/// The temp file is created in the same directory as `target` so that the
+/// final `rename` is guaranteed to be on the same filesystem (POSIX atomic).
+/// On failure the temp file is cleaned up and the original is untouched.
+fn atomic_write(target: &Path, content: &[u8]) -> std::io::Result<()> {
+    let dir = target.parent().unwrap_or(Path::new("."));
+    let mut tmp = tempfile::NamedTempFile::new_in(dir)?;
+    tmp.write_all(content)?;
+    tmp.as_file().sync_all()?;
+    tmp.persist(target).map_err(|e| e.error)?;
+    Ok(())
+}
+
+/// Acquire an advisory exclusive lock on `memory_dir/.memory.lock`.
+///
+/// Returns the lock file handle; the lock is released when the handle is dropped.
+/// Uses `flock(LOCK_EX)` on Unix — blocking until available.
+fn acquire_lock(memory_dir: &Path) -> std::io::Result<fs::File> {
+    let lock_path = memory_dir.join(LOCK_FILE);
+    let lock_file = fs::OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(&lock_path)?;
+    // Advisory exclusive lock — blocks until acquired.
+    #[cfg(unix)]
+    {
+        use std::os::unix::io::AsRawFd;
+        let fd = lock_file.as_raw_fd();
+        let ret = unsafe { libc::flock(fd, libc::LOCK_EX) };
+        if ret != 0 {
+            return Err(std::io::Error::last_os_error());
+        }
+    }
+    // On non-Unix platforms, the lock is a no-op (best-effort).
+    Ok(lock_file)
+}
+
+/// Release an advisory lock (explicit drop + unlock).
+fn release_lock(lock_file: fs::File) {
+    #[cfg(unix)]
+    {
+        use std::os::unix::io::AsRawFd;
+        let fd = lock_file.as_raw_fd();
+        unsafe {
+            libc::flock(fd, libc::LOCK_UN);
+        }
+    }
+    drop(lock_file);
+}
+
+// ── Public API ──────────────────────────────────────────────────────────────
 
 /// Write a session summary to the project memory files.
 ///
@@ -44,12 +111,23 @@ pub fn write_project_memory(halcon_dir: &Path, summary: &SessionSummary) {
         return;
     }
 
+    // Acquire exclusive lock before any read-modify-write cycle.
+    let lock = match acquire_lock(&memory_dir) {
+        Ok(l) => l,
+        Err(e) => {
+            tracing::warn!("auto_memory: could not acquire lock: {e}");
+            return;
+        }
+    };
+
     append_index_entry(&memory_dir, summary);
 
     if let Some(ref details) = summary.details {
         let topic_file = memory_dir.join(topic_filename(&summary.trigger_tag));
         append_topic_entry(&topic_file, summary, details);
     }
+
+    release_lock(lock);
 }
 
 /// Write a session summary to the user-global memory directory.
@@ -62,7 +140,18 @@ pub fn write_user_memory(repo_name: &str, summary: &SessionSummary) {
         tracing::debug!("auto_memory: could not create user memory dir: {e}");
         return;
     }
+
+    let lock = match acquire_lock(&memory_dir) {
+        Ok(l) => l,
+        Err(e) => {
+            tracing::warn!("auto_memory: could not acquire user memory lock: {e}");
+            return;
+        }
+    };
+
     append_index_entry(&memory_dir, summary);
+
+    release_lock(lock);
 }
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
@@ -86,7 +175,7 @@ fn append_index_entry(memory_dir: &Path, summary: &SessionSummary) {
     // Enforce line cap with LRU eviction.
     content = enforce_index_cap(content, MAX_INDEX_LINES);
 
-    if let Err(e) = fs::write(&index_path, &content) {
+    if let Err(e) = atomic_write(&index_path, content.as_bytes()) {
         tracing::debug!("auto_memory: failed to write index: {e}");
     }
 }
@@ -140,7 +229,7 @@ fn append_topic_entry(topic_path: &Path, summary: &SessionSummary, details: &str
     // Enforce topic entry cap.
     updated = enforce_topic_cap(updated, MAX_TOPIC_ENTRIES);
 
-    if let Err(e) = fs::write(topic_path, &updated) {
+    if let Err(e) = atomic_write(topic_path, updated.as_bytes()) {
         tracing::debug!("auto_memory: failed to write topic file: {e}");
     }
 }
@@ -153,7 +242,13 @@ fn enforce_topic_cap(content: String, max_entries: usize) -> String {
     }
     let excess = parts.len() - max_entries;
     let kept = &parts[excess..];
-    kept.join("\n---\n")
+    // Re-join with separator and ensure trailing separator is preserved
+    // so subsequent appends parse correctly.
+    let mut result = kept.join("\n---\n");
+    if !result.ends_with("\n---\n") && !result.is_empty() {
+        result.push_str("\n---\n");
+    }
+    result
 }
 
 fn topic_filename(trigger_tag: &str) -> String {
@@ -313,6 +408,18 @@ mod tests {
     }
 
     #[test]
+    fn topic_cap_preserves_trailing_separator() {
+        let entries: String = (0..5)
+            .map(|i| format!("## [ts] Tag (0.5)\n\ndetail {i}\n\n---\n"))
+            .collect();
+        let capped = enforce_topic_cap(entries, 3);
+        assert!(
+            capped.ends_with("\n---\n"),
+            "trailing separator must be preserved for subsequent appends"
+        );
+    }
+
+    #[test]
     fn clear_project_memory_removes_dir() {
         let dir = TempDir::new().unwrap();
         let halcon = dir.path().join(".halcon");
@@ -329,5 +436,62 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let result = clear_memory("global", dir.path(), "repo");
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn atomic_write_creates_file() {
+        let dir = TempDir::new().unwrap();
+        let target = dir.path().join("test.md");
+        atomic_write(&target, b"hello world").unwrap();
+        assert_eq!(fs::read_to_string(&target).unwrap(), "hello world");
+    }
+
+    #[test]
+    fn atomic_write_overwrites_existing() {
+        let dir = TempDir::new().unwrap();
+        let target = dir.path().join("test.md");
+        fs::write(&target, "old content").unwrap();
+        atomic_write(&target, b"new content").unwrap();
+        assert_eq!(fs::read_to_string(&target).unwrap(), "new content");
+    }
+
+    #[test]
+    fn concurrent_writes_no_data_loss() {
+        let dir = TempDir::new().unwrap();
+        let halcon = dir.path().join(".halcon");
+        fs::create_dir(&halcon).unwrap();
+
+        // Simulate 10 sequential writes (concurrent threads tested via integration tests).
+        for i in 0..10 {
+            let summary = make_summary(
+                "TaskSuccess",
+                0.5 + i as f32 * 0.01,
+                &format!("entry-{i}"),
+                None,
+            );
+            write_project_memory(&halcon, &summary);
+        }
+
+        let content =
+            fs::read_to_string(halcon.join("memory").join("MEMORY.md")).unwrap();
+        for i in 0..10 {
+            assert!(
+                content.contains(&format!("entry-{i}")),
+                "entry {i} lost in sequential writes"
+            );
+        }
+    }
+
+    #[test]
+    fn lock_file_created_on_write() {
+        let dir = TempDir::new().unwrap();
+        let halcon = dir.path().join(".halcon");
+        fs::create_dir(&halcon).unwrap();
+
+        let summary = make_summary("TaskSuccess", 0.5, "test", None);
+        write_project_memory(&halcon, &summary);
+
+        let lock = halcon.join("memory").join(LOCK_FILE);
+        assert!(lock.exists(), ".memory.lock should be created");
     }
 }

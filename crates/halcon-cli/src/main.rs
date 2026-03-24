@@ -307,7 +307,7 @@ enum Commands {
 
         /// Connect to Cenzontle bridge for remote supervision.
         /// Establishes outbound WebSocket to api-cenzontle.zuclubit.com.
-        /// Requires: `halcon login cenzontle` first.
+        /// Requires: `halcon auth login cenzontle` first.
         #[arg(long, value_name = "TARGET")]
         bridge: Option<String>,
     },
@@ -376,7 +376,7 @@ enum Commands {
     /// Connects to a running Cenzontle instance to execute agent tasks, query
     /// MCP tools, and search the knowledge base via RAG.
     ///
-    /// Requires authentication: set CENZONTLE_ACCESS_TOKEN or run `halcon login cenzontle`.
+    /// Requires authentication: set CENZONTLE_ACCESS_TOKEN or run `halcon auth login cenzontle`.
     #[cfg(feature = "cenzontle-agents")]
     Cenzontle {
         #[command(subcommand)]

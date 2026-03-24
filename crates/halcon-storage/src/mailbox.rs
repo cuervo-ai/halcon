@@ -36,7 +36,7 @@ pub struct MailboxMessage {
     /// If set, the message is not delivered after this time.
     pub expires_at: Option<DateTime<Utc>>,
     pub consumed: bool,
-    /// HMAC-SHA256 signature over (id + from_agent + to_agent + team_id + payload).
+    /// HMAC-SHA256 signature over (id + from_agent + to_agent + team_id + payload + nonce).
     /// Prevents agent impersonation within a team.
     #[serde(default)]
     pub signature: Option<String>,
@@ -114,6 +114,10 @@ pub fn derive_session_key(session_id: &Uuid) -> Vec<u8> {
 ///
 /// All messages are HMAC-SHA256 signed with a session-derived key to
 /// prevent agent impersonation and message tampering.
+///
+/// **Security model**: Messages are signed on `send()` and verified on
+/// `receive()`. Signatures and nonces are persisted in the DB so that
+/// end-to-end integrity holds even if the DB is externally modified.
 pub struct Mailbox {
     db: Arc<Database>,
     /// HMAC key derived from session ID. Messages without valid signatures
@@ -122,22 +126,33 @@ pub struct Mailbox {
 }
 
 impl Mailbox {
-    /// Create a new Mailbox backed by the given database.
-    ///
-    /// The `session_id` is used to derive an HMAC key for message signing.
-    pub fn new(db: Arc<Database>) -> Self {
-        // Default key for backward compatibility — callers should use new_with_session
-        Self {
-            db,
-            session_key: b"halcon-default-key-upgrade-to-session".to_vec(),
-        }
-    }
-
     /// Create a Mailbox with a session-derived HMAC key.
+    ///
+    /// This is the **only** recommended constructor. The session key is
+    /// derived from the session ID to ensure cross-session replay prevention.
     pub fn new_with_session(db: Arc<Database>, session_id: &Uuid) -> Self {
         Self {
             db,
             session_key: derive_session_key(session_id),
+        }
+    }
+
+    /// Create a Mailbox with an explicit key (for testing or migration).
+    ///
+    /// # Security
+    /// Prefer `new_with_session()` in production. This constructor exists
+    /// for backward compatibility and test scenarios.
+    #[deprecated(
+        since = "0.3.13",
+        note = "Use `new_with_session()` for proper session-scoped HMAC keys"
+    )]
+    pub fn new(db: Arc<Database>) -> Self {
+        tracing::warn!(
+            "Mailbox::new() uses a static HMAC key — use new_with_session() for production"
+        );
+        Self {
+            db,
+            session_key: b"halcon-default-key-upgrade-to-session".to_vec(),
         }
     }
 
@@ -179,29 +194,36 @@ impl Mailbox {
 
     /// Retrieve all unconsumed, non-expired messages addressed to `agent_id`
     /// or broadcast to the team.
+    ///
+    /// **Security**: Each message is verified against the session HMAC key.
+    /// Messages with invalid or missing signatures are silently dropped and
+    /// logged at WARN level (fail-closed).
     pub async fn receive(&self, agent_id: &str, team_id: Uuid) -> Result<Vec<MailboxMessage>> {
         let db = self.db.clone();
         let agent_id = agent_id.to_string();
         let team_id_str = team_id.to_string();
         let now = Utc::now().to_rfc3339();
+        let session_key = self.session_key.clone();
 
         tokio::task::spawn_blocking(move || {
             // Collect raw row data first so we don't hold the lock during parsing.
             #[allow(clippy::type_complexity)]
             let rows: Vec<(
-                String,
-                String,
-                String,
-                String,
-                String,
-                String,
-                Option<String>,
-                bool,
+                String,         // id
+                String,         // from_agent
+                String,         // to_agent
+                String,         // team_id
+                String,         // payload_json
+                String,         // created_at
+                Option<String>, // expires_at
+                bool,           // consumed
+                Option<String>, // signature
+                i64,            // nonce
             )> = db
                 .with_connection(|conn| {
                     let mut stmt = conn.prepare(
                         "SELECT id, from_agent, to_agent, team_id, payload_json, \
-                                created_at, expires_at, consumed \
+                                created_at, expires_at, consumed, signature, nonce \
                          FROM mailbox_messages \
                          WHERE team_id = ?1 \
                            AND (to_agent = ?2 OR to_agent = 'broadcast') \
@@ -220,6 +242,8 @@ impl Mailbox {
                                 row.get::<_, String>(5)?,
                                 row.get::<_, Option<String>>(6)?,
                                 row.get::<_, bool>(7)?,
+                                row.get::<_, Option<String>>(8)?,
+                                row.get::<_, i64>(9)?,
                             ))
                         })?;
                     rows.collect::<rusqlite::Result<Vec<_>>>()
@@ -228,6 +252,7 @@ impl Mailbox {
 
             // Parse outside the connection lock.
             let mut messages = Vec::with_capacity(rows.len());
+            let mut rejected = 0usize;
             for (
                 id_str,
                 from_agent,
@@ -237,6 +262,8 @@ impl Mailbox {
                 created_at_str,
                 expires_at_str,
                 consumed,
+                signature,
+                nonce,
             ) in rows
             {
                 let id = Uuid::parse_str(&id_str)
@@ -256,7 +283,7 @@ impl Mailbox {
                     })
                     .transpose()?;
 
-                messages.push(MailboxMessage {
+                let msg = MailboxMessage {
                     id,
                     from_agent,
                     to_agent,
@@ -265,9 +292,30 @@ impl Mailbox {
                     created_at,
                     expires_at,
                     consumed,
-                    signature: None, // signature not stored in DB (verified at send time)
-                    nonce: 0,
-                });
+                    signature,
+                    nonce: nonce as u64,
+                };
+
+                // Verify signature — reject tampered/unsigned messages.
+                if let Err(e) = verify_message(&msg, &session_key) {
+                    tracing::warn!(
+                        msg_id = %msg.id,
+                        from = %msg.from_agent,
+                        error = %e,
+                        "mailbox: rejected message with invalid signature"
+                    );
+                    rejected += 1;
+                    continue;
+                }
+
+                messages.push(msg);
+            }
+            if rejected > 0 {
+                tracing::warn!(
+                    rejected,
+                    agent_id,
+                    "mailbox: dropped {rejected} message(s) with invalid signatures"
+                );
             }
             Ok(messages)
         })
@@ -354,11 +402,16 @@ mod tests {
         Arc::new(Database::open_in_memory().expect("open in-memory db"))
     }
 
+    fn make_mailbox(db: Arc<Database>) -> Mailbox {
+        let session_id = Uuid::new_v4();
+        Mailbox::new_with_session(db, &session_id)
+    }
+
     /// 3 agents in a team: lead broadcasts, both teammates receive the message.
     #[tokio::test]
     async fn test_broadcast_received_by_all_teammates() {
         let db = make_db();
-        let mailbox = Mailbox::new(db);
+        let mailbox = make_mailbox(db);
         let team_id = Uuid::new_v4();
 
         // Lead broadcasts a task assignment.
@@ -392,7 +445,7 @@ mod tests {
     #[tokio::test]
     async fn test_teammate_replies_to_lead() {
         let db = make_db();
-        let mailbox = Mailbox::new(db);
+        let mailbox = make_mailbox(db);
         let team_id = Uuid::new_v4();
 
         // Teammate sends a direct message to the lead.
@@ -435,7 +488,7 @@ mod tests {
     #[tokio::test]
     async fn test_expired_message_not_delivered() {
         let db = make_db();
-        let mailbox = Mailbox::new(db);
+        let mailbox = make_mailbox(db);
         let team_id = Uuid::new_v4();
 
         // Insert a message that already expired 1 second ago.
@@ -592,7 +645,7 @@ mod tests {
     #[tokio::test]
     async fn test_mark_consumed_prevents_redelivery() {
         let db = make_db();
-        let mailbox = Mailbox::new(db);
+        let mailbox = make_mailbox(db);
         let team_id = Uuid::new_v4();
 
         mailbox
@@ -615,5 +668,75 @@ mod tests {
             msgs2.is_empty(),
             "consumed message must not be re-delivered"
         );
+    }
+
+    /// Messages injected directly into DB without valid signature are rejected.
+    #[tokio::test]
+    async fn test_receive_rejects_tampered_db_messages() {
+        let db = make_db();
+        let session_id = Uuid::new_v4();
+        let mailbox = Mailbox::new_with_session(db.clone(), &session_id);
+        let team_id = Uuid::new_v4();
+
+        // Insert a message directly into DB with a forged/missing signature.
+        let msg_id = Uuid::new_v4();
+        db.with_connection(|conn| {
+            conn.execute(
+                "INSERT INTO mailbox_messages \
+                 (id, from_agent, to_agent, team_id, payload_json, created_at, expires_at, consumed, signature, nonce) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, 0, NULL, 0)",
+                rusqlite::params![
+                    msg_id.to_string(),
+                    "evil-agent",
+                    "broadcast",
+                    team_id.to_string(),
+                    r#"{"task":"exfiltrate"}"#,
+                    Utc::now().to_rfc3339(),
+                ],
+            )?;
+            Ok(())
+        })
+        .expect("direct insert");
+
+        // receive() should reject the unsigned message.
+        let msgs = mailbox
+            .receive("victim", team_id)
+            .await
+            .expect("receive");
+        assert!(
+            msgs.is_empty(),
+            "unsigned/tampered message must be rejected on receive"
+        );
+    }
+
+    /// Signature and nonce survive DB round-trip.
+    #[tokio::test]
+    async fn test_signature_persisted_and_verified_on_receive() {
+        let db = make_db();
+        let session_id = Uuid::new_v4();
+        let mailbox = Mailbox::new_with_session(db, &session_id);
+        let team_id = Uuid::new_v4();
+
+        let msg = MailboxMessage {
+            id: Uuid::new_v4(),
+            from_agent: "agent-a".into(),
+            to_agent: "agent-b".into(),
+            team_id,
+            payload: serde_json::json!({"data": "sensitive"}),
+            created_at: Utc::now(),
+            expires_at: None,
+            consumed: false,
+            signature: None,
+            nonce: 42,
+        };
+        mailbox.send(msg).await.expect("send");
+
+        let received = mailbox
+            .receive("agent-b", team_id)
+            .await
+            .expect("receive");
+        assert_eq!(received.len(), 1);
+        assert!(received[0].signature.is_some(), "signature must survive DB round-trip");
+        assert_eq!(received[0].nonce, 42, "nonce must survive DB round-trip");
     }
 }

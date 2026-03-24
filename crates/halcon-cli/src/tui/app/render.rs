@@ -1,5 +1,6 @@
 //! Footer rendering for TuiApp.
 use super::*;
+use unicode_width::UnicodeWidthStr;
 
 impl TuiApp {
     /// Render the footer bar with context-aware keybinding hints.
@@ -108,21 +109,22 @@ impl TuiApp {
         spans.push(Span::styled(" quit", hint_style));
 
         // Footer ellipsis: truncate spans if they exceed the available width.
-        let total_width: usize = spans.iter().map(|s| s.content.chars().count()).sum();
+        // Uses unicode-width for correct display-column measurement.
+        let total_width: usize = spans.iter().map(|s| UnicodeWidthStr::width(s.content.as_ref())).sum();
         if total_width > area.width as usize {
             let mut accumulated = 0usize;
             let max = area.width as usize;
             let mut truncated = Vec::new();
             for span in &spans {
-                let len = span.content.chars().count();
+                let len = UnicodeWidthStr::width(span.content.as_ref());
                 if accumulated + len > max.saturating_sub(1) {
                     // Truncate this span and add ellipsis.
                     let remaining = max.saturating_sub(accumulated + 1);
                     if remaining > 0 {
-                        let content: String = span.content.chars().take(remaining).collect();
+                        let content = truncate_span_display(&span.content, remaining);
                         truncated.push(Span::styled(content, span.style));
                     }
-                    truncated.push(Span::styled("…", hint_style));
+                    truncated.push(Span::styled("~", hint_style));
                     break;
                 }
                 truncated.push(span.clone());
@@ -137,4 +139,19 @@ impl TuiApp {
             frame.render_widget(footer, area);
         }
     }
+}
+
+/// Truncate a string to at most `max_width` display columns using unicode-width.
+fn truncate_span_display(text: &str, max_width: usize) -> String {
+    let mut result = String::new();
+    let mut width = 0usize;
+    for ch in text.chars() {
+        let cw = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+        if width + cw > max_width {
+            break;
+        }
+        result.push(ch);
+        width += cw;
+    }
+    result
 }

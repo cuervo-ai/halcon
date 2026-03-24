@@ -474,6 +474,13 @@ impl AsyncDatabase {
             .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
     }
 
+    pub async fn purge_old_checkpoints(&self, max_age_days: u32) -> Result<usize> {
+        let db = self.inner.clone();
+        tokio::task::spawn_blocking(move || db.purge_old_checkpoints(max_age_days))
+            .await
+            .map_err(|e| HalconError::Internal(format!("spawn_blocking: {e}")))?
+    }
+
     // --- Resilience ---
 
     pub async fn provider_metrics_windowed(

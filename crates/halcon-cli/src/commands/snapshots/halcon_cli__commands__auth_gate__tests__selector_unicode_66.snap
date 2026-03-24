@@ -1,0 +1,21 @@
+---
+source: crates/halcon-cli/src/commands/auth_gate.rs
+expression: clean
+---
+┌──────────────────────────────────────────────────────────────────┐
+│                                                                  │
+│  halcon -- configuracion de proveedor                            │
+│                                                                  │
+│  No hay ningun proveedor de IA autenticado.                      │
+│  Selecciona uno para comenzar:                                   │
+│                                                                  │
+├──────────────────────────────────────────────────────────────────┤
+│                                                                  │
+│  > o Cenzontle           Cuervo Cloud - SSO             [browser]│
+│    * Anthropic           Claude API - api key           [api key]│
+│    o OpenAI              GPT API - api key              [api key]│
+│    o Ollama              servidor local - sin auth      [no auth]│
+│                                                                  │
+├──────────────────────────────────────────────────────────────────┤
+│  [Up/Down] navegar  [Enter] configurar  [S] omitir               │
+└──────────────────────────────────────────────────────────────────┘

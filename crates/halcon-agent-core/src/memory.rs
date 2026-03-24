@@ -10,11 +10,17 @@
 //! - Retrieval returns the top-k most semantically relevant past episodes.
 //! - A decay factor penalises older episodes to favour recent context.
 //! - Long-term memory is persisted via zstd-compressed JSON to disk.
+//!
+//! ## Safety guarantees
+//! - **Deduplication**: `load_from_bytes` skips episodes already present (by UUID).
+//! - **Poison recovery**: Mutex poisoning is logged at ERROR and recovered via `into_inner`.
+//! - **Post-load validation**: `LoadResult` reports episodes needing embedding recomputation.
 
 use anyhow::Result;
 use chrono::{DateTime, Utc};
 use lru::LruCache;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::num::NonZeroUsize;
 use std::sync::Mutex;
 use uuid::Uuid;
@@ -128,6 +134,19 @@ pub struct RetrievedEpisode {
     pub rank: usize,
 }
 
+// ─── LoadResult ───────────────────────────────────────────────────────────────
+
+/// Result of `load_from_bytes` with post-load diagnostics.
+#[derive(Debug, Clone)]
+pub struct LoadResult {
+    /// Number of episodes loaded (after dedup).
+    pub loaded: usize,
+    /// Number of episodes skipped as duplicates.
+    pub duplicates_skipped: usize,
+    /// Number of loaded episodes missing embeddings (caller MUST recompute).
+    pub needs_embedding: usize,
+}
+
 // ─── VectorMemory ─────────────────────────────────────────────────────────────
 
 /// Thread-safe HNSW-backed episodic memory store.
@@ -141,6 +160,18 @@ pub struct VectorMemory {
     /// Simple LRU for embedding lookups (text → normalised vector).
     #[allow(dead_code)]
     cache: Mutex<LruCache<String, Vec<f32>>>,
+}
+
+/// Acquire the episode lock with poison recovery and logging.
+macro_rules! lock_episodes {
+    ($self:expr) => {
+        $self.episodes.lock().unwrap_or_else(|e| {
+            tracing::error!(
+                "VectorMemory: mutex poisoned — recovering with potentially inconsistent state"
+            );
+            e.into_inner()
+        })
+    };
 }
 
 impl VectorMemory {
@@ -159,7 +190,7 @@ impl VectorMemory {
     /// If the store exceeds `max_episodes`, the oldest entries are evicted.
     pub fn store(&self, mut episode: Episode, embedding: Vec<f32>) {
         episode.embedding = Some(embedding);
-        let mut episodes = self.episodes.lock().unwrap_or_else(|e| e.into_inner());
+        let mut episodes = lock_episodes!(self);
         episodes.push(episode);
         // Evict oldest entries if over capacity.
         let max = self.config.max_episodes;
@@ -172,9 +203,10 @@ impl VectorMemory {
     /// Retrieve the top-k episodes most semantically similar to `query_embedding`.
     ///
     /// Results are sorted descending by composite relevance score (similarity × recency decay).
+    /// Episodes without embeddings (e.g. loaded from disk but not yet recomputed) are skipped.
     pub fn retrieve(&self, query_embedding: &[f32]) -> Vec<RetrievedEpisode> {
         let now = Utc::now();
-        let episodes = self.episodes.lock().unwrap_or_else(|e| e.into_inner());
+        let episodes = lock_episodes!(self);
 
         let mut scored: Vec<(f32, f32, usize)> = episodes
             .iter()
@@ -206,12 +238,17 @@ impl VectorMemory {
             .collect()
     }
 
-    /// Total number of stored episodes.
+    /// Total number of stored episodes (including those without embeddings).
     pub fn len(&self) -> usize {
-        self.episodes
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .len()
+        lock_episodes!(self).len()
+    }
+
+    /// Number of episodes that have embeddings and are queryable.
+    pub fn queryable_len(&self) -> usize {
+        lock_episodes!(self)
+            .iter()
+            .filter(|ep| ep.embedding.is_some())
+            .count()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -220,9 +257,7 @@ impl VectorMemory {
 
     /// Retrieve all successful episodes involving a specific tool.
     pub fn episodes_with_tool(&self, tool_name: &str) -> Vec<Episode> {
-        self.episodes
-            .lock()
-            .unwrap()
+        lock_episodes!(self)
             .iter()
             .filter(|ep| ep.succeeded && ep.tools_used.iter().any(|t| t == tool_name))
             .cloned()
@@ -231,23 +266,20 @@ impl VectorMemory {
 
     /// The most recent N episodes regardless of similarity (for context injection).
     pub fn recent(&self, n: usize) -> Vec<Episode> {
-        let episodes = self.episodes.lock().unwrap_or_else(|e| e.into_inner());
+        let episodes = lock_episodes!(self);
         episodes.iter().rev().take(n).cloned().collect()
     }
 
     /// Clear all episodes (e.g., on logout or explicit memory wipe).
     pub fn clear(&self) {
-        self.episodes
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .clear();
+        lock_episodes!(self).clear();
     }
 
     /// Serialise all episodes to zstd-compressed JSON bytes for persistence.
     pub fn to_bytes(&self) -> Result<Vec<u8>> {
         // Strip embeddings before serialising (they'll be recomputed on load).
         let episodes: Vec<Episode> = {
-            let eps = self.episodes.lock().unwrap_or_else(|e| e.into_inner());
+            let eps = lock_episodes!(self);
             eps.iter()
                 .map(|e| {
                     let mut e2 = e.clone();
@@ -263,14 +295,59 @@ impl VectorMemory {
 
     /// Restore episodes from bytes produced by [`to_bytes`].
     ///
-    /// Embeddings must be recomputed by the caller via [`store`] calls.
-    pub fn load_from_bytes(&self, bytes: &[u8]) -> Result<usize> {
+    /// **Deduplication**: Episodes whose IDs already exist in the store are skipped.
+    ///
+    /// **Post-load contract**: The returned `LoadResult` reports how many episodes
+    /// need embedding recomputation. The caller MUST recompute embeddings for
+    /// loaded episodes before calling `retrieve()`, otherwise they will be invisible
+    /// to similarity queries.
+    pub fn load_from_bytes(&self, bytes: &[u8]) -> Result<LoadResult> {
         let decompressed = zstd::decode_all(bytes)?;
         let episodes: Vec<Episode> = serde_json::from_slice(&decompressed)?;
-        let count = episodes.len();
-        let mut store = self.episodes.lock().unwrap_or_else(|e| e.into_inner());
-        store.extend(episodes);
-        Ok(count)
+        let total = episodes.len();
+
+        let mut store = lock_episodes!(self);
+
+        // Build set of existing IDs for O(1) dedup.
+        let existing_ids: HashSet<Uuid> = store.iter().map(|e| e.id).collect();
+
+        let mut loaded = 0usize;
+        let mut duplicates_skipped = 0usize;
+        let mut needs_embedding = 0usize;
+
+        for ep in episodes {
+            if existing_ids.contains(&ep.id) {
+                duplicates_skipped += 1;
+                continue;
+            }
+            if ep.embedding.is_none() {
+                needs_embedding += 1;
+            }
+            store.push(ep);
+            loaded += 1;
+        }
+
+        if needs_embedding > 0 {
+            tracing::warn!(
+                loaded,
+                needs_embedding,
+                total,
+                "VectorMemory: loaded episodes with missing embeddings — \
+                 caller must recompute before retrieve() will return them"
+            );
+        }
+        if duplicates_skipped > 0 {
+            tracing::debug!(
+                duplicates_skipped,
+                "VectorMemory: skipped duplicate episodes on load"
+            );
+        }
+
+        Ok(LoadResult {
+            loaded,
+            duplicates_skipped,
+            needs_embedding,
+        })
     }
 }
 
@@ -390,10 +467,60 @@ mod tests {
         mem.store(make_episode("test"), unit_vec(4, 1.0));
         let bytes = mem.to_bytes().unwrap();
         let mem2 = VectorMemory::new(MemoryConfig::default());
-        let loaded = mem2.load_from_bytes(&bytes).unwrap();
-        assert_eq!(loaded, 1);
-        // Embeddings are stripped on save, so we need to re-add them.
+        let result = mem2.load_from_bytes(&bytes).unwrap();
+        assert_eq!(result.loaded, 1);
+        assert_eq!(result.needs_embedding, 1); // embeddings stripped on save
+        assert_eq!(result.duplicates_skipped, 0);
         assert_eq!(mem2.len(), 1);
+        assert_eq!(mem2.queryable_len(), 0); // not queryable until recomputed
+    }
+
+    #[test]
+    fn load_deduplicates_by_id() {
+        let mem = VectorMemory::new(MemoryConfig::default());
+        let ep = make_episode("unique task");
+        let id = ep.id;
+        mem.store(ep, unit_vec(4, 1.0));
+
+        // Serialize and load again — should skip the duplicate.
+        let bytes = mem.to_bytes().unwrap();
+        let result = mem.load_from_bytes(&bytes).unwrap();
+        assert_eq!(result.loaded, 0, "duplicate should be skipped");
+        assert_eq!(result.duplicates_skipped, 1);
+        assert_eq!(mem.len(), 1, "no duplicate added");
+
+        // Verify the original's ID is still the same.
+        let recent = mem.recent(1);
+        assert_eq!(recent[0].id, id);
+    }
+
+    #[test]
+    fn double_load_does_not_duplicate() {
+        let mem = VectorMemory::new(MemoryConfig::default());
+        mem.store(make_episode("test"), unit_vec(4, 1.0));
+        let bytes = mem.to_bytes().unwrap();
+
+        let mem2 = VectorMemory::new(MemoryConfig::default());
+        let r1 = mem2.load_from_bytes(&bytes).unwrap();
+        let r2 = mem2.load_from_bytes(&bytes).unwrap();
+        assert_eq!(r1.loaded, 1);
+        assert_eq!(r2.loaded, 0);
+        assert_eq!(r2.duplicates_skipped, 1);
+        assert_eq!(mem2.len(), 1);
+    }
+
+    #[test]
+    fn queryable_len_tracks_embedded_episodes() {
+        let mem = VectorMemory::new(MemoryConfig::default());
+        mem.store(make_episode("with embedding"), unit_vec(4, 1.0));
+        assert_eq!(mem.queryable_len(), 1);
+
+        // Load from bytes — embeddings are None.
+        let bytes = mem.to_bytes().unwrap();
+        let mem2 = VectorMemory::new(MemoryConfig::default());
+        mem2.load_from_bytes(&bytes).unwrap();
+        assert_eq!(mem2.len(), 1);
+        assert_eq!(mem2.queryable_len(), 0);
     }
 
     #[test]

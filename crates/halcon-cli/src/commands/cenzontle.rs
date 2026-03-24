@@ -84,8 +84,10 @@ fn resolve_access_token() -> Result<String> {
     }
 
     anyhow::bail!(
-        "No Cenzontle access token found.\n\
-         Set CENZONTLE_ACCESS_TOKEN env var or run `halcon login cenzontle`."
+        "No active Cenzontle session found.\n\n\
+         Run:\n  halcon auth login cenzontle\n\n\
+         Or set the CENZONTLE_ACCESS_TOKEN environment variable.\n\
+         Check status with: halcon auth status"
     )
 }
 
@@ -105,7 +107,7 @@ pub fn resolve_access_token_silent() -> Option<String> {
 /// Execute a cenzontle subcommand.
 pub async fn run(action: CenzontleAction) -> Result<()> {
     // Attempt silent token refresh before resolving — the SSO access token
-    // may have expired since the last `halcon login cenzontle`.
+    // may have expired since the last `halcon auth login cenzontle`.
     // refresh_if_needed() logs errors internally via tracing; returns true if refreshed.
     let refreshed = super::sso::refresh_if_needed().await;
     if refreshed {

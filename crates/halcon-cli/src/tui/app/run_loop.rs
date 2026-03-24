@@ -384,11 +384,11 @@ impl TuiApp {
                 // Covers "provider/model ↕" — underlined clickable area.
                 let model_x = mode_layout.status.x + 20 + sid_len + 3;
                 let model_w = (
-                    self.status.provider.chars().count()
+                    unicode_width::UnicodeWidthStr::width(self.status.provider.as_str())
                     + 1  // "/"
-                    + self.status.model.chars().count()
+                    + unicode_width::UnicodeWidthStr::width(self.status.model.as_str())
                     + 2
-                    // " ↕"
+                    // " v"
                 ) as u16;
                 self.model_button_area = Rect {
                     x: model_x,

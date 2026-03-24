@@ -169,15 +169,22 @@ pub async fn run_with_bridge(
         }
     };
 
-    // Load Cenzontle token from keychain or env
+    // Load Cenzontle token from keychain or env.
+    // Service name MUST be "halcon-cli" to match sso.rs store_tokens().
     let cenzontle_token = std::env::var("CENZONTLE_ACCESS_TOKEN")
         .ok()
+        .filter(|v| !v.is_empty())
         .or_else(|| {
-            let keystore = halcon_auth::KeyStore::new("halcon");
+            let keystore = halcon_auth::KeyStore::new("halcon-cli");
             keystore.get_secret("cenzontle:access_token").ok().flatten()
         })
         .ok_or_else(|| {
-            anyhow::anyhow!("No Cenzontle token found. Run `halcon login cenzontle` first.")
+            anyhow::anyhow!(
+                "No active Cenzontle session found.\n\n\
+                 Run:\n  halcon auth login cenzontle\n\n\
+                 Or set the CENZONTLE_ACCESS_TOKEN environment variable.\n\
+                 Check status with: halcon auth status"
+            )
         })?;
 
     // Compute machine ID (simple hash of env vars — no external crate needed)
@@ -186,7 +193,6 @@ pub async fn run_with_bridge(
         .unwrap_or_else(|_| "unknown".to_string());
     let username = std::env::var("USER").unwrap_or_default();
     let machine_id = {
-        // Simple FNV-1a hash — not cryptographic, just a fingerprint
         let input = format!("{hostname}:{username}");
         let mut hash: u64 = 0xcbf29ce484222325;
         for byte in input.bytes() {
@@ -198,6 +204,20 @@ pub async fn run_with_bridge(
 
     eprintln!("🌉 Bridge: connecting to {bridge_url}");
     eprintln!("   Machine ID: {}", &machine_id[..16]);
+
+    // Build tool registry for task delegation
+    let tools_config = ToolsConfig::default();
+    let proc_reg = Arc::new(ProcessRegistry::new(5));
+    let tool_registry = Arc::new(halcon_tools::full_registry(
+        &tools_config,
+        Some(proc_reg),
+        None,
+        None,
+    ));
+    let working_dir = std::env::current_dir()
+        .unwrap_or_else(|_| "/tmp".into())
+        .to_string_lossy()
+        .to_string();
 
     // Start local server in background
     let server_handle = {
@@ -236,7 +256,7 @@ pub async fn run_with_bridge(
 
         match connect_async(request).await {
             Ok((ws_stream, _)) => {
-                backoff_secs = 1; // Reset backoff on success
+                backoff_secs = 1;
                 eprintln!("🌉 Bridge connected to Cenzontle!");
 
                 let (mut write, mut read) = ws_stream.split();
@@ -252,8 +272,9 @@ pub async fn run_with_bridge(
                     }
                 }
 
-                // Subscribe to local control plane events
-                let local_api = format!("http://127.0.0.1:{port}");
+                // Channel for task results → WebSocket upstream
+                let (upstream_tx, mut upstream_rx) =
+                    tokio::sync::mpsc::channel::<String>(256);
 
                 // Heartbeat ticker
                 let mut hb_interval = tokio::time::interval(std::time::Duration::from_secs(30));
@@ -262,29 +283,56 @@ pub async fn run_with_bridge(
 
                 loop {
                     tokio::select! {
-                        // Remote message from Cenzontle → forward to local API
+                        // Remote message from Cenzontle → dispatch
                         msg = read.next() => {
                             match msg {
                                 Some(Ok(Message::Text(text))) => {
                                     hb_deadline = tokio::time::Instant::now()
                                         + std::time::Duration::from_secs(40);
 
-                                    // Parse and handle
                                     if text.contains("\"t\":\"hb\"") {
-                                        // Heartbeat response — ignore
+                                        // Heartbeat — ignore
                                     } else if text.contains("\"t\":\"ack\"") {
-                                        // ACK — update last_acked_seq
                                         if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
                                             if let Some(seq) = v["seq"].as_u64() {
                                                 last_acked_seq = seq;
-                                                // Discard buffered events up to acked seq
-                                                // (simplified — buffer is FIFO)
                                             }
                                         }
-                                    } else if text.contains("\"t\":\"msg\"") || text.contains("\"t\":\"presol\"") || text.contains("\"t\":\"cancel\"") || text.contains("\"t\":\"ctx\"") {
-                                        // Forward command to local control plane
+                                    } else if text.contains("\"t\":\"ctx\"") {
+                                        // Context injection — check for task_delegation
+                                        if let Ok(v) = serde_json::from_str::<serde_json::Value>(&text) {
+                                            let key = v["d"]["key"].as_str().unwrap_or("");
+                                            if key == "task_delegation" {
+                                                let value_str = v["d"]["value"].as_str().unwrap_or("{}");
+                                                if let Ok(task) = serde_json::from_str::<serde_json::Value>(value_str) {
+                                                    let task_id = task["taskId"].as_str().unwrap_or("unknown").to_string();
+                                                    let instructions = task["instructions"].as_str().unwrap_or("").to_string();
+                                                    let timeout_ms = task["timeout"].as_u64().unwrap_or(60_000);
+
+                                                    eprintln!("📥 Task delegation: {task_id}");
+                                                    eprintln!("   Instructions: {}", &instructions[..instructions.len().min(120)]);
+
+                                                    // Spawn task execution in background
+                                                    let tx = upstream_tx.clone();
+                                                    let registry = tool_registry.clone();
+                                                    let wd = working_dir.clone();
+                                                    tokio::spawn(async move {
+                                                        execute_delegated_task(
+                                                            &task_id,
+                                                            &instructions,
+                                                            timeout_ms,
+                                                            registry,
+                                                            &wd,
+                                                            tx,
+                                                        ).await;
+                                                    });
+                                                }
+                                            } else {
+                                                eprintln!("📥 Context: key={key}");
+                                            }
+                                        }
+                                    } else if text.contains("\"t\":\"msg\"") || text.contains("\"t\":\"presol\"") || text.contains("\"t\":\"cancel\"") {
                                         eprintln!("📥 Remote command: {}", &text[..text.len().min(80)]);
-                                        // TODO: dispatch to local control plane via internal API
                                     }
                                 }
                                 Some(Ok(Message::Close(_))) | None => {
@@ -292,6 +340,13 @@ pub async fn run_with_bridge(
                                     break;
                                 }
                                 _ => {}
+                            }
+                        }
+
+                        // Task results → send upstream to Cenzontle
+                        Some(result_json) = upstream_rx.recv() => {
+                            if write.send(Message::Text(result_json)).await.is_err() {
+                                break;
                             }
                         }
 
@@ -324,10 +379,309 @@ pub async fn run_with_bridge(
         }
 
         // Reconnect with exponential backoff
-        let jitter = 0.0_f64; // simplified — no jitter for now
-        let delay = backoff_secs as f64 + jitter;
+        let delay = backoff_secs as f64;
         eprintln!("🔄 Reconnecting in {delay:.1}s...");
         tokio::time::sleep(std::time::Duration::from_secs_f64(delay)).await;
         backoff_secs = (backoff_secs * 2).min(60);
     }
+}
+
+// ─── Task Delegation Executor ────────────────────────────────────────────────
+
+/// Execute a delegated task from Cenzontle by running tools locally and
+/// streaming results back via the upstream channel.
+///
+/// Protocol:
+/// - For each tool call: sends `{"t":"tresult","d":{name, input, output, ok}}`
+/// - When done: sends `{"t":"done","d":{"taskId":"..."}}`
+async fn execute_delegated_task(
+    task_id: &str,
+    instructions: &str,
+    timeout_ms: u64,
+    tool_registry: Arc<halcon_tools::ToolRegistry>,
+    working_dir: &str,
+    upstream: tokio::sync::mpsc::Sender<String>,
+) {
+    use halcon_core::types::ToolInput;
+    use tokio::time::{timeout, Duration};
+
+    let deadline = Duration::from_millis(timeout_ms);
+
+    // Parse instructions to determine which tools to run.
+    // The LLM on the backend has already converted the user's natural language
+    // into actionable instructions.  We interpret them as a sequence of tool calls.
+    let tool_calls = parse_instructions_to_tool_calls(instructions, working_dir);
+
+    if tool_calls.is_empty() {
+        // Fallback: run as a single bash command
+        let tool_calls = vec![ToolCall {
+            name: "bash".to_string(),
+            args: serde_json::json!({"command": instructions}),
+        }];
+        run_tool_calls(task_id, &tool_calls, &tool_registry, working_dir, &upstream, deadline).await;
+    } else {
+        run_tool_calls(task_id, &tool_calls, &tool_registry, working_dir, &upstream, deadline).await;
+    }
+
+    // Send completion signal
+    let done_msg = serde_json::json!({
+        "t": "done",
+        "d": { "taskId": task_id }
+    });
+    let _ = upstream.send(done_msg.to_string()).await;
+    eprintln!("✅ Task {task_id} completed");
+}
+
+struct ToolCall {
+    name: String,
+    args: serde_json::Value,
+}
+
+/// Run a sequence of tool calls and send results upstream.
+async fn run_tool_calls(
+    task_id: &str,
+    calls: &[ToolCall],
+    registry: &halcon_tools::ToolRegistry,
+    working_dir: &str,
+    upstream: &tokio::sync::mpsc::Sender<String>,
+    deadline: tokio::time::Duration,
+) {
+    use halcon_core::types::ToolInput;
+
+    let start = tokio::time::Instant::now();
+
+    for (i, call) in calls.iter().enumerate() {
+        // Check deadline
+        if start.elapsed() > deadline {
+            eprintln!("⏰ Task {task_id} timeout after {} tool calls", i);
+            let timeout_result = serde_json::json!({
+                "t": "tresult",
+                "d": {
+                    "id": format!("{task_id}-{i}"),
+                    "name": "timeout",
+                    "output": format!("Task timed out after {}ms", deadline.as_millis()),
+                    "ok": false,
+                }
+            });
+            let _ = upstream.send(timeout_result.to_string()).await;
+            break;
+        }
+
+        let tool = match registry.get(&call.name) {
+            Some(t) => t,
+            None => {
+                eprintln!("⚠️  Unknown tool: {}", call.name);
+                let err_result = serde_json::json!({
+                    "t": "tresult",
+                    "d": {
+                        "id": format!("{task_id}-{i}"),
+                        "name": &call.name,
+                        "input": call.args.to_string(),
+                        "error": format!("Unknown tool: {}", call.name),
+                        "ok": false,
+                    }
+                });
+                let _ = upstream.send(err_result.to_string()).await;
+                continue;
+            }
+        };
+
+        let tool_input = ToolInput {
+            tool_use_id: format!("{task_id}-{i}"),
+            arguments: call.args.clone(),
+            working_directory: working_dir.to_string(),
+        };
+
+        eprintln!("🔧 [{}/{}] {} ...", i + 1, calls.len(), call.name);
+
+        let result = match tokio::time::timeout(
+            std::time::Duration::from_secs(30),
+            tool.execute(tool_input),
+        ).await {
+            Ok(Ok(output)) => {
+                // Truncate large outputs for the wire protocol
+                let content = if output.content.len() > 8192 {
+                    format!("{}...\n[truncated {} bytes]", &output.content[..8192], output.content.len())
+                } else {
+                    output.content
+                };
+                serde_json::json!({
+                    "t": "tresult",
+                    "d": {
+                        "id": format!("{task_id}-{i}"),
+                        "name": &call.name,
+                        "input": call.args.to_string(),
+                        "output": content,
+                        "ok": !output.is_error,
+                    }
+                })
+            }
+            Ok(Err(e)) => {
+                serde_json::json!({
+                    "t": "tresult",
+                    "d": {
+                        "id": format!("{task_id}-{i}"),
+                        "name": &call.name,
+                        "input": call.args.to_string(),
+                        "error": format!("{e}"),
+                        "ok": false,
+                    }
+                })
+            }
+            Err(_) => {
+                serde_json::json!({
+                    "t": "tresult",
+                    "d": {
+                        "id": format!("{task_id}-{i}"),
+                        "name": &call.name,
+                        "input": call.args.to_string(),
+                        "error": "Tool execution timed out (30s)",
+                        "ok": false,
+                    }
+                })
+            }
+        };
+
+        let _ = upstream.send(result.to_string()).await;
+    }
+}
+
+/// Parse LLM-generated instructions into a sequence of tool calls.
+///
+/// Recognizes patterns like:
+/// - "Read file /path/to/file" → file_read
+/// - "Run: ls -la" or "Execute: npm test" → bash
+/// - "Search for 'pattern' in src/" → grep
+/// - "Find files matching *.rs" → glob
+/// - "List files" → bash(ls)
+/// - "Check git status" → git_status
+fn parse_instructions_to_tool_calls(instructions: &str, working_dir: &str) -> Vec<ToolCall> {
+    let mut calls = Vec::new();
+
+    for line in instructions.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') || line.starts_with("//") {
+            continue;
+        }
+
+        // Pattern: "Read <path>" or "Read file <path>"
+        if let Some(path) = line.strip_prefix("Read file ").or_else(|| line.strip_prefix("Read ")) {
+            let path = path.trim().trim_matches('"').trim_matches('`');
+            calls.push(ToolCall {
+                name: "file_read".to_string(),
+                args: serde_json::json!({"path": path}),
+            });
+            continue;
+        }
+
+        // Pattern: "Run: <cmd>" or "Execute: <cmd>" or "$ <cmd>" or "```\n<cmd>\n```"
+        if let Some(cmd) = line
+            .strip_prefix("Run: ")
+            .or_else(|| line.strip_prefix("Execute: "))
+            .or_else(|| line.strip_prefix("run: "))
+            .or_else(|| line.strip_prefix("$ "))
+        {
+            let cmd = cmd.trim().trim_matches('`');
+            if !cmd.is_empty() {
+                calls.push(ToolCall {
+                    name: "bash".to_string(),
+                    args: serde_json::json!({"command": cmd}),
+                });
+            }
+            continue;
+        }
+
+        // Pattern: "Search for 'pattern'" or "Grep <pattern>"
+        if let Some(rest) = line
+            .strip_prefix("Search for ")
+            .or_else(|| line.strip_prefix("Grep "))
+            .or_else(|| line.strip_prefix("grep "))
+        {
+            let pattern = rest.trim().trim_matches('\'').trim_matches('"');
+            calls.push(ToolCall {
+                name: "grep".to_string(),
+                args: serde_json::json!({"pattern": pattern, "path": working_dir}),
+            });
+            continue;
+        }
+
+        // Pattern: "Find files matching <glob>" or "Glob <pattern>"
+        if let Some(rest) = line
+            .strip_prefix("Find files matching ")
+            .or_else(|| line.strip_prefix("Glob "))
+            .or_else(|| line.strip_prefix("glob "))
+        {
+            let pattern = rest.trim().trim_matches('\'').trim_matches('"');
+            calls.push(ToolCall {
+                name: "glob".to_string(),
+                args: serde_json::json!({"pattern": pattern}),
+            });
+            continue;
+        }
+
+        // Pattern: "git status", "git diff", "git log"
+        if line.starts_with("git ") {
+            let parts: Vec<&str> = line.splitn(2, ' ').collect();
+            if parts.len() == 2 {
+                let git_cmd = parts[1].split_whitespace().next().unwrap_or("");
+                match git_cmd {
+                    "status" => calls.push(ToolCall {
+                        name: "git_status".to_string(),
+                        args: serde_json::json!({}),
+                    }),
+                    "diff" => calls.push(ToolCall {
+                        name: "git_diff".to_string(),
+                        args: serde_json::json!({}),
+                    }),
+                    "log" => calls.push(ToolCall {
+                        name: "git_log".to_string(),
+                        args: serde_json::json!({"max_count": 10}),
+                    }),
+                    _ => calls.push(ToolCall {
+                        name: "bash".to_string(),
+                        args: serde_json::json!({"command": line}),
+                    }),
+                }
+            }
+            continue;
+        }
+
+        // Fallback: treat as bash command if it looks executable
+        if line.starts_with("ls")
+            || line.starts_with("cat ")
+            || line.starts_with("find ")
+            || line.starts_with("npm ")
+            || line.starts_with("cargo ")
+            || line.starts_with("python")
+            || line.starts_with("node ")
+            || line.starts_with("make")
+            || line.starts_with("echo ")
+            || line.starts_with("cd ")
+            || line.starts_with("pwd")
+            || line.starts_with("tree")
+            || line.starts_with("wc ")
+            || line.starts_with("head ")
+            || line.starts_with("tail ")
+            || line.starts_with("sort ")
+            || line.starts_with("du ")
+            || line.starts_with("df ")
+            || line.contains('|')  // piped commands
+        {
+            calls.push(ToolCall {
+                name: "bash".to_string(),
+                args: serde_json::json!({"command": line}),
+            });
+            continue;
+        }
+
+        // If nothing matched but there's content, try as bash
+        if !line.is_empty() && !line.starts_with('-') && !line.starts_with('*') {
+            calls.push(ToolCall {
+                name: "bash".to_string(),
+                args: serde_json::json!({"command": line}),
+            });
+        }
+    }
+
+    calls
 }

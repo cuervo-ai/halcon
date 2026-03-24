@@ -5,11 +5,17 @@
 //! an interactive crossterm UI that lets the user configure one before the session begins.
 //!
 //! Supports two authentication methods, selected automatically per provider:
-//!   • **Browser / OAuth** — cenzontle (Cuervo SSO) and claude_code (claude.ai)
-//!   • **API key**         — anthropic, openai, deepseek, gemini
+//!   - **Browser / OAuth** — cenzontle (Cuervo SSO) and claude_code (claude.ai)
+//!   - **API key**         — anthropic, openai, deepseek, gemini
 //!
 //! Works identically for classic (REPL) and TUI modes because the gate runs before
 //! either the REPL or ratatui TUI is initialized.
+//!
+//! ## Cross-platform rendering
+//!
+//! The box-drawing UI uses `unicode-width` for display-width-aware padding, detects
+//! terminal Unicode support via `$LANG`, and falls back to ASCII box chars on limited
+//! terminals. All lines are guaranteed to have exactly the same display width.
 
 use anyhow::Result;
 use crossterm::{
@@ -22,6 +28,7 @@ use crossterm::{
 use halcon_auth::KeyStore;
 use halcon_core::types::AppConfig;
 use std::io::{self, Write};
+use unicode_width::UnicodeWidthStr;
 
 const SERVICE_NAME: &str = "halcon-cli";
 
@@ -94,24 +101,77 @@ fn cenzontle_authenticated() -> bool {
 
 fn claude_code_authenticated() -> bool {
     let bin = locate_claude_binary();
-    if let Ok(out) = std::process::Command::new(&bin)
+    let result = std::process::Command::new(&bin)
         .args(["auth", "status", "--json"])
-        .output()
-    {
-        if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&out.stdout) {
-            return v["loggedIn"].as_bool().unwrap_or(false);
-        }
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .output();
+
+    match result {
+        Ok(out) => serde_json::from_slice::<serde_json::Value>(&out.stdout)
+            .ok()
+            .and_then(|v| v["loggedIn"].as_bool())
+            .unwrap_or(false),
+        Err(_) => false,
     }
-    false
 }
 
+/// Locate the `claude` binary by searching `$PATH` first, then checking
+/// well-known installation paths, and finally falling back to bare name.
 fn locate_claude_binary() -> String {
-    if let Ok(home) = std::env::var("HOME") {
-        let p = format!("{home}/.local/bin/claude");
-        if std::path::Path::new(&p).exists() {
-            return p;
+    // First: try to resolve via $PATH using `command -v` (POSIX) or `where` (Windows)
+    #[cfg(unix)]
+    {
+        if let Ok(out) = std::process::Command::new("sh")
+            .args(["-c", "command -v claude 2>/dev/null"])
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output()
+        {
+            let path = String::from_utf8_lossy(&out.stdout).trim().to_string();
+            if !path.is_empty() && std::path::Path::new(&path).exists() {
+                return path;
+            }
         }
     }
+
+    #[cfg(windows)]
+    {
+        if let Ok(out) = std::process::Command::new("where")
+            .arg("claude")
+            .stdin(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output()
+        {
+            let path = String::from_utf8_lossy(&out.stdout)
+                .lines()
+                .next()
+                .unwrap_or("")
+                .trim()
+                .to_string();
+            if !path.is_empty() && std::path::Path::new(&path).exists() {
+                return path;
+            }
+        }
+    }
+
+    // Second: check well-known user-local install paths
+    if let Ok(home) = std::env::var("HOME") {
+        let candidates: &[&str] = &[
+            ".local/bin/claude",
+            ".npm-global/bin/claude",
+            ".nvm/current/bin/claude",
+        ];
+        for suffix in candidates {
+            let p = format!("{home}/{suffix}");
+            if std::path::Path::new(&p).exists() {
+                return p;
+            }
+        }
+    }
+
+    // Bare name — std::process::Command will search $PATH as last resort
     "claude".to_string()
 }
 
@@ -258,9 +318,348 @@ pub async fn run_if_needed(
     run_gate(config, providers).await
 }
 
-// ── Interactive gate ──────────────────────────────────────────────────────────
+// ── Box renderer — deterministic, width-safe, cross-platform ─────────────────
 
-const BOX_WIDTH: u16 = 66;
+/// Characters used for box drawing.  Automatically selected based on terminal
+/// Unicode capability — standard box-drawing on UTF-8 terminals, ASCII on others.
+///
+/// Design decision: we use STANDARD corners (┌┐└┘) not ROUNDED (╭╮╰╯) because
+/// rounded corners are missing from many Linux monospace fonts (DejaVu Sans Mono,
+/// Liberation Mono, Ubuntu Mono) and render with incorrect width or as replacement
+/// glyphs, destroying the entire layout.
+struct BoxChars {
+    top_left: &'static str,
+    top_right: &'static str,
+    bottom_left: &'static str,
+    bottom_right: &'static str,
+    horizontal: &'static str,
+    vertical: &'static str,
+    tee_right: &'static str,
+    tee_left: &'static str,
+}
+
+impl BoxChars {
+    fn detect() -> Self {
+        if detect_unicode_support() {
+            Self::unicode()
+        } else {
+            Self::ascii()
+        }
+    }
+
+    fn unicode() -> Self {
+        Self {
+            top_left: "\u{250C}",     // ┌
+            top_right: "\u{2510}",    // ┐
+            bottom_left: "\u{2514}",  // └
+            bottom_right: "\u{2518}", // ┘
+            horizontal: "\u{2500}",   // ─
+            vertical: "\u{2502}",     // │
+            tee_right: "\u{251C}",    // ├
+            tee_left: "\u{2524}",     // ┤
+        }
+    }
+
+    fn ascii() -> Self {
+        Self {
+            top_left: "+",
+            top_right: "+",
+            bottom_left: "+",
+            bottom_right: "+",
+            horizontal: "-",
+            vertical: "|",
+            tee_right: "+",
+            tee_left: "+",
+        }
+    }
+}
+
+/// Detect Unicode support from the environment.
+fn detect_unicode_support() -> bool {
+    // Check LANG/LC_ALL/LC_CTYPE for UTF-8 indicators
+    for var in ["LC_ALL", "LC_CTYPE", "LANG"] {
+        if let Ok(val) = std::env::var(var) {
+            let lower = val.to_lowercase();
+            if lower.contains("utf-8") || lower.contains("utf8") {
+                return true;
+            }
+            // Explicit non-UTF locale (e.g. "C", "POSIX", "en_US.ISO-8859-1")
+            if !val.is_empty() {
+                return false;
+            }
+        }
+    }
+    // No locale set — default to true on macOS/Windows, false on Linux
+    #[cfg(target_os = "linux")]
+    {
+        false
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        true
+    }
+}
+
+/// Determine the inner width for the box based on actual terminal size.
+///
+/// Returns the number of content columns between the left and right borders.
+/// Guarantees: `inner >= MIN_INNER` and `inner + 2 <= term_width`.
+fn effective_inner_width() -> usize {
+    const PREFERRED_INNER: usize = 66;
+    const MIN_INNER: usize = 48;
+
+    let (term_width, _) = crossterm::terminal::size().unwrap_or((80, 24));
+    let tw = term_width as usize;
+
+    // Need at least inner + 2 (for │ borders) to fit
+    if tw < MIN_INNER + 2 {
+        // Terminal is extremely narrow — use everything we can
+        tw.saturating_sub(2).max(20)
+    } else {
+        PREFERRED_INNER.min(tw.saturating_sub(2))
+    }
+}
+
+/// Pad or truncate `text` to exactly `target_width` display columns.
+///
+/// Uses `unicode-width` for correct measurement of all Unicode characters
+/// including CJK, emoji, combining marks, and box-drawing.
+fn pad_to_display_width(text: &str, target_width: usize) -> String {
+    let current_width = UnicodeWidthStr::width(text);
+    if current_width >= target_width {
+        // Truncate from the right until we fit
+        truncate_to_display_width(text, target_width)
+    } else {
+        // Pad with spaces
+        let padding = target_width - current_width;
+        let mut result = String::with_capacity(text.len() + padding);
+        result.push_str(text);
+        for _ in 0..padding {
+            result.push(' ');
+        }
+        result
+    }
+}
+
+/// Truncate `text` to at most `max_width` display columns.
+/// Ensures we never split a multi-column character.
+fn truncate_to_display_width(text: &str, max_width: usize) -> String {
+    let mut result = String::new();
+    let mut width = 0usize;
+    for ch in text.chars() {
+        let cw = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+        if width + cw > max_width {
+            break;
+        }
+        result.push(ch);
+        width += cw;
+    }
+    // Fill remaining columns with spaces if we stopped mid-width
+    while width < max_width {
+        result.push(' ');
+        width += 1;
+    }
+    result
+}
+
+/// Render the top border: ┌──...──┐
+fn render_box_top(stdout: &mut impl Write, bc: &BoxChars, inner: usize) -> Result<()> {
+    let horiz: String = bc.horizontal.repeat(inner);
+    queue!(
+        stdout,
+        SetForegroundColor(Color::DarkCyan),
+        Print(bc.top_left),
+        Print(&horiz),
+        Print(bc.top_right),
+        Print("\n"),
+        ResetColor,
+    )?;
+    Ok(())
+}
+
+/// Render the bottom border: └──...──┘
+fn render_box_bottom(stdout: &mut impl Write, bc: &BoxChars, inner: usize) -> Result<()> {
+    let horiz: String = bc.horizontal.repeat(inner);
+    queue!(
+        stdout,
+        SetForegroundColor(Color::DarkCyan),
+        Print(bc.bottom_left),
+        Print(&horiz),
+        Print(bc.bottom_right),
+        Print("\n"),
+        ResetColor,
+    )?;
+    Ok(())
+}
+
+/// Render a divider: ├──...──┤
+fn render_box_divider(stdout: &mut impl Write, bc: &BoxChars, inner: usize) -> Result<()> {
+    let horiz: String = bc.horizontal.repeat(inner);
+    queue!(
+        stdout,
+        SetForegroundColor(Color::DarkCyan),
+        Print(bc.tee_right),
+        Print(&horiz),
+        Print(bc.tee_left),
+        Print("\n"),
+        ResetColor,
+    )?;
+    Ok(())
+}
+
+/// Render a content line: │<content padded to inner>│
+///
+/// The content is measured with `unicode-width` and padded/truncated to exactly
+/// `inner` display columns, guaranteeing alignment with all borders.
+fn render_box_line(
+    stdout: &mut impl Write,
+    bc: &BoxChars,
+    inner: usize,
+    text: &str,
+    color: Color,
+    bold: bool,
+) -> Result<()> {
+    let safe = pad_to_display_width(text, inner);
+
+    queue!(stdout, SetForegroundColor(Color::DarkCyan), Print(bc.vertical))?;
+    if bold {
+        queue!(stdout, SetAttribute(Attribute::Bold))?;
+    }
+    queue!(
+        stdout,
+        SetForegroundColor(color),
+        Print(&safe),
+    )?;
+    if bold {
+        queue!(stdout, SetAttribute(Attribute::NoBold))?;
+    }
+    queue!(
+        stdout,
+        SetForegroundColor(Color::DarkCyan),
+        Print(bc.vertical),
+        Print("\n"),
+        ResetColor,
+    )?;
+    Ok(())
+}
+
+/// Render a provider row with proper column alignment.
+///
+/// Layout inside the box (all display-width-measured):
+///   [prefix 4][icon 1][space 1][label col][subtitle col][tag col]
+///
+/// The columns are dynamically sized to fill exactly `inner` display columns.
+fn render_provider_row(
+    stdout: &mut impl Write,
+    bc: &BoxChars,
+    inner: usize,
+    entry: &ProviderEntry,
+    is_selected: bool,
+    use_unicode: bool,
+) -> Result<()> {
+    // Selection prefix (4 display cols)
+    let prefix = if is_selected { "  > " } else { "    " };
+
+    // Status icon (1 display col) — use ASCII-safe alternatives
+    let (status_icon, status_color) = if use_unicode {
+        match entry.status {
+            AuthStatus::Authenticated => ("*", Color::Green),
+            AuthStatus::NoAuthRequired => ("o", Color::DarkGrey),
+            AuthStatus::Missing => ("o", Color::DarkGrey),
+        }
+    } else {
+        match entry.status {
+            AuthStatus::Authenticated => ("*", Color::Green),
+            AuthStatus::NoAuthRequired => ("o", Color::DarkGrey),
+            AuthStatus::Missing => ("o", Color::DarkGrey),
+        }
+    };
+
+    let flow_tag = match entry.flow {
+        AuthFlow::Browser => "[browser]",
+        AuthFlow::ApiKey => "[api key]",
+        AuthFlow::NoAuth => "[no auth]",
+    };
+
+    // Fixed overhead: prefix(4) + icon(1) + space(1) + space_before_tag(1) + tag(9) = 16
+    let fixed_overhead = 16usize;
+    let available = inner.saturating_sub(fixed_overhead);
+
+    // Split remaining space: ~40% label, ~60% subtitle
+    let label_col = (available * 2 / 5).max(8);
+    let sub_col = available.saturating_sub(label_col);
+
+    let label_padded = pad_to_display_width(entry.label, label_col);
+    let sub_padded = pad_to_display_width(entry.subtitle, sub_col);
+
+    // Assemble: we control every column's display width, so total == inner
+    let fg_color = if is_selected { Color::White } else { Color::DarkGrey };
+    let label_color = if is_selected { Color::Cyan } else { Color::DarkGrey };
+    let tag_color = match entry.flow {
+        AuthFlow::Browser => {
+            if is_selected { Color::Yellow } else { Color::DarkGrey }
+        }
+        AuthFlow::ApiKey => {
+            if is_selected { Color::Blue } else { Color::DarkGrey }
+        }
+        AuthFlow::NoAuth => Color::DarkGrey,
+    };
+
+    // Left border
+    queue!(stdout, SetForegroundColor(Color::DarkCyan), Print(bc.vertical))?;
+
+    // Prefix
+    if is_selected {
+        queue!(stdout, SetForegroundColor(Color::Cyan), SetAttribute(Attribute::Bold))?;
+    } else {
+        queue!(stdout, SetForegroundColor(Color::DarkGrey))?;
+    }
+    queue!(stdout, Print(prefix))?;
+
+    // Status icon
+    queue!(stdout, SetForegroundColor(status_color), Print(status_icon))?;
+
+    // Space + Label
+    queue!(
+        stdout,
+        SetForegroundColor(label_color),
+    )?;
+    if is_selected {
+        queue!(stdout, SetAttribute(Attribute::Bold))?;
+    }
+    queue!(stdout, Print(" "), Print(&label_padded))?;
+    if is_selected {
+        queue!(stdout, SetAttribute(Attribute::NoBold))?;
+    }
+
+    // Subtitle
+    queue!(
+        stdout,
+        SetForegroundColor(fg_color),
+        Print(&sub_padded),
+    )?;
+
+    // Tag (with leading space)
+    queue!(
+        stdout,
+        SetForegroundColor(tag_color),
+        Print(" "),
+        Print(flow_tag),
+    )?;
+
+    // Right border
+    queue!(
+        stdout,
+        SetForegroundColor(Color::DarkCyan),
+        Print(bc.vertical),
+        Print("\n"),
+        ResetColor,
+    )?;
+
+    Ok(())
+}
+
+// ── Interactive gate ──────────────────────────────────────────────────────────
 
 async fn run_gate(config: &AppConfig, providers: Vec<ProviderEntry>) -> Result<AuthGateOutcome> {
     let _ = config; // reserved for future use
@@ -297,14 +696,13 @@ async fn run_gate(config: &AppConfig, providers: Vec<ProviderEntry>) -> Result<A
                         let entry = &providers[selected];
                         match entry.flow {
                             AuthFlow::ApiKey => {
-                                // Tear down selector, show API key input screen
                                 match run_api_key_input(&mut stdout, entry).await {
                                     Ok(true) => {
                                         credentials_added = true;
                                         break 'outer;
                                     }
                                     Ok(false) => {
-                                        status_line = "Configuración cancelada.".into();
+                                        status_line = "Configuracion cancelada.".into();
                                         status_ok = false;
                                     }
                                     Err(e) => {
@@ -314,7 +712,6 @@ async fn run_gate(config: &AppConfig, providers: Vec<ProviderEntry>) -> Result<A
                                 }
                             }
                             AuthFlow::Browser => {
-                                // Drop raw mode, run browser flow, re-enter
                                 terminal::disable_raw_mode()?;
                                 execute!(stdout, Show, MoveTo(0, 0), Clear(ClearType::All))?;
 
@@ -339,7 +736,6 @@ async fn run_gate(config: &AppConfig, providers: Vec<ProviderEntry>) -> Result<A
                                 }
                             }
                             AuthFlow::NoAuth => {
-                                // Show Ollama instructions and skip
                                 terminal::disable_raw_mode()?;
                                 execute!(stdout, Show, MoveTo(0, 0), Clear(ClearType::All))?;
                                 show_noauth_instructions(entry)?;
@@ -374,10 +770,9 @@ async fn run_gate(config: &AppConfig, providers: Vec<ProviderEntry>) -> Result<A
         print_styled(
             &mut stdout,
             Color::Green,
-            "  ✓ Proveedor configurado. Iniciando sesión...\n",
+            "  Proveedor configurado. Iniciando sesion...\n",
         )?;
         stdout.flush()?;
-        // Small pause so the user sees the success message.
         std::thread::sleep(std::time::Duration::from_millis(400));
     }
 
@@ -393,157 +788,56 @@ fn render_selector(
     status: &str,
     status_ok: bool,
 ) -> Result<()> {
+    let bc = BoxChars::detect();
+    let use_unicode = detect_unicode_support();
+    let inner = effective_inner_width();
+
     queue!(stdout, MoveTo(0, 0), Clear(ClearType::All))?;
 
     // Header
-    box_top(stdout)?;
-    box_line_text(stdout, "", Color::White)?;
-    box_line_styled(
-        stdout,
-        "  halcon — configuración de proveedor",
-        Color::Cyan,
-        true,
+    render_box_top(stdout, &bc, inner)?;
+    render_box_line(stdout, &bc, inner, "", Color::White, false)?;
+    render_box_line(
+        stdout, &bc, inner,
+        "  halcon -- configuracion de proveedor",
+        Color::Cyan, true,
     )?;
-    box_line_text(stdout, "", Color::White)?;
-    box_line_text(
-        stdout,
-        "  No hay ningún proveedor de IA autenticado.",
-        Color::White,
+    render_box_line(stdout, &bc, inner, "", Color::White, false)?;
+    render_box_line(
+        stdout, &bc, inner,
+        "  No hay ningun proveedor de IA autenticado.",
+        Color::White, false,
     )?;
-    box_line_text(stdout, "  Selecciona uno para comenzar:", Color::DarkGrey)?;
-    box_line_text(stdout, "", Color::White)?;
-    box_divider(stdout)?;
-    box_line_text(stdout, "", Color::White)?;
+    render_box_line(
+        stdout, &bc, inner,
+        "  Selecciona uno para comenzar:",
+        Color::DarkGrey, false,
+    )?;
+    render_box_line(stdout, &bc, inner, "", Color::White, false)?;
+    render_box_divider(stdout, &bc, inner)?;
+    render_box_line(stdout, &bc, inner, "", Color::White, false)?;
 
     // Provider rows
     for (i, entry) in providers.iter().enumerate() {
-        let is_selected = i == selected;
-        let prefix = if is_selected { "  ❯ " } else { "    " };
-
-        let (status_icon, status_color) = match entry.status {
-            AuthStatus::Authenticated => ("●", Color::Green),
-            AuthStatus::NoAuthRequired => ("○", Color::DarkGrey),
-            AuthStatus::Missing => ("○", Color::DarkGrey),
-        };
-
-        let flow_tag = match entry.flow {
-            AuthFlow::Browser => "[browser]",
-            AuthFlow::ApiKey => "[api key]",
-            AuthFlow::NoAuth => "[no auth]",
-        };
-
-        // Label column (fixed 16 chars), subtitle column (fixed 24 chars), tag
-        let label_padded = format!("{:<16}", entry.label);
-        let sub_padded = format!("{:<26}", entry.subtitle);
-
-        // Compose the full row content (inside the box)
-        let row = format!("{prefix}{status_icon} {label_padded}{sub_padded}{flow_tag}");
-        let row_display = format!("{:<62}", row);
-
-        let line_color = if is_selected {
-            Color::White
-        } else {
-            Color::DarkGrey
-        };
-        let label_color = if is_selected {
-            Color::Cyan
-        } else {
-            Color::DarkGrey
-        };
-
-        queue!(
-            stdout,
-            Print("│ "),
-            SetForegroundColor(if is_selected {
-                Color::Cyan
-            } else {
-                Color::DarkGrey
-            }),
-            SetAttribute(if is_selected {
-                Attribute::Bold
-            } else {
-                Attribute::Reset
-            }),
-        )?;
-
-        // prefix + status icon
-        queue!(
-            stdout,
-            Print(prefix),
-            SetForegroundColor(status_color),
-            Print(status_icon),
-            ResetColor,
-        )?;
-
-        // label
-        queue!(
-            stdout,
-            Print(" "),
-            SetForegroundColor(label_color),
-            SetAttribute(if is_selected {
-                Attribute::Bold
-            } else {
-                Attribute::Reset
-            }),
-            Print(&label_padded),
-            ResetColor,
-        )?;
-
-        // subtitle
-        queue!(
-            stdout,
-            SetForegroundColor(if is_selected {
-                Color::White
-            } else {
-                Color::DarkGrey
-            }),
-            Print(&sub_padded),
-            ResetColor,
-        )?;
-
-        // flow tag
-        let tag_color = match entry.flow {
-            AuthFlow::Browser => {
-                if is_selected {
-                    Color::Yellow
-                } else {
-                    Color::DarkGrey
-                }
-            }
-            AuthFlow::ApiKey => {
-                if is_selected {
-                    Color::Blue
-                } else {
-                    Color::DarkGrey
-                }
-            }
-            AuthFlow::NoAuth => Color::DarkGrey,
-        };
-        queue!(
-            stdout,
-            SetForegroundColor(tag_color),
-            Print(flow_tag),
-            ResetColor,
-            Print(" │\n"),
-        )?;
+        render_provider_row(stdout, &bc, inner, entry, i == selected, use_unicode)?;
     }
 
-    box_line_text(stdout, "", Color::White)?;
-    box_divider(stdout)?;
+    render_box_line(stdout, &bc, inner, "", Color::White, false)?;
+    render_box_divider(stdout, &bc, inner)?;
 
     // Status line
     if !status.is_empty() {
         let color = if status_ok { Color::Green } else { Color::Red };
-        box_line_styled(stdout, &format!("  {status}"), color, false)?;
+        render_box_line(stdout, &bc, inner, &format!("  {status}"), color, false)?;
     } else {
-        box_line_text(
-            stdout,
-            "  [↑/↓] navegar  [Enter] configurar  [S] omitir",
-            Color::DarkGrey,
+        render_box_line(
+            stdout, &bc, inner,
+            "  [Up/Down] navegar  [Enter] configurar  [S] omitir",
+            Color::DarkGrey, false,
         )?;
     }
 
-    box_bottom(stdout)?;
+    render_box_bottom(stdout, &bc, inner)?;
     stdout.flush()?;
     Ok(())
 }
@@ -566,19 +860,27 @@ async fn run_api_key_input(stdout: &mut impl Write, entry: &ProviderEntry) -> Re
                         continue;
                     }
                     match save_api_key(entry, &key_val) {
-                        Ok(()) => return Ok(true),
+                        Ok(()) => {
+                            // Zero-out the input buffer before dropping
+                            clear_string(&mut input);
+                            return Ok(true);
+                        }
                         Err(e) => {
                             err_msg = format!("Error al guardar: {e}");
                         }
                     }
                 }
-                KeyCode::Esc => return Ok(false),
+                KeyCode::Esc => {
+                    clear_string(&mut input);
+                    return Ok(false);
+                }
                 KeyCode::Char(c) if key.modifiers.contains(KeyModifiers::CONTROL) => {
                     if c == 'c' || c == 'd' {
+                        clear_string(&mut input);
                         return Ok(false);
                     }
                     if c == 'u' {
-                        input.clear();
+                        clear_string(&mut input);
                     }
                     if c == 'w' {
                         // Delete last word
@@ -610,60 +912,63 @@ fn render_api_key_screen(
     input: &str,
     err: &str,
 ) -> Result<()> {
+    let bc = BoxChars::detect();
+    let inner = effective_inner_width();
+
     queue!(stdout, MoveTo(0, 0), Clear(ClearType::All))?;
 
-    box_top(stdout)?;
-    box_line_text(stdout, "", Color::White)?;
-    box_line_styled(
-        stdout,
-        &format!("  {} — API Key", entry.label),
-        Color::Cyan,
-        true,
+    render_box_top(stdout, &bc, inner)?;
+    render_box_line(stdout, &bc, inner, "", Color::White, false)?;
+    render_box_line(
+        stdout, &bc, inner,
+        &format!("  {} -- API Key", entry.label),
+        Color::Cyan, true,
     )?;
-    box_line_text(stdout, "", Color::White)?;
-    box_line_text(
-        stdout,
-        &format!("  Obtén tu clave en: {}", entry.hint),
-        Color::DarkGrey,
+    render_box_line(stdout, &bc, inner, "", Color::White, false)?;
+    render_box_line(
+        stdout, &bc, inner,
+        &format!("  Obten tu clave en: {}", entry.hint),
+        Color::DarkGrey, false,
     )?;
-    box_line_text(stdout, "", Color::White)?;
+    render_box_line(stdout, &bc, inner, "", Color::White, false)?;
 
-    // Input field — mask with bullets
-    let masked: String = "●".repeat(input.len().min(48));
-    let cursor_visible = if input.is_empty() { "▌" } else { "" };
-    let field = format!("  Clave: {masked}{cursor_visible}");
-    box_line_styled(stdout, &field, Color::White, false)?;
+    // Input field — mask with bullets (ASCII-safe)
+    let max_bullets = inner.saturating_sub(12); // "  Clave: " prefix
+    let masked: String = "*".repeat(input.len().min(max_bullets));
+    let cursor = if input.is_empty() { "_" } else { "" };
+    let field = format!("  Clave: {masked}{cursor}");
+    render_box_line(stdout, &bc, inner, &field, Color::White, false)?;
 
-    box_line_text(stdout, "", Color::White)?;
+    render_box_line(stdout, &bc, inner, "", Color::White, false)?;
 
     // Env var hint
     if let Some(env) = entry.env_var {
-        box_line_text(
-            stdout,
-            &format!("  También puedes exportar: {env}=<tu_clave>"),
-            Color::DarkGrey,
+        render_box_line(
+            stdout, &bc, inner,
+            &format!("  Tambien puedes exportar: {env}=<tu_clave>"),
+            Color::DarkGrey, false,
         )?;
     }
 
-    box_line_text(
-        stdout,
+    render_box_line(
+        stdout, &bc, inner,
         "  La clave se guarda de forma segura en el OS keystore.",
-        Color::DarkGrey,
+        Color::DarkGrey, false,
     )?;
-    box_line_text(stdout, "", Color::White)?;
-    box_divider(stdout)?;
+    render_box_line(stdout, &bc, inner, "", Color::White, false)?;
+    render_box_divider(stdout, &bc, inner)?;
 
     if !err.is_empty() {
-        box_line_styled(stdout, &format!("  {err}"), Color::Red, false)?;
+        render_box_line(stdout, &bc, inner, &format!("  {err}"), Color::Red, false)?;
     } else {
-        box_line_text(
-            stdout,
+        render_box_line(
+            stdout, &bc, inner,
             "  [Enter] guardar  [Ctrl+U] limpiar  [Esc] volver",
-            Color::DarkGrey,
+            Color::DarkGrey, false,
         )?;
     }
 
-    box_bottom(stdout)?;
+    render_box_bottom(stdout, &bc, inner)?;
     stdout.flush()?;
     Ok(())
 }
@@ -676,10 +981,18 @@ fn save_api_key(entry: &ProviderEntry, api_key: &str) -> Result<()> {
             .map_err(|e| anyhow::anyhow!("keystore error: {e}"))?;
     }
 
-    // Also set the env var for the current process so the rebuilt registry picks it up
+    // Set the env var for the current process so the rebuilt registry picks it up
     // immediately without needing a restart.
+    //
+    // SAFETY NOTE: This is called from the single-threaded auth gate, before the
+    // async runtime spawns worker threads.  At this point the auth_gate holds raw
+    // mode and is the only active execution context.  We use the std function
+    // directly because there is no multi-thread concern at this call site.
     if let Some(env_var) = entry.env_var {
-        // Safety: we are the only writer in this process at this point.
+        // In Rust >= 1.80 set_var is unsafe.  The call is sound here because the
+        // auth gate runs synchronously on the main thread before any tokio workers
+        // have been spawned (raw-mode blocks the event loop).
+        #[allow(unused_unsafe)]
         unsafe {
             std::env::set_var(env_var, api_key);
         }
@@ -688,14 +1001,25 @@ fn save_api_key(entry: &ProviderEntry, api_key: &str) -> Result<()> {
     Ok(())
 }
 
+/// Overwrite a String's buffer with zeros before clearing it.
+/// Best-effort defense against API keys lingering in heap memory.
+fn clear_string(s: &mut String) {
+    // SAFETY: we overwrite the valid UTF-8 bytes with 0x00, then clear the
+    // string.  The bytes are never read as str while in a zero'd state.
+    let bytes = unsafe { s.as_mut_vec() };
+    for b in bytes.iter_mut() {
+        // Use write_volatile to prevent the compiler from optimizing this out.
+        unsafe { std::ptr::write_volatile(b, 0) };
+    }
+    s.clear();
+}
+
 // ── Browser OAuth flow ────────────────────────────────────────────────────────
 
 /// Returns `true` if the browser flow completed successfully.
 async fn run_browser_flow(entry: &ProviderEntry) -> Result<bool> {
     match entry.id {
         "cenzontle" => {
-            // sso::login() handles the full PKCE OAuth flow, prints its own UI,
-            // and stores the token in the keystore on success.
             match super::sso::login().await {
                 Ok(()) => Ok(true),
                 Err(e) => {
@@ -705,7 +1029,6 @@ async fn run_browser_flow(entry: &ProviderEntry) -> Result<bool> {
             }
         }
         "claude_code" => {
-            // auth::login("claude_code") handles the Claude.ai OAuth flow.
             match super::auth::login("claude_code") {
                 Ok(()) => Ok(true),
                 Err(e) => {
@@ -723,90 +1046,20 @@ async fn run_browser_flow(entry: &ProviderEntry) -> Result<bool> {
 fn show_noauth_instructions(entry: &ProviderEntry) -> Result<()> {
     let mut stdout = io::stdout();
     println!();
-    print_styled(&mut stdout, Color::Cyan, "  Ollama — servidor local\n")?;
+    print_styled(&mut stdout, Color::Cyan, "  Ollama -- servidor local\n")?;
     println!();
-    println!("  Ollama no requiere autenticación, pero el servidor debe estar");
+    println!("  Ollama no requiere autenticacion, pero el servidor debe estar");
     println!("  corriendo localmente antes de iniciar halcon.");
     println!();
     print_styled(&mut stdout, Color::Yellow, &format!("  {}\n", entry.hint))?;
     println!();
-    println!("  Después de iniciar Ollama, ejecuta `halcon chat` de nuevo.");
+    println!("  Despues de iniciar Ollama, ejecuta `halcon chat` de nuevo.");
     println!();
     stdout.flush()?;
     Ok(())
 }
 
-// ── Box drawing helpers ───────────────────────────────────────────────────────
-
-fn box_top(stdout: &mut impl Write) -> Result<()> {
-    queue!(
-        stdout,
-        SetForegroundColor(Color::DarkCyan),
-        Print(format!("╭{:─<width$}╮\n", "", width = BOX_WIDTH as usize)),
-        ResetColor,
-    )?;
-    Ok(())
-}
-
-fn box_bottom(stdout: &mut impl Write) -> Result<()> {
-    queue!(
-        stdout,
-        SetForegroundColor(Color::DarkCyan),
-        Print(format!("╰{:─<width$}╯\n", "", width = BOX_WIDTH as usize)),
-        ResetColor,
-    )?;
-    Ok(())
-}
-
-fn box_divider(stdout: &mut impl Write) -> Result<()> {
-    queue!(
-        stdout,
-        SetForegroundColor(Color::DarkCyan),
-        Print(format!("├{:─<width$}┤\n", "", width = BOX_WIDTH as usize)),
-        ResetColor,
-    )?;
-    Ok(())
-}
-
-fn box_line_text(stdout: &mut impl Write, text: &str, color: Color) -> Result<()> {
-    // Truncate to fit inside the box
-    let inner = BOX_WIDTH as usize;
-    let padded = format!("{:<width$}", text, width = inner);
-    // Truncate if the text (with padding) exceeds box width
-    let safe: String = padded.chars().take(inner).collect();
-    queue!(
-        stdout,
-        SetForegroundColor(Color::DarkCyan),
-        Print("│"),
-        SetForegroundColor(color),
-        Print(&safe),
-        SetForegroundColor(Color::DarkCyan),
-        Print("│\n"),
-        ResetColor,
-    )?;
-    Ok(())
-}
-
-fn box_line_styled(stdout: &mut impl Write, text: &str, color: Color, bold: bool) -> Result<()> {
-    let inner = BOX_WIDTH as usize;
-    let padded = format!("{:<width$}", text, width = inner);
-    let safe: String = padded.chars().take(inner).collect();
-
-    queue!(stdout, SetForegroundColor(Color::DarkCyan), Print("│"))?;
-    if bold {
-        queue!(stdout, SetAttribute(Attribute::Bold))?;
-    }
-    queue!(
-        stdout,
-        SetForegroundColor(color),
-        Print(&safe),
-        SetAttribute(Attribute::Reset),
-        SetForegroundColor(Color::DarkCyan),
-        Print("│\n"),
-        ResetColor,
-    )?;
-    Ok(())
-}
+// ── Styling helper ───────────────────────────────────────────────────────────
 
 fn print_styled(stdout: &mut impl Write, color: Color, text: &str) -> Result<()> {
     queue!(stdout, SetForegroundColor(color), Print(text), ResetColor)?;
@@ -826,6 +1079,8 @@ pub fn registry_has_no_real_providers(list: &[&str]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── Existing tests (preserved) ──────────────────────────────────────────
 
     #[test]
     fn registry_empty_check_true_for_echo_only() {
@@ -849,7 +1104,6 @@ mod tests {
 
     #[test]
     fn registry_empty_check_ollama_alone_counts_as_empty() {
-        // Ollama is a local fallback but not an API provider requiring auth setup.
         assert!(registry_has_no_real_providers(&["ollama", "echo"]));
     }
 
@@ -930,5 +1184,505 @@ mod tests {
         let ollama = providers.iter().find(|p| p.id == "ollama").unwrap();
         assert_eq!(ollama.status, AuthStatus::NoAuthRequired);
         assert_eq!(ollama.flow, AuthFlow::NoAuth);
+    }
+
+    // ── New rendering correctness tests ─────────────────────────────────────
+
+    #[test]
+    fn pad_to_display_width_ascii() {
+        let result = pad_to_display_width("hello", 10);
+        assert_eq!(UnicodeWidthStr::width(result.as_str()), 10);
+        assert_eq!(result, "hello     ");
+    }
+
+    #[test]
+    fn pad_to_display_width_truncates_long() {
+        let result = pad_to_display_width("this is a very long string", 10);
+        assert_eq!(UnicodeWidthStr::width(result.as_str()), 10);
+        assert_eq!(result, "this is a ");
+    }
+
+    #[test]
+    fn pad_to_display_width_empty() {
+        let result = pad_to_display_width("", 5);
+        assert_eq!(UnicodeWidthStr::width(result.as_str()), 5);
+        assert_eq!(result, "     ");
+    }
+
+    #[test]
+    fn pad_to_display_width_exact() {
+        let result = pad_to_display_width("exact", 5);
+        assert_eq!(UnicodeWidthStr::width(result.as_str()), 5);
+        assert_eq!(result, "exact");
+    }
+
+    #[test]
+    fn truncate_preserves_exact_width() {
+        let result = truncate_to_display_width("abcdefghij", 5);
+        assert_eq!(UnicodeWidthStr::width(result.as_str()), 5);
+    }
+
+    #[test]
+    fn box_top_has_correct_width() {
+        let inner = 66;
+        let bc = BoxChars::unicode();
+        let mut buf = Vec::new();
+        render_box_top(&mut buf, &bc, inner).unwrap();
+        let line = String::from_utf8(buf).unwrap();
+        // Strip ANSI escape codes for width check
+        let clean = strip_ansi(&line);
+        let clean_trimmed = clean.trim_end_matches('\n');
+        assert_eq!(
+            UnicodeWidthStr::width(clean_trimmed),
+            inner + 2,
+            "box_top width mismatch: got '{}' (width {})",
+            clean_trimmed,
+            UnicodeWidthStr::width(clean_trimmed)
+        );
+    }
+
+    #[test]
+    fn box_bottom_has_correct_width() {
+        let inner = 66;
+        let bc = BoxChars::unicode();
+        let mut buf = Vec::new();
+        render_box_bottom(&mut buf, &bc, inner).unwrap();
+        let clean = strip_ansi(&String::from_utf8(buf).unwrap());
+        let clean_trimmed = clean.trim_end_matches('\n');
+        assert_eq!(UnicodeWidthStr::width(clean_trimmed), inner + 2);
+    }
+
+    #[test]
+    fn box_divider_has_correct_width() {
+        let inner = 66;
+        let bc = BoxChars::unicode();
+        let mut buf = Vec::new();
+        render_box_divider(&mut buf, &bc, inner).unwrap();
+        let clean = strip_ansi(&String::from_utf8(buf).unwrap());
+        let clean_trimmed = clean.trim_end_matches('\n');
+        assert_eq!(UnicodeWidthStr::width(clean_trimmed), inner + 2);
+    }
+
+    #[test]
+    fn box_line_has_correct_width() {
+        let inner = 66;
+        let bc = BoxChars::unicode();
+        let mut buf = Vec::new();
+        render_box_line(&mut buf, &bc, inner, "  test content", Color::White, false).unwrap();
+        let clean = strip_ansi(&String::from_utf8(buf).unwrap());
+        let clean_trimmed = clean.trim_end_matches('\n');
+        assert_eq!(
+            UnicodeWidthStr::width(clean_trimmed),
+            inner + 2,
+            "box_line width mismatch: '{}'",
+            clean_trimmed
+        );
+    }
+
+    #[test]
+    fn box_line_long_text_truncated() {
+        let inner = 20;
+        let bc = BoxChars::unicode();
+        let mut buf = Vec::new();
+        render_box_line(
+            &mut buf, &bc, inner,
+            "this is a very long text that exceeds the box width",
+            Color::White, false,
+        ).unwrap();
+        let clean = strip_ansi(&String::from_utf8(buf).unwrap());
+        let clean_trimmed = clean.trim_end_matches('\n');
+        assert_eq!(
+            UnicodeWidthStr::width(clean_trimmed),
+            inner + 2,
+            "long text was not truncated correctly: '{}'",
+            clean_trimmed
+        );
+    }
+
+    #[test]
+    fn provider_row_has_correct_width() {
+        let inner = 66;
+        let bc = BoxChars::unicode();
+        let entry = ProviderEntry {
+            id: "anthropic",
+            label: "Anthropic",
+            subtitle: "Claude API - api key",
+            flow: AuthFlow::ApiKey,
+            status: AuthStatus::Missing,
+            env_var: None,
+            keystore_key: None,
+            hint: "",
+        };
+
+        let mut buf = Vec::new();
+        render_provider_row(&mut buf, &bc, inner, &entry, false, true).unwrap();
+        let clean = strip_ansi(&String::from_utf8(buf).unwrap());
+        let clean_trimmed = clean.trim_end_matches('\n');
+        assert_eq!(
+            UnicodeWidthStr::width(clean_trimmed),
+            inner + 2,
+            "provider row width mismatch: '{}' (width {})",
+            clean_trimmed,
+            UnicodeWidthStr::width(clean_trimmed)
+        );
+    }
+
+    #[test]
+    fn provider_row_selected_has_correct_width() {
+        let inner = 66;
+        let bc = BoxChars::unicode();
+        let entry = ProviderEntry {
+            id: "cenzontle",
+            label: "Cenzontle",
+            subtitle: "Cuervo Cloud - SSO",
+            flow: AuthFlow::Browser,
+            status: AuthStatus::Authenticated,
+            env_var: None,
+            keystore_key: None,
+            hint: "",
+        };
+
+        let mut buf = Vec::new();
+        render_provider_row(&mut buf, &bc, inner, &entry, true, true).unwrap();
+        let clean = strip_ansi(&String::from_utf8(buf).unwrap());
+        let clean_trimmed = clean.trim_end_matches('\n');
+        assert_eq!(
+            UnicodeWidthStr::width(clean_trimmed),
+            inner + 2,
+            "selected provider row width mismatch: '{}' (width {})",
+            clean_trimmed,
+            UnicodeWidthStr::width(clean_trimmed)
+        );
+    }
+
+    #[test]
+    fn all_providers_rows_same_width() {
+        let inner = 66;
+        let bc = BoxChars::unicode();
+        use halcon_core::types::AppConfig;
+        let config = AppConfig::default();
+        let providers = probe_providers(&config);
+
+        for (i, entry) in providers.iter().enumerate() {
+            for &selected in &[true, false] {
+                let mut buf = Vec::new();
+                render_provider_row(&mut buf, &bc, inner, entry, selected, true).unwrap();
+                let clean = strip_ansi(&String::from_utf8(buf).unwrap());
+                let clean_trimmed = clean.trim_end_matches('\n');
+                let width = UnicodeWidthStr::width(clean_trimmed);
+                assert_eq!(
+                    width,
+                    inner + 2,
+                    "provider[{}] '{}' (selected={}) has width {} (expected {}): '{}'",
+                    i, entry.id, selected, width, inner + 2, clean_trimmed
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn narrow_terminal_provider_rows_still_aligned() {
+        let inner = 48; // Narrow terminal
+        let bc = BoxChars::unicode();
+        let entry = ProviderEntry {
+            id: "anthropic",
+            label: "Anthropic",
+            subtitle: "Claude API - api key",
+            flow: AuthFlow::ApiKey,
+            status: AuthStatus::Missing,
+            env_var: None,
+            keystore_key: None,
+            hint: "",
+        };
+
+        let mut buf = Vec::new();
+        render_provider_row(&mut buf, &bc, inner, &entry, false, true).unwrap();
+        let clean = strip_ansi(&String::from_utf8(buf).unwrap());
+        let clean_trimmed = clean.trim_end_matches('\n');
+        assert_eq!(
+            UnicodeWidthStr::width(clean_trimmed),
+            inner + 2,
+            "narrow terminal row: '{}' (width {})",
+            clean_trimmed,
+            UnicodeWidthStr::width(clean_trimmed)
+        );
+    }
+
+    #[test]
+    fn ascii_box_chars_single_width() {
+        let bc = BoxChars::ascii();
+        assert_eq!(UnicodeWidthStr::width(bc.top_left), 1);
+        assert_eq!(UnicodeWidthStr::width(bc.top_right), 1);
+        assert_eq!(UnicodeWidthStr::width(bc.bottom_left), 1);
+        assert_eq!(UnicodeWidthStr::width(bc.bottom_right), 1);
+        assert_eq!(UnicodeWidthStr::width(bc.horizontal), 1);
+        assert_eq!(UnicodeWidthStr::width(bc.vertical), 1);
+    }
+
+    #[test]
+    fn unicode_box_chars_single_width() {
+        let bc = BoxChars::unicode();
+        assert_eq!(UnicodeWidthStr::width(bc.top_left), 1, "┌ should be width 1");
+        assert_eq!(UnicodeWidthStr::width(bc.top_right), 1, "┐ should be width 1");
+        assert_eq!(UnicodeWidthStr::width(bc.bottom_left), 1, "└ should be width 1");
+        assert_eq!(UnicodeWidthStr::width(bc.bottom_right), 1, "┘ should be width 1");
+        assert_eq!(UnicodeWidthStr::width(bc.horizontal), 1, "─ should be width 1");
+        assert_eq!(UnicodeWidthStr::width(bc.vertical), 1, "│ should be width 1");
+    }
+
+    #[test]
+    fn selector_full_render_all_lines_same_width() {
+        let inner = 66;
+        let bc = BoxChars::unicode();
+        let mut buf = Vec::new();
+
+        // Render a complete selector to a buffer
+        render_box_top(&mut buf, &bc, inner).unwrap();
+        render_box_line(&mut buf, &bc, inner, "", Color::White, false).unwrap();
+        render_box_line(&mut buf, &bc, inner, "  halcon -- test", Color::Cyan, true).unwrap();
+        render_box_divider(&mut buf, &bc, inner).unwrap();
+
+        let entry = ProviderEntry {
+            id: "test",
+            label: "Test Provider",
+            subtitle: "test subtitle here",
+            flow: AuthFlow::ApiKey,
+            status: AuthStatus::Missing,
+            env_var: None,
+            keystore_key: None,
+            hint: "",
+        };
+        render_provider_row(&mut buf, &bc, inner, &entry, false, true).unwrap();
+        render_provider_row(&mut buf, &bc, inner, &entry, true, true).unwrap();
+
+        render_box_divider(&mut buf, &bc, inner).unwrap();
+        render_box_line(&mut buf, &bc, inner, "  footer text", Color::DarkGrey, false).unwrap();
+        render_box_bottom(&mut buf, &bc, inner).unwrap();
+
+        let output = String::from_utf8(buf).unwrap();
+        let expected_width = inner + 2;
+
+        for (line_num, line) in output.lines().enumerate() {
+            if line.is_empty() {
+                continue; // trailing newline
+            }
+            let clean = strip_ansi(line);
+            if clean.is_empty() {
+                continue;
+            }
+            let width = UnicodeWidthStr::width(clean.as_str());
+            assert_eq!(
+                width, expected_width,
+                "line {} has width {} (expected {}): '{}'",
+                line_num + 1, width, expected_width, clean
+            );
+        }
+    }
+
+    #[test]
+    fn clear_string_zeroes_buffer() {
+        let mut s = String::from("secret_api_key_12345");
+        let ptr = s.as_ptr();
+        let len = s.len();
+        clear_string(&mut s);
+        assert!(s.is_empty());
+        // Verify the original memory region is zeroed
+        let bytes = unsafe { std::slice::from_raw_parts(ptr, len) };
+        assert!(bytes.iter().all(|&b| b == 0), "buffer was not zeroed");
+    }
+
+    // ── Test helper ────────────────────────────────────────────────────────
+
+    /// Strip ANSI escape sequences from a string for width measurement.
+    fn strip_ansi(s: &str) -> String {
+        let mut result = String::with_capacity(s.len());
+        let mut chars = s.chars().peekable();
+        while let Some(ch) = chars.next() {
+            if ch == '\x1b' {
+                // Skip CSI sequence: ESC [ ... final_byte
+                if chars.peek() == Some(&'[') {
+                    chars.next(); // consume '['
+                    // Skip parameter bytes (0x30-0x3F), intermediate bytes (0x20-0x2F),
+                    // stop at final byte (0x40-0x7E)
+                    loop {
+                        match chars.next() {
+                            Some(c) if ('\x40'..='\x7e').contains(&c) => break,
+                            Some(_) => continue,
+                            None => break,
+                        }
+                    }
+                }
+            } else {
+                result.push(ch);
+            }
+        }
+        result
+    }
+
+    // ── Snapshot (visual regression) tests ──────────────────────────────
+
+    /// Render the full selector screen to a buffer and snapshot it.
+    /// Any change to the visual output will cause `cargo insta test` to fail,
+    /// requiring explicit review via `cargo insta review`.
+    #[test]
+    fn snapshot_selector_unicode() {
+        let inner = 66;
+        let bc = BoxChars::unicode();
+        let providers = make_test_providers();
+        let mut buf = Vec::new();
+
+        render_box_top(&mut buf, &bc, inner).unwrap();
+        render_box_line(&mut buf, &bc, inner, "", Color::White, false).unwrap();
+        render_box_line(
+            &mut buf, &bc, inner,
+            "  halcon -- configuracion de proveedor",
+            Color::Cyan, true,
+        ).unwrap();
+        render_box_line(&mut buf, &bc, inner, "", Color::White, false).unwrap();
+        render_box_line(
+            &mut buf, &bc, inner,
+            "  No hay ningun proveedor de IA autenticado.",
+            Color::White, false,
+        ).unwrap();
+        render_box_line(
+            &mut buf, &bc, inner,
+            "  Selecciona uno para comenzar:",
+            Color::DarkGrey, false,
+        ).unwrap();
+        render_box_line(&mut buf, &bc, inner, "", Color::White, false).unwrap();
+        render_box_divider(&mut buf, &bc, inner).unwrap();
+        render_box_line(&mut buf, &bc, inner, "", Color::White, false).unwrap();
+
+        for (i, entry) in providers.iter().enumerate() {
+            render_provider_row(&mut buf, &bc, inner, entry, i == 0, true).unwrap();
+        }
+
+        render_box_line(&mut buf, &bc, inner, "", Color::White, false).unwrap();
+        render_box_divider(&mut buf, &bc, inner).unwrap();
+        render_box_line(
+            &mut buf, &bc, inner,
+            "  [Up/Down] navegar  [Enter] configurar  [S] omitir",
+            Color::DarkGrey, false,
+        ).unwrap();
+        render_box_bottom(&mut buf, &bc, inner).unwrap();
+
+        let raw_output = String::from_utf8(buf).unwrap();
+        let clean = strip_ansi(&raw_output);
+        insta::assert_snapshot!("selector_unicode_66", clean);
+    }
+
+    #[test]
+    fn snapshot_selector_ascii() {
+        let inner = 66;
+        let bc = BoxChars::ascii();
+        let providers = make_test_providers();
+        let mut buf = Vec::new();
+
+        render_box_top(&mut buf, &bc, inner).unwrap();
+        render_box_line(&mut buf, &bc, inner, "", Color::White, false).unwrap();
+        render_box_line(
+            &mut buf, &bc, inner,
+            "  halcon -- configuracion de proveedor",
+            Color::Cyan, true,
+        ).unwrap();
+        render_box_line(&mut buf, &bc, inner, "", Color::White, false).unwrap();
+        render_box_divider(&mut buf, &bc, inner).unwrap();
+        render_box_line(&mut buf, &bc, inner, "", Color::White, false).unwrap();
+
+        for (i, entry) in providers.iter().enumerate() {
+            render_provider_row(&mut buf, &bc, inner, entry, i == 0, false).unwrap();
+        }
+
+        render_box_line(&mut buf, &bc, inner, "", Color::White, false).unwrap();
+        render_box_divider(&mut buf, &bc, inner).unwrap();
+        render_box_line(
+            &mut buf, &bc, inner,
+            "  [Up/Down] navegar  [Enter] configurar  [S] omitir",
+            Color::DarkGrey, false,
+        ).unwrap();
+        render_box_bottom(&mut buf, &bc, inner).unwrap();
+
+        let raw_output = String::from_utf8(buf).unwrap();
+        let clean = strip_ansi(&raw_output);
+        insta::assert_snapshot!("selector_ascii_66", clean);
+    }
+
+    #[test]
+    fn snapshot_selector_narrow() {
+        let inner = 50;
+        let bc = BoxChars::unicode();
+        let providers = make_test_providers();
+        let mut buf = Vec::new();
+
+        render_box_top(&mut buf, &bc, inner).unwrap();
+        render_box_line(&mut buf, &bc, inner, "", Color::White, false).unwrap();
+        render_box_line(
+            &mut buf, &bc, inner,
+            "  halcon -- config proveedor",
+            Color::Cyan, true,
+        ).unwrap();
+        render_box_divider(&mut buf, &bc, inner).unwrap();
+
+        for (i, entry) in providers.iter().enumerate() {
+            render_provider_row(&mut buf, &bc, inner, entry, i == 2, true).unwrap();
+        }
+
+        render_box_divider(&mut buf, &bc, inner).unwrap();
+        render_box_line(
+            &mut buf, &bc, inner,
+            "  [Up/Down] nav  [Enter] config  [S] skip",
+            Color::DarkGrey, false,
+        ).unwrap();
+        render_box_bottom(&mut buf, &bc, inner).unwrap();
+
+        let raw_output = String::from_utf8(buf).unwrap();
+        let clean = strip_ansi(&raw_output);
+        insta::assert_snapshot!("selector_narrow_50", clean);
+    }
+
+    /// Build a minimal set of providers for snapshot tests (deterministic).
+    fn make_test_providers() -> Vec<ProviderEntry> {
+        vec![
+            ProviderEntry {
+                id: "cenzontle",
+                label: "Cenzontle",
+                subtitle: "Cuervo Cloud - SSO",
+                flow: AuthFlow::Browser,
+                status: AuthStatus::Missing,
+                env_var: None,
+                keystore_key: None,
+                hint: "",
+            },
+            ProviderEntry {
+                id: "anthropic",
+                label: "Anthropic",
+                subtitle: "Claude API - api key",
+                flow: AuthFlow::ApiKey,
+                status: AuthStatus::Authenticated,
+                env_var: None,
+                keystore_key: None,
+                hint: "",
+            },
+            ProviderEntry {
+                id: "openai",
+                label: "OpenAI",
+                subtitle: "GPT API - api key",
+                flow: AuthFlow::ApiKey,
+                status: AuthStatus::Missing,
+                env_var: None,
+                keystore_key: None,
+                hint: "",
+            },
+            ProviderEntry {
+                id: "ollama",
+                label: "Ollama",
+                subtitle: "servidor local - sin auth",
+                flow: AuthFlow::NoAuth,
+                status: AuthStatus::NoAuthRequired,
+                env_var: None,
+                keystore_key: None,
+                hint: "",
+            },
+        ]
     }
 }

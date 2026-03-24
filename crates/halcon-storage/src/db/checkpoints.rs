@@ -121,6 +121,52 @@ impl Database {
         Ok(rows)
     }
 
+    /// Delete checkpoints older than `max_age_days` across all sessions.
+    ///
+    /// Returns the number of deleted rows. Intended to be called periodically
+    /// (e.g. on startup or after each session) to prevent unbounded table growth.
+    pub fn purge_old_checkpoints(&self, max_age_days: u32) -> Result<usize> {
+        let cutoff = (Utc::now() - chrono::Duration::days(max_age_days as i64)).to_rfc3339();
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| HalconError::DatabaseError(e.to_string()))?;
+
+        let deleted = conn
+            .execute(
+                "DELETE FROM session_checkpoints WHERE created_at < ?1",
+                rusqlite::params![cutoff],
+            )
+            .map_err(|e| HalconError::DatabaseError(format!("purge checkpoints: {e}")))?;
+
+        if deleted > 0 {
+            tracing::info!(
+                deleted,
+                max_age_days,
+                "purged old session checkpoints"
+            );
+        }
+
+        Ok(deleted)
+    }
+
+    /// Delete all checkpoints for a specific session.
+    pub fn delete_session_checkpoints(&self, session_id: Uuid) -> Result<usize> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| HalconError::DatabaseError(e.to_string()))?;
+
+        let deleted = conn
+            .execute(
+                "DELETE FROM session_checkpoints WHERE session_id = ?1",
+                rusqlite::params![session_id.to_string()],
+            )
+            .map_err(|e| HalconError::DatabaseError(format!("delete session checkpoints: {e}")))?;
+
+        Ok(deleted)
+    }
+
     fn row_to_checkpoint(row: &rusqlite::Row) -> Result<SessionCheckpoint> {
         let session_id_str: String = row
             .get(0)
@@ -294,5 +340,72 @@ mod tests {
         let db = test_db();
         let result = db.load_latest_checkpoint(Uuid::new_v4()).unwrap();
         assert!(result.is_none());
+    }
+
+    #[test]
+    fn purge_old_checkpoints_removes_expired() {
+        let db = test_db();
+        let session_id = Uuid::new_v4();
+
+        // Insert a checkpoint with a very old timestamp.
+        let old_time = Utc::now() - chrono::Duration::days(100);
+        let cp = SessionCheckpoint {
+            session_id,
+            round: 0,
+            step_index: 0,
+            messages_json: "[]".to_string(),
+            usage_json: "{}".to_string(),
+            fingerprint: "old".to_string(),
+            created_at: old_time,
+            agent_state: None,
+        };
+        db.save_checkpoint(&cp).unwrap();
+
+        // Insert a recent checkpoint.
+        let cp2 = SessionCheckpoint {
+            session_id,
+            round: 1,
+            step_index: 1,
+            messages_json: "[]".to_string(),
+            usage_json: "{}".to_string(),
+            fingerprint: "recent".to_string(),
+            created_at: Utc::now(),
+            agent_state: None,
+        };
+        db.save_checkpoint(&cp2).unwrap();
+
+        // Purge checkpoints older than 30 days.
+        let deleted = db.purge_old_checkpoints(30).unwrap();
+        assert_eq!(deleted, 1, "should delete the old checkpoint");
+
+        // Recent checkpoint survives.
+        let list = db.list_checkpoints(session_id).unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].0, 1);
+    }
+
+    #[test]
+    fn delete_session_checkpoints() {
+        let db = test_db();
+        let session_id = Uuid::new_v4();
+
+        for round in 0..3 {
+            let cp = SessionCheckpoint {
+                session_id,
+                round,
+                step_index: round,
+                messages_json: "[]".to_string(),
+                usage_json: "{}".to_string(),
+                fingerprint: format!("fp_{round}"),
+                created_at: Utc::now(),
+                agent_state: None,
+            };
+            db.save_checkpoint(&cp).unwrap();
+        }
+
+        let deleted = db.delete_session_checkpoints(session_id).unwrap();
+        assert_eq!(deleted, 3);
+        let list = db.list_checkpoints(session_id).unwrap();
+        assert!(list.is_empty());
     }
 }

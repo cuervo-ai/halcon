@@ -9,10 +9,42 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use ratatui::Frame;
+use unicode_width::UnicodeWidthStr;
 
 use crate::render::theme;
 use crate::tui::constants;
 use crate::tui::events::{PluginSuggestionItem, SessionInfo};
+
+/// Truncate a string to at most `max_width` display columns (unicode-width safe).
+/// Does not split multi-column characters.
+fn truncate_display(text: &str, max_width: usize) -> String {
+    let mut result = String::new();
+    let mut width = 0usize;
+    for ch in text.chars() {
+        let cw = unicode_width::UnicodeWidthChar::width(ch).unwrap_or(0);
+        if width + cw > max_width {
+            break;
+        }
+        result.push(ch);
+        width += cw;
+    }
+    result
+}
+
+/// Pad a string to exactly `target` display columns (unicode-width safe).
+fn pad_display(text: &str, target: usize) -> String {
+    let current = UnicodeWidthStr::width(text);
+    if current >= target {
+        truncate_display(text, target)
+    } else {
+        let mut s = String::with_capacity(text.len() + target - current);
+        s.push_str(text);
+        for _ in 0..(target - current) {
+            s.push(' ');
+        }
+        s
+    }
+}
 
 /// The kind of overlay currently displayed.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -389,7 +421,7 @@ fn build_help_section<'a>(
     lines.push(Line::from(""));
     for &(key, desc) in bindings {
         lines.push(Line::from(vec![
-            Span::styled(format!("  {:<12}", key), Style::default().fg(c_accent)),
+            Span::styled(format!("  {}", pad_display(key, 12)), Style::default().fg(c_accent)),
             Span::styled(desc, Style::default().fg(c_text)),
         ]));
     }
@@ -548,7 +580,7 @@ pub fn render_command_palette(
         } else {
             Style::default().fg(c_text)
         };
-        let prefix = if i == selected { "  ▸ " } else { "    " };
+        let prefix = if i == selected { "  > " } else { "    " };
         let desc = format!("  {}", item.description);
         lines.push(Line::from(vec![
             Span::styled(prefix, style),
@@ -715,7 +747,7 @@ pub fn render_context_servers(
             };
 
             lines.push(Line::from(vec![
-                Span::styled(format!("{:<20}", server.name), Style::default().fg(c_text)),
+                Span::styled(pad_display(&server.name, 20), Style::default().fg(c_text)),
                 Span::raw("  "),
                 Span::styled(
                     format!("{:>3}", server.priority),
@@ -724,12 +756,12 @@ pub fn render_context_servers(
                 Span::raw("  "),
                 status_span,
                 Span::raw("    "),
-                Span::styled(format!("{:>6}", tokens_str), Style::default().fg(c_text)),
+                Span::styled(pad_display(&tokens_str, 6), Style::default().fg(c_text)),
                 Span::raw("    "),
-                Span::styled(format!("{:>7}", queries_str), Style::default().fg(c_accent)),
+                Span::styled(pad_display(&queries_str, 7), Style::default().fg(c_accent)),
                 Span::raw("    "),
                 Span::styled(
-                    format!("{:>10}", last_query_str),
+                    pad_display(&last_query_str, 10),
                     Style::default().fg(c_muted),
                 ),
             ]));
@@ -1068,7 +1100,7 @@ pub fn render_init_wizard(
             ];
 
             if !proj_name.is_empty() {
-                let name_disp: String = proj_name.chars().take(50).collect();
+                let name_disp = truncate_display(&proj_name, 50);
                 ls.push(Line::from(vec![
                     Span::styled("  Proyecto:  ", Style::default().fg(c_muted)),
                     Span::styled(
@@ -1112,7 +1144,7 @@ pub fn render_init_wizard(
             }
             ls.push(Line::from(""));
             if !save_path.is_empty() {
-                let path_display: String = save_path.chars().take(58).collect();
+                let path_display = truncate_display(&save_path, 58);
                 ls.push(Line::from(vec![
                     Span::styled("  Guardar en: ", Style::default().fg(c_muted)),
                     Span::styled(path_display, Style::default().fg(c_success)),
@@ -1135,10 +1167,7 @@ pub fn render_init_wizard(
             ];
             let max_lines = inner.height.saturating_sub(4) as usize;
             for l in preview.lines().take(max_lines) {
-                let display: String = l
-                    .chars()
-                    .take(popup_width.saturating_sub(4) as usize)
-                    .collect();
+                let display = truncate_display(l, popup_width.saturating_sub(4) as usize);
                 ls.push(Line::from(Span::styled(
                     format!("  {display}"),
                     Style::default().fg(c_muted),
@@ -1157,7 +1186,7 @@ pub fn render_init_wizard(
             ls
         }
         3 => {
-            let path_display: String = save_path.chars().take(60).collect();
+            let path_display = truncate_display(&save_path, 60);
             vec![
                 Line::from(Span::styled(
                     "  Confirmar guardado:",
@@ -1269,10 +1298,10 @@ pub fn render_plugin_suggest(
                 // Tier header
                 lines.push(Line::from(""));
                 let tier_symbol = match item.tier.as_str() {
-                    "Essential" => "◆",
-                    "Recommended" => "◇",
-                    "Optional" => "▷",
-                    _ => "○",
+                    "Essential" => "*",
+                    "Recommended" => "-",
+                    "Optional" => ".",
+                    _ => "o",
                 };
                 let tier_color = match item.tier.as_str() {
                     "Essential" => c_running,
@@ -1288,7 +1317,7 @@ pub fn render_plugin_suggest(
             }
 
             let is_selected = i == selected;
-            let prefix = if is_selected { "  ❯ " } else { "    " };
+            let prefix = if is_selected { "  > " } else { "    " };
             let name_style = if is_selected {
                 Style::default().fg(c_accent).add_modifier(Modifier::BOLD)
             } else {
@@ -1305,11 +1334,10 @@ pub fn render_plugin_suggest(
                 },
             ]));
             // Rationale line
-            let rationale_display: String = item
-                .rationale
-                .chars()
-                .take(popup_width.saturating_sub(6) as usize)
-                .collect();
+            let rationale_display = truncate_display(
+                &item.rationale,
+                popup_width.saturating_sub(6) as usize,
+            );
             lines.push(Line::from(Span::styled(
                 format!("      {}", rationale_display),
                 Style::default().fg(c_muted),
@@ -1563,8 +1591,8 @@ pub fn render_model_selector(
             let is_selected = i == selected;
             let is_current = model_id == current_model || label == current_model;
 
-            let prefix = if is_selected { "  ▸ " } else { "    " };
-            let active_marker = if is_current { " ✓" } else { "" };
+            let prefix = if is_selected { "  > " } else { "    " };
+            let active_marker = if is_current { " *" } else { "" };
 
             let style = if is_selected {
                 Style::default()
@@ -1577,11 +1605,14 @@ pub fn render_model_selector(
                 Style::default().fg(c_text)
             };
 
-            let provider_col = format!("{:<14}", &provider[..provider.len().min(14)]);
-            let label_display: String = label
-                .chars()
-                .take(popup_width.saturating_sub(22) as usize)
-                .collect();
+            let provider_col = pad_display(
+                &truncate_display(provider, 14),
+                14,
+            );
+            let label_display = truncate_display(
+                label,
+                popup_width.saturating_sub(22) as usize,
+            );
 
             lines.push(Line::from(vec![
                 Span::styled(prefix, style),

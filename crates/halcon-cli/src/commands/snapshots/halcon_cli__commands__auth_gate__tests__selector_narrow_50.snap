@@ -1,0 +1,15 @@
+---
+source: crates/halcon-cli/src/commands/auth_gate.rs
+expression: clean
+---
+┌──────────────────────────────────────────────────┐
+│                                                  │
+│  halcon -- config proveedor                      │
+├──────────────────────────────────────────────────┤
+│    o Cenzontle    Cuervo Cloud - SSO    [browser]│
+│    * Anthropic    Claude API - api key  [api key]│
+│  > o OpenAI       GPT API - api key     [api key]│
+│    o Ollama       servidor local - sin  [no auth]│
+├──────────────────────────────────────────────────┤
+│  [Up/Down] nav  [Enter] config  [S] skip         │
+└──────────────────────────────────────────────────┘

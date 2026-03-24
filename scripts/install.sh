@@ -758,7 +758,7 @@ main() {
         printf "    ${BOLD}halcon chat --tui --full --expert${RESET}       ${CYAN}# TUI completo con Cenzontle${RESET}\n"
         printf "    ${BOLD}halcon chat${RESET}                             ${CYAN}# modo clásico${RESET}\n"
         printf "    ${BOLD}halcon auth status${RESET}                      ${CYAN}# verificar token${RESET}\n"
-        printf "\n  ${BOLD}Cenzontle Agent Orchestration (v0.3.11):${RESET}\n"
+        printf "\n  ${BOLD}Cenzontle Agent Orchestration (v0.3.14):${RESET}\n"
         printf "    ${BOLD}halcon cenzontle agent \"analiza este repo\"${RESET}          ${CYAN}# ejecutar agente${RESET}\n"
         printf "    ${BOLD}halcon cenzontle agent --context \"optimiza\"${RESET}         ${CYAN}# con contexto local${RESET}\n"
         printf "    ${BOLD}halcon cenzontle tools${RESET}                              ${CYAN}# MCP tools disponibles${RESET}\n"
@@ -769,7 +769,7 @@ main() {
         printf "    ${BOLD}halcon -p ollama chat${RESET}                   ${CYAN}# local, sin API key${RESET}\n"
     else
         # ── Interactive auth gate notice (v0.3.10+) ──────────────────────────
-        printf "\n  ${CYAN}${BOLD}⚡ Auth wizard integrado (v0.3.11)${RESET}\n"
+        printf "\n  ${CYAN}${BOLD}⚡ Auth wizard integrado (v0.3.14)${RESET}\n"
         printf "  Al ejecutar ${BOLD}halcon chat${RESET} por primera vez, se abrirá automáticamente\n"
         printf "  un asistente interactivo para configurar tu proveedor de IA.\n\n"
         printf "  ${BOLD}Solo ejecuta:${RESET}\n"
@@ -800,6 +800,7 @@ main() {
     printf "    ${BOLD}halcon mcp serve${RESET}                    ${CYAN}# exponer como servidor MCP${RESET}\n"
     printf "    ${BOLD}halcon agents list${RESET}                  ${CYAN}# sub-agentes registrados${RESET}\n"
     printf "    ${BOLD}halcon schedule add '0 9 * * 1' 'revisa PRs'${RESET}  ${CYAN}# agente programado${RESET}\n"
+    printf "    ${BOLD}halcon serve --bridge cenzontle${RESET}  ${CYAN}# bridge remoto con Cenzontle web${RESET}\n"
 
     printf "\n  ${BOLD}Archivos de configuración:${RESET}\n"
     printf "    ${CYAN}~/.halcon/config.toml${RESET}        — configuración principal\n"
@@ -1334,7 +1335,7 @@ _write_config() {
 #    halcon -p deepseek  chat --tui --full --expert   # cheapest
 #    halcon -p ollama    chat --tui --full --expert   # local / no API key
 #
-#  Cenzontle Agent Orchestration (v0.3.11):
+#  Cenzontle Agent Orchestration (v0.3.14):
 #    halcon cenzontle agent "analiza este repo"       # multi-agent execution
 #    halcon cenzontle agent --context "optimiza"       # with local project context
 #    halcon cenzontle tools                            # list MCP tools

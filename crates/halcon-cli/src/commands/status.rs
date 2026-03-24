@@ -60,7 +60,7 @@ pub async fn run(config: &AppConfig, provider: &str, model: &str) -> Result<()> 
         };
         println!("  cenzontle: enabled, token set ({via})");
     } else {
-        println!("  cenzontle: not logged in  (run `halcon login cenzontle` to authenticate)");
+        println!("  cenzontle: not logged in  (run `halcon auth login cenzontle` to authenticate)");
     }
 
     println!();

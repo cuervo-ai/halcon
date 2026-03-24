@@ -5,6 +5,50 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.14] — 2026-03-24
+
+### Added
+
+- **Cenzontle Bridge Task Delegation**: `halcon serve --bridge cenzontle` now processes task delegation commands from the Cenzontle web chat. When a user asks the chat to interact with their local machine (e.g., "list files in my project"), Cenzontle sends instructions via WebSocket, halcon executes them locally using tools (bash, file_read, grep, glob, git_*), and streams results back via `tresult` events.
+  - Instruction parser converts LLM-generated instructions into tool call sequences
+  - Per-tool timeout (30s) with overall task deadline
+  - Large output truncation (8KB limit per tool result) for wire efficiency
+  - Completion signaling via `done` event
+- **Snapshot regression tests** (insta): 3 visual snapshots (`selector_unicode_66`, `selector_ascii_66`, `selector_narrow_50`) capture the exact auth gate rendering as baseline for future changes.
+- **30 rendering unit tests** covering box borders, provider rows, width sweeps, narrow terminals, and ASCII fallback.
+
+### Fixed
+
+- **Critical: Cenzontle bridge auth failure** — `halcon serve --bridge cenzontle` could not find the SSO token because `serve.rs` used `KeyStore::new("halcon")` while `sso.rs` stores tokens under `KeyStore::new("halcon-cli")`. The service name mismatch meant the token was always "not found" despite a successful login.
+- **Critical: WebSocket TLS not compiled in** — `tokio-tungstenite` was compiled without any TLS feature, making `wss://` connections impossible. Added `rustls-tls-native-roots` feature to enable TLS via the system certificate store.
+- **Critical: Auth gate layout destroyed on Linux** — The provider selection screen rendered with broken borders on Linux terminals due to:
+  - Provider rows were 7 columns narrower than the box borders (61 vs 68 display columns)
+  - Rounded box-drawing corners (`╭╮╰╯`) missing from common Linux monospace fonts (DejaVu, Liberation)
+  - Ambiguous-width Unicode characters (`❯`, `●`, `○`, `▌`) rendered as 2 columns in some terminals
+  - `Attribute::Reset` (SGR 0) cleared foreground colors on non-selected items
+  - Hard-coded `BOX_WIDTH = 66` ignored actual terminal width
+- **Auth gate now uses `unicode-width`** for display-width-aware padding/truncation. Every line is guaranteed to have exactly `inner + 2` display columns.
+- **Standard box-drawing characters** (`┌┐└┘─│├┤`) replace rounded corners for universal font support.
+- **Dynamic terminal width adaptation** — box width adapts to terminal size (preferred 66, minimum 48 inner columns).
+- **ASCII fallback** for terminals without UTF-8 locale (`+`, `-`, `|` via `BoxChars::detect()`).
+- **API key zeroing** — `clear_string()` uses `write_volatile` to zero API key memory before dropping.
+- **Incorrect CLI command in error messages** — 6 error messages referenced `halcon login cenzontle` (non-existent) instead of `halcon auth login cenzontle`.
+- **`claude` binary discovery** — `locate_claude_binary()` now searches `$PATH` via `command -v` (POSIX) / `where` (Windows) before checking well-known install paths.
+
+### Changed
+
+- **TUI overlay**: all `.chars().count()` / `.chars().take()` width calculations in `overlay.rs` and `render.rs` replaced with `unicode-width` equivalents (`truncate_display`, `pad_display`). Affects model selector, help overlay, context servers, init wizard, and plugin suggestions.
+- **Footer rendering**: uses `UnicodeWidthStr::width()` for correct truncation with ellipsis.
+- Ambiguous-width symbols replaced across TUI: `▸→>`, `❯→>`, `✓→*`, `●→*`, `○→o`, `◆→*`, `◇→-`, `▷→.`.
+
+### Dependencies
+
+- Added `unicode-width = "0.2"` (workspace + halcon-cli)
+- Added `insta = "1"` with yaml feature (dev-dependency, snapshot testing)
+- `tokio-tungstenite`: added `rustls-tls-native-roots` feature for WSS support
+
+---
+
 ## [0.3.10] — 2026-03-19
 
 ### Added
