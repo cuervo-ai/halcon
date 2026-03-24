@@ -110,7 +110,10 @@ impl TuiApp {
 
         // Footer ellipsis: truncate spans if they exceed the available width.
         // Uses unicode-width for correct display-column measurement.
-        let total_width: usize = spans.iter().map(|s| UnicodeWidthStr::width(s.content.as_ref())).sum();
+        let total_width: usize = spans
+            .iter()
+            .map(|s| UnicodeWidthStr::width(s.content.as_ref()))
+            .sum();
         if total_width > area.width as usize {
             let mut accumulated = 0usize;
             let max = area.width as usize;

@@ -521,15 +521,15 @@ fn render_box_line(
 ) -> Result<()> {
     let safe = pad_to_display_width(text, inner);
 
-    queue!(stdout, SetForegroundColor(Color::DarkCyan), Print(bc.vertical))?;
+    queue!(
+        stdout,
+        SetForegroundColor(Color::DarkCyan),
+        Print(bc.vertical)
+    )?;
     if bold {
         queue!(stdout, SetAttribute(Attribute::Bold))?;
     }
-    queue!(
-        stdout,
-        SetForegroundColor(color),
-        Print(&safe),
-    )?;
+    queue!(stdout, SetForegroundColor(color), Print(&safe),)?;
     if bold {
         queue!(stdout, SetAttribute(Attribute::NoBold))?;
     }
@@ -593,24 +593,48 @@ fn render_provider_row(
     let sub_padded = pad_to_display_width(entry.subtitle, sub_col);
 
     // Assemble: we control every column's display width, so total == inner
-    let fg_color = if is_selected { Color::White } else { Color::DarkGrey };
-    let label_color = if is_selected { Color::Cyan } else { Color::DarkGrey };
+    let fg_color = if is_selected {
+        Color::White
+    } else {
+        Color::DarkGrey
+    };
+    let label_color = if is_selected {
+        Color::Cyan
+    } else {
+        Color::DarkGrey
+    };
     let tag_color = match entry.flow {
         AuthFlow::Browser => {
-            if is_selected { Color::Yellow } else { Color::DarkGrey }
+            if is_selected {
+                Color::Yellow
+            } else {
+                Color::DarkGrey
+            }
         }
         AuthFlow::ApiKey => {
-            if is_selected { Color::Blue } else { Color::DarkGrey }
+            if is_selected {
+                Color::Blue
+            } else {
+                Color::DarkGrey
+            }
         }
         AuthFlow::NoAuth => Color::DarkGrey,
     };
 
     // Left border
-    queue!(stdout, SetForegroundColor(Color::DarkCyan), Print(bc.vertical))?;
+    queue!(
+        stdout,
+        SetForegroundColor(Color::DarkCyan),
+        Print(bc.vertical)
+    )?;
 
     // Prefix
     if is_selected {
-        queue!(stdout, SetForegroundColor(Color::Cyan), SetAttribute(Attribute::Bold))?;
+        queue!(
+            stdout,
+            SetForegroundColor(Color::Cyan),
+            SetAttribute(Attribute::Bold)
+        )?;
     } else {
         queue!(stdout, SetForegroundColor(Color::DarkGrey))?;
     }
@@ -620,10 +644,7 @@ fn render_provider_row(
     queue!(stdout, SetForegroundColor(status_color), Print(status_icon))?;
 
     // Space + Label
-    queue!(
-        stdout,
-        SetForegroundColor(label_color),
-    )?;
+    queue!(stdout, SetForegroundColor(label_color),)?;
     if is_selected {
         queue!(stdout, SetAttribute(Attribute::Bold))?;
     }
@@ -633,11 +654,7 @@ fn render_provider_row(
     }
 
     // Subtitle
-    queue!(
-        stdout,
-        SetForegroundColor(fg_color),
-        Print(&sub_padded),
-    )?;
+    queue!(stdout, SetForegroundColor(fg_color), Print(&sub_padded),)?;
 
     // Tag (with leading space)
     queue!(
@@ -695,22 +712,20 @@ async fn run_gate(config: &AppConfig, providers: Vec<ProviderEntry>) -> Result<A
                     KeyCode::Enter => {
                         let entry = &providers[selected];
                         match entry.flow {
-                            AuthFlow::ApiKey => {
-                                match run_api_key_input(&mut stdout, entry).await {
-                                    Ok(true) => {
-                                        credentials_added = true;
-                                        break 'outer;
-                                    }
-                                    Ok(false) => {
-                                        status_line = "Configuracion cancelada.".into();
-                                        status_ok = false;
-                                    }
-                                    Err(e) => {
-                                        status_line = format!("Error: {e}");
-                                        status_ok = false;
-                                    }
+                            AuthFlow::ApiKey => match run_api_key_input(&mut stdout, entry).await {
+                                Ok(true) => {
+                                    credentials_added = true;
+                                    break 'outer;
                                 }
-                            }
+                                Ok(false) => {
+                                    status_line = "Configuracion cancelada.".into();
+                                    status_ok = false;
+                                }
+                                Err(e) => {
+                                    status_line = format!("Error: {e}");
+                                    status_ok = false;
+                                }
+                            },
                             AuthFlow::Browser => {
                                 terminal::disable_raw_mode()?;
                                 execute!(stdout, Show, MoveTo(0, 0), Clear(ClearType::All))?;
@@ -798,20 +813,29 @@ fn render_selector(
     render_box_top(stdout, &bc, inner)?;
     render_box_line(stdout, &bc, inner, "", Color::White, false)?;
     render_box_line(
-        stdout, &bc, inner,
+        stdout,
+        &bc,
+        inner,
         "  halcon -- configuracion de proveedor",
-        Color::Cyan, true,
+        Color::Cyan,
+        true,
     )?;
     render_box_line(stdout, &bc, inner, "", Color::White, false)?;
     render_box_line(
-        stdout, &bc, inner,
+        stdout,
+        &bc,
+        inner,
         "  No hay ningun proveedor de IA autenticado.",
-        Color::White, false,
+        Color::White,
+        false,
     )?;
     render_box_line(
-        stdout, &bc, inner,
+        stdout,
+        &bc,
+        inner,
         "  Selecciona uno para comenzar:",
-        Color::DarkGrey, false,
+        Color::DarkGrey,
+        false,
     )?;
     render_box_line(stdout, &bc, inner, "", Color::White, false)?;
     render_box_divider(stdout, &bc, inner)?;
@@ -831,9 +855,12 @@ fn render_selector(
         render_box_line(stdout, &bc, inner, &format!("  {status}"), color, false)?;
     } else {
         render_box_line(
-            stdout, &bc, inner,
+            stdout,
+            &bc,
+            inner,
             "  [Up/Down] navegar  [Enter] configurar  [S] omitir",
-            Color::DarkGrey, false,
+            Color::DarkGrey,
+            false,
         )?;
     }
 
@@ -920,15 +947,21 @@ fn render_api_key_screen(
     render_box_top(stdout, &bc, inner)?;
     render_box_line(stdout, &bc, inner, "", Color::White, false)?;
     render_box_line(
-        stdout, &bc, inner,
+        stdout,
+        &bc,
+        inner,
         &format!("  {} -- API Key", entry.label),
-        Color::Cyan, true,
+        Color::Cyan,
+        true,
     )?;
     render_box_line(stdout, &bc, inner, "", Color::White, false)?;
     render_box_line(
-        stdout, &bc, inner,
+        stdout,
+        &bc,
+        inner,
         &format!("  Obten tu clave en: {}", entry.hint),
-        Color::DarkGrey, false,
+        Color::DarkGrey,
+        false,
     )?;
     render_box_line(stdout, &bc, inner, "", Color::White, false)?;
 
@@ -944,16 +977,22 @@ fn render_api_key_screen(
     // Env var hint
     if let Some(env) = entry.env_var {
         render_box_line(
-            stdout, &bc, inner,
+            stdout,
+            &bc,
+            inner,
             &format!("  Tambien puedes exportar: {env}=<tu_clave>"),
-            Color::DarkGrey, false,
+            Color::DarkGrey,
+            false,
         )?;
     }
 
     render_box_line(
-        stdout, &bc, inner,
+        stdout,
+        &bc,
+        inner,
         "  La clave se guarda de forma segura en el OS keystore.",
-        Color::DarkGrey, false,
+        Color::DarkGrey,
+        false,
     )?;
     render_box_line(stdout, &bc, inner, "", Color::White, false)?;
     render_box_divider(stdout, &bc, inner)?;
@@ -962,9 +1001,12 @@ fn render_api_key_screen(
         render_box_line(stdout, &bc, inner, &format!("  {err}"), Color::Red, false)?;
     } else {
         render_box_line(
-            stdout, &bc, inner,
+            stdout,
+            &bc,
+            inner,
             "  [Enter] guardar  [Ctrl+U] limpiar  [Esc] volver",
-            Color::DarkGrey, false,
+            Color::DarkGrey,
+            false,
         )?;
     }
 
@@ -1019,24 +1061,20 @@ fn clear_string(s: &mut String) {
 /// Returns `true` if the browser flow completed successfully.
 async fn run_browser_flow(entry: &ProviderEntry) -> Result<bool> {
     match entry.id {
-        "cenzontle" => {
-            match super::sso::login().await {
-                Ok(()) => Ok(true),
-                Err(e) => {
-                    eprintln!("\n  Error durante el login: {e}");
-                    Ok(false)
-                }
+        "cenzontle" => match super::sso::login().await {
+            Ok(()) => Ok(true),
+            Err(e) => {
+                eprintln!("\n  Error durante el login: {e}");
+                Ok(false)
             }
-        }
-        "claude_code" => {
-            match super::auth::login("claude_code") {
-                Ok(()) => Ok(true),
-                Err(e) => {
-                    eprintln!("\n  Error durante el login: {e}");
-                    Ok(false)
-                }
+        },
+        "claude_code" => match super::auth::login("claude_code") {
+            Ok(()) => Ok(true),
+            Err(e) => {
+                eprintln!("\n  Error durante el login: {e}");
+                Ok(false)
             }
-        }
+        },
         _ => Ok(false),
     }
 }
@@ -1285,10 +1323,14 @@ mod tests {
         let bc = BoxChars::unicode();
         let mut buf = Vec::new();
         render_box_line(
-            &mut buf, &bc, inner,
+            &mut buf,
+            &bc,
+            inner,
             "this is a very long text that exceeds the box width",
-            Color::White, false,
-        ).unwrap();
+            Color::White,
+            false,
+        )
+        .unwrap();
         let clean = strip_ansi(&String::from_utf8(buf).unwrap());
         let clean_trimmed = clean.trim_end_matches('\n');
         assert_eq!(
@@ -1374,7 +1416,12 @@ mod tests {
                     width,
                     inner + 2,
                     "provider[{}] '{}' (selected={}) has width {} (expected {}): '{}'",
-                    i, entry.id, selected, width, inner + 2, clean_trimmed
+                    i,
+                    entry.id,
+                    selected,
+                    width,
+                    inner + 2,
+                    clean_trimmed
                 );
             }
         }
@@ -1422,12 +1469,36 @@ mod tests {
     #[test]
     fn unicode_box_chars_single_width() {
         let bc = BoxChars::unicode();
-        assert_eq!(UnicodeWidthStr::width(bc.top_left), 1, "┌ should be width 1");
-        assert_eq!(UnicodeWidthStr::width(bc.top_right), 1, "┐ should be width 1");
-        assert_eq!(UnicodeWidthStr::width(bc.bottom_left), 1, "└ should be width 1");
-        assert_eq!(UnicodeWidthStr::width(bc.bottom_right), 1, "┘ should be width 1");
-        assert_eq!(UnicodeWidthStr::width(bc.horizontal), 1, "─ should be width 1");
-        assert_eq!(UnicodeWidthStr::width(bc.vertical), 1, "│ should be width 1");
+        assert_eq!(
+            UnicodeWidthStr::width(bc.top_left),
+            1,
+            "┌ should be width 1"
+        );
+        assert_eq!(
+            UnicodeWidthStr::width(bc.top_right),
+            1,
+            "┐ should be width 1"
+        );
+        assert_eq!(
+            UnicodeWidthStr::width(bc.bottom_left),
+            1,
+            "└ should be width 1"
+        );
+        assert_eq!(
+            UnicodeWidthStr::width(bc.bottom_right),
+            1,
+            "┘ should be width 1"
+        );
+        assert_eq!(
+            UnicodeWidthStr::width(bc.horizontal),
+            1,
+            "─ should be width 1"
+        );
+        assert_eq!(
+            UnicodeWidthStr::width(bc.vertical),
+            1,
+            "│ should be width 1"
+        );
     }
 
     #[test]
@@ -1456,7 +1527,15 @@ mod tests {
         render_provider_row(&mut buf, &bc, inner, &entry, true, true).unwrap();
 
         render_box_divider(&mut buf, &bc, inner).unwrap();
-        render_box_line(&mut buf, &bc, inner, "  footer text", Color::DarkGrey, false).unwrap();
+        render_box_line(
+            &mut buf,
+            &bc,
+            inner,
+            "  footer text",
+            Color::DarkGrey,
+            false,
+        )
+        .unwrap();
         render_box_bottom(&mut buf, &bc, inner).unwrap();
 
         let output = String::from_utf8(buf).unwrap();
@@ -1472,9 +1551,13 @@ mod tests {
             }
             let width = UnicodeWidthStr::width(clean.as_str());
             assert_eq!(
-                width, expected_width,
+                width,
+                expected_width,
                 "line {} has width {} (expected {}): '{}'",
-                line_num + 1, width, expected_width, clean
+                line_num + 1,
+                width,
+                expected_width,
+                clean
             );
         }
     }
@@ -1502,8 +1585,8 @@ mod tests {
                 // Skip CSI sequence: ESC [ ... final_byte
                 if chars.peek() == Some(&'[') {
                     chars.next(); // consume '['
-                    // Skip parameter bytes (0x30-0x3F), intermediate bytes (0x20-0x2F),
-                    // stop at final byte (0x40-0x7E)
+                                  // Skip parameter bytes (0x30-0x3F), intermediate bytes (0x20-0x2F),
+                                  // stop at final byte (0x40-0x7E)
                     loop {
                         match chars.next() {
                             Some(c) if ('\x40'..='\x7e').contains(&c) => break,
@@ -1534,21 +1617,33 @@ mod tests {
         render_box_top(&mut buf, &bc, inner).unwrap();
         render_box_line(&mut buf, &bc, inner, "", Color::White, false).unwrap();
         render_box_line(
-            &mut buf, &bc, inner,
+            &mut buf,
+            &bc,
+            inner,
             "  halcon -- configuracion de proveedor",
-            Color::Cyan, true,
-        ).unwrap();
+            Color::Cyan,
+            true,
+        )
+        .unwrap();
         render_box_line(&mut buf, &bc, inner, "", Color::White, false).unwrap();
         render_box_line(
-            &mut buf, &bc, inner,
+            &mut buf,
+            &bc,
+            inner,
             "  No hay ningun proveedor de IA autenticado.",
-            Color::White, false,
-        ).unwrap();
+            Color::White,
+            false,
+        )
+        .unwrap();
         render_box_line(
-            &mut buf, &bc, inner,
+            &mut buf,
+            &bc,
+            inner,
             "  Selecciona uno para comenzar:",
-            Color::DarkGrey, false,
-        ).unwrap();
+            Color::DarkGrey,
+            false,
+        )
+        .unwrap();
         render_box_line(&mut buf, &bc, inner, "", Color::White, false).unwrap();
         render_box_divider(&mut buf, &bc, inner).unwrap();
         render_box_line(&mut buf, &bc, inner, "", Color::White, false).unwrap();
@@ -1560,10 +1655,14 @@ mod tests {
         render_box_line(&mut buf, &bc, inner, "", Color::White, false).unwrap();
         render_box_divider(&mut buf, &bc, inner).unwrap();
         render_box_line(
-            &mut buf, &bc, inner,
+            &mut buf,
+            &bc,
+            inner,
             "  [Up/Down] navegar  [Enter] configurar  [S] omitir",
-            Color::DarkGrey, false,
-        ).unwrap();
+            Color::DarkGrey,
+            false,
+        )
+        .unwrap();
         render_box_bottom(&mut buf, &bc, inner).unwrap();
 
         let raw_output = String::from_utf8(buf).unwrap();
@@ -1581,10 +1680,14 @@ mod tests {
         render_box_top(&mut buf, &bc, inner).unwrap();
         render_box_line(&mut buf, &bc, inner, "", Color::White, false).unwrap();
         render_box_line(
-            &mut buf, &bc, inner,
+            &mut buf,
+            &bc,
+            inner,
             "  halcon -- configuracion de proveedor",
-            Color::Cyan, true,
-        ).unwrap();
+            Color::Cyan,
+            true,
+        )
+        .unwrap();
         render_box_line(&mut buf, &bc, inner, "", Color::White, false).unwrap();
         render_box_divider(&mut buf, &bc, inner).unwrap();
         render_box_line(&mut buf, &bc, inner, "", Color::White, false).unwrap();
@@ -1596,10 +1699,14 @@ mod tests {
         render_box_line(&mut buf, &bc, inner, "", Color::White, false).unwrap();
         render_box_divider(&mut buf, &bc, inner).unwrap();
         render_box_line(
-            &mut buf, &bc, inner,
+            &mut buf,
+            &bc,
+            inner,
             "  [Up/Down] navegar  [Enter] configurar  [S] omitir",
-            Color::DarkGrey, false,
-        ).unwrap();
+            Color::DarkGrey,
+            false,
+        )
+        .unwrap();
         render_box_bottom(&mut buf, &bc, inner).unwrap();
 
         let raw_output = String::from_utf8(buf).unwrap();
@@ -1617,10 +1724,14 @@ mod tests {
         render_box_top(&mut buf, &bc, inner).unwrap();
         render_box_line(&mut buf, &bc, inner, "", Color::White, false).unwrap();
         render_box_line(
-            &mut buf, &bc, inner,
+            &mut buf,
+            &bc,
+            inner,
             "  halcon -- config proveedor",
-            Color::Cyan, true,
-        ).unwrap();
+            Color::Cyan,
+            true,
+        )
+        .unwrap();
         render_box_divider(&mut buf, &bc, inner).unwrap();
 
         for (i, entry) in providers.iter().enumerate() {
@@ -1629,10 +1740,14 @@ mod tests {
 
         render_box_divider(&mut buf, &bc, inner).unwrap();
         render_box_line(
-            &mut buf, &bc, inner,
+            &mut buf,
+            &bc,
+            inner,
             "  [Up/Down] nav  [Enter] config  [S] skip",
-            Color::DarkGrey, false,
-        ).unwrap();
+            Color::DarkGrey,
+            false,
+        )
+        .unwrap();
         render_box_bottom(&mut buf, &bc, inner).unwrap();
 
         let raw_output = String::from_utf8(buf).unwrap();

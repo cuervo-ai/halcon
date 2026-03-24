@@ -421,7 +421,10 @@ fn build_help_section<'a>(
     lines.push(Line::from(""));
     for &(key, desc) in bindings {
         lines.push(Line::from(vec![
-            Span::styled(format!("  {}", pad_display(key, 12)), Style::default().fg(c_accent)),
+            Span::styled(
+                format!("  {}", pad_display(key, 12)),
+                Style::default().fg(c_accent),
+            ),
             Span::styled(desc, Style::default().fg(c_text)),
         ]));
     }
@@ -1334,10 +1337,8 @@ pub fn render_plugin_suggest(
                 },
             ]));
             // Rationale line
-            let rationale_display = truncate_display(
-                &item.rationale,
-                popup_width.saturating_sub(6) as usize,
-            );
+            let rationale_display =
+                truncate_display(&item.rationale, popup_width.saturating_sub(6) as usize);
             lines.push(Line::from(Span::styled(
                 format!("      {}", rationale_display),
                 Style::default().fg(c_muted),
@@ -1605,14 +1606,8 @@ pub fn render_model_selector(
                 Style::default().fg(c_text)
             };
 
-            let provider_col = pad_display(
-                &truncate_display(provider, 14),
-                14,
-            );
-            let label_display = truncate_display(
-                label,
-                popup_width.saturating_sub(22) as usize,
-            );
+            let provider_col = pad_display(&truncate_display(provider, 14), 14);
+            let label_display = truncate_display(label, popup_width.saturating_sub(22) as usize);
 
             lines.push(Line::from(vec![
                 Span::styled(prefix, style),

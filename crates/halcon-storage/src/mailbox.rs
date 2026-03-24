@@ -699,10 +699,7 @@ mod tests {
         .expect("direct insert");
 
         // receive() should reject the unsigned message.
-        let msgs = mailbox
-            .receive("victim", team_id)
-            .await
-            .expect("receive");
+        let msgs = mailbox.receive("victim", team_id).await.expect("receive");
         assert!(
             msgs.is_empty(),
             "unsigned/tampered message must be rejected on receive"
@@ -731,12 +728,12 @@ mod tests {
         };
         mailbox.send(msg).await.expect("send");
 
-        let received = mailbox
-            .receive("agent-b", team_id)
-            .await
-            .expect("receive");
+        let received = mailbox.receive("agent-b", team_id).await.expect("receive");
         assert_eq!(received.len(), 1);
-        assert!(received[0].signature.is_some(), "signature must survive DB round-trip");
+        assert!(
+            received[0].signature.is_some(),
+            "signature must survive DB round-trip"
+        );
         assert_eq!(received[0].nonce, 42, "nonce must survive DB round-trip");
     }
 }

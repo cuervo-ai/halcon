@@ -472,8 +472,7 @@ mod tests {
             write_project_memory(&halcon, &summary);
         }
 
-        let content =
-            fs::read_to_string(halcon.join("memory").join("MEMORY.md")).unwrap();
+        let content = fs::read_to_string(halcon.join("memory").join("MEMORY.md")).unwrap();
         for i in 0..10 {
             assert!(
                 content.contains(&format!("entry-{i}")),

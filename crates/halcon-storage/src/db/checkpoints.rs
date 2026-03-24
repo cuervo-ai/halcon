@@ -140,11 +140,7 @@ impl Database {
             .map_err(|e| HalconError::DatabaseError(format!("purge checkpoints: {e}")))?;
 
         if deleted > 0 {
-            tracing::info!(
-                deleted,
-                max_age_days,
-                "purged old session checkpoints"
-            );
+            tracing::info!(deleted, max_age_days, "purged old session checkpoints");
         }
 
         Ok(deleted)

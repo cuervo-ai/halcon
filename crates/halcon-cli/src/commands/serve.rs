@@ -273,8 +273,7 @@ pub async fn run_with_bridge(
                 }
 
                 // Channel for task results → WebSocket upstream
-                let (upstream_tx, mut upstream_rx) =
-                    tokio::sync::mpsc::channel::<String>(256);
+                let (upstream_tx, mut upstream_rx) = tokio::sync::mpsc::channel::<String>(256);
 
                 // Heartbeat ticker
                 let mut hb_interval = tokio::time::interval(std::time::Duration::from_secs(30));
@@ -418,9 +417,25 @@ async fn execute_delegated_task(
             name: "bash".to_string(),
             args: serde_json::json!({"command": instructions}),
         }];
-        run_tool_calls(task_id, &tool_calls, &tool_registry, working_dir, &upstream, deadline).await;
+        run_tool_calls(
+            task_id,
+            &tool_calls,
+            &tool_registry,
+            working_dir,
+            &upstream,
+            deadline,
+        )
+        .await;
     } else {
-        run_tool_calls(task_id, &tool_calls, &tool_registry, working_dir, &upstream, deadline).await;
+        run_tool_calls(
+            task_id,
+            &tool_calls,
+            &tool_registry,
+            working_dir,
+            &upstream,
+            deadline,
+        )
+        .await;
     }
 
     // Send completion signal
@@ -497,11 +512,17 @@ async fn run_tool_calls(
         let result = match tokio::time::timeout(
             std::time::Duration::from_secs(30),
             tool.execute(tool_input),
-        ).await {
+        )
+        .await
+        {
             Ok(Ok(output)) => {
                 // Truncate large outputs for the wire protocol
                 let content = if output.content.len() > 8192 {
-                    format!("{}...\n[truncated {} bytes]", &output.content[..8192], output.content.len())
+                    format!(
+                        "{}...\n[truncated {} bytes]",
+                        &output.content[..8192],
+                        output.content.len()
+                    )
                 } else {
                     output.content
                 };
@@ -565,7 +586,10 @@ fn parse_instructions_to_tool_calls(instructions: &str, working_dir: &str) -> Ve
         }
 
         // Pattern: "Read <path>" or "Read file <path>"
-        if let Some(path) = line.strip_prefix("Read file ").or_else(|| line.strip_prefix("Read ")) {
+        if let Some(path) = line
+            .strip_prefix("Read file ")
+            .or_else(|| line.strip_prefix("Read "))
+        {
             let path = path.trim().trim_matches('"').trim_matches('`');
             calls.push(ToolCall {
                 name: "file_read".to_string(),
@@ -665,7 +689,8 @@ fn parse_instructions_to_tool_calls(instructions: &str, working_dir: &str) -> Ve
             || line.starts_with("sort ")
             || line.starts_with("du ")
             || line.starts_with("df ")
-            || line.contains('|')  // piped commands
+            || line.contains('|')
+        // piped commands
         {
             calls.push(ToolCall {
                 name: "bash".to_string(),
