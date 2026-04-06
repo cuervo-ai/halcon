@@ -907,8 +907,39 @@ pub async fn run_orchestrator(
                                     }
                                     let mut retry_resilience = ResilienceManager::new(ResilienceConfig::default());
 
+                                    // Wave 11: Model switch on P1-B retry.
+                                    // If the original model failed to emit tool_use, try a different
+                                    // model from fallback_providers that supports tools.
+                                    // This resolves the pattern: deepseek generates text → retry with
+                                    // same deepseek → same failure. Now retry uses a different model.
+                                    let retry_model = {
+                                        let original = &request.model;
+                                        let alternative = fallback_providers.iter().find_map(|(_, fb)| {
+                                            fb.supported_models()
+                                                .iter()
+                                                .find(|m| m.supports_tools && m.id != *original)
+                                                .map(|m| m.id.clone())
+                                        });
+                                        if let Some(ref alt) = alternative {
+                                            tracing::info!(
+                                                original = %original,
+                                                alternative = %alt,
+                                                task_id = %task_id,
+                                                "P1-B RETRY: switching model for better tool compliance"
+                                            );
+                                        }
+                                        alternative.unwrap_or_else(|| original.clone())
+                                    };
+                                    let retry_provider_for_model = fallback_providers
+                                        .iter()
+                                        .find(|(_, fb)| {
+                                            fb.supported_models().iter().any(|m| m.id == retry_model)
+                                        })
+                                        .map(|(_, p)| Arc::clone(p))
+                                        .unwrap_or_else(|| Arc::clone(&provider));
+
                                     let retry_request = ModelRequest {
-                                        model: request.model.clone(),
+                                        model: retry_model,
                                         messages: vec![ChatMessage {
                                             role: Role::User,
                                             content: MessageContent::Text(escalated_instruction),
@@ -926,7 +957,7 @@ pub async fn run_orchestrator(
                                     // Phase 1: Fresh pipeline for retry invocation
                                     let mut retry_pipeline = crate::repl::security::permission_pipeline::PermissionPipeline::new();
                                     let retry_ctx = agent::AgentContext {
-                                        provider: &provider,
+                                        provider: &retry_provider_for_model,
                                         session: &mut retry_session,
                                         request: &retry_request,
                                         tool_registry,

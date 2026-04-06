@@ -405,6 +405,17 @@ impl ModelSelector {
         0.5 // Neutral prior — treat quality-naive models as average
     }
 
+    /// Wave 11: Tool compliance rate for routing decisions.
+    /// Returns 1.0 for unknown models (optimistic prior).
+    fn tool_compliance_rate_for_scoring(&self, model_id: &str) -> f64 {
+        if let Ok(stats) = self.quality_stats.lock() {
+            if let Some(s) = stats.get(model_id) {
+                return s.tool_compliance_rate();
+            }
+        }
+        1.0 // Unknown model → optimistic (don't penalize without data)
+    }
+
     /// Apply the diversity guard and record the selection in history (Phase 8).
     ///
     /// Checks whether the same model has been selected `REPETITION_WINDOW` consecutive times.
@@ -818,15 +829,45 @@ impl ModelSelector {
             }
         }
 
+        // Wave 11: When tools are in the request, re-rank by tool compliance.
+        // Models with low compliance are penalized so the router prefers models
+        // that actually emit tool_use when tools are available.
+        // Applied AFTER strategy sort so it acts as a tiebreaker/demotion,
+        // not a replacement of the primary scoring signal.
+        if needs_tools && candidates.len() > 1 {
+            candidates.sort_by(|a, b| {
+                let comp_a = self.tool_compliance_rate_for_scoring(&a.id);
+                let comp_b = self.tool_compliance_rate_for_scoring(&b.id);
+                // Higher compliance = better → sort descending on compliance,
+                // but only reshuffle when there's a significant difference (>0.2).
+                // This prevents thrashing between models with similar compliance.
+                let diff = comp_b - comp_a;
+                if diff.abs() > 0.2 {
+                    comp_b
+                        .partial_cmp(&comp_a)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                } else {
+                    std::cmp::Ordering::Equal // Preserve strategy sort order
+                }
+            });
+        }
+
         candidates.first().map(|m| {
             let initial = ModelSelection {
                 model_id: m.id.clone(),
                 provider_name: m.provider.clone(),
-                reason: format!("strategy={strategy}"),
+                reason: format!(
+                    "strategy={strategy}{}",
+                    if needs_tools {
+                        format!(
+                            " compliance={:.0}%",
+                            self.tool_compliance_rate_for_scoring(&m.id) * 100.0
+                        )
+                    } else {
+                        String::new()
+                    }
+                ),
             };
-            // Phase 8: Apply the diversity guard — breaks 3-consecutive-repetition when
-            // a quality-proven alternative exists. Guard is a no-op on cold start or when
-            // all alternatives are below the DIVERSITY_MIN_REWARD floor.
             self.apply_diversity_guard(initial, &candidates)
         })
     }
