@@ -914,11 +914,21 @@ pub async fn run_orchestrator(
                                     // same deepseek → same failure. Now retry uses a different model.
                                     let retry_model = {
                                         let original = &request.model;
-                                        let alternative = fallback_providers.iter().find_map(|(_, fb)| {
-                                            fb.supported_models()
-                                                .iter()
-                                                .find(|m| m.supports_tools && m.id != *original)
-                                                .map(|m| m.id.clone())
+                                        // First: look for alternative model within the SAME provider
+                                        // (e.g., Cenzontle has 13 models — switch deepseek→claude-haiku)
+                                        let same_provider_alt = provider
+                                            .supported_models()
+                                            .iter()
+                                            .find(|m| m.supports_tools && m.id != *original)
+                                            .map(|m| m.id.clone());
+                                        // Second: look in fallback providers
+                                        let alternative = same_provider_alt.or_else(|| {
+                                            fallback_providers.iter().find_map(|(_, fb)| {
+                                                fb.supported_models()
+                                                    .iter()
+                                                    .find(|m| m.supports_tools && m.id != *original)
+                                                    .map(|m| m.id.clone())
+                                            })
                                         });
                                         if let Some(ref alt) = alternative {
                                             tracing::info!(
@@ -930,13 +940,19 @@ pub async fn run_orchestrator(
                                         }
                                         alternative.unwrap_or_else(|| original.clone())
                                     };
-                                    let retry_provider_for_model = fallback_providers
-                                        .iter()
-                                        .find(|(_, fb)| {
-                                            fb.supported_models().iter().any(|m| m.id == retry_model)
-                                        })
-                                        .map(|(_, p)| Arc::clone(p))
-                                        .unwrap_or_else(|| Arc::clone(&provider));
+                                    // Resolve provider: if the alternative is from the same provider, reuse it
+                                    let retry_provider_for_model =
+                                        if provider.supported_models().iter().any(|m| m.id == retry_model) {
+                                            Arc::clone(&provider)
+                                        } else {
+                                            fallback_providers
+                                                .iter()
+                                                .find(|(_, fb)| {
+                                                    fb.supported_models().iter().any(|m| m.id == retry_model)
+                                                })
+                                                .map(|(_, p)| Arc::clone(p))
+                                                .unwrap_or_else(|| Arc::clone(&provider))
+                                        };
 
                                     let retry_request = ModelRequest {
                                         model: retry_model,
