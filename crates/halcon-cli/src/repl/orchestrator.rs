@@ -916,11 +916,23 @@ pub async fn run_orchestrator(
                                         let original = &request.model;
                                         // First: look for alternative model within the SAME provider
                                         // (e.g., Cenzontle has 13 models — switch deepseek→claude-haiku)
-                                        let same_provider_alt = provider
-                                            .supported_models()
+                                        let all_models = provider.supported_models();
+                                        let tool_capable: Vec<&str> = all_models
                                             .iter()
-                                            .find(|m| m.supports_tools && m.id != *original)
-                                            .map(|m| m.id.clone());
+                                            .filter(|m| m.supports_tools && m.id != *original)
+                                            .map(|m| m.id.as_str())
+                                            .collect();
+                                        tracing::info!(
+                                            original = %original,
+                                            provider = provider.name(),
+                                            total_models = all_models.len(),
+                                            tool_capable_alternatives = ?tool_capable,
+                                            task_id = %task_id,
+                                            "P1-B: searching for alternative model"
+                                        );
+                                        let same_provider_alt = tool_capable
+                                            .first()
+                                            .map(|s| s.to_string());
                                         // Second: look in fallback providers
                                         let alternative = same_provider_alt.or_else(|| {
                                             fallback_providers.iter().find_map(|(_, fb)| {
