@@ -9,12 +9,11 @@
 //! a `ToolUse` stop reason.
 
 use chrono::Utc;
-use sha2::Digest;
-
-use halcon_core::traits::{Planner, StepOutcome};
+use halcon_core::traits::StepOutcome;
 use halcon_core::types::{
     ChatMessage, ContentBlock, DomainEvent, EventPayload, MessageContent, Role,
 };
+use sha2::Digest;
 
 use super::super::accumulator::CompletedToolUse;
 use super::super::executor;
@@ -26,7 +25,6 @@ use super::loop_state::{
 use super::plan_formatter::{format_plan_for_prompt, update_plan_in_system};
 use super::provider_client::check_control;
 use super::ControlAction;
-use crate::render::sink::RenderSink;
 
 /// Outcome returned by [`run`] to the agent loop.
 pub(super) enum PostBatchOutcome {
@@ -56,6 +54,7 @@ pub(super) async fn run(
     trace_db: Option<&halcon_storage::AsyncDatabase>,
     guardrails: &[Box<dyn halcon_security::Guardrail>],
     permissions: &mut super::super::conversational_permission::ConversationalPermissionHandler,
+    permission_pipeline: &mut super::super::security::permission_pipeline::PermissionPipeline,
     tool_exec_config: &super::super::executor::ToolExecutionConfig<'_>,
     plugin_registry: Option<
         &std::sync::Arc<std::sync::Mutex<super::super::plugins::PluginRegistry>>,
@@ -65,7 +64,7 @@ pub(super) async fn run(
     task_bridge: &mut Option<&'_ mut super::super::task_bridge::TaskBridge>,
     reflector: Option<&super::super::reflexion::Reflector>,
     planner: Option<&dyn halcon_core::traits::Planner>,
-    planning_config: &halcon_core::types::PlanningConfig,
+    _planning_config: &halcon_core::types::PlanningConfig,
     request: &halcon_core::types::ModelRequest,
     ctrl_rx: &mut Option<super::super::agent_types::ControlReceiver>,
     limits: &halcon_core::types::AgentLimits,
@@ -225,6 +224,8 @@ pub(super) async fn run(
             tool_exec_config,
             render_sink,
             plugin_registry.map(|arc| arc.as_ref()),
+            Some(permission_pipeline),
+            Some(permissions),
         )
         .await;
         // Merge speculation hits with real results.
@@ -258,6 +259,7 @@ pub(super) async fn run(
                 tool_call,
                 tool_registry,
                 permissions,
+                Some(permission_pipeline),
                 working_dir,
                 state.tool_timeout,
                 event_tx,
@@ -459,29 +461,88 @@ pub(super) async fn run(
         }
     }
 
-    // Guardrail scan on tool results (warn-only — does not block tool output).
+    // Guardrail scan on tool results — ENFORCED: Block violations redact the output.
+    // This prevents credential leaks and sensitive data from being injected into context.
     if !guardrails.is_empty() {
-        for block in &tool_result_blocks {
+        for block in &mut tool_result_blocks {
             if let ContentBlock::ToolResult { content, .. } = block {
                 let violations = halcon_security::run_guardrails(
                     guardrails,
                     content,
                     halcon_security::GuardrailCheckpoint::PostInvocation,
                 );
+                let mut has_blocking_violation = false;
                 for v in &violations {
                     tracing::warn!(
                         guardrail = %v.guardrail,
                         matched = %v.matched,
                         source = "tool_result",
+                        action = ?v.action,
                         "Tool output guardrail: {}",
                         v.reason
                     );
-                    let _ = event_tx.send(DomainEvent::new(EventPayload::GuardrailTriggered {
-                        guardrail: v.guardrail.clone(),
-                        checkpoint: "tool_result".into(),
-                        action: format!("{:?}", v.action),
-                    }));
+                    halcon_core::emit_event(
+                        event_tx,
+                        DomainEvent::new(EventPayload::GuardrailTriggered {
+                            guardrail: v.guardrail.clone(),
+                            checkpoint: "tool_result".into(),
+                            action: format!("{:?}", v.action),
+                        }),
+                    );
+                    if matches!(v.action, halcon_security::GuardrailAction::Block) {
+                        has_blocking_violation = true;
+                    }
                 }
+                // Enforce: redact tool output when a Block violation is detected.
+                // This prevents sensitive data (credentials, PII) from entering the
+                // conversation context where it could be echoed back or logged.
+                if has_blocking_violation {
+                    *content =
+                        "[REDACTED] Tool output contained sensitive data blocked by guardrail."
+                            .to_string();
+                }
+            }
+        }
+    }
+
+    // ── Phase 2: Post-execution result validation ──────────────────────────
+    //
+    // Validate tool results BEFORE injecting into model context. Catches:
+    // 1. Binary/non-text data that would corrupt the conversation
+    // 2. Extremely large outputs that weren't caught by truncation
+    // 3. Results containing only error markers from parse failures
+    for block in &mut tool_result_blocks {
+        if let ContentBlock::ToolResult {
+            content, is_error, ..
+        } = block
+        {
+            // Check 1: Detect binary data (NUL bytes, high concentration of non-UTF8-safe chars).
+            let binary_threshold = content.len() / 4; // >25% non-printable → likely binary
+            let non_printable = content
+                .bytes()
+                .filter(|b| *b == 0 || (*b < 32 && *b != b'\n' && *b != b'\r' && *b != b'\t'))
+                .count();
+            if non_printable > binary_threshold.max(10) {
+                tracing::warn!(
+                    content_len = content.len(),
+                    non_printable,
+                    "Phase2: binary data detected in tool result — sanitizing"
+                );
+                *content = format!(
+                    "[Binary data detected: {} bytes, {} non-printable. \
+                     Content replaced to prevent context corruption.]",
+                    content.len(),
+                    non_printable
+                );
+                *is_error = true;
+            }
+
+            // Check 2: Result is just a parse error marker from accumulator.
+            if content.contains("_parse_error") && content.len() < 200 {
+                tracing::warn!(
+                    "Phase2: tool result contains parse error marker — flagging as error"
+                );
+                *is_error = true;
             }
         }
     }
@@ -786,11 +847,12 @@ pub(super) async fn run(
     // Operates before ToolLoopGuard thresholds (synthesis_threshold=6, force_threshold=10),
     // providing earlier structural intervention on plan misalignment or critical failures.
     {
-        let expected_tool = state
+        let expected_tool_owned: Option<String> = state
             .execution_tracker
             .as_ref()
             .and_then(|t| t.plan().steps.get(t.current_step()))
-            .and_then(|s| s.tool_name.as_deref());
+            .and_then(|s| s.tool_name.clone());
+        let expected_tool = expected_tool_owned.as_deref();
 
         let all_executed: Vec<String> = {
             let mut v = tool_successes.clone();
@@ -819,6 +881,17 @@ pub(super) async fn run(
         };
         let any_tool_succeeded = !tool_successes.is_empty();
 
+        // Phase 3: Decision log — tool execution summary.
+        state.log_decision(
+            super::loop_state::DecisionCategory::ToolExecution,
+            format!(
+                "success={} failed={} plan_progress={:.0}%",
+                tool_successes.len(),
+                tool_failures.len(),
+                plan_progress_ratio * 100.0,
+            ),
+        );
+
         match super::super::supervisor::PostBatchSupervisor::check(
             round,
             expected_tool,
@@ -828,9 +901,21 @@ pub(super) async fn run(
             any_tool_succeeded,
             None, // plugin_all_failed: no plugin tracking at this call site
         ) {
-            super::super::supervisor::BatchVerdict::Continue => {}
+            super::super::supervisor::BatchVerdict::Continue => {
+                state.log_decision(
+                    super::loop_state::DecisionCategory::Supervisor,
+                    "continue — no intervention needed",
+                );
+            }
             super::super::supervisor::BatchVerdict::InjectCorrection(msg) => {
                 tracing::info!("PostBatchSupervisor: injecting correction into state.messages");
+                state.log_decision(
+                    super::loop_state::DecisionCategory::Supervisor,
+                    format!(
+                        "inject correction: {}...",
+                        msg.chars().take(80).collect::<String>()
+                    ),
+                );
                 if !state.silent {
                     render_sink.info("[supervisor] correction injected");
                 }
@@ -841,6 +926,13 @@ pub(super) async fn run(
             }
             super::super::supervisor::BatchVerdict::ForceReplanNow(reason) => {
                 tracing::warn!(reason = %reason, "PostBatchSupervisor: forcing replan (AUTHORITY)");
+                state.log_decision(
+                    super::loop_state::DecisionCategory::Supervisor,
+                    format!(
+                        "force replan: {}",
+                        reason.chars().take(80).collect::<String>()
+                    ),
+                );
                 if !state.silent {
                     render_sink.info(&format!("[supervisor] forced replan: {reason}"));
                 }
@@ -979,8 +1071,58 @@ pub(super) async fn run(
         }
     }
 
+    // Wave 6: UnifiedEvaluator — runs every round.
+    // Mode depends on config.reasoning.use_unified_evaluator:
+    //   false (default) → shadow mode: log signal but don't affect control flow.
+    //   true → primary mode: skip reflexion LLM call, use evaluator signal instead.
+    let unified_eval_is_primary = state
+        .strategy_context
+        .as_ref()
+        .map(|sc| sc.use_unified_evaluator)
+        .unwrap_or(false);
+    {
+        use super::super::domain::unified_evaluator::RoundMetrics as UERoundMetrics;
+        // Plan progress: use execution_tracker.progress() if available.
+        let (plan_completed, plan_total) = state
+            .execution_tracker
+            .as_ref()
+            .map(|t| {
+                let (c, total, _) = t.progress();
+                (c, total)
+            })
+            .unwrap_or((0, 0));
+        let ue_metrics = UERoundMetrics {
+            tool_successes: tool_successes.len(),
+            tool_failures: tool_failures.len(),
+            text_length: state.full_text.len(),
+            plan_steps_completed: plan_completed,
+            plan_steps_total: plan_total,
+            round,
+            max_rounds: limits.max_rounds,
+            had_errors: !tool_failures.is_empty(),
+        };
+        let ue_result = state.unified_evaluator.evaluate(&ue_metrics);
+        let mode = if unified_eval_is_primary {
+            "primary"
+        } else {
+            "shadow"
+        };
+        tracing::info!(
+            signal = ?ue_result.signal,
+            confidence = ue_result.confidence,
+            delta = ue_result.confidence_delta,
+            llm_called = ue_result.llm_called,
+            rationale = %ue_result.rationale,
+            mode = mode,
+            round = round,
+            "unified_evaluator"
+        );
+    }
+
     // Reflexion: evaluate round and generate reflection on non-success.
-    if let Some(reflector) = reflector {
+    // Wave 6: Skip reflexion LLM call when UnifiedEvaluator is primary.
+    // This saves 1-3s per round with tool failures.
+    if let Some(reflector) = reflector.filter(|_| !unified_eval_is_primary) {
         let outcome = super::super::reflexion::Reflector::evaluate_round(&tool_result_blocks);
 
         // Confidence feedback: if the previous round generated a reflection and
@@ -995,7 +1137,9 @@ pub(super) async fn run(
             // Load current score, apply delta, update.
             if let Ok(Some(entry)) = db.inner().load_memory(prev_id) {
                 let new_score = (entry.relevance_score + delta).clamp(0.1, 2.0);
-                let _ = db.update_memory_relevance(prev_id, new_score).await;
+                if let Err(e) = db.update_memory_relevance(prev_id, new_score).await {
+                    tracing::warn!(error = %e, reflection_id = %prev_id, "failed to update memory relevance");
+                }
                 tracing::debug!(
                     reflection_id = %prev_id,
                     old_score = entry.relevance_score,
@@ -1054,10 +1198,13 @@ pub(super) async fn run(
                     // Phase 1 Supervisor: queue advice for injection at round N+1 start.
                     state.reflection_injector.push_advice(&reflection.advice);
                     // Emit event.
-                    let _ = event_tx.send(DomainEvent::new(EventPayload::ReflectionGenerated {
-                        round,
-                        trigger: outcome.trigger_label().to_string(),
-                    }));
+                    halcon_core::emit_event(
+                        event_tx,
+                        DomainEvent::new(EventPayload::ReflectionGenerated {
+                            round,
+                            trigger: outcome.trigger_label().to_string(),
+                        }),
+                    );
                     // Store as memory entry.
                     if let Some(db) = trace_db {
                         let reflection_id = uuid::Uuid::new_v4();
@@ -1315,14 +1462,19 @@ pub(super) async fn run(
                         replan = new_plan.replan_count,
                         "Replanned after tool failure"
                     );
-                    let _ = event_tx.send(DomainEvent::new(EventPayload::PlanGenerated {
-                        plan_id: new_plan.plan_id,
-                        goal: new_plan.goal.clone(),
-                        step_count: new_plan.steps.len(),
-                        replan_count: new_plan.replan_count,
-                    }));
+                    halcon_core::emit_event(
+                        event_tx,
+                        DomainEvent::new(EventPayload::PlanGenerated {
+                            plan_id: new_plan.plan_id,
+                            goal: new_plan.goal.clone(),
+                            step_count: new_plan.steps.len(),
+                            replan_count: new_plan.replan_count,
+                        }),
+                    );
                     if let Some(db) = trace_db {
-                        let _ = db.save_plan_steps(&state.session_id, &new_plan).await;
+                        if let Err(e) = db.save_plan_steps(&state.session_id, &new_plan).await {
+                            tracing::warn!(error = %e, "failed to persist replan steps");
+                        }
                     }
                     tracker.reset_plan(new_plan);
 

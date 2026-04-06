@@ -39,10 +39,16 @@ pub use agent::agent_utils;
 
 /// Tool execution pipeline — file I/O, shell, risk scoring, permission gates.
 pub mod executor;
+/// Failure waterfall: sequential error handling strategies (retry → repair → fallback → surface).
+pub(crate) mod failure_handler;
+/// Unified trace recording (fire-and-forget TraceRecorder).
+pub(crate) mod trace_recording;
+// substruct.rs removed (Phase Next) — types had 0 consumers. Reintroduce when migration begins.
 // plan_state_diagnostics moved to planning/diagnostics (C-3)
 pub(crate) mod security;
 // Backward-compat re-exports for test targets
 pub use security::blacklist as command_blacklist;
+pub use security::denial_tracker;
 pub(crate) use security::subagent_contract as subagent_contract_validator;
 /// Multi-agent wave orchestration — parallel task scheduling with dependency resolution.
 pub mod orchestrator;
@@ -258,7 +264,32 @@ pub use domain::strategy_selector;
 pub use domain::task_analyzer;
 pub use domain::termination_oracle;
 
+/// Phase 3c: SessionMode — route between Interactive and Structured execution.
+pub mod session_mode;
+
+// Phase 3: Repl thinning sub-structs (reduce 45 fields → 12 via grouping).
+pub(crate) mod cache_state;
+pub(crate) mod context_bundle;
+pub(crate) mod feature_bundle;
+pub(crate) mod infrastructure;
+pub(crate) mod render_state;
+pub(crate) mod runtime_control;
+pub(crate) mod security_bundle;
+
+use cache_state::ReplCacheState;
+use context_bundle::ReplContext;
+use feature_bundle::ReplFeatures;
+use infrastructure::ReplInfrastructure;
+use render_state::ReplRenderState;
+use runtime_control::ReplRuntimeControl;
+use security_bundle::ReplSecurity;
+
 mod slash_commands;
+
+/// Message Pipeline — 5-stage decomposition of `handle_message_with_sink()`.
+/// Stages: Intake → Context → Resolve → AgentExec → PostProcess.
+/// See SYSTEM_REMEDIATION_STRATEGY.md §4.A for architecture.
+pub(crate) mod message_pipeline;
 
 #[cfg(test)]
 mod stress_tests;
@@ -280,110 +311,32 @@ fn detect_user_display_name() -> String {
 }
 
 /// Interactive REPL for halcon.
+///
+/// Phase 3.2: Fields grouped into 7 sub-structs for cohesion.
+/// Only REPL-specific state (editor, prompt, session routing) remains at the top level.
 pub struct Repl {
+    // ── REPL-specific (not grouped) ──────────────────────────────────────────
     pub(crate) editor: Reedline,
     pub(crate) prompt: HalconPrompt,
-    pub(crate) config: AppConfig,
     pub(crate) provider: String,
     pub(crate) model: String,
     pub(crate) session: Session,
-    pub(crate) db: Option<Arc<Database>>,
-    pub(crate) async_db: Option<AsyncDatabase>,
-    pub(crate) registry: ProviderRegistry,
-    pub(crate) tool_registry: ToolRegistry,
-    pub(crate) permissions: ConversationalPermissionHandler,
-    pub(crate) event_tx: EventSender,
-    /// Context manager wrapping pipeline + sources + governance for unified context assembly (Phase 38).
-    /// Sources are owned by the manager - access via context_manager.sources().
-    pub(crate) context_manager: Option<context_manager::ContextManager>,
-    pub(crate) response_cache: Option<ResponseCache>,
-    pub(crate) resilience: ResilienceManager,
-    pub(crate) reflector: Option<reflexion::Reflector>,
-    pub(crate) no_banner: bool,
-    /// When true, the user explicitly set `--model` on the CLI, so model selection is bypassed.
-    pub(crate) explicit_model: bool,
-    /// Temporary dry-run mode override for the next handle_message call.
-    pub(crate) dry_run_override: Option<halcon_core::types::DryRunMode>,
-    /// Trace step cursor for /step forward/back navigation.
-    pub(crate) trace_cursor: Option<(uuid::Uuid, Vec<halcon_storage::TraceStep>, usize)>,
-    /// Cached execution timeline JSON from the last agent loop (for --timeline flag).
-    pub(crate) last_timeline: Option<String>,
-    /// Shared context metrics for agent loop observability (Phase 42).
-    pub(crate) context_metrics: std::sync::Arc<context_metrics::ContextMetrics>,
-    /// Context governance for per-source token limits (Phase 42).
-    pub(crate) context_governance: context_governance::ContextGovernance,
-    /// Expert mode: show full agent feedback (model selection, caching, etc.).
-    pub(crate) expert_mode: bool,
-    /// Tool speculation engine for pre-executing read-only tools (Phase 3 remediation).
-    pub(crate) speculator: tool_speculation::ToolSpeculator,
-    /// FASE 3.1: Reasoning engine for metacognitive agent loop wrapping (Phase 40).
-    /// None when reasoning.enabled = false (default).
-    pub(crate) reasoning_engine: Option<reasoning_engine::ReasoningEngine>,
-    /// FASE 3.2: MCP resource manager for lazy MCP server discovery.
-    /// Always present (empty when no servers configured).
-    pub(crate) mcp_manager: mcp_manager::McpResourceManager,
-    /// P1.1: Playbook-based planner loaded from ~/.halcon/playbooks/.
-    /// Runs before LlmPlanner — instant (zero LLM calls) for matched workflows.
-    pub(crate) playbook_planner: playbook_planner::PlaybookPlanner,
-    /// OS username for user context injection into system prompt (e.g. "oscarvalois").
-    pub(crate) user_display_name: String,
-    /// Multimodal subsystem (image/audio/video analysis). Activated with `--full`.
-    pub(crate) multimodal: Option<std::sync::Arc<halcon_multimodal::MultimodalSubsystem>>,
-    /// Control channel receiver from TUI (Phase 43). None in classic REPL mode.
-    #[cfg(feature = "tui")]
-    pub(crate) ctrl_rx:
-        Option<tokio::sync::mpsc::UnboundedReceiver<crate::tui::events::ControlEvent>>,
-    /// Phase 3: Model quality stats cache for session-level persistence.
-    ///
-    /// Snapshot of `ModelSelector.quality_stats` extracted after each agent loop and re-injected
-    /// into the next fresh `ModelSelector` via `with_quality_seeds()`. This ensures `balanced`
-    /// routing uses accumulated quality data across all messages within the session, not just
-    /// the current message (previously reset to neutral every turn because ModelSelector is
-    /// created fresh per message). Tuple: `(success_count, failure_count, total_reward)`.
-    pub(crate) model_quality_cache: std::collections::HashMap<String, (u32, u32, f64)>,
-    /// Phase 4: Whether cross-session quality stats have been loaded from DB this session.
-    ///
-    /// Prevents repeated DB queries (load-once-per-session). Set to true after first load attempt
-    /// (even if the DB returned empty results or was unavailable).
-    pub(crate) model_quality_db_loaded: bool,
-    /// Plugin registry for V3 plugin system. None until plugins are configured.
-    /// Wrapped in Arc<Mutex<>> so it can be shared safely with the parallel executor.
-    /// Initialized as None in Repl::new() — activated when plugins are loaded.
-    pub(crate) plugin_registry: Option<std::sync::Arc<std::sync::Mutex<plugins::PluginRegistry>>>,
-    /// Transport runtime for V3 plugins (shared handle pool for Stdio/HTTP/Local plugins).
-    /// None until plugins are lazy-initialized on first message with config.plugins.enabled.
-    pub(crate) plugin_transport_runtime: Option<std::sync::Arc<plugins::PluginTransportRuntime>>,
-    /// Whether plugin UCB1 metrics have been loaded from DB this session (load-once guard).
-    pub(crate) plugin_metrics_db_loaded: bool,
-    /// Phase 5 Dev Ecosystem: DevGateway coordinates IDE buffers, git context, and CI
-    /// feedback into a single `DevContext` snapshot that is injected into the system
-    /// prompt on each message.  The gateway is Arc-backed internally so clone is cheap.
-    pub(crate) dev_gateway: dev_gateway::DevGateway,
-    /// Phase 7 Dev Ecosystem: Rolling observability window for agent-loop telemetry.
-    /// Ingests per-loop spans and exposes p50/p95/p99 + error-rate as a UCB1 reward
-    /// signal.  Shared via Arc so multiple async tasks can ingest without contention.
-    pub(crate) runtime_signals: std::sync::Arc<runtime_signal_ingestor::RuntimeSignalIngestor>,
-    /// Phase 4 Dev Ecosystem: Stop signal for the background CI polling task.
-    /// Set once during `run()` / `run_tui()` when GITHUB_TOKEN is available.
-    /// Notified on session teardown so the polling loop exits gracefully.
-    pub(crate) ci_stop: std::sync::Arc<tokio::sync::Notify>,
-    /// Phase 94: One-time onboarding check performed on first message.
-    /// Set to true after the check runs (prevents repeated file-existence checks).
-    pub(crate) onboarding_checked: bool,
-    /// Phase 95: One-time plugin recommendation check on first message.
-    pub(crate) plugin_recommendation_done: bool,
-    /// BRECHA-S3: Tools blocked during this session (name, reason).
-    ///
-    /// Accumulated from `state.blocked_tools` after each agent loop. Persists
-    /// across turns so the LlmPlanner can avoid generating steps with blocked tools.
-    /// Invariant: if a tool was blocked in turn N, the plan for turn N+1 excludes it.
-    pub(crate) session_blocked_tools: Vec<(String, String)>,
-    /// US-output-format (PASO 2-A): when true, use CiSink (NDJSON) instead of ClassicSink.
-    /// Set from --output-format json on the CLI.
-    pub(crate) use_ci_sink: bool,
-    /// Shared CiSink instance for session_end emission after loop completes.
-    /// Only populated when use_ci_sink is true.
-    pub(crate) ci_sink: Option<std::sync::Arc<crate::render::ci_sink::CiSink>>,
+
+    // ── Grouped sub-structs ──────────────────────────────────────────────────
+    /// Registries, database, config, event bus, dev gateway.
+    pub(crate) infra: ReplInfrastructure,
+    /// Permissions, pipeline, resilience.
+    pub(crate) security: ReplSecurity,
+    /// Optional capabilities (reflection, reasoning, MCP, plugins, multimodal).
+    pub(crate) features: ReplFeatures,
+    /// Context assembly: manager, metrics, governance, response cache.
+    pub(crate) ctx: ReplContext,
+    /// UI/output configuration: banner, expert mode, CI sink.
+    pub(crate) render: ReplRenderState,
+    /// Session-scoped transient cache: trace cursor, timeline, quality stats, blocked tools.
+    pub(crate) cache: ReplCacheState,
+    /// Runtime coordination: speculator, telemetry, CI stop signal, load-once guards.
+    pub(crate) runtime: ReplRuntimeControl,
 }
 
 // ── Multimodal helper ─────────────────────────────────────────────────────────
@@ -585,7 +538,7 @@ fn init_resilience(
 impl Repl {
     /// Build real FeatureStatus from current REPL configuration and state.
     fn build_feature_status(&self, tui_active: bool) -> crate::render::banner::FeatureStatus {
-        let tool_count = self.tool_registry.tool_definitions().len();
+        let tool_count = self.infra.tool_registry.tool_definitions().len();
         // Background tools enabled if tool count is 23 (20 core + 3 background)
         let background_tools_enabled = tool_count >= 23;
 
@@ -598,13 +551,13 @@ impl Repl {
 
         crate::render::banner::FeatureStatus {
             tui_active,
-            reasoning_enabled: self.reasoning_engine.is_some(),
-            orchestrator_enabled: self.config.orchestrator.enabled,
+            reasoning_enabled: self.features.reasoning_engine.is_some(),
+            orchestrator_enabled: self.infra.config.orchestrator.enabled,
             context_pipeline_active: true, // Always active (L0-L4 always present)
             tool_count,
             background_tools_enabled,
-            multimodal_enabled: self.multimodal.is_some(),
-            loop_critic_enabled: self.config.reasoning.enable_loop_critic,
+            multimodal_enabled: self.features.multimodal.is_some(),
+            loop_critic_enabled: self.infra.config.reasoning.enable_loop_critic,
             project_config: project_configured,
         }
     }
@@ -763,71 +716,187 @@ impl Repl {
             );
         }
 
-        Ok(Self {
-            editor,
-            prompt,
-            config: config.clone(),
-            provider,
-            model,
-            session,
+        // ── Paloma FFR initialization ────────────────────────────────────────
+        // Build PalomaRouter from the provider registry when paloma_enabled=true.
+        // Must happen BEFORE registry is moved into ReplInfrastructure.
+        let paloma_router = if config.agent.routing.paloma_enabled {
+            use halcon_providers::paloma_reexports::*;
+            use std::sync::Arc as StdArc;
+
+            let mut candidate_ids = Vec::new();
+            for name in registry.list() {
+                if let Some(prov) = registry.get(name) {
+                    for model in prov.supported_models() {
+                        candidate_ids.push(CandidateId(format!("{}:{}", name, model.id)));
+                    }
+                }
+            }
+            if candidate_ids.is_empty() {
+                tracing::debug!("Paloma: no candidates from registry, router disabled");
+                None
+            } else {
+                let health = StdArc::new(HealthTracker::new(&candidate_ids));
+                let budget = StdArc::new(BudgetStore::new());
+                budget.register_tenant(TenantId("default".into()), Cost(100_000_000));
+                let models: Vec<ModelEntry> = registry
+                    .list()
+                    .iter()
+                    .flat_map(|name| {
+                        let prov = match registry.get(name) {
+                            Some(p) => p,
+                            None => return Vec::new(),
+                        };
+                        prov.supported_models()
+                            .iter()
+                            .map(|info| {
+                                let cid = CandidateId(format!("{name}:{}", info.id));
+
+                                // Build modalities from ModelInfo capabilities.
+                                let mut modalities =
+                                    std::collections::BTreeSet::from([Modality::Text]);
+                                if info.supports_vision {
+                                    modalities.insert(Modality::Vision);
+                                }
+
+                                // Build capabilities from ModelInfo.
+                                let mut capabilities = std::collections::BTreeSet::new();
+                                if info.supports_streaming {
+                                    capabilities.insert(Capability::Streaming);
+                                }
+                                if info.supports_tools {
+                                    capabilities.insert(Capability::ToolUse);
+                                }
+
+                                // Real pricing from provider metadata (microdollars per token).
+                                // ModelInfo costs are in dollars per token — convert to microdollars.
+                                let input_micro = (info.cost_per_input_token * 1_000_000.0) as u64;
+                                let output_micro =
+                                    (info.cost_per_output_token * 1_000_000.0) as u64;
+
+                                let mut entry = ModelEntry {
+                                    id: cid,
+                                    target: Target {
+                                        provider: ProviderId(name.to_string()),
+                                        model: ModelId(info.id.clone()),
+                                        version: ModelVersion("v1".into()),
+                                    },
+                                    modalities,
+                                    capabilities,
+                                    context_window: info.context_window,
+                                    max_output_tokens: info.max_output_tokens,
+                                    pricing: Pricing {
+                                        input_per_token: input_micro.max(1),
+                                        output_per_token: output_micro.max(1),
+                                    },
+                                    regions: std::collections::BTreeSet::new(),
+                                    quality_scores: std::collections::BTreeMap::new(),
+                                    lifecycle_state: ModelLifecycleState::Exploration,
+                                    prior_score: None,
+                                    observation_count: 0,
+                                };
+
+                                // Apply quality priors based on model name patterns.
+                                entry.apply_quality_priors();
+                                entry
+                            })
+                            .collect::<Vec<_>>()
+                    })
+                    .collect();
+                let snapshot = RegistrySnapshot::new(1, models);
+                tracing::info!(
+                    candidates = candidate_ids.len(),
+                    "Paloma router initialized with quality priors and real pricing"
+                );
+                Some(halcon_providers::PalomaRouter::new(
+                    health, budget, snapshot,
+                ))
+            }
+        } else {
+            None
+        };
+
+        // ── Build sub-structs ─────────────────────────────────────────────
+        let infra = ReplInfrastructure::new(
+            config.clone(),
             db,
             async_db,
             registry,
             tool_registry,
-            permissions,
             event_tx,
-            context_manager,
-            response_cache,
+            detect_user_display_name(),
+            dev_gateway::DevGateway::new(),
+        );
+
+        // Activate RBAC with Developer role by default.
+        // This enables Gate 0 in the permission pipeline — tools are checked against
+        // the role's capability set before reaching conversational permission.
+        let security_bundle = ReplSecurity::new(
+            permissions,
+            security::permission_pipeline::PermissionPipeline::with_rbac(
+                halcon_security::RbacPolicy::default_halcon_policy(),
+                halcon_security::Role::Developer,
+            ),
             resilience,
+        );
+
+        let mut features_bundle = ReplFeatures::new(
             reflector,
-            no_banner,
-            explicit_model,
-            dry_run_override: None,
-            trace_cursor: None,
-            last_timeline: None,
-            context_metrics: std::sync::Arc::new(context_metrics::ContextMetrics::default()),
-            context_governance: {
-                let gov_config = &config.context.governance;
-                if gov_config.default_max_tokens_per_source > 0 {
-                    context_governance::ContextGovernance::with_default_max_tokens(
-                        gov_config.default_max_tokens_per_source,
-                    )
-                } else {
-                    context_governance::ContextGovernance::new(std::collections::HashMap::new())
-                }
-            },
-            expert_mode: false,
-            speculator: tool_speculation::ToolSpeculator::new(),
             reasoning_engine,
             mcp_manager,
-            playbook_planner: playbook_planner::PlaybookPlanner::from_default_dir(),
-            user_display_name: detect_user_display_name(),
-            multimodal: None,
+            playbook_planner::PlaybookPlanner::from_default_dir(),
+            None, // multimodal: activated later with --full
+            None, // plugin_system: loaded lazily via /plugin install or config.toml
+        );
+        features_bundle.paloma_router = paloma_router;
+
+        let ctx_governance = {
+            let gov_config = &config.context.governance;
+            if gov_config.default_max_tokens_per_source > 0 {
+                context_governance::ContextGovernance::with_default_max_tokens(
+                    gov_config.default_max_tokens_per_source,
+                )
+            } else {
+                context_governance::ContextGovernance::new(std::collections::HashMap::new())
+            }
+        };
+        let ctx_bundle = ReplContext::new(
+            context_manager,
+            std::sync::Arc::new(context_metrics::ContextMetrics::default()),
+            ctx_governance,
+            response_cache,
+        );
+
+        let render_bundle = ReplRenderState::new(
+            no_banner,
+            false, // expert_mode
+            false, // use_ci_sink
+            None,  // ci_sink
+            explicit_model,
+        );
+
+        let cache_bundle = ReplCacheState::new();
+
+        let runtime_bundle = ReplRuntimeControl::new(
+            tool_speculation::ToolSpeculator::new(),
+            std::sync::Arc::new(runtime_signal_ingestor::RuntimeSignalIngestor::new(512)),
+            std::sync::Arc::new(tokio::sync::Notify::new()),
             #[cfg(feature = "tui")]
-            ctrl_rx: None,
-            model_quality_cache: std::collections::HashMap::new(),
-            model_quality_db_loaded: false,
-            plugin_registry: None, // V3 plugins: loaded lazily via /plugin install or config.toml
-            plugin_transport_runtime: None,
-            plugin_metrics_db_loaded: false,
-            // Phase 5/7 Dev Ecosystem: initialized fresh per session.
-            // DevGateway is inert until LSP messages arrive via handle_lsp_message().
-            dev_gateway: dev_gateway::DevGateway::new(),
-            runtime_signals: std::sync::Arc::new(
-                runtime_signal_ingestor::RuntimeSignalIngestor::new(512),
-            ),
-            // Phase 4 Dev Ecosystem: stop signal for CI polling (armed in run/run_tui).
-            ci_stop: std::sync::Arc::new(tokio::sync::Notify::new()),
-            // Phase 94: Project onboarding check runs once on first message.
-            onboarding_checked: false,
-            // Phase 95: Plugin recommendation check runs once on first message.
-            plugin_recommendation_done: false,
-            // BRECHA-S3: No blocked tools at session start.
-            session_blocked_tools: vec![],
-            // US-output-format (PASO 2-A): defaults to human-readable sink.
-            // Set to true externally (via commands/chat.rs) when --output-format json is used.
-            use_ci_sink: false,
-            ci_sink: None,
+            None, // ctrl_rx: set later in run_tui()
+        );
+
+        Ok(Self {
+            editor,
+            prompt,
+            provider,
+            model,
+            session,
+            infra,
+            security: security_bundle,
+            features: features_bundle,
+            ctx: ctx_bundle,
+            render: render_bundle,
+            cache: cache_bundle,
+            runtime: runtime_bundle,
         })
     }
 
@@ -837,15 +906,16 @@ impl Repl {
     /// the interactive REPL: tool execution, context assembly, resilience, etc.
     pub async fn run_single_prompt(&mut self, prompt: &str) -> Result<()> {
         // Non-interactive mode: auto-approve tools since there's no TTY for prompts.
-        self.permissions.set_non_interactive();
+        self.security.permissions.set_non_interactive();
 
         // Warm L1 cache from L2 on startup.
-        if let Some(ref cache) = self.response_cache {
+        if let Some(ref cache) = self.ctx.response_cache {
             cache.warm_l1().await;
         }
 
         // Emit SessionStarted event.
         let _ = self
+            .infra
             .event_tx
             .send(DomainEvent::new(EventPayload::SessionStarted {
                 session_id: self.session.id,
@@ -853,15 +923,16 @@ impl Repl {
 
         // Send session_id to render sink (for TUI status bar initialization).
         use crate::render::sink::RenderSink;
-        if self.use_ci_sink {
+        if self.render.use_ci_sink {
             // Initialise the shared CiSink and emit session_start.
             let ci = self
+                .render
                 .ci_sink
                 .get_or_insert_with(|| std::sync::Arc::new(crate::render::ci_sink::CiSink::new()))
                 .clone();
             ci.session_started(&self.session.id.to_string());
         } else {
-            let sink = crate::render::sink::ClassicSink::with_expert(self.expert_mode);
+            let sink = crate::render::sink::ClassicSink::with_expert(self.render.expert_mode);
             sink.session_started(&self.session.id.to_string());
         }
 
@@ -869,7 +940,7 @@ impl Repl {
         self.handle_message(prompt).await?;
 
         // Emit session_end for CI consumers.
-        if let Some(ref ci) = self.ci_sink {
+        if let Some(ref ci) = self.render.ci_sink {
             ci.emit_session_end();
         }
 
@@ -902,7 +973,7 @@ impl Repl {
     /// is no TTY available to prompt the user.  Must be called once before the
     /// first `run_json_rpc_turn`.
     pub fn set_non_interactive_mode(&mut self) {
-        self.permissions.set_non_interactive();
+        self.security.permissions.set_non_interactive();
     }
 
     /// Start CI polling in the background when environment variables are present.
@@ -910,7 +981,7 @@ impl Repl {
     /// Reads `GITHUB_TOKEN` and `GITHUB_REPOSITORY` (format: `owner/repo`).
     /// When both are set, spawns a background task that polls GitHub Actions every
     /// 60 s and feeds results into `DevGateway::ingest_ci_event()`.
-    /// The task exits when `self.ci_stop` is notified.
+    /// The task exits when `self.runtime.ci_stop` is notified.
     fn maybe_start_ci_polling(&self) {
         use ci_result_ingestor::{CiIngestorConfig, CiResultIngestor, GithubActionsClient};
         use std::sync::Arc;
@@ -939,10 +1010,10 @@ impl Repl {
         let client = Arc::new(GithubActionsClient::new(&owner, &repo, &workflow, &token));
         let ingestor = CiResultIngestor::new(client, CiIngestorConfig::default());
         let mut rx = ingestor.subscribe();
-        let stop = Arc::clone(&self.ci_stop);
+        let stop = Arc::clone(&self.runtime.ci_stop);
 
         // Feed CI events into DevGateway so build_context() can include them.
-        let gateway = self.dev_gateway.clone();
+        let gateway = self.infra.dev_gateway.clone();
         tokio::spawn(async move {
             loop {
                 tokio::select! {
@@ -965,7 +1036,7 @@ impl Repl {
     /// Run the interactive REPL loop.
     pub async fn run(&mut self) -> Result<()> {
         // Warm L1 cache from L2 on startup.
-        if let Some(ref cache) = self.response_cache {
+        if let Some(ref cache) = self.ctx.response_cache {
             cache.warm_l1().await;
         }
 
@@ -976,6 +1047,7 @@ impl Repl {
 
         // Emit SessionStarted event.
         let _ = self
+            .infra
             .event_tx
             .send(DomainEvent::new(EventPayload::SessionStarted {
                 session_id: self.session.id,
@@ -983,14 +1055,15 @@ impl Repl {
 
         // Send session_id to render sink (for TUI status bar initialization).
         use crate::render::sink::RenderSink;
-        if self.use_ci_sink {
+        if self.render.use_ci_sink {
             let ci = self
+                .render
                 .ci_sink
                 .get_or_insert_with(|| std::sync::Arc::new(crate::render::ci_sink::CiSink::new()))
                 .clone();
             ci.session_started(&self.session.id.to_string());
         } else {
-            let sink = crate::render::sink::ClassicSink::with_expert(self.expert_mode);
+            let sink = crate::render::sink::ClassicSink::with_expert(self.render.expert_mode);
             sink.session_started(&self.session.id.to_string());
         }
 
@@ -1125,7 +1198,7 @@ impl Repl {
                                 use commands::PluginsSubcmd;
                                 match subcmd {
                                     PluginsSubcmd::Status => {
-                                        if let Some(ref arc_pr) = self.plugin_registry {
+                                        if let Some(ref arc_pr) = self.features.plugin_registry {
                                             if let Ok(reg) = arc_pr.lock() {
                                                 let ids: Vec<String> = reg
                                                     .loaded_plugin_ids()
@@ -1148,7 +1221,7 @@ impl Repl {
                                         }
                                     }
                                     PluginsSubcmd::Suggest => {
-                                        if let Some(ref arc_pr) = self.plugin_registry {
+                                        if let Some(ref arc_pr) = self.features.plugin_registry {
                                             if let Ok(reg) = arc_pr.lock() {
                                                 let cwd =
                                                     std::env::current_dir().unwrap_or_default();
@@ -1177,7 +1250,7 @@ impl Repl {
                                         println!("[plugins] Run: halcon chat --tui, then type /plugins auto");
                                     }
                                     PluginsSubcmd::Disable(id) => {
-                                        if let Some(ref arc_pr) = self.plugin_registry {
+                                        if let Some(ref arc_pr) = self.features.plugin_registry {
                                             if let Ok(mut reg) = arc_pr.lock() {
                                                 reg.auto_disable(
                                                     &id,
@@ -1189,7 +1262,7 @@ impl Repl {
                                         }
                                     }
                                     PluginsSubcmd::Enable(id) => {
-                                        if let Some(ref arc_pr) = self.plugin_registry {
+                                        if let Some(ref arc_pr) = self.features.plugin_registry {
                                             if let Ok(mut reg) = arc_pr.lock() {
                                                 reg.clear_cooling(&id);
                                                 println!("[plugins] {} — resumed", id);
@@ -1236,7 +1309,7 @@ impl Repl {
         use tokio::sync::mpsc as tokio_mpsc;
 
         // Warm L1 cache from L2 on startup.
-        if let Some(ref cache) = self.response_cache {
+        if let Some(ref cache) = self.ctx.response_cache {
             cache.warm_l1().await;
         }
 
@@ -1245,24 +1318,26 @@ impl Repl {
 
         // Emit SessionStarted event.
         let _ = self
+            .infra
             .event_tx
             .send(DomainEvent::new(EventPayload::SessionStarted {
                 session_id: self.session.id,
             }));
 
         // Create channels: UiEvents (agent → TUI) and prompts (TUI → agent).
-        // UNBOUNDED channel: prevents PermissionAwaiting from being dropped when LLM
-        // floods the channel with StreamChunk events during large outputs (e.g. 8K token
-        // game generation). The old bounded try_send silently dropped critical events
-        // → modal never showed → 60s timeout → tool denied with no user feedback.
+        // P0-C2: BoundedUiSender wraps the unbounded channel with queue-depth tracking
+        // and sheds non-critical events (StreamChunk, metrics) when depth exceeds the
+        // soft capacity limit (16384). Critical events (PermissionAwaiting, AgentDone)
+        // are always delivered. This prevents OOM from unbounded growth.
         let (ui_tx, ui_rx) = tokio_mpsc::unbounded_channel::<UiEvent>();
         let (prompt_tx, mut prompt_rx) = tokio_mpsc::unbounded_channel::<String>();
 
-        let tui_sink = TuiSink::new(ui_tx.clone());
+        let bounded_ui_tx = crate::tui::events::BoundedUiSender::new(ui_tx.clone());
+        let tui_sink = TuiSink::new(bounded_ui_tx.clone());
 
         // Expert mode: emit SOTA subsystem activation report to TUI activity stream.
         // This confirms all systems are live before the first prompt is entered.
-        if self.expert_mode {
+        if self.render.expert_mode {
             use crate::render::sink::RenderSink as _;
             let fs = self.build_feature_status(true);
             tui_sink.info("[expert] SOTA subsystems active:");
@@ -1270,8 +1345,8 @@ impl Repl {
                 "  Reasoning/UCB1={} Orchestrator={} TaskFramework={} Reflexion={}",
                 fs.reasoning_enabled,
                 fs.orchestrator_enabled,
-                self.config.task_framework.enabled,
-                self.config.reflexion.enabled,
+                self.infra.config.task_framework.enabled,
+                self.infra.config.reflexion.enabled,
             ));
             tui_sink.info(&format!(
                 "  Multimodal={} LoopCritic={} RoundScorer=on PlanCoherence=on",
@@ -1279,7 +1354,7 @@ impl Repl {
             ));
             tui_sink.info("  DevEcosystem=on [LSP:5758 CIPoll=env GitContext=on AST=on]");
             // Multimodal subsystem detailed status (Phase 62 wiring).
-            if let Some(ref mm) = self.multimodal {
+            if let Some(ref mm) = self.features.multimodal {
                 let snap = mm.metrics_snapshot();
                 tui_sink.info(&format!(
                     "  [multimodal] READY — cache_hits={} | index=active",
@@ -1291,8 +1366,8 @@ impl Repl {
                 orchestrator = fs.orchestrator_enabled,
                 multimodal = fs.multimodal_enabled,
                 loop_critic = fs.loop_critic_enabled,
-                task_framework = self.config.task_framework.enabled,
-                reflexion = self.config.reflexion.enabled,
+                task_framework = self.infra.config.task_framework.enabled,
+                reflexion = self.infra.config.reflexion.enabled,
                 "Expert mode: SOTA subsystem activation report"
             );
         }
@@ -1307,15 +1382,15 @@ impl Repl {
             use std::sync::Arc;
             const LSP_PORT: u16 = 5758;
             let lsp_addr: std::net::SocketAddr = ([127, 0, 0, 1], LSP_PORT).into();
-            let lsp_gw = Arc::new(self.dev_gateway.clone());
-            let lsp_stop = Arc::clone(&self.ci_stop);
+            let lsp_gw = Arc::new(self.infra.dev_gateway.clone());
+            let lsp_stop = Arc::clone(&self.runtime.ci_stop);
             // Separate senders: server-done and buffer-poll need distinct clones.
             let lsp_done_tx = ui_tx.clone(); // moved into LSP server task
-            let poll_gw = self.dev_gateway.clone();
+            let poll_gw = self.infra.dev_gateway.clone();
             let poll_ui_tx = ui_tx.clone(); // moved into polling task
                                             // Independent stop signal clone for the polling task so it exits
                                             // cleanly when the TUI session ends (avoids the infinite loop leak).
-            let poll_stop = Arc::clone(&self.ci_stop);
+            let poll_stop = Arc::clone(&self.runtime.ci_stop);
 
             // Start the TCP LSP accept loop in a background task.
             tokio::spawn(async move {
@@ -1360,14 +1435,14 @@ impl Repl {
 
         // Phase 96: Startup Probe — proactive project analysis at TUI launch.
         // Pre-mark flags so handle_message_with_sink() doesn't double-fire on first message.
-        self.onboarding_checked = true;
-        self.plugin_recommendation_done = true;
+        self.runtime.guards.onboarding_checked = true;
+        self.runtime.guards.plugin_recommendation_done = true;
         {
             let probe_tx = ui_tx.clone();
             let probe_cwd = std::env::current_dir().unwrap_or_default();
-            let probe_plugins_enabled = self.config.plugins.enabled;
-            let probe_registry = self.plugin_registry.clone();
-            let probe_expert = self.expert_mode;
+            let probe_plugins_enabled = self.infra.config.plugins.enabled;
+            let probe_registry = self.features.plugin_registry.clone();
+            let probe_expert = self.render.expert_mode;
             tokio::spawn(async move {
                 // Short delay so the banner renders before flooding the activity feed.
                 tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
@@ -1473,7 +1548,7 @@ impl Repl {
         // Gather banner info for TUI startup display.
         let banner_version = env!("CARGO_PKG_VERSION").to_string();
         let banner_provider = self.provider.clone();
-        let banner_provider_connected = self.registry.get(&self.provider).is_some();
+        let banner_provider_connected = self.infra.registry.get(&self.provider).is_some();
         let banner_model = self.model.clone();
         let banner_session_id = self.session.id.to_string()[..8].to_string();
         let banner_session_type = if self.session.messages.is_empty() {
@@ -1483,12 +1558,12 @@ impl Repl {
         };
 
         // Build routing display info for TUI banner.
-        let banner_routing = if !self.config.agent.routing.fallback_models.is_empty() {
+        let banner_routing = if !self.infra.config.agent.routing.fallback_models.is_empty() {
             Some(crate::render::banner::RoutingDisplay {
-                mode: self.config.agent.routing.mode.clone(),
-                strategy: self.config.agent.routing.strategy.clone(),
+                mode: self.infra.config.agent.routing.mode.clone(),
+                strategy: self.infra.config.agent.routing.strategy.clone(),
                 fallback_chain: std::iter::once(self.provider.clone())
-                    .chain(self.config.agent.routing.fallback_models.clone())
+                    .chain(self.infra.config.agent.routing.fallback_models.clone())
                     .collect(),
             })
         } else {
@@ -1497,29 +1572,29 @@ impl Repl {
 
         // Control channel: TUI → agent (pause/step/cancel).
         let (ctrl_tx, ctrl_rx) = tokio::sync::mpsc::unbounded_channel();
-        self.ctrl_rx = Some(ctrl_rx);
+        self.runtime.ctrl_rx = Some(ctrl_rx);
 
         // Permission approval channel: TUI → PermissionChecker (approve/reject).
         // Dedicated channel ensures permission decisions reach the executor even
         // while the agent loop is blocked on tool execution.
         let (perm_tx, perm_rx) =
             tokio::sync::mpsc::unbounded_channel::<halcon_core::types::PermissionDecision>();
-        self.permissions.set_tui_channel(perm_rx);
+        self.security.permissions.set_tui_channel(perm_rx);
         // Wire notification channel so permission timeouts appear in TUI activity panel.
-        self.permissions.set_notification_tx(ui_tx.clone());
+        self.security.permissions.set_notification_tx(ui_tx.clone());
 
         // Sudo password channel: TuiApp → executor's get_sudo_password().
         // Kept separate from perm_tx because PermissionDecision is Copy and cannot
         // carry a String payload. The executor awaits this after an approved sudo command.
         let (sudo_pw_tx, sudo_pw_rx) = tokio::sync::mpsc::unbounded_channel::<Option<String>>();
-        self.permissions.set_sudo_channel(sudo_pw_rx);
+        self.security.permissions.set_sudo_channel(sudo_pw_rx);
 
         // Determine initial UI mode from expert_mode flag.
-        let initial_mode = if self.expert_mode {
+        let initial_mode = if self.render.expert_mode {
             crate::tui::state::UiMode::Expert
         } else {
             // Map config string to UiMode.
-            match self.config.display.ui_mode.as_str() {
+            match self.infra.config.display.ui_mode.as_str() {
                 "minimal" => crate::tui::state::UiMode::Minimal,
                 "expert" => crate::tui::state::UiMode::Expert,
                 _ => crate::tui::state::UiMode::Standard,
@@ -1531,8 +1606,8 @@ impl Repl {
 
         // Spawn TUI render loop in a separate task.
         tracing::debug!("Spawning TUI task");
-        let async_db_clone = self.async_db.clone(); // Phase 3 SRCH-004: Pass database for search history
-        let ui_tx_for_bg = ui_tx.clone(); // Phase 45E: for background DB queries from TUI
+        let async_db_clone = self.infra.async_db.clone(); // Phase 3 SRCH-004: Pass database for search history
+        let ui_tx_for_bg = bounded_ui_tx.clone(); // Phase 45E: for background DB queries from TUI
 
         // Frontier update: check for a pending update before spawning the TUI.
         let pending_update_info = crate::commands::update::get_pending_update_info();
@@ -1593,8 +1668,8 @@ impl Repl {
         // has a full list from the start, not just models discovered at runtime.
         {
             let mut all_models: Vec<(String, String, String)> = Vec::new();
-            for name in self.registry.list() {
-                if let Some(provider) = self.registry.get(name) {
+            for name in self.infra.registry.list() {
+                if let Some(provider) = self.infra.registry.get(name) {
                     for m in provider.supported_models() {
                         let label = format!("{}/{}", name, m.id);
                         all_models.push((name.to_string(), m.id.clone(), label));
@@ -1616,8 +1691,8 @@ impl Repl {
         let session_start = std::time::Instant::now();
 
         // Phase 4: Create task manager for non-blocking agent execution.
-        let max_concurrent = self.config.agent.limits.max_concurrent_agents;
-        let mut task_manager = agent::agent_task_manager::AgentTaskManager::new(max_concurrent);
+        let max_concurrent = self.infra.config.agent.limits.max_concurrent_agents;
+        let _task_manager = agent::agent_task_manager::AgentTaskManager::new(max_concurrent);
         tracing::debug!(max_concurrent, "Agent task manager initialized");
 
         // Agent message loop: wait for prompts from TUI, process each.
@@ -1625,13 +1700,13 @@ impl Repl {
         loop {
             // Check for control events (non-blocking) before waiting for next prompt.
             // This handles TUI requests like RequestContextServers that need immediate response.
-            if let Some(ref mut ctrl) = self.ctrl_rx {
+            if let Some(ref mut ctrl) = self.runtime.ctrl_rx {
                 while let Ok(event) = ctrl.try_recv() {
                     use crate::tui::events::ControlEvent;
                     match event {
                         ControlEvent::RequestContextServers => {
                             // ✅ Collect REAL data from context_manager with runtime stats
-                            let servers = if let Some(ref cm) = self.context_manager {
+                            let servers = if let Some(ref cm) = self.ctx.manager {
                                 cm.sources_with_stats()
                                     .map(|(name, priority, stats)| {
                                         // Calcular ms desde última query
@@ -1667,7 +1742,7 @@ impl Repl {
                         ControlEvent::ResumeSession(id) => {
                             use uuid::Uuid;
                             if let Ok(uuid) = Uuid::parse_str(&id) {
-                                if let Some(ref db) = self.async_db {
+                                if let Some(ref db) = self.infra.async_db {
                                     match db.load_session(uuid).await {
                                         Ok(Some(session)) => {
                                             let rounds = session.agent_rounds as usize;
@@ -1919,7 +1994,7 @@ impl Repl {
                         match subcmd {
                             PluginsSubcmd::Status => {
                                 // Show plugin status lines in activity feed.
-                                if let Some(ref arc_pr) = self.plugin_registry {
+                                if let Some(ref arc_pr) = self.features.plugin_registry {
                                     if let Ok(reg) = arc_pr.lock() {
                                         let ids: Vec<String> = reg
                                             .loaded_plugin_ids()
@@ -1948,7 +2023,7 @@ impl Repl {
                             PluginsSubcmd::Suggest => {
                                 // Open suggestion overlay after async analysis.
                                 let ui_tx2 = ui_tx.clone();
-                                let arc_pr_clone = self.plugin_registry.clone();
+                                let arc_pr_clone = self.features.plugin_registry.clone();
                                 tokio::spawn(async move {
                                     let cwd = std::env::current_dir().unwrap_or_default();
                                     let analysis = tokio::task::spawn_blocking(move || {
@@ -1992,7 +2067,7 @@ impl Repl {
                             PluginsSubcmd::Auto { dry_run } => {
                                 // Bootstrap plugins in background.
                                 let ui_tx2 = ui_tx.clone();
-                                let arc_pr_clone = self.plugin_registry.clone();
+                                let arc_pr_clone = self.features.plugin_registry.clone();
                                 tokio::spawn(async move {
                                     let cwd = std::env::current_dir().unwrap_or_default();
                                     let analysis = tokio::task::spawn_blocking(move || {
@@ -2045,7 +2120,7 @@ impl Repl {
                                 });
                             }
                             PluginsSubcmd::Disable(id) => {
-                                if let Some(ref arc_pr) = self.plugin_registry {
+                                if let Some(ref arc_pr) = self.features.plugin_registry {
                                     if let Ok(mut reg) = arc_pr.lock() {
                                         reg.auto_disable(
                                             &id,
@@ -2060,7 +2135,7 @@ impl Repl {
                                 }
                             }
                             PluginsSubcmd::Enable(id) => {
-                                if let Some(ref arc_pr) = self.plugin_registry {
+                                if let Some(ref arc_pr) = self.features.plugin_registry {
                                     if let Ok(mut reg) = arc_pr.lock() {
                                         reg.clear_cooling(&id);
                                         let _ = ui_tx.send(UiEvent::PluginStatusChanged {
@@ -2186,6 +2261,7 @@ impl Repl {
 
         // Emit SessionEnded event (matches classic REPL behavior).
         let _ = self
+            .infra
             .event_tx
             .send(DomainEvent::new(EventPayload::SessionEnded {
                 session_id: self.session.id,
@@ -2210,6 +2286,7 @@ impl Repl {
     fn print_session_summary(&self) {
         // Emit SessionEnded event.
         let _ = self
+            .infra
             .event_tx
             .send(DomainEvent::new(EventPayload::SessionEnded {
                 session_id: self.session.id,
@@ -2247,7 +2324,7 @@ impl Repl {
     }
 
     fn print_welcome(&self) {
-        let provider_connected = self.registry.get(&self.provider).is_some();
+        let provider_connected = self.infra.registry.get(&self.provider).is_some();
         let session_short = &self.session.id.to_string()[..8];
         let session_type = if self.session.messages.is_empty() {
             "new"
@@ -2255,20 +2332,20 @@ impl Repl {
             "resumed"
         };
 
-        let routing = if !self.config.agent.routing.fallback_models.is_empty() {
+        let routing = if !self.infra.config.agent.routing.fallback_models.is_empty() {
             Some(crate::render::banner::RoutingDisplay {
-                mode: self.config.agent.routing.mode.clone(),
-                strategy: self.config.agent.routing.strategy.clone(),
+                mode: self.infra.config.agent.routing.mode.clone(),
+                strategy: self.infra.config.agent.routing.strategy.clone(),
                 fallback_chain: std::iter::once(self.provider.clone())
-                    .chain(self.config.agent.routing.fallback_models.clone())
+                    .chain(self.infra.config.agent.routing.fallback_models.clone())
                     .collect(),
             })
         } else {
             None
         };
 
-        let show =
-            !self.no_banner && crate::render::banner::should_show(self.config.display.show_banner);
+        let show = !self.render.no_banner
+            && crate::render::banner::should_show(self.infra.config.display.show_banner);
 
         if show {
             // Build real feature status for banner display.
@@ -2312,22 +2389,24 @@ impl Repl {
     /// Handle a /dry-run command: routes through the agent loop with DestructiveOnly mode.
     async fn handle_message_dry_run(&mut self, input: &str) -> Result<()> {
         use crate::render::sink::RenderSink;
-        let sink = crate::render::sink::ClassicSink::with_expert(self.expert_mode);
+        let sink = crate::render::sink::ClassicSink::with_expert(self.render.expert_mode);
         sink.info("[dry-run] Destructive tools will be skipped.");
-        self.dry_run_override = Some(halcon_core::types::DryRunMode::DestructiveOnly);
+        self.cache.dry_run_override = Some(halcon_core::types::DryRunMode::DestructiveOnly);
         self.handle_message(input).await
     }
 
     async fn handle_message(&mut self, input: &str) -> Result<()> {
         // US-output-format (PASO 2-A): route to CiSink when --output-format json is requested.
-        if self.use_ci_sink {
+        if self.render.use_ci_sink {
             let ci = self
+                .render
                 .ci_sink
                 .get_or_insert_with(|| std::sync::Arc::new(crate::render::ci_sink::CiSink::new()))
                 .clone();
             self.handle_message_with_sink(input, ci.as_ref()).await?;
         } else {
-            let classic_sink = crate::render::sink::ClassicSink::with_expert(self.expert_mode);
+            let classic_sink =
+                crate::render::sink::ClassicSink::with_expert(self.render.expert_mode);
             self.handle_message_with_sink(input, &classic_sink).await?;
             println!();
         }
@@ -2338,264 +2417,57 @@ impl Repl {
     ///
     /// Both classic REPL and TUI modes delegate here. The sink parameter
     /// abstracts away the rendering backend.
+    ///
+    /// ## Architecture (BRECHA-1 remediation)
+    ///
+    /// This function is being decomposed into 5 pipeline stages via the strangler
+    /// fig pattern. Stages are extracted incrementally into `message_pipeline/`:
+    ///   1. **Intake** → `message_pipeline::intake::IntakeStage` (MIGRATED)
+    ///   2. Context → `message_pipeline::context::ContextStage` (pending)
+    ///   3. Resolve → `message_pipeline::resolve::ResolveStage` (pending)
+    ///   4. Agent loop → `agent::run_agent_loop()` (already extracted)
+    ///   5. Post-process → `message_pipeline::post_process::PostProcessStage` (pending)
     pub(crate) async fn handle_message_with_sink(
         &mut self,
         input: &str,
         sink: &dyn crate::render::sink::RenderSink,
     ) -> Result<()> {
-        // Phase 94: One-time onboarding check (fast — file existence only, <1ms).
-        if !self.onboarding_checked {
-            self.onboarding_checked = true;
-            let cwd = std::env::current_dir().unwrap_or_default();
-            match onboarding::OnboardingCheck::run(&cwd) {
-                onboarding::OnboardingStatus::Configured { path } => {
-                    sink.project_config_loaded(&path.to_string_lossy());
-                }
-                onboarding::OnboardingStatus::NotConfigured { root, project_type } => {
-                    sink.onboarding_suggestion(&root.to_string_lossy(), &project_type);
-                }
-                onboarding::OnboardingStatus::Unknown => {}
+        // ═══ STAGE 1: INTAKE (migrated to message_pipeline::intake) ═════════
+        // Guards, plugin resume, message recording, media extraction.
+        let intake_output = message_pipeline::IntakeStage::execute(
+            input,
+            &mut self.session,
+            &mut self.runtime.guards,
+            self.features.plugin_registry.as_ref(),
+            &self.infra.config,
+            self.features.multimodal.is_some(),
+            sink,
+        )
+        .await?;
+
+        // ═══ STAGE 2a: MULTIMODAL MEDIA ANALYSIS (migrated to message_pipeline::context) ═
+        // Delegates the 5-phase media pipeline to ContextStage::analyze_media().
+        let (mut _media_context, mut _had_media) = if !intake_output.media_paths.is_empty() {
+            if let Some(ref mm_sys) = self.features.multimodal {
+                message_pipeline::context::ContextStage::analyze_media(
+                    input,
+                    &mut self.session,
+                    &intake_output.media_paths,
+                    mm_sys,
+                    self.infra.config.multimodal.api_timeout_ms,
+                    sink,
+                )
+                .await
+            } else {
+                (String::new(), false)
             }
-        }
-
-        // Phase 95: Auto-resume plugins with expired cooling periods (fast, sync).
-        {
-            if let Some(ref arc_pr) = self.plugin_registry {
-                if let Ok(mut reg) = arc_pr.lock() {
-                    reg.maybe_resume_plugins();
-                }
-            }
-        }
-
-        // Phase 95: One-time plugin recommendation on first message.
-        if !self.plugin_recommendation_done && self.config.plugins.enabled {
-            self.plugin_recommendation_done = true;
-            if let Some(ref arc_pr) = self.plugin_registry {
-                if let Ok(reg) = arc_pr.lock() {
-                    let cwd = std::env::current_dir().unwrap_or_default();
-                    let analysis = project_inspector::ProjectInspector::analyze(&cwd);
-                    let loaded: std::collections::HashSet<String> =
-                        reg.loaded_plugin_ids().map(|s| s.to_string()).collect();
-                    let rewards = reg.ucb1_rewards_snapshot();
-                    drop(reg); // release lock before calling sink
-                    let recs = plugins::PluginRecommendationEngine::recommend(
-                        &analysis, &loaded, &rewards,
-                    );
-                    let total_new: usize = recs.iter().filter(|r| !r.already_installed).count();
-                    let essential: usize = recs
-                        .iter()
-                        .filter(|r| {
-                            !r.already_installed && r.tier == plugins::RecommendationTier::Essential
-                        })
-                        .count();
-                    if total_new > 0 {
-                        sink.plugin_suggestion(total_new, essential);
-                    }
-                }
-            }
-        }
-
-        // Record user message in session.
-        self.session.add_message(ChatMessage {
-            role: Role::User,
-            content: MessageContent::Text(input.to_string()),
-        });
-
-        // ── Multimodal: detect & analyze media files referenced in user message ─────
-        // Runs only when `--full` activated the multimodal subsystem.
-        // Results: (a) inject "## Media Context" description into system prompt,
-        //          (b) replace session message Text → Blocks(text + image blocks).
-        let mut _media_context = String::new();
-        let mut _had_media = false;
-        if let Some(mm_sys) = self.multimodal.clone() {
-            let paths = extract_media_paths(input);
-            if !paths.is_empty() {
-                use crate::render::sink::RenderSink as _;
-                sink.media_analysis_started(paths.len());
-                let session_id = self.session.id.to_string();
-                let mut ctx = String::from("## Media Context\n");
-                let mut img_blocks: Vec<halcon_core::types::ContentBlock> = Vec::new();
-                let mut analyzed_count: usize = 0;
-                let mut total_tokens_estimated: u32 = 0;
-                // ── Phase 1: Sequential file reads ───────────────────────
-                let mut read_data: Vec<Option<(std::path::PathBuf, Vec<u8>)>> =
-                    Vec::with_capacity(paths.len());
-                for path in &paths {
-                    let path_str = path.to_string_lossy().to_string();
-                    match tokio::fs::read(path).await {
-                        Ok(data) => read_data.push(Some((path.clone(), data))),
-                        Err(e) => {
-                            tracing::warn!(path = %path_str, error = %e, "Cannot read media file");
-                            read_data.push(None);
-                        }
-                    }
-                }
-
-                // ── Phase 2: Audio fallback check (sequential — needs sink) ──
-                let base_timeout_ms = self.config.multimodal.api_timeout_ms;
-                let mut analysis_items: Vec<(usize, std::path::PathBuf, Vec<u8>)> = Vec::new();
-                let mut ctx_parts: Vec<Option<String>> = vec![None; paths.len()];
-
-                for (idx, entry) in read_data.into_iter().enumerate() {
-                    let Some((path, data)) = entry else { continue };
-                    let path_str = path.to_string_lossy().to_string();
-                    let fname = path
-                        .file_name()
-                        .map(|n| n.to_string_lossy().into_owned())
-                        .unwrap_or_else(|| path_str.clone());
-                    // Audio fallback: warn early if OPENAI_API_KEY is not set.
-                    let modality_hint =
-                        halcon_multimodal::MultimodalSubsystem::peek_modality(&data);
-                    if modality_hint == "audio" && !mm_sys.supports_audio() {
-                        sink.warning(
-                            &format!(
-                                "[media] Audio transcription unavailable for '{fname}': set OPENAI_API_KEY"
-                            ),
-                            Some(
-                                "Audio analysis requires OpenAI Whisper — OPENAI_API_KEY not set",
-                            ),
-                        );
-                        // Include native audio metadata (WAV/MP3: duration, rate, channels).
-                        let native_meta = halcon_multimodal::MultimodalSubsystem::native_audio_description(&data)
-                            .unwrap_or_else(|| "Audio file — transcription unavailable. Set OPENAI_API_KEY to enable Whisper.".into());
-                        ctx_parts[idx] = Some(format!("\n### {fname}\n{native_meta}\n"));
-                        continue;
-                    }
-                    analysis_items.push((idx, path, data));
-                }
-
-                // ── Phase 3: Parallel media analysis (network-bound) ──────────
-                // All API calls are dispatched concurrently — on 5 images at
-                // 30 s each this cuts wall-clock time from 150 s → ~30 s.
-                let analysis_futures: Vec<_> = analysis_items
-                    .into_iter()
-                    .map(|(idx, path, data)| {
-                        let mm = Arc::clone(&mm_sys);
-                        let sid = session_id.clone();
-                        let path_str = path.to_string_lossy().to_string();
-                        let fname = path
-                            .file_name()
-                            .map(|n| n.to_string_lossy().into_owned())
-                            .unwrap_or_else(|| path_str.clone());
-                        // Adaptive timeout: base + 5 s buffer + 2 s per MB of media.
-                        let size_mb = (data.len() / (1024 * 1024)) as u64;
-                        let adaptive_ms = base_timeout_ms
-                            .saturating_add(5_000)
-                            .saturating_add(size_mb * 2_000);
-                        async move {
-                            let timeout_dur = std::time::Duration::from_millis(adaptive_ms);
-                            let result = tokio::time::timeout(
-                                timeout_dur,
-                                mm.analyze_bytes_with_provenance(
-                                    &data,
-                                    None,
-                                    Some(sid),
-                                    Some(path_str.clone()),
-                                ),
-                            )
-                            .await;
-                            let outcome = match result {
-                                Ok(Ok(analysis)) => {
-                                    let img_block = if analysis.modality == "image" {
-                                        use base64::Engine as _;
-                                        let encoded =
-                                            base64::engine::general_purpose::STANDARD.encode(&data);
-                                        let media_type =
-                                            halcon_core::types::ImageMediaType::from_magic(&data)
-                                                .unwrap_or(
-                                                    halcon_core::types::ImageMediaType::Jpeg,
-                                                );
-                                        Some(halcon_core::types::ContentBlock::Image {
-                                            source: halcon_core::types::ImageSource::Base64 {
-                                                media_type,
-                                                data: encoded,
-                                            },
-                                        })
-                                    } else {
-                                        None
-                                    };
-                                    Ok((analysis, img_block))
-                                }
-                                Ok(Err(e)) => Err(format!("{e}")),
-                                Err(_elapsed) => {
-                                    Err(format!("timed out after {}s", adaptive_ms / 1_000))
-                                }
-                            };
-                            (idx, fname, path_str, outcome)
-                        }
-                    })
-                    .collect();
-
-                // Await all concurrently — API calls inflight simultaneously.
-                let analysis_results = futures::future::join_all(analysis_futures).await;
-
-                // ── Phase 4: Collect results (sequential — needs sink) ────────
-                for (idx, fname, path_str, outcome) in analysis_results {
-                    match outcome {
-                        Ok((analysis, img_block)) => {
-                            ctx_parts[idx] =
-                                Some(format!("\n### {fname}\n{}\n", analysis.description));
-                            if let Some(block) = img_block {
-                                img_blocks.push(block);
-                            }
-                            analyzed_count += 1;
-                            total_tokens_estimated += analysis.token_estimate;
-                            sink.media_analysis_complete(&fname, analysis.token_estimate);
-                            tracing::info!(
-                                path = %path_str,
-                                modality = %analysis.modality,
-                                tokens = analysis.token_estimate,
-                                "Multimodal analysis complete"
-                            );
-                        }
-                        Err(msg) => {
-                            sink.warning(
-                                &format!("Media analysis failed for '{fname}': {msg}"),
-                                None,
-                            );
-                            tracing::warn!(
-                                path = %path_str,
-                                error = %msg,
-                                "Media analysis error"
-                            );
-                        }
-                    }
-                }
-
-                // ── Phase 5: Assemble ctx in original path order ──────────────
-                for part in ctx_parts.into_iter().flatten() {
-                    ctx.push_str(&part);
-                }
-                // Emit final summary if at least one file was analyzed.
-                if analyzed_count > 0 {
-                    sink.info(&format!(
-                        "[media] {analyzed_count}/{} file{} analyzed — ~{total_tokens_estimated} tokens added to context",
-                        paths.len(),
-                        if paths.len() == 1 { "" } else { "s" },
-                    ));
-                }
-                // Update last session message: Text → Blocks(text + images).
-                if !img_blocks.is_empty() {
-                    if let Some(last) = self.session.messages.last_mut() {
-                        if matches!(last.role, Role::User) {
-                            let mut blocks = vec![halcon_core::types::ContentBlock::Text {
-                                text: input.to_string(),
-                            }];
-                            blocks.extend(img_blocks);
-                            last.content = MessageContent::Blocks(blocks);
-                            _had_media = true;
-                        }
-                    }
-                }
-                if ctx != "## Media Context\n" {
-                    _media_context = ctx;
-                }
-            }
-        }
-        // ── End multimodal block ──────────────────────────────────────────────────────
+        } else {
+            (String::new(), false)
+        };
 
         // Assemble context from all sources (instructions + memory).
         let working_dir = self
+            .infra
             .config
             .general
             .working_directory
@@ -2609,11 +2481,11 @@ impl Repl {
             });
 
         // Assemble context via ContextManager (if available).
-        let system_prompt = if let Some(ref mut cm) = self.context_manager {
+        let system_prompt = if let Some(ref mut cm) = self.ctx.manager {
             let context_query = ContextQuery {
                 working_directory: working_dir.clone(),
                 user_message: Some(input.to_string()),
-                token_budget: self.config.general.max_tokens as usize,
+                token_budget: self.infra.config.general.max_tokens as usize,
             };
 
             let assembled = cm.assemble(&context_query).await;
@@ -2625,24 +2497,23 @@ impl Repl {
         // P0.1: Lazy MCP initialization — connect servers and register tools on first message.
         // ensure_initialized() is idempotent: subsequent calls are no-ops.
         // Must run BEFORE tool_definitions() so MCP tools appear in the agent loop.
-        if !self.mcp_manager.is_initialized() && self.mcp_manager.has_servers() {
+        if !self.features.mcp_manager.is_initialized() && self.features.mcp_manager.has_servers() {
             let results = self
+                .features
                 .mcp_manager
-                .ensure_initialized(&mut self.tool_registry)
+                .ensure_initialized(&mut self.infra.tool_registry)
                 .await;
             for (server, result) in &results {
                 match result {
                     Ok(()) => {
-                        use crate::render::sink::RenderSink;
                         sink.info(&format!("[mcp] Server '{server}' connected"));
                     }
                     Err(e) => {
-                        use crate::render::sink::RenderSink;
                         sink.info(&format!("[mcp] Server '{server}' failed to connect: {e}"));
                     }
                 }
             }
-            let n = self.mcp_manager.registered_tool_count();
+            let n = self.features.mcp_manager.registered_tool_count();
             if n > 0 {
                 tracing::info!(tool_count = n, "MCP tools registered into agent loop");
             }
@@ -2655,7 +2526,7 @@ impl Repl {
         {
             static CENZONTLE_MCP_INIT: std::sync::Once = std::sync::Once::new();
             let should_init =
-                self.provider == "cenzontle" || self.registry.get("cenzontle").is_some();
+                self.provider == "cenzontle" || self.infra.registry.get("cenzontle").is_some();
             if should_init {
                 CENZONTLE_MCP_INIT.call_once(|| {
                     // We can't await inside call_once, so spawn a blocking init.
@@ -2670,7 +2541,9 @@ impl Repl {
                         token, None,
                     ));
                     let mut bridge = bridges::CenzontleMcpManager::new(client);
-                    bridge.ensure_initialized(&mut self.tool_registry).await;
+                    bridge
+                        .ensure_initialized(&mut self.infra.tool_registry)
+                        .await;
                     if bridge.tool_count() > 0 {
                         use crate::render::sink::RenderSink;
                         sink.info(&format!(
@@ -2683,13 +2556,13 @@ impl Repl {
         }
 
         // Build the model request from session history.
-        let tool_defs = self.tool_registry.tool_definitions();
+        let tool_defs = self.infra.tool_registry.tool_definitions();
         let mut request = ModelRequest {
             model: self.model.clone(),
             messages: self.session.messages.clone(),
             tools: tool_defs,
-            max_tokens: Some(self.config.general.max_tokens),
-            temperature: Some(self.config.general.temperature),
+            max_tokens: Some(self.infra.config.general.max_tokens),
+            temperature: Some(self.infra.config.general.temperature),
             system: system_prompt,
             stream: true,
         };
@@ -2701,7 +2574,7 @@ impl Repl {
             if !sys.contains(USER_CTX_MARKER) {
                 sys.push_str(&format!(
                     "\n\n{USER_CTX_MARKER}\nUser: {}\nDirectory: {}\nPlatform: {}",
-                    self.user_display_name,
+                    self.infra.user_display_name,
                     working_dir,
                     std::env::consts::OS,
                 ));
@@ -2722,7 +2595,7 @@ impl Repl {
                     sys.clear();
                 }
                 // Re-inject fresh snapshot (git branch, open buffers, latest CI run).
-                let dev_ctx = self.dev_gateway.build_context().await;
+                let dev_ctx = self.infra.dev_gateway.build_context().await;
                 let dev_md = dev_ctx.as_markdown();
                 if !dev_md.is_empty() {
                     sys.push_str(&format!("\n\n{dev_md}"));
@@ -2747,58 +2620,68 @@ impl Repl {
         }
 
         // Look up the active provider.
-        let provider: Option<Arc<dyn ModelProvider>> = self.registry.get(&self.provider).cloned();
+        let provider: Option<Arc<dyn ModelProvider>> =
+            self.infra.registry.get(&self.provider).cloned();
 
         match provider {
             Some(p) => {
                 // Build fallback providers from routing config.
                 let fallback_providers: Vec<(String, Arc<dyn ModelProvider>)> = self
+                    .infra
                     .config
                     .agent
                     .routing
                     .fallback_models
                     .iter()
-                    .filter_map(|name| self.registry.get(name).cloned().map(|p| (name.clone(), p)))
+                    .filter_map(|name| {
+                        self.infra
+                            .registry
+                            .get(name)
+                            .cloned()
+                            .map(|p| (name.clone(), p))
+                    })
                     .collect();
 
                 let compactor =
-                    compaction::ContextCompactor::new(self.config.agent.compaction.clone());
+                    compaction::ContextCompactor::new(self.infra.config.agent.compaction.clone());
                 let guardrails: &[Box<dyn halcon_security::Guardrail>] =
-                    if self.config.security.guardrails.enabled
-                        && self.config.security.guardrails.builtins
+                    if self.infra.config.security.guardrails.enabled
+                        && self.infra.config.security.guardrails.builtins
                     {
                         halcon_security::builtin_guardrails()
                     } else {
                         &[]
                     };
 
-                let llm_planner = if self.config.planning.adaptive {
+                let llm_planner = if self.infra.config.planning.adaptive {
                     // Phase 3: AgentModelConfig — use dedicated planner provider/model when configured.
                     // Fall back to the session's primary provider/model for backward compatibility.
                     let planner_prov: Arc<dyn halcon_core::traits::ModelProvider> = self
+                        .infra
                         .config
                         .reasoning
                         .planner_provider
                         .as_deref()
-                        .and_then(|name| self.registry.get(name))
+                        .and_then(|name| self.infra.registry.get(name))
                         .cloned()
                         .unwrap_or_else(|| Arc::clone(&p));
 
                     // Resolve planner model: explicit config > validate against planner_prov > best model.
-                    let planner_model = if let Some(ref m) = self.config.reasoning.planner_model {
-                        m.clone()
-                    } else if planner_prov.validate_model(&self.model).is_ok() {
-                        self.model.clone()
-                    } else {
-                        // Use ModelRouter::from_provider_models() to select the Balanced tier
-                        // model for planning. Balanced tier is best for planning: reliable tool
-                        // calling, not too slow/expensive, avoids over-indexing on context window
-                        // (which previously selected opus $75/M over sonnet $15/M).
-                        let router = model_router::ModelRouter::from_provider_models(
-                            planner_prov.supported_models(),
-                        );
-                        router.balanced_model().to_string()
-                    };
+                    let planner_model =
+                        if let Some(ref m) = self.infra.config.reasoning.planner_model {
+                            m.clone()
+                        } else if planner_prov.validate_model(&self.model).is_ok() {
+                            self.model.clone()
+                        } else {
+                            // Use ModelRouter::from_provider_models() to select the Balanced tier
+                            // model for planning. Balanced tier is best for planning: reliable tool
+                            // calling, not too slow/expensive, avoids over-indexing on context window
+                            // (which previously selected opus $75/M over sonnet $15/M).
+                            let router = model_router::ModelRouter::from_provider_models(
+                                planner_prov.supported_models(),
+                            );
+                            router.balanced_model().to_string()
+                        };
                     tracing::debug!(
                         provider = planner_prov.name(),
                         model = %planner_model,
@@ -2806,190 +2689,61 @@ impl Repl {
                     );
                     // BRECHA-S3: pass session-blocked tools so the planner excludes them.
                     let blocked_names: Vec<String> = self
+                        .cache
                         .session_blocked_tools
                         .iter()
                         .map(|(name, _)| name.clone())
                         .collect();
                     Some(
                         planner::LlmPlanner::new(planner_prov, planner_model)
-                            .with_max_replans(self.config.planning.max_replans)
+                            .with_max_replans(self.infra.config.planning.max_replans)
                             .with_blocked_tools(blocked_names),
                     )
                 } else {
                     None
                 };
 
-                // Phase 4: Load cross-session model quality stats from DB on first message.
-                // This seeds the ModelSelector with historical quality data so "balanced" routing
-                // exploits learned performance signals from prior sessions (not just the current session).
-                if !self.model_quality_db_loaded {
-                    self.model_quality_db_loaded = true;
-                    if let Some(ref adb) = self.async_db {
-                        match adb.load_model_quality_stats(p.name()).await {
-                            Ok(prior_stats) if !prior_stats.is_empty() => {
-                                for (model_id, success, failure, reward) in prior_stats {
-                                    let cached = self
-                                        .model_quality_cache
-                                        .entry(model_id)
-                                        .or_insert((0u32, 0u32, 0.0f64));
-                                    // Merge: take prior stats when they show more experience
-                                    // than whatever was already in the in-session cache.
-                                    if success > cached.0 {
-                                        *cached = (success, failure, reward);
-                                    }
-                                }
-                                tracing::info!(
-                                    models = self.model_quality_cache.len(),
-                                    provider = p.name(),
-                                    "Phase 4: cross-session model quality loaded from DB"
-                                );
-                            }
-                            Ok(_) => {
-                                tracing::debug!("Phase 4: no prior model quality stats in DB");
-                            }
-                            Err(e) => {
-                                tracing::warn!(error = %e, "Phase 4: failed to load model quality from DB");
-                            }
-                        }
-                    }
-                }
+                // ═══ STAGE 3a: Model quality loading (migrated to ResolveStage) ═══
+                message_pipeline::ResolveStage::load_model_quality(
+                    &mut self.runtime.guards,
+                    &self.infra.async_db,
+                    p.as_ref(),
+                    &mut self.cache,
+                )
+                .await;
 
-                // Phase 8-A: Plugin system lazy-init (V3).
-                // Discovers *.plugin.toml manifests from ~/.halcon/plugins/ and registers
-                // PluginProxyTool instances into the session ToolRegistry.  Only runs once
-                // per session (guard: self.plugin_registry.is_none()).
-                //
-                // Auto-activation: if the default plugin directory exists and contains at
-                // least one *.plugin.toml manifest, plugins are activated even when
-                // config.plugins.enabled = false.  This provides zero-config UX: drop a
-                // manifest into ~/.halcon/plugins/ and it activates on next message.
-                let plugins_should_run = self.config.plugins.enabled || {
-                    let default_dir = dirs::home_dir()
-                        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"))
-                        .join(".halcon")
-                        .join("plugins");
-                    std::fs::read_dir(&default_dir)
-                        .map(|mut entries| {
-                            entries.any(|e| {
-                                e.ok()
-                                    .and_then(|e| e.file_name().into_string().ok())
-                                    .map(|n| n.ends_with(".plugin.toml"))
-                                    .unwrap_or(false)
-                            })
-                        })
-                        .unwrap_or(false)
-                };
-                if self.plugin_registry.is_none() && plugins_should_run {
-                    // P9: Honour config.plugins.plugin_dir override; fall back to default
-                    // ~/.halcon/plugins/ when not set.
-                    let loader = if let Some(ref dir) = self.config.plugins.plugin_dir {
-                        plugins::PluginLoader::new(vec![std::path::PathBuf::from(dir)])
-                    } else {
-                        plugins::PluginLoader::default()
-                    };
-                    let mut runtime = plugins::PluginTransportRuntime::new();
-                    let mut registry = plugins::PluginRegistry::new();
-                    let load_result = loader.load_into(&mut registry, &mut runtime);
-                    if load_result.loaded > 0 {
-                        tracing::info!(
-                            loaded = load_result.loaded,
-                            skipped_invalid = load_result.skipped_invalid,
-                            skipped_checksum = load_result.skipped_checksum,
-                            "Phase 8-A: Plugin system initialised"
-                        );
-                        let runtime_arc = std::sync::Arc::new(runtime);
+                // ═══ STAGE 3b: Plugin system init (migrated to ResolveStage) ═══
+                message_pipeline::ResolveStage::init_plugins(
+                    &mut self.features,
+                    &mut self.infra.tool_registry,
+                    &self.infra.config,
+                );
 
-                        // Phase 8-A (P1 fix): Create one PluginProxyTool per capability and
-                        // register it in the session ToolRegistry so the model can see and
-                        // invoke plugin tools exactly like built-in tools.
-                        //
-                        // BEFORE this fix: PluginRegistry was populated but ToolRegistry was
-                        // never updated, making all plugin tools invisible to the model.
-                        let mut proxy_count = 0usize;
-                        for (plugin_id, manifest) in registry.loaded_plugins() {
-                            let timeout_ms = if manifest.sandbox.timeout_ms > 0 {
-                                manifest.sandbox.timeout_ms
-                            } else {
-                                30_000
-                            };
-                            for cap in &manifest.capabilities {
-                                let proxy = plugins::PluginProxyTool::new(
-                                    cap.name.clone(),
-                                    plugin_id.to_string(),
-                                    cap.clone(),
-                                    runtime_arc.clone(),
-                                    timeout_ms,
-                                );
-                                self.tool_registry.register(std::sync::Arc::new(proxy));
-                                proxy_count += 1;
-                            }
-                        }
-                        tracing::info!(
-                            proxy_tools = proxy_count,
-                            "Phase 8-A: Plugin proxy tools registered in ToolRegistry"
-                        );
-
-                        self.plugin_transport_runtime = Some(runtime_arc.clone());
-                        self.plugin_registry =
-                            Some(std::sync::Arc::new(std::sync::Mutex::new(registry)));
-                    } else {
-                        tracing::debug!(
-                            skipped_invalid = load_result.skipped_invalid,
-                            "Phase 8-A: No plugins loaded (dir empty or all invalid)"
-                        );
-                    }
-                }
-
-                // Phase 8-E: Load plugin UCB1 metrics from DB on first message (seed bandit arms).
-                // Follows the same load-once-per-session pattern as model_quality_db_loaded.
-                if !self.plugin_metrics_db_loaded {
-                    self.plugin_metrics_db_loaded = true;
-                    if let (Some(ref adb), Some(ref arc_reg)) =
-                        (&self.async_db, &self.plugin_registry)
-                    {
-                        match adb.load_plugin_metrics().await {
-                            Ok(records) if !records.is_empty() => {
-                                // records: Vec<PluginMetricsRecord>
-                                let seeds: Vec<(String, i64, f64)> = records
-                                    .iter()
-                                    .map(|r| {
-                                        (r.plugin_id.clone(), r.ucb1_n_uses, r.ucb1_sum_rewards)
-                                    })
-                                    .collect();
-                                if let Ok(mut reg) = arc_reg.lock() {
-                                    reg.seed_ucb1_from_metrics(&seeds);
-                                }
-                                tracing::info!(
-                                    plugins = records.len(),
-                                    "Phase 8-E: Plugin UCB1 metrics loaded from DB"
-                                );
-                            }
-                            Ok(_) => {
-                                tracing::debug!("Phase 8-E: no prior plugin metrics in DB");
-                            }
-                            Err(e) => {
-                                tracing::warn!(error = %e, "Phase 8-E: failed to load plugin metrics from DB");
-                            }
-                        }
-                    }
-                }
+                // ═══ STAGE 3c: Plugin UCB1 metrics loading (migrated to ResolveStage) ═
+                message_pipeline::ResolveStage::load_plugin_metrics(
+                    &mut self.runtime.guards,
+                    &self.infra.async_db,
+                    &self.features.plugin_registry,
+                )
+                .await;
 
                 // Skip model selection when user explicitly set --model on the CLI.
-                let selector = if self.config.agent.model_selection.enabled && !self.explicit_model
+                let selector = if self.infra.config.agent.model_selection.enabled
+                    && !self.render.explicit_model
                 {
                     let mut sel = model_selector::ModelSelector::new(
-                        self.config.agent.model_selection.clone(),
-                        &self.registry,
+                        self.infra.config.agent.model_selection.clone(),
+                        &self.infra.registry,
                     )
                     .with_provider_scope(p.name())
                     // Phase 3: Inject accumulated quality stats from prior messages this session
                     // so "balanced" routing starts with learned quality adjustments (not neutral prior).
-                    .with_quality_seeds(self.model_quality_cache.clone());
+                    .with_quality_seeds(self.cache.model_quality.clone());
 
                     // P3: Provider health routing — populate real p95 latency hints from
                     // the metrics DB so "fast" strategy routes to lowest-latency models.
-                    if let Some(ref db) = self.db {
-                        let hints = build_latency_hints_from_db(db, &self.registry);
+                    if let Some(ref db) = self.infra.db {
+                        let hints = build_latency_hints_from_db(db, &self.infra.registry);
                         if !hints.is_empty() {
                             sel = sel.with_latency_hints(hints);
                         }
@@ -3001,94 +2755,55 @@ impl Repl {
                 };
 
                 // Create task bridge when structured task framework is enabled.
-                let mut task_bridge_inst = if self.config.task_framework.enabled {
-                    Some(task_bridge::TaskBridge::new(&self.config.task_framework))
+                let mut task_bridge_inst = if self.infra.config.task_framework.enabled {
+                    Some(task_bridge::TaskBridge::new(
+                        &self.infra.config.task_framework,
+                    ))
                 } else {
                     None
                 };
 
-                // Phase 1.1: Load cross-session UCB1 experience on first use (lazy, one-time per session).
-                // The write path (save_reasoning_experience) runs every turn.
-                // The read path was NEVER called — UCB1 always started naive. This fixes that.
-                if let Some(ref mut engine) = self.reasoning_engine {
-                    if !engine.is_experience_loaded() {
-                        // Convert Debug-format strings ("CodeGeneration") → snake_case ("code_generation")
-                        // needed by TaskType::from_str / ReasoningStrategy::from_str.
-                        fn pascal_to_snake(s: &str) -> String {
-                            let mut out = String::with_capacity(s.len() + 4);
-                            for (i, c) in s.chars().enumerate() {
-                                if c.is_uppercase() && i > 0 {
-                                    out.push('_');
-                                }
-                                out.extend(c.to_lowercase());
-                            }
-                            out
-                        }
-                        if let Some(ref adb) = self.async_db {
-                            match adb.load_all_reasoning_experiences().await {
-                                Ok(exps) => {
-                                    let parsed: Vec<_> = exps
-                                        .iter()
-                                        .filter_map(|e| {
-                                            let tt = task_analyzer::TaskType::from_str(
-                                                &pascal_to_snake(&e.task_type),
-                                            )?;
-                                            let st =
-                                                strategy_selector::ReasoningStrategy::from_str(
-                                                    &pascal_to_snake(&e.strategy),
-                                                )?;
-                                            Some((tt, st, e.avg_score, e.uses))
-                                        })
-                                        .collect();
-                                    let count = parsed.len();
-                                    engine.load_experience(parsed); // sets experience_loaded = true
-                                    tracing::info!(
-                                        entries = count,
-                                        "UCB1: cross-session experience loaded"
-                                    );
-                                }
-                                Err(e) => {
-                                    tracing::warn!("UCB1 load_experience failed: {e}");
-                                    engine.mark_experience_loaded(); // suppress future retries this session
-                                }
-                            }
-                        } else {
-                            engine.mark_experience_loaded(); // no DB — skip all future attempts
-                        }
-                    }
-                }
+                // ═══ STAGE 3d: UCB1 experience loading (migrated to ResolveStage) ═══
+                message_pipeline::ResolveStage::load_reasoning_experience(
+                    &mut self.features,
+                    &self.infra.async_db,
+                )
+                .await;
 
                 // FASE 3.1: PRE-LOOP reasoning analysis (when reasoning engine enabled).
-                let reasoning_analysis = if let Some(ref mut engine) = self.reasoning_engine {
+                let reasoning_analysis = if let Some(ref mut engine) =
+                    self.features.reasoning_engine
+                {
                     sink.phase_started("reasoning", "Selecting optimal strategy...");
                     // P0-1: pass provider models so ModelRouter can classify tiers from real
                     // metadata instead of hardcoded DeepSeek names.
                     let provider_models: Vec<halcon_core::types::ModelInfo> = self
+                        .infra
                         .registry
                         .get(&self.provider)
                         .map(|p| p.supported_models().to_vec())
                         .unwrap_or_default();
                     let analysis =
-                        engine.pre_loop(input, &self.config.agent.limits, &provider_models);
+                        engine.pre_loop(input, &self.infra.config.agent.limits, &provider_models);
                     sink.phase_ended();
 
                     // Emit ReasoningStarted event.
-                    let _ = self
-                        .event_tx
-                        .send(DomainEvent::new(EventPayload::ReasoningStarted {
+                    let _ = self.infra.event_tx.send(DomainEvent::new(
+                        EventPayload::ReasoningStarted {
                             query_hash: analysis.analysis.task_hash.clone(),
                             task_type: analysis.analysis.task_type.as_str().to_string(),
                             complexity: format!("{:?}", analysis.analysis.complexity),
-                        }));
+                        },
+                    ));
 
                     // Emit StrategySelected event.
-                    let _ = self
-                        .event_tx
-                        .send(DomainEvent::new(EventPayload::StrategySelected {
+                    let _ = self.infra.event_tx.send(DomainEvent::new(
+                        EventPayload::StrategySelected {
                             strategy: analysis.strategy.as_str().to_string(),
                             confidence: 0.8, // Placeholder confidence
                             task_type: analysis.analysis.task_type.as_str().to_string(),
-                        }));
+                        },
+                    ));
 
                     // Note: reasoning_status in pre-loop doesn't have score/success yet
                     tracing::info!(
@@ -3107,7 +2822,7 @@ impl Repl {
                 let agent_limits = reasoning_analysis
                     .as_ref()
                     .map(|a| &a.adjusted_limits)
-                    .unwrap_or(&self.config.agent.limits);
+                    .unwrap_or(&self.infra.config.agent.limits);
 
                 // Build StrategyContext from UCB1 PreLoopAnalysis (Step 9a).
                 let strategy_ctx: Option<agent_types::StrategyContext> = reasoning_analysis
@@ -3120,62 +2835,66 @@ impl Repl {
                         routing_bias: a.plan.routing_bias.clone(),
                         task_type: a.analysis.task_type,
                         complexity: a.analysis.complexity,
+                        // Wave 6: Wire config flag to StrategyContext.
+                        use_unified_evaluator: self.infra.config.reasoning.use_unified_evaluator,
                     });
 
                 // Build critic provider/model from config (Step 9b — G2 critic separation).
                 let critic_prov: Option<std::sync::Arc<dyn halcon_core::traits::ModelProvider>> =
-                    self.config
+                    self.infra
+                        .config
                         .reasoning
                         .critic_provider
                         .as_deref()
-                        .and_then(|name| self.registry.get(name))
+                        .and_then(|name| self.infra.registry.get(name))
                         .cloned();
-                let critic_mdl: Option<String> = self.config.reasoning.critic_model.clone();
+                let critic_mdl: Option<String> = self.infra.config.reasoning.critic_model.clone();
 
                 let ctx = agent::AgentContext {
                     provider: &p,
                     session: &mut self.session,
                     request: &request,
-                    tool_registry: &self.tool_registry,
-                    permissions: &mut self.permissions,
+                    tool_registry: &self.infra.tool_registry,
+                    permissions: &mut self.security.permissions,
+                    permission_pipeline: &mut self.security.permission_pipeline,
                     working_dir: &working_dir,
-                    event_tx: &self.event_tx,
-                    trace_db: self.async_db.as_ref(),
+                    event_tx: &self.infra.event_tx,
+                    trace_db: self.infra.async_db.as_ref(),
                     limits: agent_limits,
-                    response_cache: self.response_cache.as_ref(),
-                    resilience: &mut self.resilience,
+                    response_cache: self.ctx.response_cache.as_ref(),
+                    resilience: &mut self.security.resilience,
                     fallback_providers: &fallback_providers,
-                    routing_config: &self.config.agent.routing,
+                    routing_config: &self.infra.config.agent.routing,
                     compactor: Some(&compactor),
                     // P1.1: Try PlaybookPlanner first (zero LLM latency). Fall back to LlmPlanner.
-                    planner: if self.playbook_planner.find_match(input).is_some() {
-                        Some(&self.playbook_planner as &dyn Planner)
+                    planner: if self.features.playbook_planner.find_match(input).is_some() {
+                        Some(&self.features.playbook_planner as &dyn Planner)
                     } else {
                         llm_planner.as_ref().map(|p| p as &dyn Planner)
                     },
                     guardrails,
-                    reflector: self.reflector.as_ref(),
+                    reflector: self.features.reflector.as_ref(),
                     render_sink: sink,
                     replay_tool_executor: None,
                     phase14: halcon_core::types::Phase14Context {
-                        dry_run_mode: self.dry_run_override.take().unwrap_or_default(),
+                        dry_run_mode: self.cache.dry_run_override.take().unwrap_or_default(),
                         ..Default::default()
                     },
                     model_selector: selector.as_ref(),
-                    registry: Some(&self.registry),
+                    registry: Some(&self.infra.registry),
                     episode_id: Some(uuid::Uuid::new_v4()),
-                    planning_config: &self.config.planning,
-                    orchestrator_config: &self.config.orchestrator,
-                    tool_selection_enabled: self.config.context.dynamic_tool_selection,
+                    planning_config: &self.infra.config.planning,
+                    orchestrator_config: &self.infra.config.orchestrator,
+                    tool_selection_enabled: self.infra.config.context.dynamic_tool_selection,
                     task_bridge: task_bridge_inst.as_mut(),
-                    context_metrics: Some(&self.context_metrics),
-                    context_manager: self.context_manager.as_mut(),
+                    context_metrics: Some(&self.ctx.metrics),
+                    context_manager: self.ctx.manager.as_mut(),
                     // Phase 43 / GAP-5: pass control channel receiver.
                     // TUI: uses its own control channel (Pause/Step/Cancel from TUI events).
                     // Classic REPL (non-TUI): create a simple cancel-only channel wired to
                     // Ctrl-C via tokio::signal::ctrl_c() so the agent loop can exit gracefully.
                     #[cfg(feature = "tui")]
-                    ctrl_rx: self.ctrl_rx.take(),
+                    ctrl_rx: self.runtime.ctrl_rx.take(),
                     #[cfg(not(feature = "tui"))]
                     ctrl_rx: {
                         let (classic_ctrl_tx, classic_ctrl_rx) = tokio::sync::mpsc::channel::<
@@ -3190,29 +2909,30 @@ impl Repl {
                         });
                         Some(classic_ctrl_rx)
                     },
-                    speculator: &self.speculator,
-                    security_config: &self.config.security,
+                    speculator: &self.runtime.speculator,
+                    security_config: &self.infra.config.security,
                     strategy_context: strategy_ctx.clone(),
                     critic_provider: critic_prov.clone(),
                     critic_model: critic_mdl.clone(),
-                    plugin_registry: self.plugin_registry.clone(),
+                    plugin_registry: self.features.plugin_registry.clone(),
                     is_sub_agent: false,
                     requested_provider: Some(self.provider.clone()),
-                    policy: std::sync::Arc::new(self.config.policy.clone()),
+                    policy: std::sync::Arc::new(self.infra.config.policy.clone()),
+                    paloma_router: self.features.paloma_router.as_ref(),
                 };
                 // Fix: restore ctrl_rx before propagating any error so TUI controls
                 // (Pause/Step/Cancel) remain functional across agent loop failures.
-                // Previously `?` would drop ctrl_rx on Err, leaving self.ctrl_rx = None
+                // Previously `?` would drop ctrl_rx on Err, leaving self.runtime.ctrl_rx = None
                 // for the rest of the session.
                 #[allow(unused_mut)]
                 let mut agent_loop_result = agent::run_agent_loop(ctx).await;
 
                 // Phase 43: restore control channel receiver for reuse across TUI messages.
                 // We restore from AgentLoopResult on Ok. On Err the channel was consumed
-                // inside run_agent_loop; we leave self.ctrl_rx as None in that rare case.
+                // inside run_agent_loop; we leave self.runtime.ctrl_rx as None in that rare case.
                 #[cfg(feature = "tui")]
                 if let Ok(ref mut r) = agent_loop_result {
-                    self.ctrl_rx = r.ctrl_rx.take();
+                    self.runtime.ctrl_rx = r.ctrl_rx.take();
                 }
 
                 let mut result = agent_loop_result?;
@@ -3220,18 +2940,23 @@ impl Repl {
                 // BRECHA-S3: merge blocked tools from this loop into session state.
                 // Dedup by name so repeated denials don't grow the list unboundedly.
                 for (name, reason) in result.blocked_tools.drain(..) {
-                    if !self.session_blocked_tools.iter().any(|(n, _)| n == &name) {
+                    if !self
+                        .cache
+                        .session_blocked_tools
+                        .iter()
+                        .any(|(n, _)| n == &name)
+                    {
                         tracing::info!(
                             tool = %name,
                             reason = %reason,
                             "BRECHA-S3: tool blocked this turn — will be excluded from future plans"
                         );
-                        self.session_blocked_tools.push((name, reason));
+                        self.cache.session_blocked_tools.push((name, reason));
                     }
                 }
 
                 // Cache timeline for --timeline exit hook.
-                self.last_timeline = result.timeline_json.clone();
+                self.cache.last_timeline = result.timeline_json.clone();
 
                 // Phase 1.2: Variables for capturing critic retry decision (must be outside
                 // the reasoning_engine borrow so we can re-borrow self.session etc. for the retry).
@@ -3246,7 +2971,7 @@ impl Repl {
 
                 // FASE 3.1: POST-LOOP reasoning evaluation (when reasoning engine enabled).
                 // Step 9e: Use reward_pipeline::compute_reward() for richer UCB1 signal.
-                if let Some(ref mut engine) = self.reasoning_engine {
+                if let Some(ref mut engine) = self.features.reasoning_engine {
                     if let Some(ref analysis) = reasoning_analysis {
                         // Build multi-signal reward from all available signals.
                         let round_scores: Vec<f32> = result
@@ -3270,8 +2995,10 @@ impl Repl {
                             critic_unavailable: result.critic_unavailable,
                             evidence_coverage: result.evidence_coverage,
                         };
-                        let reward_computation =
-                            reward_pipeline::compute_reward(&raw_signals, &self.config.policy);
+                        let reward_computation = reward_pipeline::compute_reward(
+                            &raw_signals,
+                            &self.infra.config.policy,
+                        );
                         // Step 5 plugin blending: apply plugin success rate signal (10% weight).
                         let blended_reward = reward_pipeline::plugin_adjusted_reward(
                             reward_computation.final_reward as f64,
@@ -3290,7 +3017,7 @@ impl Repl {
                         captured_pipeline_reward = Some((blended_reward, evaluation.success));
 
                         // Emit EvaluationCompleted event.
-                        let _ = self.event_tx.send(DomainEvent::new(
+                        let _ = self.infra.event_tx.send(DomainEvent::new(
                             EventPayload::EvaluationCompleted {
                                 score: evaluation.score,
                                 success: evaluation.success,
@@ -3308,7 +3035,7 @@ impl Repl {
                         );
 
                         // Emit ExperienceRecorded event.
-                        let _ = self.event_tx.send(DomainEvent::new(
+                        let _ = self.infra.event_tx.send(DomainEvent::new(
                             EventPayload::ExperienceRecorded {
                                 task_type: evaluation.task_type.as_str().to_string(),
                                 strategy: evaluation.strategy.as_str().to_string(),
@@ -3326,7 +3053,7 @@ impl Repl {
                                 strategy = %evaluation.strategy.as_str().to_string(),
                                 "P1-D: Skipping UCB1 record — critic_unavailable=true, reward signal unreliable"
                             );
-                        } else if let Some(ref adb) = self.async_db {
+                        } else if let Some(ref adb) = self.infra.async_db {
                             match adb
                                 .save_reasoning_experience(
                                     evaluation.task_type.as_str(),
@@ -3377,7 +3104,7 @@ impl Repl {
                             let critic_halt = supervisor::LoopCritic::should_halt_raw(
                                 cv.achieved,
                                 cv.confidence,
-                                self.config.policy.halt_confidence_threshold,
+                                self.infra.config.policy.halt_confidence_threshold,
                             );
                             // Minimum confidence required for a critic failure to
                             // justify re-running the entire agent loop.  A critic
@@ -3387,7 +3114,8 @@ impl Repl {
                             // the full agent loop, use `cv.gaps` to identify which
                             // plan steps failed and retry only those via the
                             // orchestrator's selective re-dispatch.
-                            let min_retry_confidence = self.config.policy.min_retry_confidence;
+                            let min_retry_confidence =
+                                self.infra.config.policy.min_retry_confidence;
                             // Phase 2 SLA: gate retries through SLA budget.
                             // retry_attempt=0 means this is the first retry (critic_retry_needed triggers ONE retry).
                             let sla_allows = result
@@ -3419,36 +3147,21 @@ impl Repl {
 
                 // Phase 1.2: Actual in-session LoopCritic retry.
                 // Now that the reasoning_engine borrow has been released, we can mutably
-                // access self.session + self.permissions + self.resilience for the retry.
+                // access self.session + self.security.permissions + self.security.resilience for the retry.
                 // This is the structural change: previously this was advisory (just logs).
                 // Now it performs a real second agent loop invocation within the same turn.
                 if critic_retry_needed {
                     if let Some((confidence, gaps, retry_instr)) = critic_retry_info {
-                        let instr = retry_instr.as_deref().unwrap_or(
-                            "Your previous response did not fully complete the task. Please address all missing elements."
-                        );
-                        // BRECHA-R1 + FASE 5: If sub-agent steps failed, tell the planner explicitly
-                        // with categorized error info so it generates ALTERNATIVE approaches.
-                        let failed_steps_note = if !result.failed_sub_agent_steps.is_empty() {
-                            format!(
-                                "\n\nFAILED APPROACHES (do NOT repeat these — use a different method):\n{}",
-                                result.failed_sub_agent_steps.iter()
-                                    .map(|ctx| format!("  - [{}] {}: {}", ctx.error_category.label(), ctx.description, ctx.error_message))
-                                    .collect::<Vec<_>>()
-                                    .join("\n")
-                            )
-                        } else {
-                            String::new()
+                        // ═══ STAGE 5: Critic retry (pure logic migrated to PostProcessStage) ═══
+                        let decision = message_pipeline::post_process::CriticRetryDecision {
+                            should_retry: true,
+                            confidence,
+                            gaps,
+                            retry_instruction: retry_instr,
                         };
-                        let retry_text = format!(
-                            "[Critic retry]: Task incomplete. Missing: {}. Instruction: {}{}",
-                            if gaps.is_empty() {
-                                "see previous response".to_string()
-                            } else {
-                                gaps.join("; ")
-                            },
-                            instr,
-                            failed_steps_note
+                        let retry_text = message_pipeline::PostProcessStage::build_retry_text(
+                            &decision,
+                            &result.failed_sub_agent_steps,
                         );
 
                         sink.info(&format!(
@@ -3456,26 +3169,16 @@ impl Repl {
                             confidence * 100.0
                         ));
 
-                        // Inject retry instruction into session (already has agent's first response).
                         self.session.add_message(ChatMessage {
                             role: Role::User,
                             content: MessageContent::Text(retry_text),
                         });
 
-                        // F4 RetryMutation: compute structural mutation for the retry.
-                        // Derive plan_depth from actual plan (was hardcoded to 5).
-                        let actual_plan_depth = result
-                            .timeline_json
-                            .as_ref()
-                            .and_then(|json| {
-                                // Parse step count from timeline JSON.
-                                serde_json::from_str::<serde_json::Value>(json)
-                                    .ok()
-                                    .and_then(|v| {
-                                        v.get("steps")?.as_array().map(|a| a.len() as u32)
-                                    })
-                            })
-                            .unwrap_or(5);
+                        // Compute retry mutation (pure).
+                        let actual_plan_depth =
+                            message_pipeline::PostProcessStage::derive_plan_depth(
+                                &result.timeline_json,
+                            );
                         let mutation = {
                             use crate::repl::retry_mutation::*;
                             let params = RetryParams {
@@ -3490,52 +3193,31 @@ impl Repl {
                             };
                             let fallbacks: Vec<String> =
                                 fallback_providers.iter().map(|(n, _)| n.clone()).collect();
-                            let failures = &result.tool_trust_failures;
-                            compute_mutation(&params, 1, failures, &fallbacks, &self.config.policy)
+                            compute_mutation(
+                                &params,
+                                1,
+                                &result.tool_trust_failures,
+                                &fallbacks,
+                                &self.infra.config.policy,
+                            )
                         };
 
-                        // Apply ALL mutation axes to build the retry request.
-                        let mut r_model = request.model.clone();
-                        let mut r_temp = request.temperature;
-                        let mut r_tools = request.tools.clone();
-                        let mut r_max_rounds = agent_limits.max_rounds;
-                        let mut retry_provider_override: Option<&Arc<dyn ModelProvider>> = None;
-                        if let Some(ref m) = mutation {
-                            for axis in &m.mutations {
-                                match axis {
-                                    crate::repl::retry_mutation::MutationAxis::ModelFallback { to, .. } => {
-                                        r_model = to.clone();
-                                        // Look up the actual provider Arc for the fallback model.
-                                        if let Some((_, fp)) = fallback_providers.iter().find(|(n, _)| n == to) {
-                                            retry_provider_override = Some(fp);
-                                            tracing::info!(to = %to, "RetryMutation: switching provider for retry");
-                                        }
-                                    }
-                                    crate::repl::retry_mutation::MutationAxis::TemperatureIncreased { to, .. } => {
-                                        r_temp = Some(*to);
-                                    }
-                                    crate::repl::retry_mutation::MutationAxis::ToolExposureReduced { removed } => {
-                                        r_tools.retain(|t| !removed.contains(&t.name));
-                                    }
-                                    crate::repl::retry_mutation::MutationAxis::PlanDepthReduced { from, to } => {
-                                        // Reduce max_rounds proportionally to plan depth reduction.
-                                        // This forces replanning with fewer steps on the retry.
-                                        if *from > 0 {
-                                            let ratio = *to as f64 / *from as f64;
-                                            r_max_rounds = ((r_max_rounds as f64 * ratio).ceil() as usize).max(3);
-                                            tracing::info!(
-                                                from_depth = from, to_depth = to,
-                                                new_max_rounds = r_max_rounds,
-                                                "RetryMutation: PlanDepthReduced — clamped max_rounds"
-                                            );
-                                        }
-                                    }
-                                }
-                            }
-                            tracing::info!(axes = m.mutations.len(), "RetryMutation: applied");
-                        }
+                        // Apply mutation axes (pure).
+                        let (r_model, r_temp, r_tools, r_max_rounds, fallback_name) =
+                            message_pipeline::PostProcessStage::apply_mutation_axes(
+                                &mutation,
+                                &request,
+                                agent_limits.max_rounds,
+                            );
 
-                        // Select the provider for the retry — fallback if ModelFallback fired, else original.
+                        // Resolve retry provider.
+                        let retry_provider_override: Option<&Arc<dyn ModelProvider>> =
+                            fallback_name.as_ref().and_then(|name| {
+                                fallback_providers
+                                    .iter()
+                                    .find(|(n, _)| n == name)
+                                    .map(|(_, fp)| fp)
+                            });
                         let retry_provider_ref: &Arc<dyn ModelProvider> =
                             retry_provider_override.unwrap_or(&p);
 
@@ -3561,16 +3243,17 @@ impl Repl {
                             provider: retry_provider_ref,
                             session: &mut self.session,
                             request: &retry_request,
-                            tool_registry: &self.tool_registry,
-                            permissions: &mut self.permissions,
+                            tool_registry: &self.infra.tool_registry,
+                            permissions: &mut self.security.permissions,
+                            permission_pipeline: &mut self.security.permission_pipeline,
                             working_dir: &working_dir,
-                            event_tx: &self.event_tx,
-                            trace_db: self.async_db.as_ref(),
+                            event_tx: &self.infra.event_tx,
+                            trace_db: self.infra.async_db.as_ref(),
                             limits: &retry_limits,
-                            response_cache: self.response_cache.as_ref(),
-                            resilience: &mut self.resilience,
+                            response_cache: self.ctx.response_cache.as_ref(),
+                            resilience: &mut self.security.resilience,
                             fallback_providers: &fallback_providers,
-                            routing_config: &self.config.agent.routing,
+                            routing_config: &self.infra.config.agent.routing,
                             compactor: Some(&compactor),
                             // DECISION: PlaybookPlanner is tried BEFORE LlmPlanner because:
                             // 1. Playbooks are deterministic — no LLM call, no token cost
@@ -3581,45 +3264,50 @@ impl Repl {
                             //    playbook), we fall through transparently — zero behavioral
                             //    change for tasks without playbooks.
                             // See US-playbook (PASO 4-D).
-                            planner: if self.playbook_planner.find_match(input).is_some() {
-                                Some(&self.playbook_planner as &dyn Planner)
+                            planner: if self.features.playbook_planner.find_match(input).is_some() {
+                                Some(&self.features.playbook_planner as &dyn Planner)
                             } else {
                                 llm_planner.as_ref().map(|lp| lp as &dyn Planner)
                             },
                             guardrails,
-                            reflector: self.reflector.as_ref(),
+                            reflector: self.features.reflector.as_ref(),
                             render_sink: sink,
                             replay_tool_executor: None,
                             phase14: halcon_core::types::Phase14Context::default(),
                             model_selector: selector.as_ref(),
-                            registry: Some(&self.registry),
+                            registry: Some(&self.infra.registry),
                             episode_id: Some(uuid::Uuid::new_v4()),
-                            planning_config: &self.config.planning,
-                            orchestrator_config: &self.config.orchestrator,
-                            tool_selection_enabled: self.config.context.dynamic_tool_selection,
+                            planning_config: &self.infra.config.planning,
+                            orchestrator_config: &self.infra.config.orchestrator,
+                            tool_selection_enabled: self
+                                .infra
+                                .config
+                                .context
+                                .dynamic_tool_selection,
                             task_bridge: None, // task_bridge state committed from first loop
-                            context_metrics: Some(&self.context_metrics),
-                            context_manager: self.context_manager.as_mut(),
+                            context_metrics: Some(&self.ctx.metrics),
+                            context_manager: self.ctx.manager.as_mut(),
                             #[cfg(feature = "tui")]
-                            ctrl_rx: self.ctrl_rx.take(),
+                            ctrl_rx: self.runtime.ctrl_rx.take(),
                             #[cfg(not(feature = "tui"))]
                             ctrl_rx: None,
-                            speculator: &self.speculator,
-                            security_config: &self.config.security,
+                            speculator: &self.runtime.speculator,
+                            security_config: &self.infra.config.security,
                             strategy_context: strategy_ctx.clone(),
                             critic_provider: critic_prov.clone(),
                             critic_model: critic_mdl.clone(),
                             plugin_registry: None, // retry doesn't re-share plugin state
                             is_sub_agent: false,
                             requested_provider: Some(self.provider.clone()),
-                            policy: std::sync::Arc::new(self.config.policy.clone()),
+                            policy: std::sync::Arc::new(self.infra.config.policy.clone()),
+                            paloma_router: self.features.paloma_router.as_ref(),
                         };
 
                         #[allow(unused_mut)]
                         let mut retry_loop_result = agent::run_agent_loop(retry_ctx).await;
                         #[cfg(feature = "tui")]
                         if let Ok(ref mut r) = retry_loop_result {
-                            self.ctrl_rx = r.ctrl_rx.take();
+                            self.runtime.ctrl_rx = r.ctrl_rx.take();
                         }
                         if let Ok(retry_r) = retry_loop_result {
                             // Accumulate tokens from retry into session counters.
@@ -3635,273 +3323,50 @@ impl Repl {
                     }
                 }
 
-                // Phase 2 Causality Enforcement: Unified reward → ModelSelector.record_outcome().
-                //
-                // This is the reward contamination fix. Previously agent.rs called
-                // record_outcome() with a coarse 4-value mapping INSIDE the loop, giving
-                // the quality tracker a completely different (and less accurate) signal than
-                // the 5-signal reward_pipeline used by the UCB1 engine. Now:
-                //   - When reasoning engine is active: use the pipeline reward captured above.
-                //   - When reasoning engine is disabled: compute a coarse formula here once.
-                //
-                // Uses result.last_model_used so we record the model that actually ran the
-                // final round (possibly changed by fallback or ModelSelector mid-session).
-                if let Some(ref sel) = selector {
-                    if let Some(model_id) = result.last_model_used.as_deref() {
-                        let (reward, success) = if let Some((pr, ps)) = captured_pipeline_reward {
-                            // Reasoning engine was active: use 5-signal pipeline reward.
-                            (pr, ps)
-                        } else {
-                            // Coarse fallback: stop-condition mapping (2-level only).
-                            let coarse_success = matches!(
-                                result.stop_condition,
-                                agent_types::StopCondition::EndTurn
-                                    | agent_types::StopCondition::ForcedSynthesis
-                            );
-                            let coarse_reward = match result.stop_condition {
-                                agent_types::StopCondition::EndTurn => 0.85,
-                                agent_types::StopCondition::ForcedSynthesis => 0.65,
-                                agent_types::StopCondition::MaxRounds => 0.40,
-                                agent_types::StopCondition::TokenBudget
-                                | agent_types::StopCondition::DurationBudget
-                                | agent_types::StopCondition::CostBudget
-                                | agent_types::StopCondition::SupervisorDenied => 0.30,
-                                // User-cancelled: partial credit (not a model/task failure).
-                                agent_types::StopCondition::Interrupted => 0.50,
-                                // Hard failures: zero reward so UCB1 avoids bad strategies.
-                                _ => 0.0,
-                            };
-                            (coarse_reward, coarse_success)
-                        };
-                        sel.record_outcome(model_id, reward, success);
-                        tracing::debug!(
-                            model_id,
-                            reward,
-                            success,
-                            via = if captured_pipeline_reward.is_some() {
-                                "pipeline"
-                            } else {
-                                "coarse"
-                            },
-                            "Phase 2: ModelSelector quality record unified"
-                        );
-                    }
-                    // Phase 3: Snapshot quality stats back to Repl-level cache so the NEXT
-                    // message starts with informed priors (not neutral 0.5).
-                    self.model_quality_cache = sel.snapshot_quality_stats();
-                    tracing::debug!(
-                        models_tracked = self.model_quality_cache.len(),
-                        "Phase 3: Quality stats snapshot saved for next message"
-                    );
+                // ═══ STAGE 5: Model quality recording (migrated to PostProcessStage) ═══
+                message_pipeline::PostProcessStage::record_model_quality(
+                    &selector,
+                    &result,
+                    captured_pipeline_reward,
+                    &mut self.cache,
+                    &self.infra.config,
+                    &self.infra.async_db,
+                    p.name(),
+                    sink,
+                );
 
-                    // Phase 7: Provider quality gate — warn when all tracked models are degraded.
-                    // Fires after record_outcome() so the new outcome is included in the check.
-                    // Min 5 interactions required to avoid false positives on cold-start.
-                    if let Some(warning) = sel
-                        .quality_gate_check_with_threshold(5, self.config.policy.model_quality_gate)
-                    {
-                        sink.warning(&warning, None);
-                        tracing::warn!(
-                            provider = p.name(),
-                            "Phase 7: Provider quality degradation detected"
-                        );
-                    }
+                // ═══ STAGE 5a: Plugin metrics (migrated to PostProcessStage) ═══
+                message_pipeline::PostProcessStage::record_plugin_metrics(
+                    &self.features.plugin_registry,
+                    &result,
+                    &self.infra.async_db,
+                );
 
-                    // Phase 4: Persist quality stats to DB (fire-and-forget) for cross-session
-                    // learning. Non-fatal: DB unavailability does not affect the agent loop.
-                    if let Some(ref adb) = self.async_db {
-                        let adb_clone = adb.clone();
-                        let provider_name = p.name().to_string();
-                        let snapshot: Vec<(String, u32, u32, f64)> = self
-                            .model_quality_cache
-                            .iter()
-                            .map(|(k, &(s, f, r))| (k.clone(), s, f, r))
-                            .collect();
-                        tokio::spawn(async move {
-                            if let Err(e) = adb_clone
-                                .save_model_quality_stats(&provider_name, snapshot)
-                                .await
-                            {
-                                tracing::warn!(error = %e, "Phase 4: model quality persist failed");
-                            } else {
-                                tracing::debug!("Phase 4: model quality stats persisted to DB");
-                            }
-                        });
-                    }
-                }
+                // ═══ STAGE 5b: Playbook auto-learning (migrated to PostProcessStage) ═
+                message_pipeline::PostProcessStage::maybe_learn_playbook(
+                    &mut self.features,
+                    input,
+                    &result,
+                    &self.infra.config,
+                );
 
-                // Phase 8-D + 8-E: Record per-plugin UCB1 rewards from this agent loop and
-                // fire-and-forget persist to DB.
-                if let Some(ref arc_reg) = self.plugin_registry {
-                    let snapshot_data: Vec<halcon_storage::db::PluginMetricsRecord> =
-                        if let Ok(mut reg) = arc_reg.lock() {
-                            for snapshot in &result.plugin_cost_snapshot {
-                                // Derive success rate from calls_made / calls_failed as reward signal.
-                                let rate = if snapshot.calls_made > 0 {
-                                    let succeeded =
-                                        snapshot.calls_made.saturating_sub(snapshot.calls_failed);
-                                    succeeded as f64 / snapshot.calls_made as f64
-                                } else {
-                                    0.5 // neutral prior for plugins that were not invoked this round
-                                };
-                                reg.record_reward(&snapshot.plugin_id, rate);
-                            }
-                            reg.ucb1_snapshot()
-                                .into_iter()
-                                .map(|(plugin_id, n_uses, sum_rewards)| {
-                                    halcon_storage::db::PluginMetricsRecord {
-                                        plugin_id,
-                                        calls_made: 0,
-                                        calls_failed: 0,
-                                        tokens_used: 0,
-                                        ucb1_n_uses: n_uses as i64,
-                                        ucb1_sum_rewards: sum_rewards,
-                                        updated_at: String::new(),
-                                    }
-                                })
-                                .collect()
-                        } else {
-                            vec![]
-                        };
+                // ═══ STAGE 5: POST-PROCESSING (partially migrated) ════════════
+                // Telemetry, token update, summary display, memory consolidation.
+                message_pipeline::PostProcessStage::ingest_runtime_signals(
+                    &self.runtime.runtime_signals,
+                    &result,
+                );
 
-                    // Persist updated UCB1 arm stats (fire-and-forget, non-fatal).
-                    if !snapshot_data.is_empty() {
-                        if let Some(ref adb) = self.async_db {
-                            let adb_clone = adb.clone();
-                            tokio::spawn(async move {
-                                if let Err(e) = adb_clone.save_plugin_metrics(snapshot_data).await {
-                                    tracing::warn!(error = %e, "Phase 8-E: plugin metrics persist failed");
-                                } else {
-                                    tracing::debug!("Phase 8-E: plugin metrics persisted to DB");
-                                }
-                            });
-                        }
-                    }
-                }
-
-                // P3: Playbook auto-learning — save successful LLM-generated plans as reusable YAML.
-                // Only when:
-                //   1. auto_learn_playbooks is enabled in config
-                //   2. The agent stopped successfully (EndTurn or ForcedSynthesis, not error)
-                //   3. A plan was actually executed (timeline_json is Some)
-                //   4. PlaybookPlanner did NOT already match this message (LlmPlanner was used)
-                if self.config.planning.auto_learn_playbooks
-                    && matches!(
-                        result.stop_condition,
-                        agent_types::StopCondition::EndTurn
-                            | agent_types::StopCondition::ForcedSynthesis
-                    )
-                    && self.playbook_planner.find_match(input).is_none()
-                {
-                    if let Some(ref timeline_json) = result.timeline_json {
-                        if let Some(saved_path) = self
-                            .playbook_planner
-                            .record_from_timeline(input, timeline_json)
-                        {
-                            tracing::info!(
-                                path = %saved_path.display(),
-                                "P3: Auto-saved plan as playbook for future reuse"
-                            );
-                        }
-                    }
-                }
-
-                // Phase 7 Dev Ecosystem: Record agent-loop span into the rolling telemetry
-                // window so as_reward() can surface latency / error-rate back to UCB1.
-                // fire-and-forget (tokio::spawn) — never blocks the REPL response path.
-                {
-                    let rt_signals = std::sync::Arc::clone(&self.runtime_signals);
-                    let loop_ms = result.latency_ms as f64;
-                    let had_error = matches!(
-                        result.stop_condition,
-                        agent_types::StopCondition::ProviderError
-                            | agent_types::StopCondition::EnvironmentError
-                    );
-                    tokio::spawn(async move {
-                        rt_signals
-                            .ingest(runtime_signal_ingestor::RuntimeSignal::span(
-                                "agent_loop",
-                                loop_ms,
-                                had_error,
-                            ))
-                            .await;
-                    });
-                }
-
-                // FIX P0.1 2026-02-17: Update session token counters from agent loop result
+                // Update session token counters from agent loop result.
                 self.session.total_usage.input_tokens += result.input_tokens as u32;
                 self.session.total_usage.output_tokens += result.output_tokens as u32;
 
-                // Display result summary via sink.
-                let total_tokens = result.input_tokens + result.output_tokens;
-                if total_tokens > 0 || result.latency_ms > 0 {
-                    let cost_str = if result.cost_usd > 0.0 {
-                        format!(" | ${:.4}", result.cost_usd)
-                    } else {
-                        String::new()
-                    };
-                    let rounds_str = if result.rounds > 0 {
-                        format!(
-                            " | {} tool {}",
-                            result.rounds,
-                            if result.rounds == 1 {
-                                "round"
-                            } else {
-                                "rounds"
-                            },
-                        )
-                    } else {
-                        String::new()
-                    };
-                    sink.info(&format!(
-                        "  [{} tokens | {:.1}s{}{}]",
-                        total_tokens,
-                        result.latency_ms as f64 / 1000.0,
-                        cost_str,
-                        rounds_str,
-                    ));
-                }
+                // Display result summary.
+                message_pipeline::PostProcessStage::display_summary(&result, sink);
 
-                // Auto-consolidate reflections after each agent interaction.
-                if let Some(ref adb) = self.async_db {
-                    sink.consolidation_status("consolidating reflections...");
-
-                    // Consolidation with 30-second timeout to prevent UI freeze
-                    let consolidation_timeout = std::time::Duration::from_secs(30);
-                    let start = std::time::Instant::now();
-
-                    match tokio::time::timeout(
-                        consolidation_timeout,
-                        memory_consolidator::maybe_consolidate(adb),
-                    )
-                    .await
-                    {
-                        Ok(Some(result)) => {
-                            let duration_ms = start.elapsed().as_millis() as u64;
-                            tracing::debug!(
-                                merged = result.merged,
-                                pruned = result.pruned,
-                                duration_ms,
-                                "Memory consolidation completed successfully"
-                            );
-                            sink.consolidation_complete(result.merged, result.pruned, duration_ms);
-                        }
-                        Ok(None) => {
-                            // Consolidation was skipped (below threshold or error)
-                            tracing::debug!("Memory consolidation skipped");
-                        }
-                        Err(_) => {
-                            tracing::warn!(
-                                timeout_secs = consolidation_timeout.as_secs(),
-                                "Memory consolidation timed out - skipping to prevent UI freeze"
-                            );
-                            sink.warning(
-                                "Memory consolidation took too long and was skipped",
-                                Some("This is safe but may accumulate more reflections. Consider clearing old memories."),
-                            );
-                        }
-                    }
-                }
+                // Memory consolidation (30s timeout).
+                message_pipeline::PostProcessStage::consolidate_memory(&self.infra.async_db, sink)
+                    .await;
             }
             None => {
                 sink.error(
@@ -3927,7 +3392,7 @@ impl Repl {
     ///
     /// Delegates to [`session_manager::auto_save`] (FASE F extraction).
     async fn auto_save_session(&self) {
-        if let Some(ref adb) = self.async_db {
+        if let Some(ref adb) = self.infra.async_db {
             session_manager::auto_save(&self.session, adb).await;
         }
     }
@@ -3936,8 +3401,14 @@ impl Repl {
     ///
     /// Delegates to [`session_manager::save`] (FASE F extraction).
     fn save_session(&self) {
-        if let Some(ref db) = self.db {
-            session_manager::save(&self.session, db, &self.model, &self.provider, &self.config);
+        if let Some(ref db) = self.infra.db {
+            session_manager::save(
+                &self.session,
+                db,
+                &self.model,
+                &self.provider,
+                &self.infra.config,
+            );
         }
     }
 
@@ -3950,7 +3421,7 @@ impl Repl {
             db,
             &self.model,
             &self.provider,
-            &self.config,
+            &self.infra.config,
         );
     }
 
@@ -3962,7 +3433,7 @@ impl Repl {
     ///
     /// Used by `--timeline` flag. Returns None if no plan was executed in this session.
     pub fn last_timeline_json(&self) -> Option<String> {
-        self.last_timeline.clone()
+        self.cache.last_timeline.clone()
     }
 
     /// Expose session ID for testing.
@@ -4302,7 +3773,8 @@ mod tests {
         // reflections + 8 SDLC context servers (requirements, architecture, codebase, workflow,
         // testing, runtime, security, support).
         let cm = repl
-            .context_manager
+            .ctx
+            .manager
             .as_ref()
             .expect("ContextManager should exist");
         let source_names: Vec<&str> = cm.sources().map(|(name, _)| name).collect();
@@ -4338,7 +3810,8 @@ mod tests {
         // Should have 11 context sources: instructions + repo_map + planning + 8 SDLC servers
         // (no episodic_memory or reflections because those are disabled).
         let cm = repl
-            .context_manager
+            .ctx
+            .manager
             .as_ref()
             .expect("ContextManager should exist");
         let source_names: Vec<&str> = cm.sources().map(|(name, _)| name).collect();
@@ -4371,7 +3844,8 @@ mod tests {
         // No DB => no memory, reflections, or DB-backed SDLC servers.
         // Has: instructions + repo_map + planning + codebase (codebase doesn't need DB).
         let cm = repl
-            .context_manager
+            .ctx
+            .manager
             .as_ref()
             .expect("ContextManager should exist");
         let source_names: Vec<&str> = cm.sources().map(|(name, _)| name).collect();
@@ -4408,7 +3882,8 @@ mod tests {
         // Instructions + repo_map + codebase when planning, memory, and reflexion disabled.
         // codebase server doesn't require a DB, so it's still included.
         let cm = repl
-            .context_manager
+            .ctx
+            .manager
             .as_ref()
             .expect("ContextManager should exist");
         let source_names: Vec<&str> = cm.sources().map(|(name, _)| name).collect();
@@ -4442,7 +3917,7 @@ mod tests {
         .unwrap();
 
         // Resilience diagnostics should list all registered providers.
-        let diag = repl.resilience.diagnostics();
+        let diag = repl.security.resilience.diagnostics();
         let names: Vec<&str> = diag.iter().map(|d| d.provider.as_str()).collect();
         assert!(
             names.contains(&"echo"),
@@ -4474,7 +3949,7 @@ mod tests {
         )
         .unwrap();
 
-        let diag = repl.resilience.diagnostics();
+        let diag = repl.security.resilience.diagnostics();
         let names: Vec<&str> = diag.iter().map(|d| d.provider.as_str()).collect();
         assert!(
             names.contains(&"echo"),
@@ -4519,7 +3994,7 @@ mod tests {
             backpressure: BackpressureConfig::default(),
         });
         resilience.register_provider("echo");
-        repl.resilience = resilience;
+        repl.security.resilience = resilience;
 
         // Should succeed with echo provider even through resilience.
         repl.handle_message("integration test").await.unwrap();

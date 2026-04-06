@@ -195,6 +195,12 @@ pub struct AgentLoopResult {
     /// Trust level of the response — indicates whether evidence came from
     /// tool calls this round, prior rounds, or context synthesis.
     pub response_trust: halcon_core::types::ResponseTrust,
+
+    /// Phase 3: Execution decision log — structured trail of key decisions.
+    /// Contains up to 100 entries covering Frontier, Routing, SynthesisGate,
+    /// Supervisor, ToolExecution, Convergence, and Orchestration decisions.
+    /// Used for debugging, post-mortem analysis, and replay certification.
+    pub decision_log: Vec<crate::repl::agent::loop_state::DecisionRecord>,
 }
 
 /// Categorization of why a sub-agent step failed (FASE 5).
@@ -398,4 +404,7 @@ pub struct StrategyContext {
     pub routing_bias: Option<String>,
     pub task_type: super::task_analyzer::TaskType,
     pub complexity: super::task_analyzer::TaskComplexity,
+    /// Wave 6: When true, UnifiedEvaluator replaces reflexion per-round LLM call.
+    /// When false (default), UnifiedEvaluator runs in shadow mode (log-only).
+    pub use_unified_evaluator: bool,
 }

@@ -28,6 +28,11 @@ pub struct FeatureFlags {
     pub trace_out: Option<PathBuf>,
     /// Import and display a JSONL trace file produced by --trace-out (P2.1).
     pub trace_in: Option<PathBuf>,
+    // Wave 5 (CC-1): Expert sub-flags for granular control.
+    // --expert activates all three. Individual flags allow partial activation.
+    pub expert_reasoning: bool,
+    pub expert_critic: bool,
+    pub expert_strict: bool,
 }
 
 impl FeatureFlags {
@@ -62,17 +67,21 @@ impl FeatureFlags {
             // Plugins add tools to ToolRegistry so the model can invoke them natively.
             config.plugins.enabled = true;
         }
-        if self.full || self.expert {
-            // Activate LoopCritic adversarial post-loop evaluation.
-            // Adds ~1-3s latency per agent loop but closes the G2 self-evaluation gap.
+        // Wave 5 (CC-1): Expert features are now individually toggleable.
+        // --expert activates all three sub-flags for backward compatibility.
+        // Individual --expert-reasoning, --expert-critic, --expert-strict allow
+        // partial activation to reduce latency when full expert mode is not needed.
+        let want_reasoning = self.full || self.expert || self.expert_reasoning;
+        let want_critic = self.full || self.expert || self.expert_critic;
+        let want_strict = self.full || self.expert || self.expert_strict;
+
+        if want_critic {
             config.reasoning.enable_loop_critic = true;
-            // Activate ReasoningEngine + UCB1 strategy learning.
-            // Without this, loop_critic verdicts are computed but never fed back into
-            // the UCB1 selector (reasoning_engine = None → post_loop_with_reward never called).
-            // This closes the G3 audit gap: --expert now has a coherent meta-cognitive loop.
+        }
+        if want_reasoning {
             config.reasoning.enabled = true;
-            // Activate structural enforcement in TaskBridge (DAG violation halt, strict mode).
-            // This was defined in Phase 69 but never wired to any CLI flag — dead code.
+        }
+        if want_strict {
             config.task_framework.strict_enforcement = true;
         }
     }
@@ -166,7 +175,7 @@ pub async fn run(
     let cwd = std::env::current_dir().unwrap_or_default();
     let trust_result = super::trust_gate::evaluate_trust_chain(&cwd, is_interactive)?;
 
-    if let Some(ref restricted) = trust_result.restricted_mode {
+    if let Some(ref _restricted) = trust_result.restricted_mode {
         eprintln!();
         eprintln!("  ⚠  Workspace not trusted — running in restricted mode");
         eprintln!("     Only read-only tools are available.");
@@ -333,8 +342,13 @@ pub async fn run(
     } else {
         None
     };
+    // Enable OS-level sandbox for bash execution in the main REPL.
+    // macOS: sandbox-exec with Seatbelt profile restricting filesystem writes.
+    // Linux: unshare with user/network namespace isolation.
+    let mut tools_config = config.tools.clone();
+    tools_config.sandbox.use_os_sandbox = true;
     let mut tool_registry =
-        halcon_tools::full_registry(&config.tools, proc_reg, db.clone(), search_engine);
+        halcon_tools::full_registry(&tools_config, proc_reg, db.clone(), search_engine);
 
     // Connect to MCP servers and register their tools.
     let _mcp_hosts = provider_factory::connect_mcp_servers(&config.mcp, &mut tool_registry).await;
@@ -374,15 +388,15 @@ pub async fn run(
     )?;
 
     // Set expert mode (from --expert flag, --full flag, or config.toml display.ui_mode = "expert").
-    repl.expert_mode = flags.expert || flags.full || config.display.ui_mode == "expert";
+    repl.render.expert_mode = flags.expert || flags.full || config.display.ui_mode == "expert";
 
     // US-output-format (PASO 2-A): activate CiSink when --output-format json is requested.
-    repl.use_ci_sink = use_ci_sink;
+    repl.render.use_ci_sink = use_ci_sink;
 
     // Initialize multimodal subsystem when --full enables it.
     // Non-fatal: if no API key is present or DB is unavailable, subsystem is simply absent.
     if config.multimodal.enabled {
-        if let Some(ref db_arc) = repl.async_db {
+        if let Some(ref db_arc) = repl.infra.async_db {
             let db_clone = db_arc.clone();
             match halcon_multimodal::MultimodalSubsystem::init(
                 &config.multimodal,
@@ -390,7 +404,7 @@ pub async fn run(
             ) {
                 Ok(sys) => {
                     tracing::info!("Multimodal subsystem initialized (--full)");
-                    repl.multimodal = Some(Arc::new(sys));
+                    repl.features.multimodal = Some(Arc::new(sys));
                 }
                 Err(e) => {
                     tracing::warn!("Multimodal subsystem init failed (non-fatal): {e}");
@@ -403,8 +417,8 @@ pub async fn run(
 
     // Wire MediaContextSource into context pipeline so analyzed images are retrievable
     // in subsequent conversation turns (closes Phase 83 gap: context source was never wired).
-    if let Some(ref mm) = repl.multimodal {
-        if let Some(ref mut cm) = repl.context_manager {
+    if let Some(ref mm) = repl.features.multimodal {
+        if let Some(ref mut cm) = repl.ctx.manager {
             cm.add_source(Box::new(mm.context_source()));
             tracing::info!("MediaContextSource wired into context pipeline (priority=55)");
         }

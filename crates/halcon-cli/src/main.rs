@@ -189,9 +189,25 @@ enum Commands {
         #[arg(long)]
         full: bool,
 
-        /// Expert mode: show full agent feedback (model selection, caching, compaction)
+        /// Expert mode: show full agent feedback (model selection, caching, compaction).
+        /// Equivalent to --expert-reasoning --expert-critic --expert-strict.
         #[arg(long, env = "HALCON_EXPERT")]
         expert: bool,
+
+        /// Expert sub-flag: enable UCB1 strategy learning + ReasoningEngine.
+        /// Subset of --expert: reasoning without critic or strict enforcement.
+        #[arg(long, hide = true)]
+        expert_reasoning: bool,
+
+        /// Expert sub-flag: enable LoopCritic adversarial post-loop evaluation.
+        /// Adds ~1-3s latency per agent loop. Subset of --expert.
+        #[arg(long, hide = true)]
+        expert_critic: bool,
+
+        /// Expert sub-flag: enable TaskBridge strict enforcement (DAG violation halt).
+        /// Subset of --expert.
+        #[arg(long, hide = true)]
+        expert_strict: bool,
 
         /// Write execution timeline as JSONL to this file (P0.2 — human-editable trace)
         #[arg(long, value_name = "PATH")]
@@ -369,6 +385,32 @@ enum Commands {
     Schedule {
         #[command(subcommand)]
         action: ScheduleAction,
+    },
+
+    /// Remote control interface for running Halcon sessions
+    ///
+    /// Connect to a running `halcon serve` instance to monitor, approve/reject
+    /// permissions, replan execution, and chat interactively — like Claude Code's
+    /// human-in-the-loop experience over the wire.
+    ///
+    /// Requires a running server: `halcon serve`
+    #[command(name = "remote-control")]
+    RemoteControl {
+        #[command(subcommand)]
+        action: commands::remote_control::RemoteControlAction,
+
+        /// Server URL (default: http://127.0.0.1:9849)
+        #[arg(
+            long,
+            env = "HALCON_RC_SERVER",
+            default_value = "http://127.0.0.1:9849",
+            global = true
+        )]
+        server: String,
+
+        /// Auth token (reads from HALCON_API_TOKEN if not provided)
+        #[arg(long, env = "HALCON_API_TOKEN", global = true)]
+        token: Option<String>,
     },
 
     /// Cenzontle agent orchestration — delegate tasks to the multi-agent backend
@@ -809,6 +851,14 @@ async fn main() -> Result<()> {
     // Migrate ~/.cuervo/ → ~/.halcon/ for existing users upgrading from cuervo.
     config_loader::migrate_legacy_dir();
 
+    // Warn if running under sudo — root-owned files are the #1 cause of
+    // "Permission denied" cascading failures on subsequent non-root runs.
+    config_loader::warn_if_sudo();
+
+    // Detect root-owned files in ~/.halcon/ that would cause
+    // "Permission denied" errors during config/cache writes.
+    config_loader::check_data_dir_permissions();
+
     let cli = Cli::parse();
 
     // Detect TUI mode early — must happen BEFORE logging init so we can redirect output.
@@ -912,7 +962,7 @@ async fn main() -> Result<()> {
         .unwrap_or_else(|| config.general.default_provider.clone());
     let model = cli
         .model
-        .unwrap_or_else(|| config.general.default_model.clone());
+        .unwrap_or_else(|| config.general.effective_model(&config.models));
 
     // JSON-RPC mode: activated by `halcon --mode json-rpc` (used by the VS Code extension).
     // Bypasses all subcommand handling — runs an async stdin/stdout JSON-RPC server.
@@ -939,6 +989,9 @@ async fn main() -> Result<()> {
             timeline,
             full,
             expert,
+            expert_reasoning,
+            expert_critic,
+            expert_strict,
             trace_out,
             trace_in,
         }) => {
@@ -960,6 +1013,9 @@ async fn main() -> Result<()> {
                     timeline,
                     full,
                     expert,
+                    expert_reasoning,
+                    expert_critic,
+                    expert_strict,
                     background_tools: false,
                     trace_out,
                     trace_in,
@@ -1131,6 +1187,27 @@ async fn main() -> Result<()> {
             } else {
                 commands::serve::run(&host, port, token).await
             }
+        }
+        Some(Commands::RemoteControl {
+            action,
+            server,
+            token,
+        }) => {
+            // Resolve token: CLI flag > env var > active server token file.
+            let token = token
+                .or_else(|| std::env::var("HALCON_API_TOKEN").ok())
+                .or_else(|| {
+                    let path = dirs::data_dir()?.join("halcon").join("server_token");
+                    std::fs::read_to_string(path).ok()
+                })
+                .unwrap_or_default();
+            if token.is_empty() {
+                anyhow::bail!(
+                    "No auth token. Set HALCON_API_TOKEN or pass --token.\n\
+                     The token is printed when you run `halcon serve`."
+                );
+            }
+            commands::remote_control::run(action, &server, &token).await
         }
         Some(Commands::Audit { action }) => match action {
             AuditAction::Export {
