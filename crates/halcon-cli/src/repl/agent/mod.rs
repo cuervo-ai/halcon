@@ -2853,9 +2853,19 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
             );
         }
 
+        // Wave 10: Record tool-use compliance for this round.
+        // Only counts when tools were available (not synthesis/suppressed mode).
+        // The compliance rate feeds into ModelSelector scoring + P1-B retry model switch.
+        if let Some(ref selector) = model_selector {
+            let tools_were_available =
+                !state.cached_tools.is_empty() && !state.tools_suppressed_last_round;
+            if tools_were_available {
+                let tools_were_used = state.last_tool_execution_round == Some(round);
+                selector.record_tool_compliance(&round_model_name, tools_were_used);
+            }
+        }
+
         // Wave 6: Per-round timing log — soft round timeout observability.
-        // Logs total round duration for each round. If round_timeout_secs > 0 and
-        // the round exceeds it, logs a warning (soft guard — does not cancel).
         {
             let round_elapsed = round_start.elapsed();
             tracing::info!(
