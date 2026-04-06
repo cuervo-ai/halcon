@@ -45,9 +45,9 @@ use types::{CenzontleModel, CenzontleModelsResponse};
 /// Production Cenzontle backend via Cloudflare proxy.
 ///
 /// Cloudflare CNAME → Azure Container Apps `ca-cenzontle-backend`.
-/// Provides DDoS protection, edge caching, and WAF via Cloudflare.
+/// Direct Azure backend endpoint (bypasses Cloudflare for lower latency on SSE).
 /// Override with CENZONTLE_BASE_URL env var or provider config `api_base`.
-pub const DEFAULT_BASE_URL: &str = "https://api-cenzontle.zuclubit.com";
+pub const DEFAULT_BASE_URL: &str = "https://cenzontle.api.zuclubit.com";
 const PROVIDER_NAME: &str = "cenzontle";
 
 /// Tier → context window / max output heuristics (Cenzontle doesn't always return these).

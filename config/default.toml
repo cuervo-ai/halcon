@@ -41,7 +41,7 @@ default_model = "gemini-2.0-flash"
 # Autenticación: halcon login cenzontle  o  CENZONTLE_ACCESS_TOKEN
 [models.providers.cenzontle]
 enabled       = true
-api_base      = "https://api-cenzontle.zuclubit.com"
+api_base      = "https://cenzontle.api.zuclubit.com"
 api_key_env   = "CENZONTLE_ACCESS_TOKEN"
 default_model = "claude-sonnet-4-6"
 
