@@ -213,6 +213,7 @@ pub fn derive_sub_limits(
         max_concurrent_agents: parent.max_concurrent_agents,
         max_cost_usd: parent.max_cost_usd,
         clarification_threshold: parent.clarification_threshold,
+        round_timeout_secs: parent.round_timeout_secs,
     }
 }
 
@@ -231,7 +232,7 @@ pub async fn run_orchestrator(
     config: &OrchestratorConfig,
     routing_config: &RoutingConfig,
     trace_db: Option<&AsyncDatabase>,
-    response_cache: Option<&ResponseCache>,
+    _response_cache: Option<&ResponseCache>,
     fallback_providers: &[(String, Arc<dyn ModelProvider>)],
     model: &str,
     working_dir: &str,
@@ -731,6 +732,8 @@ pub async fn run_orchestrator(
                     let default_planning_config = halcon_core::types::PlanningConfig::default();
                     let default_orch_config = OrchestratorConfig::default();
                     let sub_agent_speculator = super::tool_speculation::ToolSpeculator::new();
+                    // Phase 1: Sub-agents get their own permission pipeline with shared state
+                    let mut sub_agent_pipeline = crate::repl::security::permission_pipeline::PermissionPipeline::new();
 
                     let ctx = AgentContext {
                         provider: &provider,
@@ -738,6 +741,7 @@ pub async fn run_orchestrator(
                         request: &request,
                         tool_registry,
                         permissions: &mut permissions,
+                        permission_pipeline: &mut sub_agent_pipeline,
                         working_dir: &working_dir,
                         event_tx: &event_tx,
                         limits: &limits,
@@ -780,6 +784,7 @@ pub async fn run_orchestrator(
                         is_sub_agent: true,
                         requested_provider: None,
                         policy: policy.clone(),
+                        paloma_router: None,
                     };
 
                     // Panic isolation: wrap the agent loop in catch_unwind so a panicking
@@ -918,12 +923,15 @@ pub async fn run_orchestrator(
                                     let retry_speculator = super::tool_speculation::ToolSpeculator::new();
                                     let retry_silent_sink = crate::render::sink::SilentSink::new();
                                     let retry_sink: &dyn crate::render::sink::RenderSink = &retry_silent_sink;
+                                    // Phase 1: Fresh pipeline for retry invocation
+                                    let mut retry_pipeline = crate::repl::security::permission_pipeline::PermissionPipeline::new();
                                     let retry_ctx = agent::AgentContext {
                                         provider: &provider,
                                         session: &mut retry_session,
                                         request: &retry_request,
                                         tool_registry,
                                         permissions: &mut retry_permissions,
+                                        permission_pipeline: &mut retry_pipeline,
                                         working_dir: &working_dir,
                                         event_tx: &event_tx,
                                         trace_db: None, // retry doesn't persist separate trace
@@ -958,6 +966,7 @@ pub async fn run_orchestrator(
                                         is_sub_agent: true,
                                         requested_provider: None,
                                         policy: policy.clone(),
+                                        paloma_router: None,
                                     };
 
                                     let retry_loop = tokio::time::timeout(

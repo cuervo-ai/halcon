@@ -1,6 +1,7 @@
 mod agent;
 pub mod agent_state;
 pub mod auth;
+pub mod budget;
 pub mod capability_types;
 pub mod completion_trace;
 pub mod complexity_types;
@@ -32,6 +33,7 @@ pub mod validation;
 pub use agent::*;
 pub use agent_state::*;
 pub use auth::*;
+pub use budget::{BudgetEnvelope, BudgetSnapshot, RoundCost};
 pub use capability_types::*;
 pub use completion_trace::{
     CompletionTrace, ConvergenceDecision, TerminationSource, TracedCriticVerdict,

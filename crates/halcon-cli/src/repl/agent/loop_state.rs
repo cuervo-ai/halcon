@@ -31,6 +31,43 @@ use super::super::domain::goal_progress::{
 pub(super) use super::super::domain::progress_policy::ProgressPolicyConfig;
 use super::super::domain::progress_policy::{evaluate_policy, ProgressAction};
 
+// ── Phase 3: Decision Record (execution decision log) ────────────────────────
+
+/// A single decision record in the execution decision log.
+///
+/// Captures key decisions made during the agent loop for debugging,
+/// post-mortem analysis, and replay certification.
+#[derive(Debug, Clone)]
+pub(crate) struct DecisionRecord {
+    /// Round when the decision was made (0-indexed).
+    pub round: usize,
+    /// Category of the decision.
+    pub category: DecisionCategory,
+    /// Short description of what was decided.
+    pub summary: String,
+}
+
+/// Categories of decisions tracked in the execution log.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DecisionCategory {
+    /// Frontier gate evaluation (pass/reject).
+    Frontier,
+    /// Routing decision (model/provider selection).
+    Routing,
+    /// Tool execution outcome.
+    ToolExecution,
+    /// Synthesis gate evaluation.
+    SynthesisGate,
+    /// Supervisor intervention.
+    Supervisor,
+    /// Convergence decision.
+    Convergence,
+    /// Orchestration delegation.
+    Orchestration,
+}
+
+const MAX_DECISION_LOG_ENTRIES: usize = 100;
+
 // ── ToolDecisionSignal ────────────────────────────────────────────────────────
 
 /// Typed per-round tool suppression decision.
@@ -272,6 +309,7 @@ pub(super) struct HiconSubsystems {
 /// Token/cost accounting — all per-round token tracking, cost, budget, and K5-2 growth.
 /// Consumers: provider_round (writes), round_setup (reads), post_batch (growth),
 ///            result_assembly (reads), checkpoint (reads).
+#[derive(Debug, Default)]
 pub(super) struct TokenAccounting {
     pub call_input_tokens: u64,
     pub call_output_tokens: u64,
@@ -543,6 +581,11 @@ pub(super) struct LoopState {
     /// Original step count before truncation. Zero if no truncation occurred.
     pub original_plan_step_count: usize,
 
+    // ── Phase 3: Execution decision log ──────────────────────────────────────
+    /// Structured log of key decisions for debugging and post-mortem analysis.
+    /// Capped at 100 entries to prevent memory growth.
+    pub decision_log: Vec<DecisionRecord>,
+
     // ── Tool execution tracking ─────────────────────────────────────────────
     pub tools_executed: Vec<String>,
     pub failed_sub_agent_steps: Vec<crate::repl::agent_types::FailedStepContext>,
@@ -573,11 +616,40 @@ pub(super) struct LoopState {
     pub consecutive_regressions: u32,
     /// Policy thresholds that control when adaptive rescue synthesis fires.
     pub progress_policy_config: ProgressPolicyConfig,
+
+    // ── Wave 3-4: Budget enforcement + Stall detection ──────────────────────
+    /// Centralized budget envelope tracking time, tokens, cost, rounds.
+    /// Created from AgentLimits at session start. `None` = unlimited (legacy).
+    pub budget_envelope: Option<halcon_core::types::BudgetEnvelope>,
+    /// Confidence-delta stall detector (ported from GDEM InLoopCritic).
+    /// Detects semantic stalls that Jaccard-based stagnation misses.
+    pub stall_detector: super::super::domain::stall_detector::StallDetector,
+    /// Unified round evaluator — replaces reflexion + loop critic with single-pass eval.
+    /// Always runs in shadow mode (log-only) unless config activates it as primary.
+    pub unified_evaluator: super::super::domain::unified_evaluator::UnifiedEvaluator,
+    /// Typed FSM observer — validates state transitions in the production loop.
+    /// warn_only mode by default (logs invalid transitions without failing).
+    pub agent_fsm: super::super::domain::agent_fsm::AgentFsm,
 }
 
 // ── Cross-domain invariant methods ──────────────────────────────────────────
 
 impl LoopState {
+    /// Record a decision in the execution decision log.
+    ///
+    /// Capped at `MAX_DECISION_LOG_ENTRIES` to prevent unbounded memory growth.
+    pub(super) fn log_decision(&mut self, category: DecisionCategory, summary: impl Into<String>) {
+        if self.decision_log.len() >= MAX_DECISION_LOG_ENTRIES {
+            // Ring buffer behavior: remove oldest entry.
+            self.decision_log.remove(0);
+        }
+        self.decision_log.push(DecisionRecord {
+            round: self.rounds,
+            category,
+            summary: summary.into(),
+        });
+    }
+
     /// Request synthesis from the given origin with the given priority.
     ///
     /// Sets `forced_synthesis_detected = true`, records the origin, and pushes
@@ -668,6 +740,13 @@ impl LoopState {
         );
         self.synthesis.last_synthesis_kind = Some(verdict.kind);
         self.synthesis.last_synthesis_trigger = Some(verdict.trigger);
+        self.log_decision(
+            DecisionCategory::SynthesisGate,
+            format!(
+                "trigger={trigger:?} allow={} kind={:?}",
+                verdict.allow, verdict.kind
+            ),
+        );
         if verdict.allow {
             self.request_synthesis(origin, priority);
         }
@@ -1398,5 +1477,69 @@ mod tests {
         let policy = halcon_core::types::PolicyConfig::default();
         assert_eq!(policy.mini_critic_interval, 3);
         assert!((policy.mini_critic_budget_fraction - 0.50).abs() < f64::EPSILON);
+    }
+
+    // ── Decision log tests ───────────────────────────────────────────────
+
+    use super::{DecisionCategory, DecisionRecord, MAX_DECISION_LOG_ENTRIES};
+
+    #[test]
+    fn decision_log_captures_entries() {
+        let mut log: Vec<DecisionRecord> = Vec::new();
+        log.push(DecisionRecord {
+            round: 0,
+            category: DecisionCategory::Frontier,
+            summary: "all gates passed".into(),
+        });
+        log.push(DecisionRecord {
+            round: 1,
+            category: DecisionCategory::Routing,
+            summary: "provider=anthropic model=claude".into(),
+        });
+        assert_eq!(log.len(), 2);
+        assert_eq!(log[0].category, DecisionCategory::Frontier);
+        assert_eq!(log[1].round, 1);
+    }
+
+    #[test]
+    fn decision_log_ring_buffer_caps_at_max() {
+        let mut log: Vec<DecisionRecord> = Vec::new();
+        for i in 0..MAX_DECISION_LOG_ENTRIES + 10 {
+            if log.len() >= MAX_DECISION_LOG_ENTRIES {
+                log.remove(0);
+            }
+            log.push(DecisionRecord {
+                round: i,
+                category: DecisionCategory::ToolExecution,
+                summary: format!("round {i}"),
+            });
+        }
+        assert_eq!(log.len(), MAX_DECISION_LOG_ENTRIES);
+        // First entry should be round 10 (first 10 were evicted).
+        assert_eq!(log[0].round, 10);
+        // Last entry should be round 109.
+        assert_eq!(
+            log[MAX_DECISION_LOG_ENTRIES - 1].round,
+            MAX_DECISION_LOG_ENTRIES + 9
+        );
+    }
+
+    #[test]
+    fn all_decision_categories_are_distinct() {
+        let cats = [
+            DecisionCategory::Frontier,
+            DecisionCategory::Routing,
+            DecisionCategory::ToolExecution,
+            DecisionCategory::SynthesisGate,
+            DecisionCategory::Supervisor,
+            DecisionCategory::Convergence,
+            DecisionCategory::Orchestration,
+        ];
+        // Verify all 7 variants are distinct.
+        for i in 0..cats.len() {
+            for j in (i + 1)..cats.len() {
+                assert_ne!(cats[i], cats[j], "categories {i} and {j} must be distinct");
+            }
+        }
     }
 }

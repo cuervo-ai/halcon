@@ -44,7 +44,7 @@ pub mod adaptive_policy;
 ///
 /// Covers 25/61 tools in Phase 2. Phase 4 expands to all 61.
 /// ToolSelector consults this graph first, falls back to keyword logic when no match.
-pub mod intent_graph;
+// DELETED: intent_graph (dead code, never wired to runtime)
 
 // ── Phase 3: Strategy Evolution & Capability Awareness ──────────────────────
 
@@ -136,6 +136,23 @@ pub mod metacognitive_loop;
 
 /// Reflexion self-improvement loop (NeurIPS 2023 pattern).
 pub mod reflexion;
+
+/// Confidence-delta stall detector — ported from GDEM InLoopCritic.
+/// Detects semantic stalls that Jaccard-based stagnation misses.
+pub mod stall_detector;
+
+/// Unified round evaluator — replaces reflexion + loop_critic + mid_loop_critic.
+/// Two-phase: heuristic (0ms, always) + optional LLM (only if ambiguous).
+/// Invariant: max 1 LLM call per round (P12).
+pub mod unified_evaluator;
+
+/// Typed agent FSM — ported from GDEM. Validates state transitions in the
+/// production loop. Observer mode (warn_only) by default.
+pub mod agent_fsm;
+
+/// Observation masker — replaces old tool outputs with compact placeholders.
+/// Reduces context token usage by ~30-50% in long sessions.
+pub mod observation_masker;
 
 /// Agent self-correction strategies — adaptive correction on anomalies.
 pub mod self_corrector;

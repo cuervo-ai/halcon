@@ -5,6 +5,7 @@ pub mod agent_task_manager;
 pub mod agent_utils;
 mod budget_guards;
 pub mod failure_tracker;
+pub(crate) mod xiyo_frontier;
 // Phase 1: State Externalization — serializable LoopState snapshot, fire-and-forget persist.
 mod checkpoint;
 // B1: AgentContext sub-struct definitions (AgentInfrastructure, AgentPolicyContext, AgentOptional).
@@ -14,7 +15,6 @@ mod convergence_phase;
 pub(crate) mod loop_state;
 mod setup;
 // Phase 4: LoopState decomposition scaffolding — additive snapshot types.
-// Future migration will embed these as owned sub-structs inside LoopState.
 mod loop_state_roles;
 // Phase 1: Structured loop event emission (round_started, guard_fired, etc.).
 mod loop_events;
@@ -27,6 +27,16 @@ mod provider_round;
 pub(crate) mod repair;
 mod result_assembly;
 mod round_setup;
+// Phase 2: Canonical runtime modules.
+mod convergence_state_ext;
+pub(crate) mod feedback_arbiter;
+mod plan_state;
+mod round_metrics;
+// BRECHA-2 extraction: prologue setup helpers (strangler fig pattern).
+pub(crate) mod prologue;
+// Frontier AAA: progress-aware execution + structured observability.
+pub(crate) mod loop_metrics;
+pub(crate) mod progress_tracker;
 
 use loop_state::{
     AgentEvent, ExecutionIntentPhase, LoopState, SynthesisOrigin, SynthesisTrigger,
@@ -40,8 +50,6 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use chrono::Utc;
-use futures::StreamExt;
-use sha2::Digest;
 use tracing::instrument;
 
 use halcon_core::context::EXECUTION_CTX;
@@ -82,6 +90,8 @@ pub struct AgentContext<'a> {
     pub request: &'a ModelRequest,
     pub tool_registry: &'a ToolRegistry,
     pub permissions: &'a mut ConversationalPermissionHandler,
+    /// Phase 1: Unified permission pipeline for all authorization decisions.
+    pub permission_pipeline: &'a mut super::security::permission_pipeline::PermissionPipeline,
     pub working_dir: &'a str,
     pub event_tx: &'a EventSender,
     pub limits: &'a AgentLimits,
@@ -164,6 +174,10 @@ pub struct AgentContext<'a> {
     pub requested_provider: Option<String>,
     /// Centralized policy thresholds (replaces module-local const values).
     pub policy: std::sync::Arc<halcon_core::types::PolicyConfig>,
+    /// Optional Paloma routing engine for formally-verified model selection.
+    /// When Some, round_setup consults Paloma before falling back to ModelSelector.
+    /// When None (default), ModelSelector handles routing as before.
+    pub paloma_router: Option<&'a halcon_providers::PalomaRouter>,
 }
 
 impl<'a> AgentContext<'a> {
@@ -180,6 +194,7 @@ impl<'a> AgentContext<'a> {
         session: &'a mut Session,
         request: &'a ModelRequest,
         permissions: &'a mut super::conversational_permission::ConversationalPermissionHandler,
+        permission_pipeline: &'a mut super::security::permission_pipeline::PermissionPipeline,
         resilience: &'a mut super::resilience::ResilienceManager,
         task_bridge: Option<&'a mut super::task_bridge::TaskBridge>,
         context_manager: Option<&'a mut super::context_manager::ContextManager>,
@@ -220,12 +235,14 @@ impl<'a> AgentContext<'a> {
             session,
             request,
             permissions,
+            permission_pipeline,
             resilience,
             task_bridge,
             context_manager,
             ctrl_rx,
             working_dir,
             context_metrics: None,
+            paloma_router: None,
         }
     }
 }
@@ -289,6 +306,7 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
         request,
         tool_registry,
         permissions,
+        permission_pipeline,
         working_dir,
         event_tx,
         limits,
@@ -323,6 +341,7 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
         is_sub_agent,
         requested_provider,
         policy,
+        paloma_router,
     } = ctx;
 
     let silent = render_sink.is_silent();
@@ -348,6 +367,16 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
     let mut tool_exec_config = executor::ToolExecutionConfig {
         dry_run_mode: phase14.dry_run_mode,
         idempotency: None,
+        // CR-2: Wire permission timeout from SecurityConfig.
+        // 0 = unlimited (legacy). Non-zero = auto-deny after N seconds.
+        permission_timeout_secs: {
+            let t = security_config.permission_timeout_secs;
+            if t > 0 {
+                Some(t)
+            } else {
+                None
+            }
+        },
         ..Default::default()
     };
     let exec_clock = &phase14.exec_ctx.clock;
@@ -421,10 +450,13 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
             _ => None,
         })
         .unwrap_or_default();
-    let _ = event_tx.send(DomainEvent::new(EventPayload::AgentStarted {
-        agent_type: halcon_core::types::AgentType::Chat,
-        task: user_task,
-    }));
+    halcon_core::emit_event(
+        event_tx,
+        DomainEvent::new(EventPayload::AgentStarted {
+            agent_type: halcon_core::types::AgentType::Chat,
+            task: user_task,
+        }),
+    );
 
     // Per-call metrics (accumulated across all rounds).
     let call_input_tokens: u64 = 0;
@@ -533,7 +565,6 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
                                        // Phase E5: Transition back to Executing after planning.
             if !silent {
                 render_sink.agent_state_transition(pre_loop_phase, "executing", "plan generated");
-                pre_loop_phase = "executing";
             }
             result
         } else {
@@ -544,15 +575,20 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
             Ok(Ok(Some(plan))) => {
                 tracing::info!(goal = %plan.goal, steps = plan.steps.len(), "Plan generated");
                 // Emit plan event.
-                let _ = event_tx.send(DomainEvent::new(EventPayload::PlanGenerated {
-                    plan_id: plan.plan_id,
-                    goal: plan.goal.clone(),
-                    step_count: plan.steps.len(),
-                    replan_count: plan.replan_count,
-                }));
+                halcon_core::emit_event(
+                    event_tx,
+                    DomainEvent::new(EventPayload::PlanGenerated {
+                        plan_id: plan.plan_id,
+                        goal: plan.goal.clone(),
+                        step_count: plan.steps.len(),
+                        replan_count: plan.replan_count,
+                    }),
+                );
                 // Persist plan steps.
                 if let Some(db) = trace_db {
-                    let _ = db.save_plan_steps(&session_id, &plan).await;
+                    if let Err(e) = db.save_plan_steps(&session_id, &plan).await {
+                        tracing::warn!(error = %e, "failed to persist plan steps");
+                    }
                 }
                 // Ingest plan into task bridge (structured task framework).
                 if let Some(ref mut bridge) = task_bridge {
@@ -633,15 +669,45 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
     }
 
     // TBAC: if adaptive planning produced a plan, create a task context scoping to planned tools.
+    //
+    // CRITICAL FIX: The planner may use tool names that differ from the canonical
+    // registry names (e.g., "list_directory" vs "directory_tree", "semantic_grep" vs "grep").
+    // We must canonicalize ALL tool names and include common aliases to prevent TBAC
+    // from blocking legitimate tool calls that match the plan's intent.
     let tbac_pushed = if let Some(ref plan) = active_plan {
         if permissions.active_context().is_none() {
-            // Only push if TBAC is enabled (check_tbac returns NoContext when disabled).
-            let planned_tools: std::collections::HashSet<String> = plan
-                .steps
-                .iter()
-                .filter_map(|s| s.tool_name.clone())
-                .collect();
+            let mut planned_tools: std::collections::HashSet<String> =
+                std::collections::HashSet::new();
+            for step in &plan.steps {
+                if let Some(ref tool_name) = step.tool_name {
+                    // Add the raw name from the plan.
+                    planned_tools.insert(tool_name.clone());
+                    // Add the canonical name (resolves aliases).
+                    let canonical = super::tool_aliases::canonicalize(tool_name);
+                    planned_tools.insert(canonical.to_string());
+                }
+            }
+            // Always include core read tools — the agent needs these to make any progress.
+            // Without them, TBAC blocks file exploration and the agent stalls.
+            for core_tool in &[
+                "file_read",
+                "grep",
+                "glob_tool",
+                "directory_tree",
+                "file_inspect",
+                "symbol_search",
+                "bash",
+                "file_write",
+                "file_edit",
+            ] {
+                planned_tools.insert(core_tool.to_string());
+            }
             if !planned_tools.is_empty() {
+                tracing::debug!(
+                    tools = ?planned_tools,
+                    "TBAC: creating task context with {} planned + core tools",
+                    planned_tools.len()
+                );
                 let ctx = TaskContext::new(plan.goal.clone(), planned_tools);
                 permissions.push_context(ctx);
                 true
@@ -720,10 +786,15 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
         .iter()
         .find(|m| m.id == request.model)
         .cloned();
+    // When the model is not in the provider's supported_models() list (e.g.
+    // Cenzontle routing aliases like "gpt-51-codex-mini"), default to true.
+    // Only strip tools when we have POSITIVE evidence that the model lacks
+    // tool support (supports_tools = false). Unknown models get the benefit
+    // of the doubt — the provider will return an error if tools aren't supported.
     let model_supports_tools = model_info
         .as_ref()
         .map(|m| m.supports_tools)
-        .unwrap_or(false);
+        .unwrap_or(true);
     let has_tools_in_request = !request.tools.is_empty();
 
     // When true, cached_tools will be emptied below to prevent tool injection.
@@ -733,17 +804,17 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
             model = %request.model,
             provider = provider.name(),
             tool_count = request.tools.len(),
-            "Model does not support tools — running in direct-response mode (tools stripped)"
+            "Model explicitly declares no tool support — running in direct-response mode (tools stripped)"
         );
         render_sink.info(&format!(
             "[model] '{}' does not support tools — running in direct-response mode",
             request.model
         ));
     } else if model_info.is_none() {
-        tracing::warn!(
+        tracing::info!(
             model = %request.model,
             provider = provider.name(),
-            "Model not found in provider's supported list — proceeding with caution"
+            "Model not in provider's known list — assuming tool support (provider will error if unsupported)"
         );
     } else {
         tracing::debug!(
@@ -1250,6 +1321,18 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
 
             // Feed orchestrator results back into tracker.
             if let Ok(orch_result) = orch_result {
+                // Orchestration logging deferred to agent loop where LoopState is available.
+                tracing::info!(
+                    metric.orchestration_outcome = true,
+                    delegated = orch_result.sub_results.len(),
+                    completed = orch_result.sub_results.iter().filter(|r| r.success).count(),
+                    failed = orch_result
+                        .sub_results
+                        .iter()
+                        .filter(|r| !r.success)
+                        .count(),
+                    "metric: orchestration outcome"
+                );
                 // Emit completion event for each sub-agent result.
                 for r in &orch_result.sub_results {
                     // C2 FIX: look up the original plan-step index from the HashMap rather
@@ -1386,7 +1469,38 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
                         } else {
                             ""
                         };
-                        format!("**Sub-agent {} ({}):**\n{}{}", i + 1, status, text, unverified_note)
+
+                        // Phase 2: Sub-agent hallucination detection.
+                        // When output text claims actions (created, wrote, modified, deleted, fixed)
+                        // but tools_used is empty, the sub-agent hallucinated its execution.
+                        let hallucination_warning = if r.agent_result.tools_used.is_empty()
+                            && !effective_output.is_empty()
+                            && r.success
+                        {
+                            let lower = effective_output.to_lowercase();
+                            let action_claims = [
+                                "created", "wrote", "modified", "deleted", "fixed",
+                                "updated", "installed", "executed", "ran ", "applied",
+                                "committed", "pushed", "removed",
+                            ];
+                            let has_action_claim = action_claims
+                                .iter()
+                                .any(|claim| lower.contains(claim));
+                            if has_action_claim {
+                                tracing::warn!(
+                                    step = step_description,
+                                    output_preview = %effective_output.chars().take(100).collect::<String>(),
+                                    "Phase2: sub-agent hallucination detected — claims actions but tools_used is empty"
+                                );
+                                "\n[WARNING: Sub-agent claims to have performed actions but executed NO tools. \
+                                 These claims are likely hallucinated. Verify independently before trusting.]"
+                            } else {
+                                ""
+                            }
+                        } else {
+                            ""
+                        };
+                        format!("**Sub-agent {} ({}):**\n{}{}{}", i + 1, status, text, unverified_note, hallucination_warning)
                     })
                     .collect();
 
@@ -2174,6 +2288,7 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
         plan_was_sla_truncated,
         original_plan_step_count,
         boundary_decision,
+        decision_log: Vec::new(),
         tools_executed: Vec::new(),
         failed_sub_agent_steps: pre_loop_failed_steps,
         // Phase A: Trust provenance — updated during the loop.
@@ -2187,6 +2302,15 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
         consecutive_stalls: 0,
         consecutive_regressions: 0,
         progress_policy_config: loop_state::ProgressPolicyConfig::default(),
+        // Wave 3-4: Budget envelope + stall detector.
+        budget_envelope: Some(halcon_core::types::BudgetEnvelope::from_limits(limits)),
+        stall_detector: super::domain::stall_detector::StallDetector::new(
+            super::domain::stall_detector::StallDetectorConfig::default(),
+        ),
+        unified_evaluator: super::domain::unified_evaluator::UnifiedEvaluator::new(
+            super::domain::unified_evaluator::EvaluatorConfig::default(),
+        ),
+        agent_fsm: super::domain::agent_fsm::AgentFsm::new(), // warn_only observer mode
     };
 
     // P5.5: Strategic initialization — data-driven round-0 configuration.
@@ -2243,6 +2367,17 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
         state.synthesis.advance_phase(AgentEvent::PlanSkipped); // Idle → Executing
     }
 
+    // Wave 7: AgentFsm observer — replay prologue transitions.
+    {
+        use super::domain::agent_fsm::AgentState as FsmState;
+        if state.active_plan.is_some() {
+            let _ = state.agent_fsm.transition(FsmState::Planning);
+            let _ = state.agent_fsm.transition(FsmState::Executing);
+        } else {
+            let _ = state.agent_fsm.transition(FsmState::Executing);
+        }
+    }
+
     'agent_loop: for round in 0..effective_max_rounds {
         // Round separator is emitted after model selection (see below) so we can show provider info.
         // Reset per-round coordination flags.
@@ -2256,7 +2391,7 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
         )
         .entered();
         let round_start = Instant::now();
-        let round_usage = TokenUsage::default();
+        let _round_usage = TokenUsage::default();
 
         // Phase 2 SLA: warn at 80% budget consumption, force synthesis on expiry.
         if let Some(ref budget) = state.sla_budget {
@@ -2276,6 +2411,27 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
                 state.mark_synthesis_forced_with_gate(
                     SynthesisTrigger::ReplanTimeout,
                     SynthesisOrigin::ReplanTimeout,
+                );
+            }
+        }
+
+        // Wave 4: BudgetEnvelope check — terminate if any resource exhausted.
+        if let Some(ref envelope) = state.budget_envelope {
+            if !envelope.has_budget() {
+                tracing::warn!(
+                    round = round,
+                    elapsed_secs = envelope.elapsed_secs(),
+                    tokens_used = envelope.tokens_used(),
+                    cost_usd = envelope.cost_used_usd(),
+                    rounds_used = envelope.rounds_used(),
+                    "BudgetEnvelope exhausted — terminating agent loop"
+                );
+                break 'agent_loop;
+            }
+            if envelope.is_warning_threshold() {
+                tracing::warn!(
+                    round = round,
+                    "BudgetEnvelope: >80% of at least one resource consumed"
                 );
             }
         }
@@ -2312,6 +2468,7 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
             security_config,
             exec_clock,
             round,
+            paloma_router,
         )
         .await?
         {
@@ -2361,6 +2518,7 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
                     synthesis_trigger: state.synthesis.last_synthesis_trigger,
                     routing_escalation_count: state.convergence.routing_escalation_count,
                     response_trust: _trust,
+                    decision_log: state.decision_log.clone(),
                 });
             }
             round_setup::RoundSetupOutcome::Continue(out) => out,
@@ -2423,6 +2581,18 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
         {
             provider_round::ProviderRoundOutcome::BreakLoop => break 'agent_loop,
             provider_round::ProviderRoundOutcome::EarlyReturn(data) => {
+                // Phase 3: Record provider failure in Paloma for adaptive routing.
+                // EarlyReturn typically indicates provider error, timeout, or budget exceeded.
+                if let Some(router) = paloma_router {
+                    if let Some(ref model) = data.last_model_used {
+                        router.record_failure(effective_provider.name(), model);
+                        tracing::debug!(
+                            provider = %effective_provider.name(),
+                            model = %model,
+                            "Paloma: recorded provider failure (early return)"
+                        );
+                    }
+                }
                 let _trust2 = halcon_core::types::ResponseTrust::compute(
                     state.tools_executed.len(),
                     state.tools_suppressed_last_round,
@@ -2466,7 +2636,56 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
                     synthesis_trigger: state.synthesis.last_synthesis_trigger,
                     routing_escalation_count: state.convergence.routing_escalation_count,
                     response_trust: _trust2,
+                    decision_log: state.decision_log.clone(),
                 });
+            }
+            provider_round::ProviderRoundOutcome::EmptyResponse => {
+                // D1: Model returned empty response. Inject a nudge and continue
+                // the loop instead of breaking — the model may respond on retry.
+                state.next_round_restarts += 1;
+                let max_empty_retries = 2;
+                if state.next_round_restarts > max_empty_retries {
+                    tracing::warn!(
+                        retries = state.next_round_restarts,
+                        "D1: max empty response retries ({max_empty_retries}) exceeded — breaking loop"
+                    );
+                    if !state.silent {
+                        render_sink.warning(
+                            &format!("[frontier] model returned empty response {max_empty_retries} times — synthesizing"),
+                            None,
+                        );
+                    }
+                    break 'agent_loop;
+                }
+                tracing::info!(
+                    retry = state.next_round_restarts,
+                    max = max_empty_retries,
+                    "D1: empty response — injecting nudge and retrying round"
+                );
+                if !state.silent {
+                    render_sink.info(&format!(
+                        "[frontier] empty response detected (retry {}/{})",
+                        state.next_round_restarts, max_empty_retries
+                    ));
+                }
+                // Inject a user message nudge to prompt the model to continue.
+                state.messages.push(ChatMessage {
+                    role: Role::User,
+                    content: MessageContent::Text(
+                        "[System] Your previous response was empty. Please continue \
+                         with the task. Use the available tools to make progress on \
+                         the active plan, or provide your analysis if you have enough \
+                         information."
+                            .to_string(),
+                    ),
+                });
+                state.context_pipeline.add_message(ChatMessage {
+                    role: Role::User,
+                    content: MessageContent::Text(
+                        "[System] Your previous response was empty. Please continue.".to_string(),
+                    ),
+                });
+                continue 'agent_loop;
             }
             provider_round::ProviderRoundOutcome::ToolUse(out) => out,
         };
@@ -2477,6 +2696,47 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
             round_usage,
             round_text_for_scorer,
         } = provider_out;
+
+        // ── Paloma health feedback ───────────────────────────────────────────
+        // Feed outcome signals to Paloma so future routing decisions reflect
+        // real provider performance. This closes the evaluation loop:
+        // route → execute → observe → adapt.
+        if let Some(router) = paloma_router {
+            let latency = round_start.elapsed().as_millis() as u32;
+            router.record_success(&round_provider_name, &round_model_name, latency);
+            tracing::debug!(
+                provider = %round_provider_name,
+                model = %round_model_name,
+                latency_ms = latency,
+                "Paloma: recorded provider success"
+            );
+        }
+
+        // Phase 3: Routing intelligence metric — track provider/model selection outcomes.
+        tracing::info!(
+            metric.routing_outcome = true,
+            round,
+            provider = %round_provider_name,
+            model = %round_model_name,
+            outcome = "success",
+            tokens_input = round_usage.input_tokens,
+            tokens_output = round_usage.output_tokens,
+            tool_count = completed_tools.len(),
+            "metric: routing outcome for adaptive feedback"
+        );
+
+        // Phase 3: Decision log — routing outcome.
+        state.log_decision(
+            loop_state::DecisionCategory::Routing,
+            format!(
+                "provider={} model={} tools={} tokens={}+{}",
+                round_provider_name,
+                round_model_name,
+                completed_tools.len(),
+                round_usage.input_tokens,
+                round_usage.output_tokens
+            ),
+        );
 
         // ── Post-batch phase ─────────────────────────────────────────────────────────────────
         // Tool dedup, execution, plan tracking, PostBatchSupervisor, reflexion, circuit breaker.
@@ -2491,6 +2751,7 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
             trace_db,
             guardrails,
             permissions,
+            permission_pipeline,
             &tool_exec_config,
             plugin_registry.as_ref(),
             replay_tool_executor,
@@ -2525,6 +2786,12 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
             }
         };
 
+        // Wave 7: FSM observer — Executing → Verifying before convergence check.
+        {
+            use super::domain::agent_fsm::AgentState as FsmState;
+            let _ = state.agent_fsm.transition(FsmState::Verifying);
+        }
+
         // ── Convergence phase ──────────────────────────────────────────────────────────────────
         // ConvergenceController observe, metacognitive monitoring, ctrl_rx yield, RoundScorer,
         // signal assembly, HICON Phase 4, LoopGuard match arms, self-correction injection,
@@ -2546,6 +2813,17 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
             &round_usage,
             &round_text_for_scorer,
         ).await?);
+
+        // Wave 4: Deduct round cost from BudgetEnvelope.
+        if let Some(ref envelope) = state.budget_envelope {
+            let round_cost = halcon_core::types::RoundCost {
+                tokens: (session.total_usage.input_tokens + session.total_usage.output_tokens)
+                    as u64
+                    - envelope.tokens_used(),
+                cost_usd: session.estimated_cost_usd - envelope.cost_used_usd(),
+            };
+            envelope.deduct_round(&round_cost);
+        }
 
         // Phase 1: Save LoopState checkpoint (Continue path — full round completed).
         // Fire-and-forget: errors are logged but never propagate to the loop.
@@ -2575,6 +2853,35 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
             );
         }
 
+        // Wave 6: Per-round timing log — soft round timeout observability.
+        // Logs total round duration for each round. If round_timeout_secs > 0 and
+        // the round exceeds it, logs a warning (soft guard — does not cancel).
+        {
+            let round_elapsed = round_start.elapsed();
+            tracing::info!(
+                round = round,
+                elapsed_ms = round_elapsed.as_millis() as u64,
+                "round_completed"
+            );
+            if limits.round_timeout_secs > 0 && round_elapsed.as_secs() > limits.round_timeout_secs
+            {
+                tracing::warn!(
+                    round = round,
+                    elapsed_secs = round_elapsed.as_secs(),
+                    limit_secs = limits.round_timeout_secs,
+                    "round_timeout_exceeded (soft): round exceeded configured limit"
+                );
+            }
+        }
+
+        // Wave 7: FSM observer — Verifying → Executing for next round.
+        // This fires on Continue path. Break paths (Converged, Terminating) are
+        // handled at loop exit below.
+        {
+            use super::domain::agent_fsm::AgentState as FsmState;
+            let _ = state.agent_fsm.transition(FsmState::Executing);
+        }
+
         // Phase D: Emit runtime metrics for the completed round.
         {
             let metrics =
@@ -2589,6 +2896,26 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
                 }),
             );
         }
+    }
+
+    // Wave 7: FSM observer — terminal transition at loop exit.
+    // Log the final FSM state and any invalid transitions detected during the session.
+    {
+        use super::domain::agent_fsm::AgentState as FsmState;
+        // Transition to terminal state based on how the loop exited.
+        if state.agent_fsm.state() == &FsmState::Verifying
+            || state.agent_fsm.state() == &FsmState::Executing
+        {
+            // Normal exit (max rounds or convergence-driven break from convergence_phase).
+            let _ = state.agent_fsm.transition(FsmState::Converged);
+        }
+        tracing::info!(
+            final_state = state.agent_fsm.state().label(),
+            transitions = state.agent_fsm.step_count(),
+            replans = state.agent_fsm.replan_count(),
+            invalid_transitions = state.agent_fsm.invalid_transition_count(),
+            "agent_fsm_session_summary"
+        );
     }
 
     // P6: Mark the last synthesis step as Completed so plan JSON shows 100% completion.

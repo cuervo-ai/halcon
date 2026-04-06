@@ -87,6 +87,7 @@ pub(super) async fn run(
     // Uses round_tool_log (collected above) which contains (tool_name, args_hash) pairs
     // identical to those used by ToolLoopGuard's deduplication logic.
     // Sprint 2: capture convergence action for RoundFeedback construction below.
+    #[allow(unused_assignments)] // initialized before conditional assignment in scoped block
     let mut round_convergence_action =
         super::super::convergence_controller::ConvergenceAction::Continue;
     {
@@ -103,6 +104,61 @@ pub(super) async fn run(
             had_errors,
         );
         round_convergence_action = ca.clone();
+
+        // Wave 4: Feed StallDetector with a heuristic confidence proxy.
+        // The confidence is derived from tool success rate + text accumulation.
+        // This augments the Jaccard-based stagnation in ConvergenceController
+        // with confidence-delta detection for semantic stalls.
+        {
+            use super::super::domain::stall_detector::StallSignal;
+            let tool_success_rate = if tool_successes.is_empty() && tool_failures.is_empty() {
+                0.5 // Text-only round → neutral
+            } else {
+                tool_successes.len() as f32
+                    / (tool_successes.len() + tool_failures.len()).max(1) as f32
+            };
+            let text_progress = if state.full_text.len() > 200 {
+                0.3
+            } else {
+                0.1
+            };
+            let confidence = tool_success_rate * 0.6 + text_progress + 0.1; // [0.1, 1.0]
+            let stall_signal = state.stall_detector.check(confidence);
+
+            match &stall_signal {
+                StallSignal::CriticalStall {
+                    stall_count,
+                    reason,
+                } => {
+                    tracing::warn!(
+                        round = round,
+                        stall_count = stall_count,
+                        reason = %reason,
+                        "StallDetector: CriticalStall"
+                    );
+                    // If ConvergenceController said Continue but StallDetector says CriticalStall,
+                    // escalate to Replan to give the agent a chance with a different approach.
+                    if matches!(round_convergence_action, ConvergenceAction::Continue) {
+                        tracing::info!(round = round, "StallDetector overriding Continue → Replan");
+                        round_convergence_action = ConvergenceAction::Replan;
+                        state.log_decision(
+                            super::loop_state::DecisionCategory::Convergence,
+                            format!("StallDetector CriticalStall override → Replan: {reason}"),
+                        );
+                    }
+                }
+                StallSignal::SlowProgress { delta, hint } => {
+                    tracing::debug!(
+                        round = round,
+                        delta = delta,
+                        hint = %hint,
+                        "StallDetector: SlowProgress"
+                    );
+                }
+                StallSignal::NoStall => {}
+            }
+        }
+
         // Phase 1: emit ConvergenceDecided for every round so offline analysis
         // can correlate controller decisions with oracle outcomes.
         super::loop_events::emit(
@@ -117,8 +173,10 @@ pub(super) async fn run(
         );
         match ca {
             ConvergenceAction::Synthesize => {
-                // P0-2: Do NOT early-return here — oracle adjudicates after all signals
-                // are collected. Render and flag; oracle dispatch handles the BreakLoop.
+                state.log_decision(
+                    super::loop_state::DecisionCategory::Convergence,
+                    "action=Synthesize — stagnation confirmed",
+                );
                 tracing::info!(
                     round,
                     "ConvergenceController: Synthesize — stagnation confirmed"
@@ -135,6 +193,10 @@ pub(super) async fn run(
                 state.synthesis.convergence_directive_injected = true;
             }
             ConvergenceAction::Replan => {
+                state.log_decision(
+                    super::loop_state::DecisionCategory::Convergence,
+                    "action=Replan — injecting replan directive",
+                );
                 tracing::info!(round, "ConvergenceController: Replan — injecting directive");
                 if !state.silent {
                     render_sink.loop_guard_action(
@@ -161,8 +223,10 @@ pub(super) async fn run(
                 state.synthesis.convergence_directive_injected = true;
             }
             ConvergenceAction::Halt => {
-                // P0-2: Do NOT early-return here — oracle adjudicates after all signals
-                // are collected. Render; oracle dispatch handles the BreakLoop.
+                state.log_decision(
+                    super::loop_state::DecisionCategory::Convergence,
+                    "action=Halt — max rounds exceeded",
+                );
                 tracing::warn!(
                     round,
                     "ConvergenceController: Halt — max state.rounds exceeded"
@@ -342,6 +406,7 @@ pub(super) async fn run(
 
     // P0-2: Declare oracle_decision before the RoundScorer+RoundFeedback scoped block so
     // it survives into the oracle dispatch section below (after HICON Phase 4).
+    #[allow(unused_assignments)] // initialized before conditional assignment in scoped block
     let mut oracle_decision: Option<super::super::termination_oracle::TerminationDecision> = None;
 
     // Phase 2: RoundScorer — score this round and accumulate for reward pipeline.
