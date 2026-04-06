@@ -82,17 +82,55 @@ pub(super) async fn run(
     // Phase 33: dedup — filter out tool calls that were already executed with the
     // same arguments in a prior round. Produces a synthetic ToolResult for filtered calls
     // so the model doesn't get confused by missing results.
+    // FIX 1 (Wave 8): Enhanced dedup feedback with actionable guidance.
+    // When a tool call is filtered as duplicate, the model MUST receive a structured
+    // tool_result with is_error=true (per Anthropic tool-use protocol). The message
+    // includes: what was duplicated, what tools are available, and what to do instead.
+    // This prevents the silent-dedup → repetition loop observed in session 6f5126d0.
     let mut dedup_result_blocks: Vec<ContentBlock> = Vec::new();
+    let all_tool_defs = tool_registry.tool_definitions();
+    let all_tool_names: Vec<&str> = all_tool_defs
+        .iter()
+        .map(|t| t.name.as_str())
+        .take(12)
+        .collect();
     let deduplicated_tools: Vec<_> = completed_tools
         .into_iter()
         .filter(|tool| {
             let args_hash = hash_tool_args(&tool.input);
             if state.guards.loop_guard.is_duplicate(&tool.name, args_hash) {
-                tracing::warn!(tool = %tool.name, "Duplicate tool call filtered");
+                // Build list of tools NOT yet used in this session.
+                let used_tools: std::collections::HashSet<&str> =
+                    state.tools_executed.iter().map(|s| s.as_str()).collect();
+                let unused: Vec<&&str> = all_tool_names
+                    .iter()
+                    .filter(|t| !used_tools.contains(**t))
+                    .take(5)
+                    .collect();
+                let unused_hint = if unused.is_empty() {
+                    "Try the same tool with DIFFERENT arguments.".to_string()
+                } else {
+                    format!(
+                        "Tools you haven't used yet: {}. Try one of these, or use different arguments.",
+                        unused.iter().map(|t| format!("`{}`", t)).collect::<Vec<_>>().join(", ")
+                    )
+                };
+
+                tracing::warn!(
+                    tool = %tool.name,
+                    args_hash = args_hash,
+                    unused_tools = %unused_hint,
+                    "Duplicate tool call filtered — injecting corrective feedback"
+                );
                 dedup_result_blocks.push(ContentBlock::ToolResult {
                     tool_use_id: tool.id.clone(),
-                    content: "Already executed in a previous round. Use the existing result."
-                        .to_string(),
+                    content: format!(
+                        "ERROR: This exact call to `{}` with these arguments was already executed \
+                         in a previous round. The result is already in the conversation above. \
+                         Do NOT call this tool again with the same arguments. \
+                         {}",
+                        tool.name, unused_hint
+                    ),
                     is_error: true,
                 });
                 false

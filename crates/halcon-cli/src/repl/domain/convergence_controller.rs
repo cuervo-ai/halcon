@@ -324,8 +324,9 @@ impl ConvergenceController {
         }
 
         // 3. Text-only rounds with sufficient coverage → synthesize early.
+        // FIX 3: Use multi-signal progress when keyword coverage is 0.
         if tool_names.is_empty() {
-            let coverage = self.estimate_goal_coverage(cumulative_text);
+            let coverage = self.compute_progress_score(tool_names, cumulative_text, round);
             if coverage >= self.goal_coverage_threshold && round >= 1 {
                 return ConvergenceAction::Synthesize;
             }
@@ -340,8 +341,8 @@ impl ConvergenceController {
             }
 
             if self.consecutive_stagnation >= 1 {
-                // One confirmed stagnation round (window excludes self) → synthesize if coverage ok, else replan.
-                let coverage = self.estimate_goal_coverage(cumulative_text);
+                // FIX 3: Use multi-signal progress for stagnation decisions.
+                let coverage = self.compute_progress_score(tool_names, cumulative_text, round);
                 self.consecutive_stagnation = 0;
                 if coverage >= self.goal_coverage_threshold * 0.70 {
                     return ConvergenceAction::Synthesize;
@@ -351,9 +352,10 @@ impl ConvergenceController {
             }
         }
 
-        // 5. Early success: high goal coverage + enough text → synthesize.
+        // 5. Early success: high progress + enough text → synthesize.
+        // FIX 3: Use multi-signal progress.
         if round >= 2 {
-            let coverage = self.estimate_goal_coverage(cumulative_text);
+            let coverage = self.compute_progress_score(tool_names, cumulative_text, round);
             let text_substantial = cumulative_text.len() > 500;
             if coverage >= 0.80 && text_substantial {
                 return ConvergenceAction::Synthesize;
@@ -418,6 +420,91 @@ impl ConvergenceController {
             .filter(|kw| text_lower.contains(kw.as_str()))
             .count();
         covered as f32 / self.goal_keywords.len() as f32
+    }
+
+    /// FIX 3 (Wave 8): Multi-signal progress score.
+    ///
+    /// Combines keyword coverage with structural signals to measure actual progress.
+    /// Used as a fallback when keyword coverage is 0.0 (empty keywords or keywords
+    /// not present in tool output). This prevents the system from seeing "zero progress"
+    /// when the agent IS making progress via tools.
+    ///
+    /// Signals:
+    /// - keyword_coverage: classic keyword match (existing)
+    /// - tool_diversity: unique tools used / round count (higher = exploring more)
+    /// - text_accumulation: chars of output / expected minimum (capped at 1.0)
+    /// - tool_success: successful tool calls exist (binary signal)
+    /// - novelty: this round's tools differ from previous round (not repeating)
+    fn compute_progress_score(
+        &self,
+        tool_names: &[String],
+        cumulative_text: &str,
+        round: u32,
+    ) -> f32 {
+        let keyword_cov = self.estimate_goal_coverage(cumulative_text);
+
+        // If keyword coverage works (> 0), trust it primarily.
+        if keyword_cov > 0.1 {
+            return keyword_cov;
+        }
+
+        // Keyword coverage failed (empty keywords or no matches).
+        // Fall back to structural progress signals.
+        let unique_tools: std::collections::HashSet<&str> = self
+            .history
+            .iter()
+            .flat_map(|obs| obs.tool_call_hashes.iter())
+            .map(|_| "tool") // we count unique hashes as a proxy
+            .collect();
+        let tool_diversity = if round > 0 {
+            (unique_tools.len() as f32 / (round as f32 + 1.0)).min(1.0)
+        } else {
+            0.0
+        };
+
+        let text_score = (cumulative_text.len() as f32 / 500.0).min(1.0);
+
+        let tool_success = if !tool_names.is_empty() { 0.5 } else { 0.0 };
+
+        // Novelty: did this round use different tools than the previous?
+        let novelty = if self.history.len() >= 2 {
+            let prev = &self.history[self.history.len() - 2];
+            let current_set: std::collections::HashSet<&str> =
+                tool_names.iter().map(|s| s.as_str()).collect();
+            let prev_set: std::collections::HashSet<String> = prev
+                .tool_call_hashes
+                .iter()
+                .map(|h| format!("{}", h))
+                .collect();
+            if current_set.is_empty() || prev_set.is_empty() {
+                0.3 // neutral
+            } else {
+                // Different tools = novel
+                if current_set.iter().any(|t| !prev_set.contains(*t)) {
+                    0.8
+                } else {
+                    0.1
+                }
+            }
+        } else {
+            0.5 // first round, neutral
+        };
+
+        let score =
+            tool_diversity * 0.25 + text_score * 0.25 + tool_success * 0.25 + novelty * 0.25;
+
+        tracing::debug!(
+            keyword_cov = keyword_cov,
+            tool_diversity = tool_diversity,
+            text_score = text_score,
+            tool_success = tool_success,
+            novelty = novelty,
+            combined = score,
+            round = round,
+            "multi_signal_progress"
+        );
+
+        score
     }
 
     /// Extract meaningful goal keywords from the original query.
@@ -1031,5 +1118,45 @@ mod tests {
             ),
             "CR-4: stagnation with empty keywords should NOT Synthesize. Got: {action:?}"
         );
+    }
+
+    // ── FIX 3 (Wave 8): Multi-signal progress tests ─────────────────────
+
+    #[test]
+    fn progress_score_uses_keyword_coverage_when_available() {
+        let ctrl = make_controller("fix the bug in auth.rs");
+        // Text contains keywords "fix" and "bug" → keyword coverage > 0
+        let score = ctrl.compute_progress_score(
+            &["file_read".to_string()],
+            "I will fix the bug in the authentication module",
+            1,
+        );
+        // Should be driven by keyword coverage (> 0.1 triggers fast path)
+        assert!(
+            score > 0.2,
+            "keyword coverage should dominate when available: {score}"
+        );
+    }
+
+    #[test]
+    fn progress_score_falls_back_to_structural_when_no_keywords() {
+        let ctrl = make_controller("the and with"); // stopwords only → empty keywords
+                                                    // Tool executed + text accumulated → structural signals should produce > 0
+        let score = ctrl.compute_progress_score(
+            &["directory_tree".to_string()],
+            &"a".repeat(600), // 600 chars of output
+            1,
+        );
+        assert!(
+            score > 0.1,
+            "FIX 3: structural progress should be > 0 even with empty keywords: {score}"
+        );
+    }
+
+    #[test]
+    fn progress_score_zero_for_no_activity() {
+        let ctrl = make_controller("the and with");
+        let score = ctrl.compute_progress_score(&[], "", 0);
+        assert!(score < 0.3, "No activity should produce low score: {score}");
     }
 }
