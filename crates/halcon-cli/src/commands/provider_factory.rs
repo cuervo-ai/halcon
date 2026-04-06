@@ -353,8 +353,10 @@ pub fn build_registry(config: &AppConfig) -> ProviderRegistry {
 ///
 /// Call this after `build_registry()` when an async context is available.
 /// If the Cenzontle provider is not registered (no token) this is a no-op.
-/// TTL for the Cenzontle model list disk cache (1 hour).
-const CENZONTLE_MODEL_CACHE_TTL_SECS: u64 = 3600;
+/// TTL for the Cenzontle model list disk cache.
+/// Increased from 1h to 4h to reduce startup latency. Model lists rarely
+/// change more than once per day. Fresh fetch happens in background when stale.
+const CENZONTLE_MODEL_CACHE_TTL_SECS: u64 = 14_400; // 4 hours
 
 /// Path to the Cenzontle model cache file.
 fn cenzontle_cache_path() -> Option<std::path::PathBuf> {
