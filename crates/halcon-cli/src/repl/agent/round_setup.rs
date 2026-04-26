@@ -41,6 +41,10 @@ pub(super) struct RoundSetupOutput {
     /// The resolved model ID for this round (may differ from `request.model` due to
     /// model selector overrides or fallback adaptation).
     pub selected_model: String,
+    /// Open Paloma budget reservation for this round (INV-5).
+    /// Caller MUST close it: commit on success, release on failure/cancel.
+    #[cfg(feature = "paloma")]
+    pub paloma_reservation: Option<halcon_providers::PalomaReservation>,
 }
 
 /// Data for an early return (model validation failure).
@@ -407,18 +411,28 @@ pub(super) async fn run(
     // When PalomaRouter is available, consult it first for model/provider selection.
     // Paloma enforces policy, capability, budget, and scoring constraints.
     // If Paloma returns a decision, use it. Otherwise, fall through to ModelSelector.
-    let paloma_decision = paloma_router.map(|router| {
-        let routing_req = halcon_providers::router::RoutingRequest {
-            messages: &built_messages,
-            tenant_tier: "standard",
-            force_provider: None,
-            force_model: None,
-            latency_sla_ms: None,
-            cost_budget_remaining: Some(session.estimated_cost_usd.max(0.0) as f64)
-                .filter(|&c| c > 0.0),
-        };
-        router.route(&routing_req)
-    });
+    //
+    // INV-5: route_and_reserve() opens a budget reservation that MUST be closed by
+    // the caller — commit on success, release on failure/cancel.
+    let routing_req = halcon_providers::router::RoutingRequest {
+        messages: &built_messages,
+        tenant_tier: "standard",
+        force_provider: None,
+        force_model: None,
+        latency_sla_ms: None,
+        cost_budget_remaining: Some(session.estimated_cost_usd.max(0.0) as f64)
+            .filter(|&c| c > 0.0),
+    };
+    #[cfg(feature = "paloma")]
+    let (paloma_decision, paloma_reservation) = match paloma_router {
+        Some(router) => {
+            let (decision, reservation) = router.route_and_reserve(&routing_req);
+            (Some(decision), reservation)
+        }
+        None => (None, None),
+    };
+    #[cfg(not(feature = "paloma"))]
+    let paloma_decision = paloma_router.map(|router| router.route(&routing_req));
 
     // Optional: context-aware model selection with mid-session re-evaluation.
     // Uses the pipeline's context-managed state.messages for accurate complexity scoring,
@@ -990,6 +1004,11 @@ pub(super) async fn run(
             execution_fingerprint: compute_fingerprint(&round_request.messages),
             round_evaluations: state.convergence.round_evaluations.clone(),
         };
+        // INV-5: release reservation — model validation failed, no execution.
+        #[cfg(feature = "paloma")]
+        if let (Some(router), Some(ref r)) = (paloma_router, &paloma_reservation) {
+            router.release_reservation(r);
+        }
         return Ok(RoundSetupOutcome::EarlyReturn(Box::new(data)));
     }
 
@@ -1113,6 +1132,11 @@ pub(super) async fn run(
             if !state.silent {
                 render_sink.info("\n[blocked by guardrail]");
             }
+            // INV-5: release reservation — pre-invocation guardrail blocked.
+            #[cfg(feature = "paloma")]
+            if let (Some(router), Some(ref r)) = (paloma_router, &paloma_reservation) {
+                router.release_reservation(r);
+            }
             return Ok(RoundSetupOutcome::BreakLoop);
         }
     }
@@ -1148,6 +1172,11 @@ pub(super) async fn run(
                                     detected.join(", ")),
                                 None,
                             );
+                        }
+                        // INV-5: release reservation — G2 PII block, no execution.
+                        #[cfg(feature = "paloma")]
+                        if let (Some(router), Some(ref r)) = (paloma_router, &paloma_reservation) {
+                            router.release_reservation(r);
                         }
                         return Ok(RoundSetupOutcome::BreakLoop);
                     }
@@ -1206,6 +1235,11 @@ pub(super) async fn run(
                 session.add_message(msg);
             }
             // Cache never stores tool_use responses, so this is always terminal.
+            // INV-5: release reservation — cache hit means no LLM call was made.
+            #[cfg(feature = "paloma")]
+            if let (Some(router), Some(ref r)) = (paloma_router, &paloma_reservation) {
+                router.release_reservation(r);
+            }
             return Ok(RoundSetupOutcome::BreakLoop);
         }
     }
@@ -1214,5 +1248,7 @@ pub(super) async fn run(
         round_request,
         effective_provider,
         selected_model,
+        #[cfg(feature = "paloma")]
+        paloma_reservation,
     }))
 }

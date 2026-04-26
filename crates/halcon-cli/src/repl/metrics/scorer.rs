@@ -240,11 +240,19 @@ impl RoundScorer {
     /// - `effective_rounds = max(1, floor(REPLAN_CONSECUTIVE_ROUNDS × (1 - sensitivity × 0.6)))`
     /// - `effective_threshold = REPLAN_SCORE_THRESHOLD + sensitivity × 0.10`
     pub fn should_trigger_replan(&self) -> bool {
+        // Ω-07 (HAL-07): hard minimum 2 rounds antes de disparar replan,
+        // independientemente de `replan_sensitivity`. Rationale: round 0 con
+        // score bajo puede deberse a un tool transient error (EACCES, network
+        // blip); forzar replan inmediato desperdicia ciclos del LLM y amplifica
+        // el bug observado en session `9f9a0cf0` (tool EACCES en round 0 →
+        // replan inmediato → tools_suppressed → hallucinación).
+        //
         // Scale consecutive-round requirement down with sensitivity.
-        // At sensitivity=0.0: 3 rounds (original). At sensitivity=1.0: 1 round.
+        // At sensitivity=0.0: 3 rounds (original). At sensitivity=1.0: floor 2 rounds.
+        const HARD_MIN_ROUNDS_BEFORE_REPLAN: usize = 2;
         let effective_rounds = ((REPLAN_CONSECUTIVE_ROUNDS as f32
             * (1.0 - self.replan_sensitivity * 0.6))
-            .max(1.0)) as usize;
+            .max(HARD_MIN_ROUNDS_BEFORE_REPLAN as f32)) as usize;
         // Scale score threshold up with sensitivity (more likely to trigger).
         // At sensitivity=0.0: 0.15 (original). At sensitivity=1.0: 0.25.
         let effective_threshold =
@@ -518,12 +526,27 @@ mod tests {
     }
 
     #[test]
-    fn replan_sensitivity_one_triggers_on_single_low_round() {
-        // sensitivity=1.0 → effective_rounds=1 (hair-trigger)
+    fn replan_sensitivity_one_respects_hard_min_two_rounds() {
+        // Ω-07 (HAL-07): hard minimum 2 rounds before any replan trigger,
+        // even at max sensitivity.  Rationale: round 0 transient tool errors
+        // (EACCES, network blip) should not trigger replan; the agent must
+        // have at least 2 rounds of evidence before declaring stagnation.
         let mut s = make_scorer();
         s.set_replan_sensitivity(1.0);
+
+        // Single low-score round — must NOT trigger (hard floor 2 rounds)
         s.score_round(0, 0, 5, 10, 100, 0.0, vec![], "");
-        assert!(s.should_trigger_replan());
+        assert!(
+            !s.should_trigger_replan(),
+            "single low round must not trigger replan (hard floor 2 rounds)"
+        );
+
+        // Second low-score round — NOW triggers
+        s.score_round(0, 0, 5, 10, 100, 0.0, vec![], "");
+        assert!(
+            s.should_trigger_replan(),
+            "two consecutive low rounds at max sensitivity must trigger replan"
+        );
     }
 
     #[test]

@@ -397,6 +397,8 @@ impl AgentBridgeImpl {
             requested_provider: None,
             policy: std::sync::Arc::new(halcon_core::types::PolicyConfig::default()),
             paloma_router: None,
+            audit_sink: None,
+            tenant_id: None,
         };
 
         let loop_result = crate::repl::agent::run_agent_loop(ctx)

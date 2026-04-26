@@ -357,17 +357,42 @@ impl LlmPlanner {
             return Ok(None);
         }
 
-        // Parse JSON into ExecutionPlan.
-        let mut plan: ExecutionPlan = serde_json::from_str(json_trimmed).map_err(|e| {
-            let preview: String = json_trimmed.chars().take(500).collect();
-            tracing::warn!(
-                error = %e,
-                raw_len = json_trimmed.len(),
-                raw_preview = %preview,
-                "Failed to parse plan JSON"
-            );
-            HalconError::PlanningFailed(format!("Failed to parse plan JSON: {e}"))
-        })?;
+        // First attempt: strict serde_json on raw output.
+        // Second attempt: sanitized JSON (strip JS comments + trailing commas +
+        // Python-style None/True/False).  Modelos de código (deepseek-v3-2-coding,
+        // codestral) frecuentemente emiten JSON con adornos no estándar.
+        let mut plan: ExecutionPlan = match serde_json::from_str::<ExecutionPlan>(json_trimmed) {
+            Ok(p) => p,
+            Err(first_err) => {
+                let sanitized = sanitize_json_for_parse(json_trimmed);
+                match serde_json::from_str::<ExecutionPlan>(&sanitized) {
+                    Ok(p) => {
+                        tracing::info!(
+                            original_len = json_trimmed.len(),
+                            sanitized_len = sanitized.len(),
+                            original_err = %first_err,
+                            "plan JSON parsed after sanitization (trailing commas / JS comments stripped)"
+                        );
+                        p
+                    }
+                    Err(second_err) => {
+                        let preview: String = json_trimmed.chars().take(500).collect();
+                        let sanitized_preview: String = sanitized.chars().take(500).collect();
+                        tracing::warn!(
+                            original_err = %first_err,
+                            sanitized_err = %second_err,
+                            raw_len = json_trimmed.len(),
+                            raw_preview = %preview,
+                            sanitized_preview = %sanitized_preview,
+                            "Failed to parse plan JSON (both raw and sanitized)"
+                        );
+                        return Err(HalconError::PlanningFailed(format!(
+                            "Failed to parse plan JSON: {first_err}"
+                        )));
+                    }
+                }
+            }
+        };
 
         // Assign plan metadata.
         plan.plan_id = Uuid::new_v4();
@@ -408,6 +433,175 @@ impl LlmPlanner {
 /// 1. Complete fence: `` ```json ... ``` `` → returns content between fences
 /// 2. Unclosed fence (truncated): `` ```json ... `` → strips fence prefix, finds first `{`/`[`
 /// 3. No fences: returns input unchanged
+/// Sanitiza adornos JSON-hostiles que modelos de código (deepseek-v3-2-coding,
+/// codestral, gpt-5-codex) emiten frecuentemente.
+///
+/// Aplica en orden:
+///   1. Strip comentarios línea `// ...` y bloque `/* ... */` fuera de strings.
+///   2. Strip trailing commas en arrays `[a,b,]` y objetos `{a:b,}`.
+///   3. Normaliza Python-isms: `True`/`False`/`None` → `true`/`false`/`null`.
+///
+/// NO es un parser completo JSON5 — sólo aplica heurísticas sobre el texto,
+/// respetando strings literales para no romper contenido legítimo.
+///
+/// Se invoca SÓLO tras fallar `serde_json::from_str` estricto, nunca como
+/// primer intento (para evitar false positives en JSON ya válido).
+pub(crate) fn sanitize_json_for_parse(input: &str) -> String {
+    // 2 pasadas ordenadas: primero strip comentarios (para que detección de
+    // trailing comma pueda ver ']'/'}' sin obstáculos), después strip trailing
+    // commas + normalizar Python-isms.
+    let phase1 = strip_comments_preserving_strings(input);
+    strip_trailing_commas_and_pythonisms(&phase1)
+}
+
+/// Pasada 1: elimina `// comment` y `/* comment */` fuera de strings literales.
+fn strip_comments_preserving_strings(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let mut out = String::with_capacity(input.len());
+    let mut i = 0;
+    let mut in_string = false;
+    let mut escape_next = false;
+
+    while i < bytes.len() {
+        let b = bytes[i];
+
+        if in_string {
+            out.push(b as char);
+            if escape_next {
+                escape_next = false;
+            } else if b == b'\\' {
+                escape_next = true;
+            } else if b == b'"' {
+                in_string = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        if b == b'"' {
+            in_string = true;
+            out.push('"');
+            i += 1;
+            continue;
+        }
+
+        // Comentario línea: // ... \n  (mantener el \n para preservar layout).
+        if b == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'/' {
+            i += 2;
+            while i < bytes.len() && bytes[i] != b'\n' {
+                i += 1;
+            }
+            // no emit; el \n se emitirá en el siguiente iter.
+            continue;
+        }
+
+        // Comentario bloque: /* ... */
+        if b == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'*' {
+            i += 2;
+            while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                i += 1;
+            }
+            i = (i + 2).min(bytes.len());
+            continue;
+        }
+
+        out.push(b as char);
+        i += 1;
+    }
+
+    out
+}
+
+/// Pasada 2: strip trailing commas + normalizar Python constants.
+fn strip_trailing_commas_and_pythonisms(input: &str) -> String {
+    let bytes = input.as_bytes();
+    let mut out = String::with_capacity(input.len());
+    let mut i = 0;
+    let mut in_string = false;
+    let mut escape_next = false;
+
+    while i < bytes.len() {
+        let b = bytes[i];
+
+        if in_string {
+            out.push(b as char);
+            if escape_next {
+                escape_next = false;
+            } else if b == b'\\' {
+                escape_next = true;
+            } else if b == b'"' {
+                in_string = false;
+            }
+            i += 1;
+            continue;
+        }
+
+        if b == b'"' {
+            in_string = true;
+            out.push('"');
+            i += 1;
+            continue;
+        }
+
+        // Trailing comma: ',' + whitespace + ']' o '}' → skip comma.
+        if b == b',' {
+            let mut j = i + 1;
+            while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+                j += 1;
+            }
+            if j < bytes.len() && (bytes[j] == b']' || bytes[j] == b'}') {
+                i += 1;
+                continue;
+            }
+        }
+
+        // Python-isms fuera de string.
+        let at_token_start = i == 0 || {
+            let prev = bytes[i - 1];
+            prev.is_ascii_whitespace()
+                || prev == b','
+                || prev == b':'
+                || prev == b'['
+                || prev == b'{'
+        };
+        if at_token_start {
+            if input[i..].starts_with("True")
+                && !is_ident_continuation(bytes.get(i + 4).copied())
+            {
+                out.push_str("true");
+                i += 4;
+                continue;
+            }
+            if input[i..].starts_with("False")
+                && !is_ident_continuation(bytes.get(i + 5).copied())
+            {
+                out.push_str("false");
+                i += 5;
+                continue;
+            }
+            if input[i..].starts_with("None")
+                && !is_ident_continuation(bytes.get(i + 4).copied())
+            {
+                out.push_str("null");
+                i += 4;
+                continue;
+            }
+        }
+
+        out.push(b as char);
+        i += 1;
+    }
+
+    out
+}
+
+fn is_ident_continuation(b: Option<u8>) -> bool {
+    match b {
+        Some(c) => c.is_ascii_alphanumeric() || c == b'_',
+        None => false,
+    }
+}
+
 pub(crate) fn extract_json(s: &str) -> &str {
     // Try to extract from ```json ... ``` or ``` ... ```
     if let Some(start) = s.find("```json") {
@@ -574,6 +768,121 @@ mod tests {
     fn extract_json_plain() {
         let input = r#"{"goal": "test"}"#;
         assert_eq!(extract_json(input), input);
+    }
+
+    // ─── sanitize_json_for_parse tests ───────────────────────────────────────
+
+    #[test]
+    fn sanitize_strips_trailing_comma_in_array() {
+        let input = r#"{"steps":[{"x":1},{"y":2},]}"#;
+        let out = sanitize_json_for_parse(input);
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["steps"].as_array().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn sanitize_strips_trailing_comma_in_object() {
+        let input = r#"{"a":1,"b":2,}"#;
+        let out = sanitize_json_for_parse(input);
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["a"], 1);
+        assert_eq!(v["b"], 2);
+    }
+
+    #[test]
+    fn sanitize_strips_line_comments_outside_strings() {
+        let input = r#"{
+            "goal": "test", // a comment
+            "steps": [] // another
+        }"#;
+        let out = sanitize_json_for_parse(input);
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["goal"], "test");
+    }
+
+    #[test]
+    fn sanitize_strips_block_comments() {
+        let input = r#"{"a":1,/* comment */"b":2}"#;
+        let out = sanitize_json_for_parse(input);
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["b"], 2);
+    }
+
+    #[test]
+    fn sanitize_preserves_url_in_string() {
+        // URLs con // adentro de strings NO deben tratarse como comentarios.
+        let input = r#"{"url":"https://example.com/path"}"#;
+        let out = sanitize_json_for_parse(input);
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["url"], "https://example.com/path");
+    }
+
+    #[test]
+    fn sanitize_preserves_escaped_quotes_in_string() {
+        let input = r#"{"msg":"he said \"hi\""}"#;
+        let out = sanitize_json_for_parse(input);
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["msg"], "he said \"hi\"");
+    }
+
+    #[test]
+    fn sanitize_normalizes_python_constants() {
+        let input = r#"{"a":True,"b":False,"c":None}"#;
+        let out = sanitize_json_for_parse(input);
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["a"], true);
+        assert_eq!(v["b"], false);
+        assert!(v["c"].is_null());
+    }
+
+    #[test]
+    fn sanitize_does_not_corrupt_true_substring_in_string() {
+        // "True" dentro de string debe preservarse; sólo como token standalone cambia.
+        let input = r#"{"name":"Truely Something"}"#;
+        let out = sanitize_json_for_parse(input);
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["name"], "Truely Something");
+    }
+
+    #[test]
+    fn sanitize_does_not_corrupt_identifiers_containing_true() {
+        // `"TrueLove"` standalone-ish: NO queremos reemplazar "TrueLove".
+        let input = r#"{"key":"TrueLove","flag":True}"#;
+        let out = sanitize_json_for_parse(input);
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["key"], "TrueLove");
+        assert_eq!(v["flag"], true);
+    }
+
+    #[test]
+    fn sanitize_roundtrip_plan_with_all_vices() {
+        // Caso realista: plan de deepseek-v3-2-coding con multiples vicios.
+        let input = r#"{
+            // generated plan
+            "goal": "Analyze repo structure",
+            "steps": [
+                {"description":"List files","tool_name":"bash","parallel":False,"confidence":0.9,"expected_args":{}},
+                {"description":"Read configs","tool_name":null,"parallel":False,"confidence":0.8,"expected_args":{}}, // trailing step
+            ],
+            "requires_confirmation": False,
+        }"#;
+        let out = sanitize_json_for_parse(input);
+        let v: serde_json::Value =
+            serde_json::from_str(&out).expect("sanitized must parse");
+        assert_eq!(v["goal"], "Analyze repo structure");
+        assert_eq!(v["steps"].as_array().unwrap().len(), 2);
+        assert_eq!(v["requires_confirmation"], false);
+    }
+
+    #[test]
+    fn sanitize_idempotent_on_clean_json() {
+        // JSON válido debe salir sin cambios significativos.
+        let input = r#"{"goal":"x","steps":[{"tool_name":"bash"}],"requires_confirmation":true}"#;
+        let out = sanitize_json_for_parse(input);
+        // Ambos deben parsear al mismo valor.
+        let a: serde_json::Value = serde_json::from_str(input).unwrap();
+        let b: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(a, b);
     }
 
     #[test]

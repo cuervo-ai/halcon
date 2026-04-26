@@ -1617,6 +1617,60 @@ fn default_planning_timeout() -> u64 {
     30
 }
 
+/// Adaptive planning timeout by model tier.
+///
+/// BALANCED and FLAGSHIP models (DeepSeek-V3.2, Claude Opus, o1) regularly
+/// exceed 15-20s for planning on complex prompts.  A fixed 15s timeout causes
+/// "planning timed out — executing without plan" even on healthy sessions.
+///
+/// Tiers map to coarse latency classes (Cenzontle ModelInfo exposes them):
+///   - ECONOMY  : fast models (Haiku, Flash, Llama 8B)          → 10 s
+///   - FAST     : latency-optimized (GPT-4o mini, Flash Lite)   → 15 s
+///   - BALANCED : mid-tier (Sonnet, DeepSeek V3, Kimi)          → 30 s
+///   - FLAGSHIP : reasoning models (Opus, o1, Reasoner)         → 60 s
+///
+/// Returns the CONFIGURED timeout as a floor; this function returns the
+/// maximum of the config value and the tier-appropriate minimum.  Users who
+/// explicitly configure a higher timeout are respected.
+pub fn adaptive_planning_timeout_secs(configured: u64, tier: Option<&str>) -> u64 {
+    let tier_min = match tier.map(str::to_ascii_uppercase).as_deref() {
+        Some("ECONOMY") => 10,
+        Some("FAST") => 15,
+        Some("BALANCED") => 30,
+        Some("FLAGSHIP") => 60,
+        _ => configured, // unknown tier → trust user config
+    };
+    configured.max(tier_min)
+}
+
+#[cfg(test)]
+mod adaptive_timeout_tests {
+    use super::*;
+
+    #[test]
+    fn economy_minimum_10s() {
+        assert_eq!(adaptive_planning_timeout_secs(5, Some("ECONOMY")), 10);
+        assert_eq!(adaptive_planning_timeout_secs(60, Some("economy")), 60);
+    }
+
+    #[test]
+    fn balanced_minimum_30s() {
+        assert_eq!(adaptive_planning_timeout_secs(15, Some("BALANCED")), 30);
+        assert_eq!(adaptive_planning_timeout_secs(45, Some("BALANCED")), 45);
+    }
+
+    #[test]
+    fn flagship_minimum_60s() {
+        assert_eq!(adaptive_planning_timeout_secs(30, Some("FLAGSHIP")), 60);
+    }
+
+    #[test]
+    fn unknown_tier_respects_config() {
+        assert_eq!(adaptive_planning_timeout_secs(25, None), 25);
+        assert_eq!(adaptive_planning_timeout_secs(42, Some("WEIRD")), 42);
+    }
+}
+
 impl Default for PlanningConfig {
     fn default() -> Self {
         Self {

@@ -174,6 +174,8 @@ pub async fn run_replay(
         requested_provider: None,
         policy: std::sync::Arc::new(halcon_core::types::PolicyConfig::default()),
         paloma_router: None,
+        audit_sink: None,
+        tenant_id: None,
     };
 
     let result = agent::run_agent_loop(ctx).await?;

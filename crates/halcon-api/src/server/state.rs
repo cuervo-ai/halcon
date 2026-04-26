@@ -34,6 +34,9 @@ pub struct AppState {
     pub perm_senders: Arc<DashMap<Uuid, tokio::sync::mpsc::UnboundedSender<(Uuid, bool)>>>,
     /// Path to persist chat sessions across server restarts.
     pub sessions_file: Option<PathBuf>,
+    /// Cancellation tokens for running task executions.
+    /// Keyed by execution_id; removed when execution completes or is cancelled.
+    pub task_cancel_tokens: Arc<DashMap<Uuid, tokio_util::sync::CancellationToken>>,
 }
 
 /// Tracked state for a tool (enable/disable, execution count).
@@ -61,6 +64,7 @@ impl AppState {
             chat_executor: None,
             perm_senders: Arc::new(DashMap::new()),
             sessions_file: None,
+            task_cancel_tokens: Arc::new(DashMap::new()),
         }
     }
 

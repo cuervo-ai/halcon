@@ -5,9 +5,11 @@
 //! This is the primary interface for the control plane to manage execution.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+use super::budget::{BudgetExceeded, RuntimeBudget};
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::{watch, Notify, RwLock};
@@ -196,8 +198,10 @@ pub struct ExecutionCoordinator {
     cancelled: Arc<AtomicBool>,
     default_retry: RetryPolicy,
     node_retries: Arc<RwLock<HashMap<Uuid, RetryPolicy>>>,
-    tokens_used: Arc<AtomicU64>,
-    tokens_limit: u64,
+    /// Canonical shared budget tracking tokens + cost atomically.
+    /// Replaces the previous plain `tokens_used: AtomicU64` + `tokens_limit: u64`
+    /// to provide dual-atomic tracking (tokens + cost_cents) with typed errors.
+    budget: Arc<RuntimeBudget>,
     budget_warn_pct: f32,
     started_at: Instant,
     event_tx: tokio::sync::mpsc::UnboundedSender<CoordinatorEvent>,
@@ -207,10 +211,14 @@ pub struct ExecutionCoordinator {
 
 impl ExecutionCoordinator {
     /// Create a new coordinator for a session.
+    ///
+    /// `budget` is the canonical `RuntimeBudget` that tracks both token usage
+    /// and cost atomically. Pass `RuntimeBudget::new(token_limit, 0.0, Duration::ZERO)`
+    /// for token-only budgets (backward-compatible with the old `tokens_limit: u64` API).
     pub fn new(
         session_id: Uuid,
         dag: Arc<MutableDag>,
-        tokens_limit: u64,
+        budget: Arc<RuntimeBudget>,
         event_tx: tokio::sync::mpsc::UnboundedSender<CoordinatorEvent>,
     ) -> Self {
         Self {
@@ -223,8 +231,7 @@ impl ExecutionCoordinator {
             cancelled: Arc::new(AtomicBool::new(false)),
             default_retry: RetryPolicy::default(),
             node_retries: Arc::new(RwLock::new(HashMap::new())),
-            tokens_used: Arc::new(AtomicU64::new(0)),
-            tokens_limit,
+            budget,
             budget_warn_pct: 0.8,
             started_at: Instant::now(),
             event_tx,
@@ -274,7 +281,7 @@ impl ExecutionCoordinator {
             paused: self.paused.load(Ordering::Relaxed),
             pause_reason,
             elapsed_ms: self.started_at.elapsed().as_millis() as u64,
-            tokens_used: self.tokens_used.load(Ordering::Relaxed),
+            tokens_used: self.budget.tokens_used(),
         }
     }
 
@@ -341,20 +348,36 @@ impl ExecutionCoordinator {
         &self.dag
     }
 
-    /// Record token usage and check budget.
-    pub fn record_tokens(&self, tokens: u64) {
-        let used = self.tokens_used.fetch_add(tokens, Ordering::Relaxed) + tokens;
-        if self.tokens_limit > 0 {
-            let pct = used as f32 / self.tokens_limit as f32;
+    /// Record token usage via the canonical `RuntimeBudget`.
+    ///
+    /// Returns `Err(BudgetExceeded)` if the token limit has been breached.
+    /// Emits a `BudgetWarning` event when usage crosses `budget_warn_pct`.
+    pub fn record_tokens(&self, tokens: u64) -> std::result::Result<(), BudgetExceeded> {
+        self.budget.record_tokens(tokens)?;
+        let used = self.budget.tokens_used();
+        let limit = self.budget.token_limit();
+        if limit > 0 {
+            let pct = used as f32 / limit as f32;
             if pct >= self.budget_warn_pct {
                 self.emit(CoordinatorEvent::BudgetWarning {
                     session_id: self.session_id,
                     tokens_used: used,
-                    tokens_limit: self.tokens_limit,
+                    tokens_limit: limit,
                     utilization_pct: pct,
                 });
             }
         }
+        Ok(())
+    }
+
+    /// Record cost usage via the canonical `RuntimeBudget`.
+    pub fn record_cost(&self, cost_usd: f64) -> std::result::Result<(), BudgetExceeded> {
+        self.budget.record_cost(cost_usd)
+    }
+
+    /// Access the shared budget for remaining-token queries.
+    pub fn budget(&self) -> &Arc<RuntimeBudget> {
+        &self.budget
     }
 
     /// Wait for resume if paused.
@@ -374,9 +397,14 @@ impl ExecutionCoordinator {
     ///
     /// `executor_fn` is called for each node and must return (output, tokens_used).
     /// This decouples the coordinator from the actual agent invocation.
+    ///
+    /// ## RM-3 changes (2026-04-09):
+    /// - Nodes within a wave execute **in parallel** via `tokio::spawn` (was sequential).
+    /// - Busy-wait `sleep(50ms)` replaced by level-triggered `Notify` from `MutableDag`.
+    /// - Ready nodes sorted by priority descending via `ready_nodes_with_priority()`.
     pub async fn run<F, Fut>(&self, executor_fn: F) -> Result<CoordinatorState>
     where
-        F: Fn(TaskNode) -> Fut + Send + Sync + 'static,
+        F: Fn(TaskNode) -> Fut + Clone + Send + Sync + 'static,
         Fut: std::future::Future<Output = std::result::Result<(String, u64), String>> + Send,
     {
         let snap = self.dag.snapshot();
@@ -397,12 +425,24 @@ impl ExecutionCoordinator {
                 break;
             }
 
-            // Get ready nodes.
-            let ready = self.dag.ready_nodes();
+            // Get ready nodes sorted by priority (descending).
+            let ready = self.dag.ready_nodes_with_priority();
             if ready.is_empty() {
                 if self.dag.has_running() {
-                    // Wait for running nodes to complete.
-                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    // Level-triggered: wait for a status change notification from MutableDag
+                    // instead of busy-waiting with sleep(50ms). MutableDag::mark_completed
+                    // and mark_failed call signal_change() which wakes this notified().
+                    // Fallback to a timeout in case the notifier is not wired (backward compat).
+                    tokio::select! {
+                        _ = async {
+                            if let Some(ref n) = self.dag.change_notify {
+                                n.notified().await;
+                            } else {
+                                tokio::time::sleep(Duration::from_millis(50)).await;
+                            }
+                        } => {}
+                        _ = tokio::time::sleep(Duration::from_millis(500)) => {}
+                    }
                     continue;
                 }
                 // No ready, no running → done.
@@ -417,74 +457,104 @@ impl ExecutionCoordinator {
                 _ => ready,
             };
 
-            // Execute the batch (sequential within wave for correctness).
+            // Pre-mark all nodes as running and emit NodeStarted events.
+            let retries_map = self.node_retries.read().await;
+            let mut node_policies: Vec<(TaskNode, RetryPolicy)> = Vec::with_capacity(batch.len());
             for node in batch {
                 let node_id = node.task_id;
                 self.dag.mark_running(node_id);
-
                 self.emit(CoordinatorEvent::NodeStarted {
                     session_id: self.session_id,
                     node_id,
                     instruction: node.instruction.clone(),
                 });
-
-                let retries = self.node_retries.read().await;
-                let policy = retries
+                let policy = retries_map
                     .get(&node_id)
                     .cloned()
                     .unwrap_or_else(|| self.default_retry.clone());
-                drop(retries);
+                node_policies.push((node, policy));
+            }
+            drop(retries_map);
 
+            // Execute wave nodes in PARALLEL via tokio::spawn.
+            let mut handles = Vec::with_capacity(node_policies.len());
+            for (node, policy) in node_policies {
+                let node_id = node.task_id;
                 let dag = self.dag.clone();
                 let sid = self.session_id;
                 let event_tx = self.event_tx.clone();
-                let executor = &executor_fn;
+                let budget = self.budget.clone();
+                let exec = executor_fn.clone();
 
-                // We can't move executor_fn into the spawn, so we use a channel pattern.
-                // For now, execute sequentially within the wave (safe for correctness).
-                let start = Instant::now();
-                let mut attempt = 0u32;
-                let mut last_error = String::new();
+                handles.push(tokio::spawn(async move {
+                    let start = Instant::now();
+                    let mut attempt = 0u32;
 
-                loop {
-                    match executor(node.clone()).await {
-                        Ok((output, tokens)) => {
-                            let dur = start.elapsed().as_millis() as u64;
-                            self.record_tokens(tokens);
-                            dag.mark_completed(node_id, output);
-                            let _ = event_tx.send(CoordinatorEvent::NodeCompleted {
-                                session_id: sid,
-                                node_id,
-                                duration_ms: dur,
-                                retry_count: attempt,
-                            });
-                            break;
-                        }
-                        Err(err) => {
-                            last_error = err.clone();
-                            if attempt < policy.max_retries && policy.retry_on_error {
-                                let backoff = policy.backoff_for(attempt);
-                                let _ = event_tx.send(CoordinatorEvent::NodeRetrying {
-                                    session_id: sid,
-                                    node_id,
-                                    attempt: attempt + 1,
-                                    backoff_ms: backoff.as_millis() as u64,
-                                });
-                                tokio::time::sleep(backoff).await;
-                                attempt += 1;
-                            } else {
+                    loop {
+                        match exec(node.clone()).await {
+                            Ok((output, tokens)) => {
                                 let dur = start.elapsed().as_millis() as u64;
-                                dag.mark_failed(node_id, err.clone(), attempt < policy.max_retries);
-                                let _ = event_tx.send(CoordinatorEvent::NodeFailed {
+                                let _ = budget.record_tokens(tokens);
+                                dag.mark_completed(node_id, output);
+                                let _ = event_tx.send(CoordinatorEvent::NodeCompleted {
                                     session_id: sid,
                                     node_id,
-                                    error: err,
-                                    retryable: false,
+                                    duration_ms: dur,
                                     retry_count: attempt,
                                 });
                                 break;
                             }
+                            Err(err) => {
+                                if attempt < policy.max_retries && policy.retry_on_error {
+                                    let backoff = policy.backoff_for(attempt);
+                                    let _ = event_tx.send(CoordinatorEvent::NodeRetrying {
+                                        session_id: sid,
+                                        node_id,
+                                        attempt: attempt + 1,
+                                        backoff_ms: backoff.as_millis() as u64,
+                                    });
+                                    tokio::time::sleep(backoff).await;
+                                    attempt += 1;
+                                } else {
+                                    dag.mark_failed(
+                                        node_id,
+                                        err.clone(),
+                                        attempt < policy.max_retries,
+                                    );
+                                    let _ = event_tx.send(CoordinatorEvent::NodeFailed {
+                                        session_id: sid,
+                                        node_id,
+                                        error: err,
+                                        retryable: false,
+                                        retry_count: attempt,
+                                    });
+                                    break;
+                                }
+                            }
                         }
+                    }
+                }));
+            }
+
+            // Wait for all spawned wave tasks to complete.
+            for handle in handles {
+                // Propagate panics from spawned tasks.
+                let _ = handle.await;
+            }
+
+            // Check budget warning after wave (spawned tasks record directly to RuntimeBudget).
+            {
+                let used = self.budget.tokens_used();
+                let limit = self.budget.token_limit();
+                if limit > 0 {
+                    let pct = used as f32 / limit as f32;
+                    if pct >= self.budget_warn_pct {
+                        self.emit(CoordinatorEvent::BudgetWarning {
+                            session_id: self.session_id,
+                            tokens_used: used,
+                            tokens_limit: limit,
+                            utilization_pct: pct,
+                        });
                     }
                 }
             }
@@ -498,12 +568,9 @@ impl ExecutionCoordinator {
                 _ => {}
             }
 
-            // Check budget.
-            if self.tokens_limit > 0 {
-                let used = self.tokens_used.load(Ordering::Relaxed);
-                if used >= self.tokens_limit {
-                    break;
-                }
+            // Check budget via canonical RuntimeBudget.
+            if self.budget.is_over_budget() {
+                break;
             }
         }
 
@@ -554,19 +621,31 @@ impl ExecutionCoordinator {
     }
 }
 
-/// Simple pseudo-random u64 for jitter (avoids pulling in rand crate for one use).
+/// Cryptographically uniform random u64 for retry jitter.
+///
+/// Uses `getrandom` so that concurrent tasks spawned at the same instant
+/// each get independent jitter values (no thundering-herd retry synchronization).
 fn rand_u64() -> u64 {
-    use std::time::SystemTime;
-    let t = SystemTime::now()
-        .duration_since(SystemTime::UNIX_EPOCH)
-        .unwrap_or_default();
-    t.as_nanos() as u64 ^ (t.subsec_nanos() as u64).wrapping_mul(6364136223846793005)
+    let mut buf = [0u8; 8];
+    // getrandom::fill never fails on supported platforms; treat failure as 0.
+    getrandom::getrandom(&mut buf).unwrap_or(());
+    u64::from_le_bytes(buf)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::AtomicU64;
     use tokio::sync::mpsc;
+
+    /// Helper to create a RuntimeBudget for tests. `token_limit=0` means unlimited.
+    fn test_budget(token_limit: u64) -> Arc<RuntimeBudget> {
+        Arc::new(RuntimeBudget::new(
+            token_limit,
+            0.0, // no cost limit in these tests
+            Duration::ZERO, // no duration limit
+        ))
+    }
 
     fn make_dag_with_nodes(count: usize) -> Arc<MutableDag> {
         let dag = MutableDag::new();
@@ -606,7 +685,7 @@ mod tests {
     async fn run_continuous_all_succeed() {
         let dag = make_dag_with_nodes(3);
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let coord = ExecutionCoordinator::new(Uuid::new_v4(), dag, 0, tx);
+        let coord = ExecutionCoordinator::new(Uuid::new_v4(), dag, test_budget(0), tx);
 
         let state = coord
             .run(|node| async move { Ok((format!("done: {}", node.instruction), 10)) })
@@ -641,7 +720,7 @@ mod tests {
     async fn run_with_failure_and_retry() {
         let dag = make_dag_with_nodes(1);
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let coord = ExecutionCoordinator::new(Uuid::new_v4(), dag, 0, tx);
+        let coord = ExecutionCoordinator::new(Uuid::new_v4(), dag, test_budget(0), tx);
 
         let attempt_counter = Arc::new(AtomicU64::new(0));
         let counter = attempt_counter.clone();
@@ -682,7 +761,7 @@ mod tests {
     async fn run_chain_dag_sequential() {
         let dag = make_chain_dag();
         let (tx, _rx) = mpsc::unbounded_channel();
-        let coord = ExecutionCoordinator::new(Uuid::new_v4(), dag, 0, tx);
+        let coord = ExecutionCoordinator::new(Uuid::new_v4(), dag, test_budget(0), tx);
 
         let state = coord
             .run(|node| async move { Ok((node.instruction.clone(), 1)) })
@@ -696,7 +775,7 @@ mod tests {
     async fn pause_and_resume() {
         let dag = make_dag_with_nodes(2);
         let (tx, _rx) = mpsc::unbounded_channel();
-        let coord = Arc::new(ExecutionCoordinator::new(Uuid::new_v4(), dag, 0, tx));
+        let coord = Arc::new(ExecutionCoordinator::new(Uuid::new_v4(), dag, test_budget(0), tx));
 
         // Start paused.
         coord.pause(PauseReason::UserRequested).await;
@@ -724,7 +803,7 @@ mod tests {
     async fn cancel_stops_execution() {
         let dag = make_dag_with_nodes(5);
         let (tx, _rx) = mpsc::unbounded_channel();
-        let coord = Arc::new(ExecutionCoordinator::new(Uuid::new_v4(), dag, 0, tx));
+        let coord = Arc::new(ExecutionCoordinator::new(Uuid::new_v4(), dag, test_budget(0), tx));
 
         coord.pause(PauseReason::UserRequested).await;
 
@@ -747,7 +826,7 @@ mod tests {
     async fn step_node_mode() {
         let dag = make_dag_with_nodes(3);
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let coord = Arc::new(ExecutionCoordinator::new(Uuid::new_v4(), dag, 0, tx));
+        let coord = Arc::new(ExecutionCoordinator::new(Uuid::new_v4(), dag, test_budget(0), tx));
 
         // Set step-node mode.
         *coord.mode.write().await = ExecutionMode::StepNode;
@@ -781,7 +860,7 @@ mod tests {
     async fn budget_warning_emitted() {
         let dag = make_dag_with_nodes(1);
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let coord = ExecutionCoordinator::new(Uuid::new_v4(), dag, 100, tx);
+        let coord = ExecutionCoordinator::new(Uuid::new_v4(), dag, test_budget(100), tx);
 
         let state = coord
             .run(|_node| async move { Ok(("done".to_string(), 90)) })

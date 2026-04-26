@@ -74,6 +74,10 @@ pub struct ReplFeatures {
     /// When Some, round_setup consults Paloma for model/provider selection before ModelSelector.
     /// Initialized from the provider registry at REPL creation time.
     pub paloma_router: Option<halcon_providers::PalomaRouter>,
+
+    /// Optional audit sink — when Some, every reservation lifecycle event is
+    /// signed (HMAC-SHA256) and appended to the underlying `EventStore`.
+    pub audit_sink: Option<halcon_storage::AuditSink>,
 }
 
 impl ReplFeatures {
@@ -97,6 +101,7 @@ impl ReplFeatures {
             plugin_registry: None,
             plugin_transport_runtime: None,
             paloma_router: None,
+            audit_sink: None,
         }
     }
 
@@ -133,6 +138,7 @@ impl Default for ReplFeatures {
             plugin_registry: None,
             plugin_transport_runtime: None,
             paloma_router: None,
+            audit_sink: None,
         }
     }
 }

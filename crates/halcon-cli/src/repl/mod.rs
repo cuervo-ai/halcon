@@ -849,6 +849,23 @@ impl Repl {
         );
         features_bundle.paloma_router = paloma_router;
 
+        // Activate audit sink — signs + persists every reservation lifecycle
+        // event (INV-AUDIT).  Non-strict: sink errors disable audit silently
+        // so the CLI keeps working on machines without HALCON_HOME write access.
+        match crate::audit_sink_bootstrap::build(
+            crate::audit_sink_bootstrap::AuditSinkOptions::default(),
+        ) {
+            Ok(Some(sink)) => {
+                features_bundle.audit_sink = Some(sink);
+            }
+            Ok(None) => {
+                tracing::info!("audit sink disabled (no home dir or transient error)");
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "audit sink bootstrap failed — continuing without audit");
+            }
+        }
+
         let ctx_governance = {
             let gov_config = &config.context.governance;
             if gov_config.default_max_tokens_per_source > 0 {
@@ -2919,6 +2936,8 @@ impl Repl {
                     requested_provider: Some(self.provider.clone()),
                     policy: std::sync::Arc::new(self.infra.config.policy.clone()),
                     paloma_router: self.features.paloma_router.as_ref(),
+                    audit_sink: self.features.audit_sink.as_ref(),
+                    tenant_id: None,
                 };
                 // Fix: restore ctrl_rx before propagating any error so TUI controls
                 // (Pause/Step/Cancel) remain functional across agent loop failures.
@@ -3301,6 +3320,8 @@ impl Repl {
                             requested_provider: Some(self.provider.clone()),
                             policy: std::sync::Arc::new(self.infra.config.policy.clone()),
                             paloma_router: self.features.paloma_router.as_ref(),
+                            audit_sink: self.features.audit_sink.as_ref(),
+                            tenant_id: None,
                         };
 
                         #[allow(unused_mut)]

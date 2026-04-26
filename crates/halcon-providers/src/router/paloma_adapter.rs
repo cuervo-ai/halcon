@@ -7,6 +7,15 @@
 //!
 //! This module is behind the `paloma` Cargo feature. When disabled, the existing
 //! `IntelligentRouter` is used as fallback.
+//!
+//! ## Budget lifecycle
+//!
+//! Every successful `route_and_reserve()` call creates a `PalomaReservation`
+//! that MUST be closed by the caller:
+//! - On success: call `commit_reservation(&reservation, actual_cost_usd)`.
+//! - On failure/cancel: call `release_reservation(&reservation)`.
+//!
+//! Failure to close reservations silently exhausts per-tenant budget quotas.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -17,11 +26,28 @@ use paloma_pipeline::{Pipeline, PipelineConfig};
 use paloma_registry::RegistrySnapshot;
 use paloma_types::candidate::CandidateId;
 use paloma_types::cost::Cost;
-use paloma_types::plan::ExecutionPlan;
+use paloma_types::plan::{ExecutionPlan, ReservationId};
 use paloma_types::request::TenantId;
 use paloma_types::request::{Capability, InferenceRequest, Modality, QualityTier, TaskClass};
 use tracing::{debug, info, warn};
 use uuid::Uuid;
+
+// ─── Budget reservation handle ────────────────────────────────────────────────
+
+/// Opaque handle returned by `route_and_reserve()`.
+///
+/// The caller MUST close every reservation exactly once:
+/// - success  → `commit_reservation(&r, actual_cost_usd)`
+/// - failure  → `release_reservation(&r)`
+///
+/// Dropping without closing leaves an open reservation in the BudgetStore that
+/// will block future requests until the reconciliation TTL expires.
+#[derive(Debug, Clone)]
+pub struct PalomaReservation {
+    pub plan_id: Uuid,
+    pub reservation_id: ReservationId,
+    pub estimated_cost: Cost,
+}
 
 use super::intent::IntentClassifier;
 use super::policy::{ForceOverrideStrategy, RoutingContext, RoutingStrategy};
@@ -57,13 +83,44 @@ impl PalomaRouter {
         }
     }
 
-    /// Route a request through the Paloma pipeline.
+    /// Route a request through the Paloma pipeline (decision only, no reservation).
     ///
     /// ## Priority
     /// 1. `--provider`/`--model` CLI overrides (ForceOverride — preserved)
     /// 2. Paloma 6-stage pipeline (Policy → Capability → Shaper → Scorer → Planner)
     /// 3. Fallback to IntentBased router on Paloma rejection
+    ///
+    /// **This method does NOT return a `PalomaReservation`** because it discards the
+    /// `ExecutionPlan`. Use `route_and_reserve()` when the caller needs to close the
+    /// budget lifecycle after execution.
     pub fn route(&self, req: &RoutingRequest<'_>) -> RoutingDecision {
+        self.route_and_reserve(req).0
+    }
+
+    /// Route through the Paloma pipeline AND return an open budget reservation.
+    ///
+    /// Returns `(RoutingDecision, Option<PalomaReservation>)`.
+    ///
+    /// `Some(reservation)` is returned when Paloma successfully routed the request.
+    /// `None` is returned when the CLI override or fallback path was taken (no
+    /// Paloma reservation was created in those cases).
+    ///
+    /// **The caller MUST close the reservation:**
+    /// ```ignore
+    /// let (decision, reservation) = router.route_and_reserve(&req);
+    /// // … execute …
+    /// if let Some(r) = reservation {
+    ///     if success {
+    ///         router.commit_reservation(&r, actual_cost_usd);
+    ///     } else {
+    ///         router.release_reservation(&r);
+    ///     }
+    /// }
+    /// ```
+    pub fn route_and_reserve(
+        &self,
+        req: &RoutingRequest<'_>,
+    ) -> (RoutingDecision, Option<PalomaReservation>) {
         // ── Step 1: Honour explicit CLI overrides ──────────────────────────
         let last_user_text = req
             .messages
@@ -88,9 +145,9 @@ impl PalomaRouter {
             debug!(
                 provider = %decision.provider,
                 model = %decision.model,
-                "Paloma: CLI override active, bypassing pipeline"
+                "Paloma: CLI override active, bypassing pipeline — no reservation created"
             );
-            return decision;
+            return (decision, None);
         }
 
         // ── Step 2: Build Paloma InferenceRequest ──────────────────────────
@@ -106,21 +163,28 @@ impl PalomaRouter {
             &self.budget,
         ) {
             Ok(plan) => {
+                let reservation = PalomaReservation {
+                    plan_id: plan.plan_id,
+                    reservation_id: plan.reservation_id.clone(),
+                    estimated_cost: plan.estimated_cost,
+                };
                 let decision = self.map_to_routing_decision(&plan);
                 info!(
                     provider = %decision.provider,
                     model = %decision.model,
                     tier = %decision.tier.as_str(),
                     plan_id = %plan.plan_id,
+                    reservation_id = %plan.reservation_id.0,
+                    estimated_cost_usd = plan.estimated_cost.as_dollars(),
                     confidence = plan.confidence,
-                    "Paloma routing decision"
+                    "Paloma routing decision — reservation open"
                 );
-                decision
+                (decision, Some(reservation))
             }
             Err(e) => {
                 warn!(error = %e, "Paloma pipeline rejected, falling back to intent router");
                 let fallback = super::IntelligentRouter::default();
-                fallback.route(req)
+                (fallback.route(req), None)
             }
         }
     }
@@ -226,12 +290,52 @@ impl PalomaRouter {
         self.health.record_failure(&id);
     }
 
-    /// Commit actual cost to budget store after execution completes.
-    pub fn commit_cost(&self, plan: &ExecutionPlan, actual_cost_usd: f64) {
-        let _ = self
-            .budget
-            .commit(&plan.reservation_id, Cost::from_dollars(actual_cost_usd));
+    // ─── Budget lifecycle — INV-5 ─────────────────────────────────────────────
+
+    /// Close a reservation with the actual cost after successful execution.
+    ///
+    /// Must be called exactly once per `PalomaReservation` returned by
+    /// `route_and_reserve()` when execution succeeded. Silently tolerates
+    /// already-closed reservations (idempotent via BudgetStore).
+    pub fn commit_reservation(&self, reservation: &PalomaReservation, actual_cost_usd: f64) {
+        let actual = Cost::from_dollars(actual_cost_usd);
+        if let Err(e) = self.budget.commit(&reservation.reservation_id, actual) {
+            // Log but don't propagate — a double-commit is safer than a crash.
+            warn!(
+                plan_id = %reservation.plan_id,
+                reservation_id = %reservation.reservation_id.0,
+                error = %e,
+                "Paloma: budget commit failed (reservation may already be closed)"
+            );
+        } else {
+            debug!(
+                plan_id = %reservation.plan_id,
+                actual_cost_usd = actual_cost_usd,
+                "Paloma: budget reservation committed"
+            );
+        }
     }
+
+    /// Release a reservation without charging cost (failure / cancellation path).
+    ///
+    /// Must be called when execution fails or is cancelled so the reserved
+    /// budget is returned to the tenant's available balance.
+    pub fn release_reservation(&self, reservation: &PalomaReservation) {
+        if let Err(e) = self.budget.release(&reservation.reservation_id) {
+            warn!(
+                plan_id = %reservation.plan_id,
+                reservation_id = %reservation.reservation_id.0,
+                error = %e,
+                "Paloma: budget release failed (reservation may already be closed)"
+            );
+        } else {
+            debug!(
+                plan_id = %reservation.plan_id,
+                "Paloma: budget reservation released (no charge)"
+            );
+        }
+    }
+
 }
 
 // ─── Pure mapping functions ─────────────────────────────────────────────────

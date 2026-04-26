@@ -81,6 +81,7 @@ momoto-metrics = { workspace = true, optional = true }
 momoto-intelligence = { workspace = true, optional = true }
 rand = { workspace = true }
 dirs = "5"
+getrandom = "0.2"
 reqwest = { workspace = true, features = ["blocking"] }
 flate2 = "1"
 tar = "0.4"
@@ -101,7 +102,10 @@ rhai = { version = "1", default-features = false } # Sandboxed scripting for lif
 croner = { workspace = true }                  # Cron expression parsing for scheduler (PASO 4-C)
 
 [features]
-default = ["color-science", "tui"]
+default = ["color-science", "tui", "paloma"]
+# Paloma routing pipeline — mirror of halcon-providers/paloma so call sites
+# in halcon-cli can gate INV-5 reservation lifecycle code uniformly.
+paloma = []
 color-science = ["momoto-core", "momoto-metrics", "momoto-intelligence"]
 headless = []
 # tui: TUI rendering (ratatui + tui-textarea). Clipboard support is opt-in via tui-clipboard.

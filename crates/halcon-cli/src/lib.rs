@@ -26,6 +26,9 @@
 #[path = "audit/mod.rs"]
 pub mod audit;
 
+#[path = "audit_sink_bootstrap.rs"]
+pub mod audit_sink_bootstrap;
+
 // commands must be accessible from repl/ and tui/ (e.g., update::UpdateInfo)
 #[path = "commands/mod.rs"]
 pub(crate) mod commands;

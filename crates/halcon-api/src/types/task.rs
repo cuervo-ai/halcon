@@ -49,6 +49,10 @@ pub struct SubmitTaskRequest {
     pub nodes: Vec<TaskNodeSpec>,
     #[serde(default)]
     pub context: HashMap<String, serde_json::Value>,
+    /// Optional client-generated idempotency key.
+    /// Submitting with the same key twice returns the first execution record.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
 }
 
 /// Response after submitting a task DAG.
@@ -80,6 +84,9 @@ pub struct TaskExecution {
     pub submitted_at: DateTime<Utc>,
     pub completed_at: Option<DateTime<Utc>>,
     pub total_usage: UsageInfo,
+    /// Idempotency key provided at submission time, if any.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub idempotency_key: Option<String>,
 }
 
 /// Progress event streamed over WebSocket during task execution.

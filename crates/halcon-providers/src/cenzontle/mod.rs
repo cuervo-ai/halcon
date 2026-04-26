@@ -201,6 +201,10 @@ pub struct CenzontleProvider {
     connection_verified: bool,
     /// Shared circuit breaker — trips after 5 consecutive errors, auto-resets after 60s.
     circuit_breaker: Arc<CircuitBreaker>,
+    /// Optional auth token manager — when present, `access_token` se re-lee dinámicamente
+    /// por request + 401 recovery automático (P-AUTH-3).
+    /// None = fallback al `access_token` estático (compat con flujos pre-TokenManager).
+    token_manager: Option<Arc<dyn halcon_auth::AuthTokenManager>>,
 }
 
 impl std::fmt::Debug for CenzontleProvider {
@@ -264,7 +268,23 @@ impl CenzontleProvider {
             // from_token() will set this to true after a successful model fetch.
             connection_verified: false,
             circuit_breaker: Arc::new(CircuitBreaker::default()),
+            token_manager: None,
         }
+    }
+
+    /// Attach an `AuthTokenManager` to enable dynamic token refresh + 401 recovery.
+    ///
+    /// When set, each HTTP request will:
+    ///   1. Fetch the current token via `current_token()` (cache hit no I/O).
+    ///   2. On HTTP 401, call `force_refresh()` and retry once automatically.
+    ///
+    /// Cerrar Ω-AUTH-1 (P-AUTH-3): empty sesión de 15h no debe romper por token expirado.
+    pub fn with_token_manager(
+        mut self,
+        mgr: Arc<dyn halcon_auth::AuthTokenManager>,
+    ) -> Self {
+        self.token_manager = Some(mgr);
+        self
     }
 
     /// Override the connection_verified flag.
@@ -563,13 +583,41 @@ impl ModelProvider for CenzontleProvider {
                 tokio::time::sleep(delay).await;
             }
 
+            // P-AUTH-2 hot path: si hay TokenManager, consultar token actual
+            // (cache hit sin I/O cuando el token está fresco).
+            let bearer = match &self.token_manager {
+                Some(mgr) => match mgr.current_token().await {
+                    Ok(tok) => tok.expose().to_string(),
+                    Err(e) if e.requires_relogin() => {
+                        return Err(HalconError::ApiError {
+                            message: format!(
+                                "Cenzontle: auth failed — {e}. Run `halcon auth login cenzontle`."
+                            ),
+                            status: Some(401),
+                        });
+                    }
+                    Err(e) => {
+                        // Transient — retry por el loop de backoff.
+                        if attempt < max_retries {
+                            warn!(error = ?e, "Cenzontle: token refresh transient error, retrying");
+                            continue;
+                        }
+                        return Err(HalconError::ApiError {
+                            message: format!("Cenzontle: token unavailable: {e}"),
+                            status: None,
+                        });
+                    }
+                },
+                None => self.access_token.clone(),
+            };
+
             // Timeout only covers connection + first-byte (headers).
             // The SSE body is consumed incrementally after this point.
             let result = tokio::time::timeout(
                 Duration::from_secs(timeout_secs),
                 self.client
                     .post(&self.chat_url)
-                    .bearer_auth(&self.access_token)
+                    .bearer_auth(&bearer)
                     .header("x-halcon-context", &halcon_ctx)
                     .header("x-request-id", &request_id)
                     .header("idempotency-key", &idempotency_key)
@@ -622,10 +670,40 @@ impl ModelProvider for CenzontleProvider {
 
             let status = response.status();
 
-            // Non-retryable auth errors: return immediately (don't count as CB failure).
+            // P-AUTH-3 401 recovery: si hay TokenManager, intentar force_refresh
+            // + retry automático UNA vez.  Segundo 401 es terminal.
             if status == reqwest::StatusCode::UNAUTHORIZED {
+                if let Some(mgr) = &self.token_manager {
+                    if attempt == 0 {
+                        tracing::warn!(
+                            request_id = %request_id,
+                            "Cenzontle: 401 received — force_refresh + retry"
+                        );
+                        match mgr.force_refresh().await {
+                            Ok(_) => {
+                                // El siguiente iter del for usará el nuevo bearer.
+                                continue;
+                            }
+                            Err(e) if e.requires_relogin() => {
+                                return Err(HalconError::ApiError {
+                                    message: format!(
+                                        "Cenzontle: {e}. Run `halcon auth login cenzontle`."
+                                    ),
+                                    status: Some(401),
+                                });
+                            }
+                            Err(e) => {
+                                return Err(HalconError::ApiError {
+                                    message: format!("Cenzontle: auth refresh failed: {e}"),
+                                    status: Some(401),
+                                });
+                            }
+                        }
+                    }
+                    // Segundo 401 post-refresh: token genuinamente revocado.
+                }
                 return Err(HalconError::ApiError {
-                    message: "Cenzontle: access token expired or invalid. Run `halcon login cenzontle` to refresh.".to_string(),
+                    message: "Cenzontle: access token expired or invalid. Run `halcon auth login cenzontle` to refresh.".to_string(),
                     status: Some(401),
                 });
             }

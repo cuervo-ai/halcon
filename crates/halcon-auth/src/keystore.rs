@@ -39,6 +39,13 @@ impl KeyStore {
         }
     }
 
+    /// Construct a KeyStore with a pre-built CredentialManager.
+    /// Used by `token_manager` integration tests to inject a file-backed store.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn from_manager(manager: CredentialManager) -> Self {
+        Self { manager }
+    }
+
     /// The active backend — useful for surfacing in `auth status` / `debug`.
     pub fn backend(&self) -> &CredentialBackend {
         self.manager.backend()

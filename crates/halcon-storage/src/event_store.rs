@@ -63,6 +63,10 @@ pub enum EventCategory {
     Tool,
     /// System-level events (config, health).
     System,
+    /// Routing decisions and decision traces.
+    Routing,
+    /// Immutable audit trail (HMAC-signed).
+    Audit,
 }
 
 impl EventCategory {
@@ -77,6 +81,8 @@ impl EventCategory {
             Self::Session => "session",
             Self::Tool => "tool",
             Self::System => "system",
+            Self::Routing => "routing",
+            Self::Audit => "audit",
         }
     }
 
@@ -91,6 +97,8 @@ impl EventCategory {
             "session" => Self::Session,
             "tool" => Self::Tool,
             "system" => Self::System,
+            "routing" => Self::Routing,
+            "audit" => Self::Audit,
             _ => Self::System,
         }
     }

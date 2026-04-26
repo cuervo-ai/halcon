@@ -794,6 +794,8 @@ pub async fn run_orchestrator(
                         requested_provider: None,
                         policy: policy.clone(),
                         paloma_router: None,
+                        audit_sink: None,
+                        tenant_id: None,
                     };
 
                     // Panic isolation: wrap the agent loop in catch_unwind so a panicking
@@ -1035,6 +1037,8 @@ pub async fn run_orchestrator(
                                         requested_provider: None,
                                         policy: policy.clone(),
                                         paloma_router: None,
+                                        audit_sink: None,
+                                        tenant_id: None,
                                     };
 
                                     let retry_loop = tokio::time::timeout(

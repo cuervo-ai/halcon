@@ -9,6 +9,7 @@ license.workspace = true
 [dependencies]
 halcon-core = { workspace = true }
 halcon-storage = { workspace = true }
+halcon-auth = { workspace = true }
 
 # Paloma routing engine (formally verified, feature-gated)
 paloma-types = { workspace = true, optional = true }

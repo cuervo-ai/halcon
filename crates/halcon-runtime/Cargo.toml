@@ -11,6 +11,8 @@ halcon-core = { workspace = true }
 halcon-storage = { workspace = true }
 
 async-trait = { workspace = true }
+getrandom = "0.2"
+tokio-util = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

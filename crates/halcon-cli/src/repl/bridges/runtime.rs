@@ -138,6 +138,7 @@ impl CliToolRuntime {
                 depends_on: vec![], // all parallel — single wave
                 budget: None,
                 context_keys: vec![],
+                priority: 0,
             });
 
             task_to_index.insert(task_id, idx);

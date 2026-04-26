@@ -11,7 +11,9 @@
 //! proceed concurrently; writers (API mutations) acquire exclusive access.
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
+
+use tokio::sync::Notify;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -132,6 +134,10 @@ pub struct DagNodeInfo {
 /// A mutable, version-tracked DAG.
 pub struct MutableDag {
     inner: RwLock<MutableDagInner>,
+    /// Optional notifier for level-triggered wakeup of the coordinator.
+    /// Signalled on every status transition so the coordinator can re-evaluate
+    /// ready nodes without busy-waiting.
+    pub(crate) change_notify: Option<Arc<Notify>>,
 }
 
 struct MutableDagInner {
@@ -149,6 +155,20 @@ impl MutableDag {
                 version: 0,
                 mutation_log: Vec::new(),
             }),
+            change_notify: None,
+        }
+    }
+
+    /// Attach a `Notify` that will be signalled on every status transition.
+    /// Used by `ExecutionCoordinator` for level-triggered wakeup (replaces busy-wait).
+    pub fn with_change_notify(mut self, notify: Arc<Notify>) -> Self {
+        self.change_notify = Some(notify);
+        self
+    }
+
+    fn signal_change(&self) {
+        if let Some(ref n) = self.change_notify {
+            n.notify_waiters();
         }
     }
 
@@ -177,6 +197,7 @@ impl MutableDag {
                 version: 1,
                 mutation_log: Vec::new(),
             }),
+            change_notify: None,
         }
     }
 
@@ -234,6 +255,15 @@ impl MutableDag {
             .collect()
     }
 
+    /// Get ready nodes sorted by priority (descending).
+    /// Within a wave, higher-priority tasks execute first.
+    /// This matches the scheduling semantics of `repl/orchestrator.rs::topological_waves`.
+    pub fn ready_nodes_with_priority(&self) -> Vec<TaskNode> {
+        let mut nodes = self.ready_nodes();
+        nodes.sort_by(|a, b| b.priority.cmp(&a.priority));
+        nodes
+    }
+
     /// Mark a node as running.
     pub fn mark_running(&self, node_id: Uuid) {
         let mut inner = self.inner.write().unwrap_or_else(|e| e.into_inner());
@@ -251,6 +281,8 @@ impl MutableDag {
             node.result = Some(result);
             node.completed_at = Some(Utc::now());
         }
+        drop(inner);
+        self.signal_change();
     }
 
     /// Mark a node as failed.
@@ -260,6 +292,8 @@ impl MutableDag {
             node.status = NodeStatus::Failed { error, retryable };
             node.completed_at = Some(Utc::now());
         }
+        drop(inner);
+        self.signal_change();
     }
 
     /// Check if all nodes are terminal (DAG execution complete).
@@ -309,6 +343,7 @@ impl MutableDag {
             depends_on,
             budget: None,
             context_keys: vec![],
+            priority: 0,
         };
 
         inner.nodes.insert(
@@ -800,6 +835,7 @@ mod tests {
                 depends_on: vec![],
                 budget: None,
                 context_keys: vec![],
+                priority: 0,
             },
             TaskNode {
                 task_id: Uuid::from_u128(2),
@@ -808,6 +844,7 @@ mod tests {
                 depends_on: vec![Uuid::from_u128(1)],
                 budget: None,
                 context_keys: vec![],
+                priority: 0,
             },
         ];
 

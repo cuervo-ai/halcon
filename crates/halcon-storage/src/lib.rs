@@ -10,6 +10,7 @@
 
 pub mod ack_monitor;
 pub mod async_db;
+pub mod audit;
 pub mod cache;
 pub mod db;
 pub mod dlq;
@@ -25,6 +26,7 @@ pub mod trace;
 
 pub use ack_monitor::{AckMonitor, AckMonitorConfig};
 pub use async_db::AsyncDatabase;
+pub use audit::{AuditEvent, AuditEventType, AuditSink};
 pub use cache::{CacheEntry, CacheStats};
 pub use db::reasoning::ReasoningExperience;
 pub use db::{AgentTaskRow, Database, PlanStepRow, SessionCheckpoint};

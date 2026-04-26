@@ -178,6 +178,11 @@ pub struct AgentContext<'a> {
     /// When Some, round_setup consults Paloma before falling back to ModelSelector.
     /// When None (default), ModelSelector handles routing as before.
     pub paloma_router: Option<&'a halcon_providers::PalomaRouter>,
+    /// Optional audit sink — when Some, every reservation lifecycle event is
+    /// signed and appended to the underlying `EventStore` as `EventCategory::Audit`.
+    pub audit_sink: Option<&'a halcon_storage::AuditSink>,
+    /// Tenant identity for audit events.  Defaults to "anonymous" when not provided.
+    pub tenant_id: Option<&'a str>,
 }
 
 impl<'a> AgentContext<'a> {
@@ -243,6 +248,8 @@ impl<'a> AgentContext<'a> {
             working_dir,
             context_metrics: None,
             paloma_router: None,
+            audit_sink: None,
+            tenant_id: None,
         }
     }
 }
@@ -342,6 +349,8 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
         requested_provider,
         policy,
         paloma_router,
+        audit_sink,
+        tenant_id,
     } = ctx;
 
     let silent = render_sink.is_silent();
@@ -558,7 +567,23 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
             // This prevents the planning LLM from hallucinating project structure
             // from global HALCON.md context when the CWD is a different project.
             let plan_user_msg = format!("[Working directory: {}]\n\n{}", working_dir, user_msg);
-            let plan_timeout = Duration::from_secs(planning_config.timeout_secs);
+            // Ω-08 (HAL-08): planning timeout adaptativo por tier del modelo activo.
+            // DeepSeek-V3.2 (BALANCED) necesita ~20-30s; con timeout fijo 15s
+            // de config falla consistentemente. `adaptive_planning_timeout_secs`
+            // toma el máximo entre la config y el mínimo del tier.
+            let tier_hint = infer_tier_from_model(&request.model);
+            let effective_timeout = halcon_core::types::adaptive_planning_timeout_secs(
+                planning_config.timeout_secs,
+                tier_hint,
+            );
+            let plan_timeout = Duration::from_secs(effective_timeout);
+            tracing::debug!(
+                configured = planning_config.timeout_secs,
+                effective = effective_timeout,
+                tier = ?tier_hint,
+                model = %request.model,
+                "planning timeout resolved adaptively"
+            );
             let result =
                 tokio::time::timeout(plan_timeout, planner.plan(&plan_user_msg, &tool_defs)).await;
             render_sink.phase_ended(); // always fires regardless of result
@@ -2527,6 +2552,8 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
             round_request,
             effective_provider,
             selected_model,
+            #[cfg(feature = "paloma")]
+            paloma_reservation: round_reservation,
         } = round_setup_out;
 
         // Phase A: track tool suppression for ResponseTrust classification.
@@ -2579,7 +2606,27 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
         )
         .await?
         {
-            provider_round::ProviderRoundOutcome::BreakLoop => break 'agent_loop,
+            provider_round::ProviderRoundOutcome::BreakLoop => {
+                // INV-5: release reservation — synthesis/cancel path, no committed cost.
+                #[cfg(feature = "paloma")]
+                if let (Some(router), Some(ref r)) = (paloma_router, &round_reservation) {
+                    router.release_reservation(r);
+                    // Audit: record the release as an immutable, signed event.
+                    if let Some(sink) = audit_sink {
+                        sink.append(
+                            tenant_id.unwrap_or("anonymous"),
+                            Some(session.id),
+                            Some(r.plan_id),
+                            halcon_storage::AuditEventType::ReservationReleased {
+                                reason: "break_loop".to_string(),
+                            },
+                            "agent_loop",
+                            format!("{}:{}", effective_provider.name(), &selected_model),
+                        );
+                    }
+                }
+                break 'agent_loop;
+            }
             provider_round::ProviderRoundOutcome::EarlyReturn(data) => {
                 // Phase 3: Record provider failure in Paloma for adaptive routing.
                 // EarlyReturn typically indicates provider error, timeout, or budget exceeded.
@@ -2590,6 +2637,23 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
                             provider = %effective_provider.name(),
                             model = %model,
                             "Paloma: recorded provider failure (early return)"
+                        );
+                    }
+                }
+                // INV-5: release reservation — provider error or budget exceeded.
+                #[cfg(feature = "paloma")]
+                if let (Some(router), Some(ref r)) = (paloma_router, &round_reservation) {
+                    router.release_reservation(r);
+                    if let Some(sink) = audit_sink {
+                        sink.append(
+                            tenant_id.unwrap_or("anonymous"),
+                            Some(session.id),
+                            Some(r.plan_id),
+                            halcon_storage::AuditEventType::ReservationReleased {
+                                reason: "early_return".to_string(),
+                            },
+                            "agent_loop",
+                            format!("{}:{}", effective_provider.name(), &selected_model),
                         );
                     }
                 }
@@ -2685,6 +2749,23 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
                         "[System] Your previous response was empty. Please continue.".to_string(),
                     ),
                 });
+                // INV-5: release reservation — empty response, will create new reservation on retry.
+                #[cfg(feature = "paloma")]
+                if let (Some(router), Some(ref r)) = (paloma_router, &round_reservation) {
+                    router.release_reservation(r);
+                    if let Some(sink) = audit_sink {
+                        sink.append(
+                            tenant_id.unwrap_or("anonymous"),
+                            Some(session.id),
+                            Some(r.plan_id),
+                            halcon_storage::AuditEventType::ReservationReleased {
+                                reason: "empty_response".to_string(),
+                            },
+                            "agent_loop",
+                            format!("{}:{}", effective_provider.name(), &selected_model),
+                        );
+                    }
+                }
                 continue 'agent_loop;
             }
             provider_round::ProviderRoundOutcome::ToolUse(out) => out,
@@ -2695,9 +2776,13 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
             round_provider_name,
             round_usage,
             round_text_for_scorer,
+            #[cfg(feature = "paloma")]
+            round_cost_usd,
+            #[cfg(not(feature = "paloma"))]
+            round_cost_usd: _,
         } = provider_out;
 
-        // ── Paloma health feedback ───────────────────────────────────────────
+        // ── Paloma health feedback + INV-5 budget commit ─────────────────────
         // Feed outcome signals to Paloma so future routing decisions reflect
         // real provider performance. This closes the evaluation loop:
         // route → execute → observe → adapt.
@@ -2710,6 +2795,28 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
                 latency_ms = latency,
                 "Paloma: recorded provider success"
             );
+            // INV-5: commit reservation with actual round cost on tool-use success.
+            #[cfg(feature = "paloma")]
+            if let Some(ref r) = round_reservation {
+                router.commit_reservation(r, round_cost_usd);
+                tracing::debug!(
+                    cost_usd = round_cost_usd,
+                    plan_id = %r.plan_id,
+                    "Paloma: budget reservation committed"
+                );
+                if let Some(sink) = audit_sink {
+                    sink.append(
+                        tenant_id.unwrap_or("anonymous"),
+                        Some(session.id),
+                        Some(r.plan_id),
+                        halcon_storage::AuditEventType::ReservationCommitted {
+                            actual_cost_usd: round_cost_usd,
+                        },
+                        "agent_loop",
+                        format!("{}:{}", &round_provider_name, &round_model_name),
+                    );
+                }
+            }
         }
 
         // Phase 3: Routing intelligence metric — track provider/model selection outcomes.
@@ -3129,5 +3236,53 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
 
     result
 }
+
+/// Infer model tier from model id substring — used by adaptive planning timeout.
+///
+/// Conservative matcher: returns None when model is unknown, which makes
+/// `adaptive_planning_timeout_secs` fall back to the configured timeout
+/// untouched (respecting user preference).
+///
+/// Tier mapping matches Cenzontle's ModelInfo tiers (FLAGSHIP / BALANCED / FAST / ECONOMY).
+fn infer_tier_from_model(model: &str) -> Option<&'static str> {
+    let m = model.to_ascii_lowercase();
+    // FLAGSHIP: reasoning + top-tier models
+    if m.contains("opus")
+        || m.contains("o1")
+        || m.contains("reasoner")
+        || m.contains("r1-reasoning")
+        || m.contains("deepseek-r1")
+        || m.contains("gpt-5-reasoning")
+    {
+        return Some("FLAGSHIP");
+    }
+    // BALANCED: mid-tier coding / general models
+    if m.contains("sonnet")
+        || m.contains("deepseek-v3")
+        || m.contains("kimi")
+        || m.contains("llama4")
+        || m.contains("llama-3.3")
+        || m.contains("codestral")
+        || m.contains("mistral-large")
+    {
+        return Some("BALANCED");
+    }
+    // FAST: latency-optimized
+    if m.contains("o3-mini") || m.contains("gpt-4o-mini") || m.contains("mistral-small") {
+        return Some("FAST");
+    }
+    // ECONOMY: cheapest / fastest
+    if m.contains("haiku")
+        || m.contains("flash")
+        || m.contains("gpt-4o-mini")
+        || m.contains("nano")
+        || m.contains("8b-instant")
+        || m.contains("llama-3.1-8b")
+    {
+        return Some("ECONOMY");
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests;

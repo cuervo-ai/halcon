@@ -102,6 +102,19 @@ impl CredentialManager {
         }
     }
 
+    /// Construct a test-only manager that force-uses an explicit FileCredentialStore.
+    ///
+    /// Bypasses auto-detection → no Keychain access during CI.  Marked gate
+    /// `any(test, feature="test-support")` so production callers cannot use it.
+    #[cfg(any(test, feature = "test-support"))]
+    pub fn with_file_store(file_store: FileCredentialStore) -> Self {
+        Self {
+            service_name: "test".to_string(),
+            backend: CredentialBackend::LinuxFileStore,
+            file_store: Some(file_store),
+        }
+    }
+
     /// The backend currently in use.
     pub fn backend(&self) -> &CredentialBackend {
         &self.backend
