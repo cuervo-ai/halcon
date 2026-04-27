@@ -335,7 +335,6 @@ impl PalomaRouter {
             );
         }
     }
-
 }
 
 // ─── Pure mapping functions ─────────────────────────────────────────────────

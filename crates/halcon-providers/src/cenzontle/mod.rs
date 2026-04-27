@@ -331,10 +331,7 @@ impl CenzontleProvider {
     ///   2. On HTTP 401, call `force_refresh()` and retry once automatically.
     ///
     /// Cerrar Ω-AUTH-1 (P-AUTH-3): empty sesión de 15h no debe romper por token expirado.
-    pub fn with_token_manager(
-        mut self,
-        mgr: Arc<dyn halcon_auth::AuthTokenManager>,
-    ) -> Self {
+    pub fn with_token_manager(mut self, mgr: Arc<dyn halcon_auth::AuthTokenManager>) -> Self {
         self.token_manager = Some(mgr);
         self
     }
@@ -808,10 +805,7 @@ impl ModelProvider for CenzontleProvider {
                 let code = status.as_u16();
                 let body = response.text().await.unwrap_or_default();
                 return Err(HalconError::ApiError {
-                    message: format!(
-                        "Cenzontle HTTP {code}: {}",
-                        sanitize_error_body(&body)
-                    ),
+                    message: format!("Cenzontle HTTP {code}: {}", sanitize_error_body(&body)),
                     status: Some(code),
                 });
             }

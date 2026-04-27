@@ -118,8 +118,7 @@ impl OAuthFlow {
             .into();
         if !eq {
             return Err(HalconError::AuthFailed(
-                "OAuth state mismatch — possible CSRF attempt; aborting token exchange"
-                    .to_string(),
+                "OAuth state mismatch — possible CSRF attempt; aborting token exchange".to_string(),
             ));
         }
 
@@ -316,7 +315,12 @@ mod tests {
 
         let flow = OAuthFlow::new(config);
         let token = flow
-            .exchange_code("auth-code-xyz", "verifier123", "matched-state", "matched-state")
+            .exchange_code(
+                "auth-code-xyz",
+                "verifier123",
+                "matched-state",
+                "matched-state",
+            )
             .await
             .unwrap();
 

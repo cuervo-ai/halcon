@@ -565,23 +565,18 @@ fn strip_trailing_commas_and_pythonisms(input: &str) -> String {
                 || prev == b'{'
         };
         if at_token_start {
-            if input[i..].starts_with("True")
-                && !is_ident_continuation(bytes.get(i + 4).copied())
-            {
+            if input[i..].starts_with("True") && !is_ident_continuation(bytes.get(i + 4).copied()) {
                 out.push_str("true");
                 i += 4;
                 continue;
             }
-            if input[i..].starts_with("False")
-                && !is_ident_continuation(bytes.get(i + 5).copied())
+            if input[i..].starts_with("False") && !is_ident_continuation(bytes.get(i + 5).copied())
             {
                 out.push_str("false");
                 i += 5;
                 continue;
             }
-            if input[i..].starts_with("None")
-                && !is_ident_continuation(bytes.get(i + 4).copied())
-            {
+            if input[i..].starts_with("None") && !is_ident_continuation(bytes.get(i + 4).copied()) {
                 out.push_str("null");
                 i += 4;
                 continue;
@@ -867,8 +862,7 @@ mod tests {
             "requires_confirmation": False,
         }"#;
         let out = sanitize_json_for_parse(input);
-        let v: serde_json::Value =
-            serde_json::from_str(&out).expect("sanitized must parse");
+        let v: serde_json::Value = serde_json::from_str(&out).expect("sanitized must parse");
         assert_eq!(v["goal"], "Analyze repo structure");
         assert_eq!(v["steps"].as_array().unwrap().len(), 2);
         assert_eq!(v["requires_confirmation"], false);

@@ -73,15 +73,23 @@ async fn p_auth_1_singleflight_100_concurrent_requests_yields_1_sso_call() {
             counter_clone.fetch_add(1, Ordering::SeqCst);
             // Simular latency para que concurrencia realmente suceda.
             std::thread::sleep(Duration::from_millis(150));
-            ResponseTemplate::new(200)
-                .set_body_json(success_body("new_access", "new_refresh_rotated", 900))
+            ResponseTemplate::new(200).set_body_json(success_body(
+                "new_access",
+                "new_refresh_rotated",
+                900,
+            ))
         })
         .mount(&sso)
         .await;
 
     let (ks, _tmp) = tmp_keystore();
     // Token "expirado" (expires_at = now-1 secs) → dispara refresh inmediato.
-    seed_keystore(&ks, "expired_access", "valid_refresh", now_secs().saturating_sub(1));
+    seed_keystore(
+        &ks,
+        "expired_access",
+        "valid_refresh",
+        now_secs().saturating_sub(1),
+    );
 
     let mgr = CenzontleTokenManager::with_keystore(sso.uri(), ks);
     wait_for_cache_populated(&mgr, Duration::from_secs(2)).await;
@@ -306,7 +314,12 @@ async fn p_auth_6_sso_429_rate_limited() {
     wait_for_cache_populated(&mgr, Duration::from_secs(2)).await;
 
     let err = mgr.current_token().await.expect_err("rate limited");
-    assert!(matches!(err, AuthError::RateLimited { retry_after_secs: 30 }));
+    assert!(matches!(
+        err,
+        AuthError::RateLimited {
+            retry_after_secs: 30
+        }
+    ));
 }
 
 #[tokio::test]

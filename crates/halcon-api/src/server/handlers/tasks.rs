@@ -277,7 +277,9 @@ pub async fn cancel_task(
         tracing::debug!(execution_id = %id, "cancel_task: no running token found (task may have just completed)");
     }
 
-    Ok(Json(serde_json::json!({ "cancelled": true, "id": id.to_string() })))
+    Ok(Json(
+        serde_json::json!({ "cancelled": true, "id": id.to_string() }),
+    ))
 }
 
 /// GET /api/v1/tasks/:id/events — stream task lifecycle events as SSE.

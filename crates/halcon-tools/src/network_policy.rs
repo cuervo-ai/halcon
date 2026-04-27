@@ -128,13 +128,15 @@ impl NetworkPolicy {
             Host::Ipv4(ip) => validate_ipv4(ip),
             Host::Ipv6(ip) => validate_ipv6(ip),
             Host::Domain(domain) => {
-                let port = url.port().unwrap_or(if scheme == "https" { 443 } else { 80 });
-                let lookup = tokio::net::lookup_host((domain, port))
-                    .await
-                    .map_err(|e| NetworkPolicyError::ResolutionFailed {
+                let port = url
+                    .port()
+                    .unwrap_or(if scheme == "https" { 443 } else { 80 });
+                let lookup = tokio::net::lookup_host((domain, port)).await.map_err(|e| {
+                    NetworkPolicyError::ResolutionFailed {
                         host: domain.to_string(),
                         source: e,
-                    })?;
+                    }
+                })?;
 
                 let mut any = false;
                 for sa in lookup {
@@ -296,10 +298,13 @@ mod tests {
             "http://192.168.1.1/",
         ] {
             let err = rt().block_on(p.validate_url(url));
-            assert!(matches!(
-                err,
-                Err(NetworkPolicyError::BlockedAddress { category: c, .. }) if c.contains("private")
-            ), "expected private rejection for {url}");
+            assert!(
+                matches!(
+                    err,
+                    Err(NetworkPolicyError::BlockedAddress { category: c, .. }) if c.contains("private")
+                ),
+                "expected private rejection for {url}"
+            );
         }
     }
 
@@ -315,14 +320,20 @@ mod tests {
     fn metadata_google_internal_rejected() {
         let p = NetworkPolicy::strict();
         let err = rt().block_on(p.validate_url("http://metadata.google.internal/"));
-        assert!(matches!(err, Err(NetworkPolicyError::BlockedHostname { .. })));
+        assert!(matches!(
+            err,
+            Err(NetworkPolicyError::BlockedHostname { .. })
+        ));
     }
 
     #[test]
     fn metadata_azure_rejected() {
         let p = NetworkPolicy::strict();
         let err = rt().block_on(p.validate_url("http://metadata.azure.com/"));
-        assert!(matches!(err, Err(NetworkPolicyError::BlockedHostname { .. })));
+        assert!(matches!(
+            err,
+            Err(NetworkPolicyError::BlockedHostname { .. })
+        ));
     }
 
     #[test]
@@ -369,14 +380,20 @@ mod tests {
     fn permissive_allows_loopback_for_tests() {
         let p = NetworkPolicy::permissive_for_tests();
         let res = rt().block_on(p.validate_url("http://127.0.0.1:1/"));
-        assert!(res.is_ok(), "permissive policy must allow loopback in tests");
+        assert!(
+            res.is_ok(),
+            "permissive policy must allow loopback in tests"
+        );
     }
 
     #[test]
     fn permissive_still_blocks_imds_hostname() {
         let p = NetworkPolicy::permissive_for_tests();
         let err = rt().block_on(p.validate_url("http://metadata.google.internal/"));
-        assert!(matches!(err, Err(NetworkPolicyError::BlockedHostname { .. })));
+        assert!(matches!(
+            err,
+            Err(NetworkPolicyError::BlockedHostname { .. })
+        ));
     }
 
     #[test]

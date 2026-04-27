@@ -55,8 +55,8 @@ pub use openai::OpenAIProvider;
 pub use openai_compat::OpenAICompatibleProvider;
 pub use registry::ProviderRegistry;
 pub use replay::ReplayProvider;
-pub use router::{IntelligentRouter, IntentClassifier, RoutingDecision, TaskIntent};
 pub use router::cost_table::{compute_actual_cost, compute_actual_cost_with_fallback};
+pub use router::{IntelligentRouter, IntentClassifier, RoutingDecision, TaskIntent};
 
 #[cfg(feature = "paloma")]
 pub use router::paloma_adapter::{PalomaReservation, PalomaRouter};

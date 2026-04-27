@@ -369,9 +369,10 @@ mod tests {
             arguments: json!({"url": "ftp://example.com"}),
             working_directory: "/tmp".into(),
         };
-        let out = tool.execute(input).await.expect(
-            "scheme rejection now flows through network_policy and returns ToolOutput",
-        );
+        let out = tool
+            .execute(input)
+            .await
+            .expect("scheme rejection now flows through network_policy and returns ToolOutput");
         assert!(out.is_error);
         assert!(
             out.content.contains("scheme") || out.content.contains("http"),

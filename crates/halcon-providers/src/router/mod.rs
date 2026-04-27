@@ -25,9 +25,9 @@
 //! println!("→ {} / {}", decision.provider, decision.model);
 //! ```
 
+pub mod cost_table;
 mod intent;
 mod policy;
-pub mod cost_table;
 
 #[cfg(feature = "paloma")]
 pub mod paloma_adapter;

@@ -46,7 +46,10 @@ pub enum AuditEventType {
         tier: String,
     },
     /// Task submitted via API.
-    TaskSubmitted { node_count: usize, wave_count: usize },
+    TaskSubmitted {
+        node_count: usize,
+        wave_count: usize,
+    },
     /// Task completed (success or failure).
     TaskCompleted { success: bool, total_cost_usd: f64 },
     /// Task cancelled by the user.
@@ -182,13 +185,7 @@ impl AuditSink {
         resource: impl Into<String>,
     ) -> AuditEvent {
         let ev = AuditEvent::signed(
-            tenant_id,
-            session_id,
-            plan_id,
-            event_type,
-            actor,
-            resource,
-            &self.key,
+            tenant_id, session_id, plan_id, event_type, actor, resource, &self.key,
         );
 
         match serde_json::to_string(&ev) {
@@ -242,7 +239,9 @@ mod tests {
             "tenant-a",
             Some(Uuid::new_v4()),
             Some(Uuid::new_v4()),
-            AuditEventType::ReservationCommitted { actual_cost_usd: 0.42 },
+            AuditEventType::ReservationCommitted {
+                actual_cost_usd: 0.42,
+            },
             "system",
             "anthropic:claude-sonnet-4-6",
             &key(),
@@ -256,7 +255,10 @@ mod tests {
             "tenant-a",
             None,
             None,
-            AuditEventType::TaskSubmitted { node_count: 3, wave_count: 1 },
+            AuditEventType::TaskSubmitted {
+                node_count: 3,
+                wave_count: 1,
+            },
             "api",
             "halcon:task_submit",
             &key(),
@@ -271,12 +273,16 @@ mod tests {
             "tenant-a",
             None,
             None,
-            AuditEventType::ReservationCommitted { actual_cost_usd: 1.00 },
+            AuditEventType::ReservationCommitted {
+                actual_cost_usd: 1.00,
+            },
             "system",
             "anthropic:claude-opus-4-7",
             &key(),
         );
-        ev.event_type = AuditEventType::ReservationCommitted { actual_cost_usd: 0.01 };
+        ev.event_type = AuditEventType::ReservationCommitted {
+            actual_cost_usd: 0.01,
+        };
         assert!(!ev.verify(&key()));
     }
 

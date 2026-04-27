@@ -642,7 +642,7 @@ mod tests {
     fn test_budget(token_limit: u64) -> Arc<RuntimeBudget> {
         Arc::new(RuntimeBudget::new(
             token_limit,
-            0.0, // no cost limit in these tests
+            0.0,            // no cost limit in these tests
             Duration::ZERO, // no duration limit
         ))
     }
@@ -775,7 +775,12 @@ mod tests {
     async fn pause_and_resume() {
         let dag = make_dag_with_nodes(2);
         let (tx, _rx) = mpsc::unbounded_channel();
-        let coord = Arc::new(ExecutionCoordinator::new(Uuid::new_v4(), dag, test_budget(0), tx));
+        let coord = Arc::new(ExecutionCoordinator::new(
+            Uuid::new_v4(),
+            dag,
+            test_budget(0),
+            tx,
+        ));
 
         // Start paused.
         coord.pause(PauseReason::UserRequested).await;
@@ -803,7 +808,12 @@ mod tests {
     async fn cancel_stops_execution() {
         let dag = make_dag_with_nodes(5);
         let (tx, _rx) = mpsc::unbounded_channel();
-        let coord = Arc::new(ExecutionCoordinator::new(Uuid::new_v4(), dag, test_budget(0), tx));
+        let coord = Arc::new(ExecutionCoordinator::new(
+            Uuid::new_v4(),
+            dag,
+            test_budget(0),
+            tx,
+        ));
 
         coord.pause(PauseReason::UserRequested).await;
 
@@ -826,7 +836,12 @@ mod tests {
     async fn step_node_mode() {
         let dag = make_dag_with_nodes(3);
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let coord = Arc::new(ExecutionCoordinator::new(Uuid::new_v4(), dag, test_budget(0), tx));
+        let coord = Arc::new(ExecutionCoordinator::new(
+            Uuid::new_v4(),
+            dag,
+            test_budget(0),
+            tx,
+        ));
 
         // Set step-node mode.
         *coord.mode.write().await = ExecutionMode::StepNode;

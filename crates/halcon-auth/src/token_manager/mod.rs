@@ -291,8 +291,7 @@ impl CenzontleTokenManager {
                 .chain(std::iter::once((KEY_EXPIRES_AT, expires_at.to_string())))
                 .collect();
 
-            let refs: Vec<(&str, &str)> =
-                entries.iter().map(|(k, v)| (*k, v.as_str())).collect();
+            let refs: Vec<(&str, &str)> = entries.iter().map(|(k, v)| (*k, v.as_str())).collect();
 
             if let Err(e) = keystore.set_multiple_secrets(refs.iter().copied()) {
                 tracing::warn!(error = %e, "cenzontle token manager: keystore persist failed");
