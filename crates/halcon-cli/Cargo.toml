@@ -100,6 +100,7 @@ open = { workspace = true }                     # Browser launcher for SSO flows
 notify = "6"                                    # Filesystem watcher for HALCON.md hot-reload (Feature 1)
 rhai = { version = "1", default-features = false } # Sandboxed scripting for lifecycle hooks (Feature 2)
 croner = { workspace = true }                  # Cron expression parsing for scheduler (PASO 4-C)
+subtle = "2"                                   # Constant-time comparison for OAuth state / tokens
 
 [features]
 default = ["color-science", "tui", "paloma"]

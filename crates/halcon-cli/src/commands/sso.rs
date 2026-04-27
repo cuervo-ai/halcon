@@ -29,6 +29,7 @@ use base64::Engine as _;
 use halcon_auth::KeyStore;
 use rand::RngCore;
 use sha2::{Digest, Sha256};
+use subtle::ConstantTimeEq;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 
@@ -844,7 +845,11 @@ async fn accept_callback(listener: &TcpListener, expected_state: &str) -> Result
     }
 
     let received_state = params.get("state").copied().unwrap_or("");
-    if received_state != expected_state {
+    let state_ok: bool = received_state
+        .as_bytes()
+        .ct_eq(expected_state.as_bytes())
+        .into();
+    if !state_ok {
         return Err(anyhow!(
             "State mismatch in OAuth callback (CSRF protection triggered). \
              Please try logging in again."

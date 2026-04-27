@@ -35,6 +35,7 @@ use rand::RngCore;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
+use subtle::ConstantTimeEq;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::TcpListener;
 use url::Url;
@@ -388,7 +389,11 @@ async fn receive_auth_code(expected_state: &str) -> Result<String, OAuthError> {
                 let url = format!("http://127.0.0.1{path}");
                 if let Ok(parsed) = Url::parse(&url) {
                     let params: HashMap<_, _> = parsed.query_pairs().into_owned().collect();
-                    if params.get("state").map(|s| s.as_str()) == Some(expected_state) {
+                    let state_match: bool = params
+                        .get("state")
+                        .map(|s| s.as_bytes().ct_eq(expected_state.as_bytes()).into())
+                        .unwrap_or(false);
+                    if state_match {
                         if let Some(code) = params.get("code") {
                             let code = code.clone();
                             // Send success response.
