@@ -109,6 +109,19 @@ impl HalconRuntime {
         self.executor.execute(dag, &ctx).await
     }
 
+    /// Execute a task DAG with an external cancellation token.
+    ///
+    /// Cancelling the token aborts in-flight agent invocations instead of
+    /// letting them run detached (INV-CANCEL).
+    pub async fn execute_dag_with_cancel(
+        &self,
+        dag: TaskDAG,
+        cancel: tokio_util::sync::CancellationToken,
+    ) -> Result<ExecutionResult> {
+        let ctx = SharedContext::new();
+        self.executor.execute_with_cancel(dag, &ctx, cancel).await
+    }
+
     /// Execute a DAG with a pre-populated shared context.
     pub async fn execute_dag_with_context(
         &self,
@@ -116,6 +129,16 @@ impl HalconRuntime {
         context: &SharedContext,
     ) -> Result<ExecutionResult> {
         self.executor.execute(dag, context).await
+    }
+
+    /// Execute a DAG with a shared context AND a cancel token (INV-CANCEL).
+    pub async fn execute_dag_with_context_and_cancel(
+        &self,
+        dag: TaskDAG,
+        context: &SharedContext,
+        cancel: tokio_util::sync::CancellationToken,
+    ) -> Result<ExecutionResult> {
+        self.executor.execute_with_cancel(dag, context, cancel).await
     }
 
     /// Invoke a specific agent by ID.
@@ -353,6 +376,7 @@ mod tests {
             depends_on: vec![],
             budget: None,
             context_keys: vec![],
+            priority: 0,
         });
 
         let result = rt.execute_dag(dag).await.unwrap();

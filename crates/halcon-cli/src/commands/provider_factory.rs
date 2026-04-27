@@ -533,6 +533,23 @@ pub async fn ensure_cenzontle_models(registry: &mut ProviderRegistry) {
         });
 
     let Some(token) = token else { return };
+
+    // Ω-AUTH-1: construir CenzontleTokenManager singleton que gobierna el
+    // lifecycle del access_token durante toda la sesión Halcon.
+    // - Hidrata cache desde Keychain async.
+    // - Refresca proactivamente cuando quedan < 60s.
+    // - Recovery automático en 401 (P-AUTH-3).
+    // - SingleFlight garantiza 1 POST al SSO por N requests concurrentes.
+    let sso_url = std::env::var("ZUCLUBIT_SSO_URL")
+        .unwrap_or_else(|_| "https://sso.zuclubit.com".to_string());
+    let token_manager = halcon_auth::CenzontleTokenManager::new(sso_url);
+    let _bg_handle = token_manager.start_background_refresh();
+    // Nota: el JoinHandle se suelta deliberadamente — Tokio lo mantiene vivo
+    // por el spawn. shutdown coordinado se implementará en Ciclo 2 cuando el
+    // REPL tenga un lifecycle orchestrator explícito.
+    let token_manager_dyn: std::sync::Arc<dyn halcon_auth::AuthTokenManager> =
+        token_manager as std::sync::Arc<_>;
+
     // Resolve base URL: env var > config api_base > built-in default
     let base_url = std::env::var("CENZONTLE_BASE_URL").ok().or_else(|| {
         crate::config_loader::load_config(None)
@@ -546,9 +563,10 @@ pub async fn ensure_cenzontle_models(registry: &mut ProviderRegistry) {
     // This avoids a GET /v1/llm/models API call on every startup — saves 2-10s
     // especially when the Azure Container Apps backend is cold or slow.
     if let Some(cached_models) = load_cenzontle_model_cache() {
-        let provider = CenzontleProvider::new(token, base_url, cached_models);
+        let provider = CenzontleProvider::new(token, base_url, cached_models)
+            .with_token_manager(std::sync::Arc::clone(&token_manager_dyn));
         registry.register(Arc::new(provider));
-        tracing::debug!("Cenzontle provider: re-registered with cached model list");
+        tracing::debug!("Cenzontle provider: re-registered with cached model list + token manager");
         return;
     }
 
@@ -556,9 +574,10 @@ pub async fn ensure_cenzontle_models(registry: &mut ProviderRegistry) {
     if let Some(provider) = CenzontleProvider::from_token(token, base_url).await {
         // Persist the model list so the next startup uses the cache.
         save_cenzontle_model_cache(provider.supported_models());
-        // Re-register with populated model list.
+        // Re-register with populated model list + dynamic token manager.
+        let provider = provider.with_token_manager(std::sync::Arc::clone(&token_manager_dyn));
         registry.register(Arc::new(provider));
-        tracing::debug!("Cenzontle provider models populated from API");
+        tracing::debug!("Cenzontle provider models populated from API + token manager attached");
     }
 }
 

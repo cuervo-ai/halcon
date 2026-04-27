@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use chrono::Utc;
+use halcon_providers::compute_actual_cost_with_fallback;
 use futures::StreamExt;
 use halcon_core::traits::ModelProvider;
 use halcon_core::types::{
@@ -92,6 +93,8 @@ pub(super) struct ProviderRoundOutput {
     pub round_provider_name: String,
     pub round_usage: TokenUsage,
     pub round_text_for_scorer: String,
+    /// Estimated cost for this round in USD (for INV-5 budget reservation commit).
+    pub round_cost_usd: f64,
 }
 
 /// Outcome of the provider round phase.
@@ -1449,6 +1452,12 @@ pub(super) async fn run(
 
             return Ok(ProviderRoundOutcome::ToolUse(ProviderRoundOutput {
                 completed_tools: synthetic_tools,
+                round_cost_usd: compute_actual_cost_with_fallback(
+                    &round_usage,
+                    &round_provider_name,
+                    &round_model_name,
+                    round_cost.estimated_cost_usd,
+                ),
                 round_model_name,
                 round_provider_name,
                 round_usage,
@@ -1573,8 +1582,14 @@ pub(super) async fn run(
         // after tool results were injected, signal the caller to retry instead of breaking.
         // This handles Cenzontle/DeepSeek transient empty responses where the model
         // processes for 30-60 seconds and returns zero content.
+        //
+        // Ω-07 (P-NO-SILENT-FAIL): el guard `round > 0` se eliminó — empty stream
+        // en round 0 también es fallo silencioso válido (Azure Container Apps
+        // cierra SSE con HTTP 200 clean y tokens 0/0 tras 120s sin chunks).
+        // Se mantiene la condición de que el stream haya sido consumido sin
+        // contenido tipado — completed_tools ya filtrado arriba.
         let is_truly_empty =
-            round_text.trim().is_empty() && round_usage.output_tokens == 0 && round > 0;
+            round_text.trim().is_empty() && round_usage.output_tokens == 0;
         if is_truly_empty {
             tracing::warn!(
                 metric.empty_response = true,
@@ -1734,6 +1749,12 @@ pub(super) async fn run(
 
     Ok(ProviderRoundOutcome::ToolUse(ProviderRoundOutput {
         completed_tools,
+        round_cost_usd: compute_actual_cost_with_fallback(
+            &round_usage,
+            &round_provider_name,
+            &round_model_name,
+            round_cost.estimated_cost_usd,
+        ),
         round_model_name,
         round_provider_name,
         round_usage,

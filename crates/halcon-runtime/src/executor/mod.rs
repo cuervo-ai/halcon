@@ -2,8 +2,13 @@
 
 pub mod budget;
 pub mod coordinator;
+pub mod failure_cascade;
 pub mod mutable_dag;
+pub mod role_policy;
+pub mod scheduling;
+pub mod tenant_scope;
 
+use tokio_util::sync::CancellationToken;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Instant;
@@ -40,6 +45,8 @@ pub struct TaskNode {
     pub budget: Option<AgentBudget>,
     /// Keys to inject from shared context into the request.
     pub context_keys: Vec<String>,
+    /// Higher priority = earlier execution within a wave. Default 0.
+    pub priority: u32,
 }
 
 /// A directed acyclic graph of tasks to execute.
@@ -192,11 +199,26 @@ impl RuntimeExecutor {
         Self { registry, router }
     }
 
-    /// Execute a task DAG with shared context.
+    /// Execute a task DAG with shared context (no cancellation).
     pub async fn execute(
         &self,
         dag: TaskDAG,
         shared_context: &SharedContext,
+    ) -> Result<ExecutionResult> {
+        self.execute_with_cancel(dag, shared_context, CancellationToken::new())
+            .await
+    }
+
+    /// Execute a task DAG with cancellation.
+    ///
+    /// The cancel token is cloned into every spawned worker future via `select!`,
+    /// so calling `token.cancel()` interrupts in-flight `agent.invoke()` calls
+    /// instead of leaving them detached (INV-CANCEL).
+    pub async fn execute_with_cancel(
+        &self,
+        dag: TaskDAG,
+        shared_context: &SharedContext,
+        cancel: CancellationToken,
     ) -> Result<ExecutionResult> {
         let waves = dag.waves()?;
         let wave_count = waves.len();
@@ -216,7 +238,13 @@ impl RuntimeExecutor {
                 let context_keys = node.context_keys.clone();
                 let ctx_snapshot = shared_context.snapshot(&context_keys);
 
+                let task_cancel = cancel.clone();
                 handles.push(tokio::spawn(async move {
+                    // Early exit if cancelled before we even start.
+                    if task_cancel.is_cancelled() {
+                        return (task_id, Err(RuntimeError::Execution("cancelled".into())));
+                    }
+
                     // Resolve agent
                     let agent = match &selector {
                         AgentSelector::ById(id) => registry.get(id).await,
@@ -246,8 +274,18 @@ impl RuntimeExecutor {
                         request.budget = Some(b);
                     }
 
-                    let result = agent.invoke(request).await;
-                    (task_id, result)
+                    // INV-CANCEL: signal propagates to the in-flight invocation.
+                    // Dropping the invoke future on cancel aborts the agent's outbound
+                    // I/O (reqwest stream, subprocess pipe, etc.).
+                    tokio::select! {
+                        biased;
+                        _ = task_cancel.cancelled() => {
+                            (task_id, Err(RuntimeError::Execution("cancelled".into())))
+                        }
+                        result = agent.invoke(request) => {
+                            (task_id, result)
+                        }
+                    }
                 }));
             }
 
@@ -344,6 +382,7 @@ mod tests {
             depends_on: vec![],
             budget: None,
             context_keys: vec![],
+            priority: 0,
         });
         let waves = dag.waves().unwrap();
         assert_eq!(waves.len(), 1);
@@ -360,6 +399,7 @@ mod tests {
             depends_on: vec![],
             budget: None,
             context_keys: vec![],
+            priority: 0,
         });
         dag.add_node(TaskNode {
             task_id: tid(2),
@@ -368,6 +408,7 @@ mod tests {
             depends_on: vec![],
             budget: None,
             context_keys: vec![],
+            priority: 0,
         });
         let waves = dag.waves().unwrap();
         assert_eq!(waves.len(), 1);
@@ -384,6 +425,7 @@ mod tests {
             depends_on: vec![],
             budget: None,
             context_keys: vec![],
+            priority: 0,
         });
         dag.add_node(TaskNode {
             task_id: tid(2),
@@ -392,6 +434,7 @@ mod tests {
             depends_on: vec![tid(1)],
             budget: None,
             context_keys: vec![],
+            priority: 0,
         });
         let waves = dag.waves().unwrap();
         assert_eq!(waves.len(), 2);
@@ -410,6 +453,7 @@ mod tests {
             depends_on: vec![],
             budget: None,
             context_keys: vec![],
+            priority: 0,
         });
         dag.add_node(TaskNode {
             task_id: tid(2),
@@ -418,6 +462,7 @@ mod tests {
             depends_on: vec![tid(1)],
             budget: None,
             context_keys: vec![],
+            priority: 0,
         });
         dag.add_node(TaskNode {
             task_id: tid(3),
@@ -426,6 +471,7 @@ mod tests {
             depends_on: vec![tid(1)],
             budget: None,
             context_keys: vec![],
+            priority: 0,
         });
         dag.add_node(TaskNode {
             task_id: tid(4),
@@ -434,6 +480,7 @@ mod tests {
             depends_on: vec![tid(2), tid(3)],
             budget: None,
             context_keys: vec![],
+            priority: 0,
         });
 
         let waves = dag.waves().unwrap();
@@ -453,6 +500,7 @@ mod tests {
             depends_on: vec![tid(2)],
             budget: None,
             context_keys: vec![],
+            priority: 0,
         });
         dag.add_node(TaskNode {
             task_id: tid(2),
@@ -461,6 +509,7 @@ mod tests {
             depends_on: vec![tid(1)],
             budget: None,
             context_keys: vec![],
+            priority: 0,
         });
         let result = dag.validate();
         assert!(matches!(result, Err(RuntimeError::CycleDetected)));
@@ -476,6 +525,7 @@ mod tests {
             depends_on: vec![tid(1)],
             budget: None,
             context_keys: vec![],
+            priority: 0,
         });
         let result = dag.validate();
         assert!(matches!(result, Err(RuntimeError::CycleDetected)));
@@ -491,6 +541,7 @@ mod tests {
             depends_on: vec![tid(999)],
             budget: None,
             context_keys: vec![],
+            priority: 0,
         });
         let result = dag.validate();
         assert!(matches!(
@@ -597,6 +648,7 @@ mod tests {
             depends_on: vec![],
             budget: None,
             context_keys: vec![],
+            priority: 0,
         });
 
         let ctx = SharedContext::new();
@@ -625,6 +677,7 @@ mod tests {
             depends_on: vec![],
             budget: None,
             context_keys: vec![],
+            priority: 0,
         });
         dag.add_node(TaskNode {
             task_id: tid(2),
@@ -633,6 +686,7 @@ mod tests {
             depends_on: vec![tid(1)],
             budget: None,
             context_keys: vec![],
+            priority: 0,
         });
 
         let ctx = SharedContext::new();
@@ -662,6 +716,7 @@ mod tests {
             depends_on: vec![],
             budget: None,
             context_keys: vec!["input".to_string()],
+            priority: 0,
         });
 
         let result = executor.execute(dag, &ctx).await.unwrap();
@@ -682,6 +737,7 @@ mod tests {
             depends_on: vec![],
             budget: None,
             context_keys: vec![],
+            priority: 0,
         });
 
         let ctx = SharedContext::new();
@@ -706,6 +762,7 @@ mod tests {
             depends_on: vec![],
             budget: None,
             context_keys: vec![],
+            priority: 0,
         });
 
         let ctx = SharedContext::new();
@@ -733,6 +790,7 @@ mod tests {
                 depends_on: vec![],
                 budget: None,
                 context_keys: vec![],
+                priority: 0,
             });
         }
 
@@ -762,6 +820,7 @@ mod tests {
                 depends_on: vec![],
                 budget: None,
                 context_keys: vec![],
+                priority: 0,
             });
         }
 
@@ -789,6 +848,7 @@ mod tests {
             depends_on: vec![],
             budget: None,
             context_keys: vec![],
+            priority: 0,
         });
 
         let ctx = SharedContext::new();
@@ -796,5 +856,129 @@ mod tests {
         let result_key = format!("result:{}", tid(1));
         let stored = ctx.get(&result_key);
         assert!(stored.is_some());
+    }
+
+    // ── Cancel-propagation agent (INV-CANCEL) ───────────────────────────────
+
+    /// Agent that sleeps for `invoke_ms` milliseconds, counting how many
+    /// invocations actually finished (vs. being aborted by cancel).
+    struct SleepyAgent {
+        descriptor: AgentDescriptor,
+        invoke_ms: u64,
+        completed: Arc<std::sync::atomic::AtomicU64>,
+    }
+
+    impl SleepyAgent {
+        fn new(name: &str, invoke_ms: u64) -> (Self, Arc<std::sync::atomic::AtomicU64>) {
+            let completed = Arc::new(std::sync::atomic::AtomicU64::new(0));
+            let agent = Self {
+                descriptor: AgentDescriptor {
+                    id: Uuid::new_v4(),
+                    name: name.to_string(),
+                    agent_kind: AgentKind::Llm,
+                    capabilities: vec![AgentCapability::CodeGeneration],
+                    protocols: vec![ProtocolSupport::Native],
+                    metadata: HashMap::new(),
+                    max_concurrency: 16,
+                },
+                invoke_ms,
+                completed: Arc::clone(&completed),
+            };
+            (agent, completed)
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl RuntimeAgent for SleepyAgent {
+        fn descriptor(&self) -> &AgentDescriptor {
+            &self.descriptor
+        }
+
+        async fn invoke(&self, request: AgentRequest) -> Result<AgentResponse> {
+            tokio::time::sleep(std::time::Duration::from_millis(self.invoke_ms)).await;
+            self.completed
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            Ok(AgentResponse {
+                request_id: request.request_id,
+                success: true,
+                output: "finished".into(),
+                artifacts: vec![],
+                usage: AgentUsage::default(),
+                metadata: HashMap::new(),
+            })
+        }
+
+        async fn health(&self) -> AgentHealth {
+            AgentHealth::Healthy
+        }
+
+        async fn shutdown(&self) -> Result<()> {
+            Ok(())
+        }
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn cancel_aborts_inflight_agent_invocations() {
+        let registry = Arc::new(AgentRegistry::new());
+        let (agent, completed) = SleepyAgent::new("sleepy", 2_000);
+        let name = agent.descriptor().name.clone();
+        registry.register(Arc::new(agent)).await;
+
+        let router = Arc::new(MessageRouter::new(16));
+        let executor = RuntimeExecutor::new(registry, router);
+
+        // Two parallel long-running nodes in the same wave.
+        let mut dag = TaskDAG::new();
+        for i in 0..2u128 {
+            dag.add_node(TaskNode {
+                task_id: tid(i + 1),
+                instruction: format!("slow {i}"),
+                agent_selector: AgentSelector::ByName(name.clone()),
+                depends_on: vec![],
+                budget: None,
+                context_keys: vec![],
+                priority: 0,
+            });
+        }
+
+        let cancel = tokio_util::sync::CancellationToken::new();
+        let ctx = SharedContext::new();
+        let cancel_clone = cancel.clone();
+
+        let handle = tokio::spawn(async move {
+            executor.execute_with_cancel(dag, &ctx, cancel_clone).await
+        });
+
+        // Let the spawns reach the invoke() sleep, then cancel.
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        let t_cancel = std::time::Instant::now();
+        cancel.cancel();
+
+        let result = handle.await.unwrap().unwrap();
+
+        // Cancel must return promptly — well before the 2s sleep completes.
+        let elapsed = t_cancel.elapsed();
+        assert!(
+            elapsed < std::time::Duration::from_millis(500),
+            "cancel propagation too slow: {elapsed:?}"
+        );
+
+        // All nodes must have produced a result (one per task_id), with
+        // "cancelled" errors — the detached-spawn bug would produce Ok results
+        // only AFTER the 2s sleep.
+        assert_eq!(result.results.len(), 2);
+        for (_, r) in &result.results {
+            assert!(
+                r.is_err(),
+                "expected cancelled error, got {:?}",
+                r.as_ref().ok().map(|x| &x.output)
+            );
+        }
+
+        // Crucially: the sleeps must NOT have completed in 2s.  Give them a
+        // tiny window to catch a buggy detached-spawn regression.
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        let done = completed.load(std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(done, 0, "agents finished after cancel (detached bug): {done}");
     }
 }

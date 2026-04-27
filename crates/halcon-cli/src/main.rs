@@ -40,6 +40,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 use tracing_subscriber::EnvFilter;
 
 mod audit;
+mod audit_sink_bootstrap;
 mod commands;
 mod config_loader;
 mod render;

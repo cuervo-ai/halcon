@@ -2250,6 +2250,8 @@ dependencies = [
  "subtle",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-stream",
+ "tokio-util",
  "tower",
  "tower-http",
  "tracing",
@@ -2276,6 +2278,7 @@ dependencies = [
  "url",
  "uuid",
  "wiremock",
+ "zeroize",
 ]
 
 [[package]]
@@ -2298,6 +2301,7 @@ dependencies = [
  "flate2",
  "futures",
  "futures-util",
+ "getrandom 0.2.17",
  "git2",
  "glob",
  "halcon-agent-core",
@@ -2492,6 +2496,7 @@ dependencies = [
  "eventsource-stream",
  "futures",
  "gcp_auth",
+ "halcon-auth",
  "halcon-core",
  "halcon-storage",
  "hex",
@@ -2525,6 +2530,7 @@ version = "0.3.14"
 dependencies = [
  "async-trait",
  "chrono",
+ "getrandom 0.2.17",
  "halcon-core",
  "halcon-storage",
  "reqwest",
@@ -2533,6 +2539,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-util",
  "toml",
  "tracing",
  "uuid",
@@ -4354,6 +4361,7 @@ dependencies = [
 [[package]]
 name = "paloma-budget"
 version = "0.1.0"
+source = "git+https://github.com/cuervo-ai/paloma?tag=v0.1.0#e3eba9a300d8d6139fba5b776b7041ba686fab6c"
 dependencies = [
  "paloma-types",
  "uuid",
@@ -4362,6 +4370,7 @@ dependencies = [
 [[package]]
 name = "paloma-health"
 version = "0.1.0"
+source = "git+https://github.com/cuervo-ai/paloma?tag=v0.1.0#e3eba9a300d8d6139fba5b776b7041ba686fab6c"
 dependencies = [
  "paloma-types",
 ]
@@ -4369,6 +4378,7 @@ dependencies = [
 [[package]]
 name = "paloma-ledger"
 version = "0.1.0"
+source = "git+https://github.com/cuervo-ai/paloma?tag=v0.1.0#e3eba9a300d8d6139fba5b776b7041ba686fab6c"
 dependencies = [
  "paloma-budget",
  "paloma-types",
@@ -4378,6 +4388,7 @@ dependencies = [
 [[package]]
 name = "paloma-pipeline"
 version = "0.1.0"
+source = "git+https://github.com/cuervo-ai/paloma?tag=v0.1.0#e3eba9a300d8d6139fba5b776b7041ba686fab6c"
 dependencies = [
  "paloma-budget",
  "paloma-health",
@@ -4394,6 +4405,7 @@ dependencies = [
 [[package]]
 name = "paloma-planner"
 version = "0.1.0"
+source = "git+https://github.com/cuervo-ai/paloma?tag=v0.1.0#e3eba9a300d8d6139fba5b776b7041ba686fab6c"
 dependencies = [
  "paloma-types",
  "uuid",
@@ -4402,6 +4414,7 @@ dependencies = [
 [[package]]
 name = "paloma-policy"
 version = "0.1.0"
+source = "git+https://github.com/cuervo-ai/paloma?tag=v0.1.0#e3eba9a300d8d6139fba5b776b7041ba686fab6c"
 dependencies = [
  "paloma-types",
 ]
@@ -4409,6 +4422,7 @@ dependencies = [
 [[package]]
 name = "paloma-registry"
 version = "0.1.0"
+source = "git+https://github.com/cuervo-ai/paloma?tag=v0.1.0#e3eba9a300d8d6139fba5b776b7041ba686fab6c"
 dependencies = [
  "paloma-types",
 ]
@@ -4416,6 +4430,7 @@ dependencies = [
 [[package]]
 name = "paloma-scoring"
 version = "0.1.0"
+source = "git+https://github.com/cuervo-ai/paloma?tag=v0.1.0#e3eba9a300d8d6139fba5b776b7041ba686fab6c"
 dependencies = [
  "paloma-types",
  "tracing",
@@ -4424,6 +4439,7 @@ dependencies = [
 [[package]]
 name = "paloma-trace"
 version = "0.1.0"
+source = "git+https://github.com/cuervo-ai/paloma?tag=v0.1.0#e3eba9a300d8d6139fba5b776b7041ba686fab6c"
 dependencies = [
  "paloma-types",
  "uuid",
@@ -4432,6 +4448,7 @@ dependencies = [
 [[package]]
 name = "paloma-types"
 version = "0.1.0"
+source = "git+https://github.com/cuervo-ai/paloma?tag=v0.1.0#e3eba9a300d8d6139fba5b776b7041ba686fab6c"
 dependencies = [
  "chrono",
  "serde",
@@ -6429,6 +6446,7 @@ dependencies = [
  "futures-core",
  "pin-project-lite",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]
@@ -7683,6 +7701,20 @@ name = "zeroize"
 version = "1.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b97154e67e32c85465826e8bcc1c59429aaaf107c1e4a9e53c8d8ccd5eff88d0"
+dependencies = [
+ "zeroize_derive",
+]
+
+[[package]]
+name = "zeroize_derive"
+version = "1.4.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "85a5b4158499876c763cb03bc4e49185d3cccbabb15b33c627f7884f43db852e"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.117",
+]
 
 [[package]]
 name = "zerotrie"

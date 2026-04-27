@@ -50,6 +50,19 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
+  # ── Architecture boundary check (Ω-04) ────────────────────────────────────
+  # Enforces frontier architecture invariants from docs/architecture/halcon-v3-correction.md.
+  # Currently runs in WARN mode (no --strict) durante Ciclos 0-2; migrará a
+  # bloqueante strict tras Ciclo 2 (refactor de routing/LLM adapters a feature
+  # dev-providers).  Ya bloquea regresiones nuevas vía I-H13 (feature flag integrity).
+  boundary-check:
+    name: Architecture boundaries
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run boundary check
+        run: bash scripts/check_boundaries.sh
+
   # ── Clippy (compile once, lint) ───────────────────────────────────────────
   clippy:
     name: Clippy

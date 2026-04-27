@@ -129,6 +129,7 @@ fn submit_task_request_serialization() {
             context_keys: vec!["source_code".into()],
         }],
         context: HashMap::new(),
+        idempotency_key: None,
     };
     let json = serde_json::to_string(&req).unwrap();
     assert!(json.contains("generate tests"));

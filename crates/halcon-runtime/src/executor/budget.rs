@@ -90,6 +90,23 @@ impl RuntimeBudget {
         self.token_limit
             .saturating_sub(self.tokens_used.load(Ordering::Acquire))
     }
+
+    /// Token limit configured for this budget (0 = unlimited).
+    pub fn token_limit(&self) -> u64 {
+        self.token_limit
+    }
+
+    /// Cost limit in USD (0.0 = unlimited).
+    pub fn cost_limit_usd(&self) -> f64 {
+        self.cost_limit_cents as f64 / 10_000.0
+    }
+
+    /// True if any limit (tokens, cost, duration) has been exceeded.
+    /// Alias for `is_exceeded()` — matches the naming convention used
+    /// by the orchestrator layer (`SharedBudget::is_over_budget()`).
+    pub fn is_over_budget(&self) -> bool {
+        self.is_exceeded()
+    }
 }
 
 #[derive(Debug)]
