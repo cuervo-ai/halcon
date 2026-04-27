@@ -92,6 +92,58 @@ fn tokenizer_hint_for_model(model_id: &str) -> TokenizerHint {
     }
 }
 
+/// Maximum bytes of an upstream error body we copy into a propagated
+/// error message. Anything longer is truncated. Keeps logs from
+/// drowning on stack-trace-rich 500 responses and shrinks the
+/// surface area for accidental leaks of user data the server may
+/// echo back.
+const MAX_ERROR_BODY_BYTES: usize = 512;
+
+/// Truncate and redact a raw upstream error body before it is
+/// propagated through a [`HalconError::ApiError`] message.
+///
+/// Truncation is byte-bounded but UTF-8-safe (cuts at the last
+/// valid char boundary). Redaction targets the common shapes of
+/// tokens that LLM provider gateways occasionally echo back inside
+/// 4xx/5xx error envelopes.
+fn sanitize_error_body(body: &str) -> String {
+    use std::sync::OnceLock;
+    static REDACTORS: OnceLock<Vec<regex::Regex>> = OnceLock::new();
+    let redactors = REDACTORS.get_or_init(|| {
+        // Each pattern is anchored on a recognisable prefix to keep
+        // false-positive rate low. The replacement always preserves
+        // the length-revealing prefix so debugging is still
+        // possible without leaking secret bytes.
+        [
+            r"sk-ant-api[0-9A-Za-z_\-]+",
+            r"sk-proj-[0-9A-Za-z_\-]+",
+            r"sk-[0-9A-Za-z]{20,}",
+            r"AIza[0-9A-Za-z_\-]{30,}",
+            r"(?i)Bearer\s+[0-9A-Za-z_\-\.]+",
+            r"eyJ[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+\.[A-Za-z0-9_\-]+", // JWT
+        ]
+        .iter()
+        .filter_map(|p| regex::Regex::new(p).ok())
+        .collect()
+    });
+
+    let truncated: String = if body.len() > MAX_ERROR_BODY_BYTES {
+        let mut end = MAX_ERROR_BODY_BYTES;
+        while !body.is_char_boundary(end) {
+            end -= 1;
+        }
+        format!("{}…[truncated {} bytes]", &body[..end], body.len() - end)
+    } else {
+        body.to_string()
+    };
+
+    let mut out = truncated;
+    for re in redactors {
+        out = re.replace_all(&out, "[REDACTED]").to_string();
+    }
+    out
+}
+
 /// Cenzontle AI platform provider.
 ///
 /// NOTE: The original struct was named `CenzonzleProvider` (double-z typo).
@@ -744,7 +796,10 @@ impl ModelProvider for CenzontleProvider {
                 let code = status.as_u16();
                 let body = response.text().await.unwrap_or_default();
                 return Err(HalconError::ApiError {
-                    message: format!("Cenzontle HTTP {code} after {max_retries} retries: {body}"),
+                    message: format!(
+                        "Cenzontle HTTP {code} after {max_retries} retries: {}",
+                        sanitize_error_body(&body)
+                    ),
                     status: Some(code),
                 });
             }
@@ -753,7 +808,10 @@ impl ModelProvider for CenzontleProvider {
                 let code = status.as_u16();
                 let body = response.text().await.unwrap_or_default();
                 return Err(HalconError::ApiError {
-                    message: format!("Cenzontle HTTP {code}: {body}"),
+                    message: format!(
+                        "Cenzontle HTTP {code}: {}",
+                        sanitize_error_body(&body)
+                    ),
                     status: Some(code),
                 });
             }
@@ -872,6 +930,59 @@ pub type CenzonzleProvider = CenzontleProvider;
 mod tests {
     use super::*;
     use types::{CenzontleModel, CenzontleModelsResponse};
+
+    // ── sanitize_error_body ──────────────────────────────────────────────────
+
+    #[test]
+    fn sanitize_error_body_redacts_anthropic_key() {
+        let body = "{\"error\":\"forwarded key sk-ant-api01-AAA-bbb-CCC-XYZ rejected\"}";
+        let out = sanitize_error_body(body);
+        assert!(!out.contains("sk-ant-api01-AAA-bbb-CCC-XYZ"));
+        assert!(out.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn sanitize_error_body_redacts_bearer_token() {
+        let body = "Authorization: Bearer abcdef.GhIjKl.123456";
+        let out = sanitize_error_body(body);
+        assert!(!out.contains("abcdef.GhIjKl.123456"));
+        assert!(out.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn sanitize_error_body_redacts_jwt() {
+        let body = "stale eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.signaturepart token";
+        let out = sanitize_error_body(body);
+        assert!(!out.contains("eyJhbGciOiJIUzI1NiJ9"));
+        assert!(out.contains("[REDACTED]"));
+    }
+
+    #[test]
+    fn sanitize_error_body_truncates_long_body() {
+        let body = "x".repeat(MAX_ERROR_BODY_BYTES * 4);
+        let out = sanitize_error_body(&body);
+        assert!(out.len() <= MAX_ERROR_BODY_BYTES + 64);
+        assert!(out.contains("[truncated"));
+    }
+
+    #[test]
+    fn sanitize_error_body_short_body_unchanged() {
+        let body = "plain server error: internal";
+        let out = sanitize_error_body(body);
+        assert_eq!(out, body);
+    }
+
+    #[test]
+    fn sanitize_error_body_truncates_at_char_boundary() {
+        // Build a body that is exactly MAX bytes plus a multibyte char.
+        let mut body = "a".repeat(MAX_ERROR_BODY_BYTES - 1);
+        body.push('é'); // 2 bytes — straddles the cut point
+        body.push_str("xxxxxxxxxx");
+        let out = sanitize_error_body(&body);
+        // Must produce valid UTF-8 — the test would have panicked on
+        // a non-boundary slice.
+        assert!(out.contains("[truncated"));
+    }
 
     // ── tokenizer_hint ───────────────────────────────────────────────────────
 
