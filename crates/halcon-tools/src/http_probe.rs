@@ -17,6 +17,8 @@ use halcon_core::{
 use serde_json::{json, Value};
 use std::time::{Duration, Instant};
 
+use crate::network_policy::NetworkPolicy;
+
 pub struct HttpProbeTool;
 
 impl HttpProbeTool {
@@ -35,6 +37,25 @@ impl HttpProbeTool {
         show_body: bool,
         body_limit: usize,
     ) -> ProbeResult {
+        // SSRF guard for prober: agent cannot be prompted to scan
+        // internal networks or read cloud-metadata services.
+        if let Err(policy_err) = NetworkPolicy::strict().validate_url(url).await {
+            tracing::warn!(
+                tool = "http_probe",
+                url = %url,
+                reason = %policy_err,
+                "network policy denied probe"
+            );
+            return ProbeResult {
+                url: url.to_string(),
+                status: None,
+                latency_ms: 0,
+                error: Some(format!("network policy denied: {policy_err}")),
+                headers: vec![],
+                body_preview: None,
+                _redirects: 0,
+            };
+        }
         let client = match reqwest::Client::builder()
             .timeout(Duration::from_secs(timeout_secs))
             .redirect(reqwest::redirect::Policy::limited(10))

@@ -14,6 +14,8 @@ use halcon_core::error::{HalconError, Result};
 use halcon_core::traits::Tool;
 use halcon_core::types::{PermissionLevel, ToolInput, ToolOutput};
 
+use crate::network_policy::NetworkPolicy;
+
 /// Maximum response body size (1 MB).
 const MAX_RESPONSE_BYTES: usize = 1_048_576;
 /// Default request timeout.
@@ -77,13 +79,23 @@ impl Tool for HttpRequestTool {
             .unwrap_or(DEFAULT_TIMEOUT_SECS)
             .clamp(1, MAX_TIMEOUT_SECS);
 
-        // Validate URL scheme.
-        if !url.starts_with("http://") && !url.starts_with("https://") {
+        // SSRF guard. Rejects loopback / RFC1918 / link-local /
+        // cloud-metadata hostnames before issuing the request.
+        if let Err(policy_err) = NetworkPolicy::strict().validate_url(url).await {
+            tracing::warn!(
+                tool = "http_request",
+                url = %url,
+                reason = %policy_err,
+                "network policy denied outbound request"
+            );
             return Ok(ToolOutput {
                 tool_use_id: input.tool_use_id,
-                content: "http_request error: URL must start with http:// or https://".to_string(),
+                content: format!("http_request error: {policy_err}"),
                 is_error: true,
-                metadata: None,
+                metadata: Some(json!({
+                    "blocked_by": "network_policy",
+                    "reason": policy_err.to_string(),
+                })),
             });
         }
 
@@ -296,7 +308,11 @@ mod tests {
             .await
             .unwrap();
         assert!(out.is_error);
-        assert!(out.content.contains("http://"));
+        assert!(
+            out.content.contains("scheme") || out.content.contains("http"),
+            "expected scheme rejection message, got: {}",
+            out.content
+        );
     }
 
     #[tokio::test]
@@ -314,17 +330,20 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn default_method_is_post() {
-        // This will fail to connect but we can verify the method is used.
+    async fn loopback_blocked_by_network_policy() {
+        // SSRF guard: requests to 127.0.0.1 must be denied even with
+        // a valid scheme and method. Tool returns a structured error
+        // rather than attempting the connection.
         let tool = HttpRequestTool::new();
-        let result = tool
+        let out = tool
             .execute(make_input(json!({
                 "url": "http://127.0.0.1:1",
                 "timeout": 1
             })))
-            .await;
-        // Connection refused is expected — just ensure no method error.
-        assert!(result.is_err() || !result.unwrap().content.contains("unsupported method"));
+            .await
+            .expect("tool returns ToolOutput, not Err");
+        assert!(out.is_error);
+        assert!(out.content.contains("loopback") || out.content.contains("network"));
     }
 
     #[test]
@@ -343,34 +362,37 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn json_content_type_auto_detect() {
-        // Verify that JSON body gets content-type auto-detected.
-        // We can't easily test the actual header being set without a server,
-        // but we can test that the code path handles a JSON body string.
+    async fn json_body_blocked_by_network_policy() {
+        // The SSRF guard fires before the JSON content-type heuristic
+        // gets a chance to run. We assert the guard is the rejector
+        // so that a future regression where the guard is removed is
+        // caught here, not in production.
         let tool = HttpRequestTool::new();
-        let result = tool
+        let out = tool
             .execute(make_input(json!({
                 "url": "http://127.0.0.1:1",
                 "body": "{\"key\": \"value\"}",
                 "timeout": 1
             })))
-            .await;
-        // Will fail to connect, but should not panic or return an input error.
-        assert!(result.is_err()); // Connection refused.
+            .await
+            .expect("tool returns ToolOutput, not Err");
+        assert!(out.is_error);
+        let meta = out.metadata.expect("network_policy reason is in metadata");
+        assert_eq!(meta["blocked_by"], "network_policy");
     }
 
     #[tokio::test]
-    async fn custom_headers_accepted() {
+    async fn custom_headers_with_blocked_url() {
         let tool = HttpRequestTool::new();
-        let result = tool
+        let out = tool
             .execute(make_input(json!({
                 "url": "http://127.0.0.1:1",
                 "headers": {"X-Custom": "value", "Content-Type": "text/plain"},
                 "body": "hello",
                 "timeout": 1
             })))
-            .await;
-        // Connection refused but input is valid.
-        assert!(result.is_err());
+            .await
+            .expect("tool returns ToolOutput, not Err");
+        assert!(out.is_error);
     }
 }
