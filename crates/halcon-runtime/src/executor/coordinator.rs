@@ -20,6 +20,14 @@ use super::TaskNode;
 use crate::error::Result;
 use halcon_storage::{EventCategory, EventStore};
 
+// Re-imports needed only by the in-file `#[cfg(test)]` module. Kept
+// behind cfg(test) so the production build doesn't get an
+// unused-import error after the zombie-module cleanup.
+#[cfg(test)]
+use super::mutable_dag::MutationAuthor;
+#[cfg(test)]
+use super::AgentSelector;
+
 /// Execution mode controlling how the coordinator advances.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
