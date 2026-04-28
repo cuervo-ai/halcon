@@ -2,6 +2,11 @@
 """
 Generate `docs/development/phase-1-test-matrix.xlsx`.
 
+The plain-text companion lives at
+`docs/development/phase-1-e2e-runbook.md` (kept lowercase so it
+escapes the repo-wide `PHASE_*.md` gitignore pattern that
+covers in-flight work notes).
+
 Run with:
 
     pipx run --spec openpyxl python3 scripts/generate_phase1_test_matrix.py
