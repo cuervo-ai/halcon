@@ -8,9 +8,10 @@ description: |
 
 inputs:
   token:
-    description: |
-      Token with read access to cuervo-ai/paloma. Pass
-      ${{ secrets.PALOMA_HTTPS_TOKEN }} from the calling workflow.
+    description: >-
+      Token with read access to cuervo-ai/paloma. Pass the
+      PALOMA_HTTPS_TOKEN secret from the calling workflow
+      (using the secrets context).
     required: true
 
 runs:
