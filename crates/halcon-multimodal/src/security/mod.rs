@@ -85,6 +85,10 @@ impl MediaValidator {
 
         // Decompression bomb guard: parse image dimensions from header bytes and
         // reject images claiming more than max_image_pixels decoded pixels.
+        // The outer `if` is kept for readability — clippy wants to collapse it
+        // into the match, but the explicit guard makes the intent clearer when
+        // skimming.
+        #[allow(clippy::collapsible_match)]
         if mime.is_image() {
             match mime {
                 DetectedMime::ImagePng => {

@@ -21,8 +21,6 @@
 //! Each gate can produce `Reject` (stop), `Warn` (proceed with caution), or `Pass`.
 //! The frontier returns the FIRST rejection, or all accumulated warnings.
 
-use std::time::Instant;
-
 // ── FrontierVerdict ──────────────────────────────────────────────────────────
 
 /// Decision returned by the Xiyo frontier gate.

@@ -243,6 +243,12 @@ impl EventStore {
     }
 
     /// Append an event to the store. Returns the assigned sequence number.
+    ///
+    /// The wide signature mirrors the `events` table columns 1:1 by design;
+    /// collapsing it into a struct buys nothing because every field is
+    /// already validated upstream and the call sites are cold (one per
+    /// event). Refactoring to a builder would only add allocation.
+    #[allow(clippy::too_many_arguments)]
     pub fn append(
         &self,
         event_id: Uuid,

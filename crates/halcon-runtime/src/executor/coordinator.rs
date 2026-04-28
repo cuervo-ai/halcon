@@ -12,12 +12,12 @@ use std::time::{Duration, Instant};
 use super::budget::{BudgetExceeded, RuntimeBudget};
 
 use serde::{Deserialize, Serialize};
-use tokio::sync::{watch, Notify, RwLock};
+use tokio::sync::{Notify, RwLock};
 use uuid::Uuid;
 
-use super::mutable_dag::{DagSnapshot, MutableDag, MutationAuthor, NodeStatus};
-use super::{AgentSelector, TaskNode};
-use crate::error::{Result, RuntimeError};
+use super::mutable_dag::{DagSnapshot, MutableDag, NodeStatus};
+use super::TaskNode;
+use crate::error::Result;
 use halcon_storage::{EventCategory, EventStore};
 
 /// Execution mode controlling how the coordinator advances.

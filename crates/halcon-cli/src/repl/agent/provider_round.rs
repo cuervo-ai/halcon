@@ -31,7 +31,9 @@ use super::super::round_scorer::RoundEvaluation;
 use super::super::tool_speculation::ToolSpeculator;
 use super::budget_guards;
 use super::loop_state::{LoopState, SynthesisOrigin, SynthesisPriority, SynthesisTrigger};
-use super::provider_client::{check_control, invoke_with_fallback};
+#[cfg(feature = "tui")]
+use super::provider_client::check_control;
+use super::provider_client::invoke_with_fallback;
 use crate::render::sink::RenderSink;
 
 use super::super::agent_types::StopCondition;

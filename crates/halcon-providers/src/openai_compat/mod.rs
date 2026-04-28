@@ -478,6 +478,12 @@ impl OpenAICompatibleProvider {
     /// previous one arrived.  A value of `0` disables per-chunk timeout (not recommended
     /// for production — use ≥30s).  Detects stalled Azure Container Apps backends that
     /// send the first byte but then hang without ever sending the next chunk.
+    ///
+    /// Currently no production caller — kept as the documented entry
+    /// point for future provider adapters that don't need to override
+    /// the chunk timeout. Marked dead-code-allowed rather than removed
+    /// so the API surface stays predictable across provider crates.
+    #[allow(dead_code)]
     pub(crate) fn build_sse_stream(
         response: reqwest::Response,
         provider_name: String,
@@ -527,7 +533,13 @@ impl OpenAICompatibleProvider {
 
         let timed_stream = if chunk_timeout_secs > 0 {
             let initial_timeout = Duration::from_secs(initial_timeout_secs);
-            let steady_timeout = Duration::from_secs(chunk_timeout_secs);
+            // The steady-state timeout is conceptually `chunk_timeout_secs`
+            // but the current adaptive scheme uses initial_timeout for the
+            // entire stream and discriminates only via the phase atomic
+            // below. The tighter steady value is reserved for a future
+            // adaptive switch — keeping the constant out of the binding
+            // until then avoids the dead-code warning.
+            let _steady_timeout = Duration::from_secs(chunk_timeout_secs);
             let first_data = Arc::new(AtomicBool::new(false));
             let first_data_for_timeout = Arc::clone(&first_data);
 

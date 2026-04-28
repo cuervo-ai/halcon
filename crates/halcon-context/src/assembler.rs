@@ -67,7 +67,7 @@ pub async fn assemble_context(
     }
 
     // Sort by priority descending (highest priority first).
-    all_chunks.sort_by(|a, b| b.priority.cmp(&a.priority));
+    all_chunks.sort_by_key(|c| std::cmp::Reverse(c.priority));
 
     // Fit to budget.
     let mut budget_remaining = query.token_budget;

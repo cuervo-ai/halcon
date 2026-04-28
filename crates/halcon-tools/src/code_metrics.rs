@@ -275,7 +275,7 @@ impl CodeMetricsTool {
             ));
             let mut langs: Vec<(&str, &FileMetrics)> =
                 per_ext.iter().map(|(k, v)| (*k, v)).collect();
-            langs.sort_by(|a, b| b.1.code_lines.cmp(&a.1.code_lines));
+            langs.sort_by_key(|l| std::cmp::Reverse(l.1.code_lines));
             for (lang, m) in &langs {
                 let comment_pct = if m.total_lines > 0 {
                     m.comment_lines as f64 / m.total_lines as f64 * 100.0

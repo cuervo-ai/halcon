@@ -117,7 +117,7 @@ fn run_ps(
                 .unwrap_or(std::cmp::Ordering::Equal)
         }),
         "pid" => procs.sort_by_key(|p| p.pid),
-        "rss" => procs.sort_by(|a, b| b.rss_kb.cmp(&a.rss_kb)),
+        "rss" => procs.sort_by_key(|p| std::cmp::Reverse(p.rss_kb)),
         _ => procs.sort_by(|a, b| {
             b.cpu_pct
                 .partial_cmp(&a.cpu_pct)

@@ -349,8 +349,8 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
         requested_provider,
         policy,
         paloma_router,
-        audit_sink,
-        tenant_id,
+        audit_sink: _audit_sink,
+        tenant_id: _tenant_id,
     } = ctx;
 
     let silent = render_sink.is_silent();

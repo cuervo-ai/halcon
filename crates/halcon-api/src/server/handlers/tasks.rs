@@ -225,7 +225,7 @@ pub async fn list_tasks(
 ) -> Result<Json<Vec<TaskExecution>>, ApiError> {
     let executions = state.task_executions.read().await;
     let mut tasks: Vec<TaskExecution> = executions.values().cloned().collect();
-    tasks.sort_by(|a, b| b.submitted_at.cmp(&a.submitted_at));
+    tasks.sort_by_key(|t| std::cmp::Reverse(t.submitted_at));
     Ok(Json(tasks))
 }
 

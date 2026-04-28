@@ -107,7 +107,7 @@ pub fn validate_palette_contrast(palette: &Palette) -> Vec<ContrastValidation> {
 
 /// Fallback validation when color-science feature is disabled.
 #[cfg(not(feature = "color-science"))]
-pub fn validate_palette_contrast(palette: &Palette) -> Vec<ContrastValidation> {
+pub fn validate_palette_contrast(_palette: &Palette) -> Vec<ContrastValidation> {
     // Without color science, we can't compute accurate contrast
     // Return empty results (assume passing)
     Vec::new()

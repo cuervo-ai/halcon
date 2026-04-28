@@ -159,7 +159,7 @@ impl GitBlameTool {
     fn hot_lines(lines: &[BlameLine]) -> Vec<Value> {
         // Lines changed most recently (top 5)
         let mut sorted = lines.to_vec();
-        sorted.sort_by(|a, b| b.author_time.cmp(&a.author_time));
+        sorted.sort_by_key(|l| std::cmp::Reverse(l.author_time));
         sorted
             .iter()
             .take(5)
@@ -182,7 +182,7 @@ impl GitBlameTool {
         }
         let total = lines.len() as f64;
         let mut stats: Vec<(&str, u32)> = counts.into_iter().collect();
-        stats.sort_by(|a, b| b.1.cmp(&a.1));
+        stats.sort_by_key(|s| std::cmp::Reverse(s.1));
         stats
             .into_iter()
             .map(|(author, count)| {

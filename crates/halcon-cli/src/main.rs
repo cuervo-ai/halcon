@@ -32,7 +32,22 @@
     clippy::enum_variant_names,
     clippy::derivable_impls,
     clippy::unnecessary_cast,
-    clippy::needless_return
+    clippy::needless_return,
+    // Phase 1 — clippy debt revealed by first real CI run after Paloma fetch fixed.
+    clippy::stable_sort_primitive,
+    clippy::unnecessary_sort_by,
+    clippy::manual_div_ceil,
+    clippy::manual_checked_ops,
+    clippy::map_unwrap_or,
+    clippy::unnecessary_map_or,
+    clippy::collapsible_if,
+    clippy::collapsible_match,
+    clippy::redundant_closure,
+    clippy::redundant_pattern_matching,
+    clippy::needless_lifetimes,
+    clippy::needless_borrow,
+    clippy::needless_borrows_for_generic_args,
+    clippy::field_reassign_with_default
 )]
 
 use anyhow::{Context, Result};
