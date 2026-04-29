@@ -50,6 +50,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-private-deps
+        with:
+          token: ${{ secrets.PALOMA_HTTPS_TOKEN }}
       - uses: dtolnay/rust-toolchain@stable
       - name: Install cargo-deny
         run: cargo install --locked cargo-deny@0.18.2
@@ -84,6 +87,9 @@ jobs:
     if: github.event_name != 'pull_request'
     steps:
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/setup-private-deps
+        with:
+          token: ${{ secrets.PALOMA_HTTPS_TOKEN }}
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -121,8 +127,10 @@ jobs:
   sbom-weekly:
     name: Weekly SBOM
     runs-on: ubuntu-latest
-    # Guard against forks accidentally consuming minutes via inherited schedules
-    if: github.event_name == 'schedule' && github.repository == 'cuervo-ai/halcon-cli'
+    # Guard against forks accidentally consuming minutes via inherited schedules.
+    # Repository was renamed `halcon-cli` → `halcon`; the previous condition
+    # silently never matched.
+    if: github.event_name == 'schedule' && github.repository == 'cuervo-ai/halcon'
     steps:
       - uses: actions/checkout@v4
       - name: Install syft
