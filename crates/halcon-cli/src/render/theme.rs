@@ -1841,19 +1841,37 @@ mod tests {
     #[cfg(feature = "tui")]
     #[test]
     fn ratatui_cache_toast_colors() {
-        // Phase 45A: Validate that the colors used by toast.rs are cached
+        // Phase 45A: Validate that the colors used by toast.rs are cached.
+        //
+        // The cache stores the *downgraded* color (after terminal_caps lowers
+        // RGB to the runtime's color depth). On a 16-color terminal — what CI
+        // runners report — `success` (Emerald, H≈142°) and `warning`
+        // (Gold, H≈82°) both collapse to ANSI `LightGreen`; that is a real
+        // limitation of 16-color downgrade, not a palette defect.
+        //
+        // This test guards two distinct invariants:
+        //   1. The cache returns a stable value across calls (OnceCell works).
+        //   2. The *source* palette uses distinct ThemeColors for each toast
+        //      level, so any terminal capable of >16 colors renders them
+        //      distinctly.
         let p = neon_palette();
 
-        // Toast levels use: accent (info), success, warning, error
-        let info = p.accent_ratatui();
-        let success = p.success_ratatui();
-        let warning = p.warning_ratatui();
-        let error = p.error_ratatui();
+        // (1) Cache stability — calling twice must return the same value.
+        assert_eq!(p.accent_ratatui(), p.accent_ratatui());
+        assert_eq!(p.success_ratatui(), p.success_ratatui());
+        assert_eq!(p.warning_ratatui(), p.warning_ratatui());
+        assert_eq!(p.error_ratatui(), p.error_ratatui());
 
-        // Verify they're all different
-        assert_ne!(info, success);
-        assert_ne!(success, warning);
-        assert_ne!(warning, error);
+        // (2) Palette-source distinctness — independent of terminal downgrade.
+        // Compare sRGB triples; ThemeColor uses OKLCH internally and rounding
+        // to sRGB8 still preserves the four toast hues.
+        let accent_rgb = p.accent.srgb8();
+        let success_rgb = p.success.srgb8();
+        let warning_rgb = p.warning.srgb8();
+        let error_rgb = p.error.srgb8();
+        assert_ne!(accent_rgb, success_rgb, "accent and success must differ");
+        assert_ne!(success_rgb, warning_rgb, "success and warning must differ");
+        assert_ne!(warning_rgb, error_rgb, "warning and error must differ");
     }
 
     #[cfg(feature = "tui")]

@@ -93,8 +93,13 @@ pub mod audit;
 pub mod audit_sink_bootstrap;
 
 // commands must be accessible from repl/ and tui/ (e.g., update::UpdateInfo)
+// AND from the `halcon` binary (main.rs `use halcon_cli::commands;`).
+// Declaring it in both lib.rs and main.rs would compile the same source twice
+// under two different module paths (halcon_cli::commands vs halcon::commands),
+// which silently produces duplicate test binaries — and breaks `insta` snapshots
+// because the snapshot filename embeds the crate name.
 #[path = "commands/mod.rs"]
-pub(crate) mod commands;
+pub mod commands;
 
 #[path = "config_loader.rs"]
 pub(crate) mod config_loader;
