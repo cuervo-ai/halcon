@@ -137,6 +137,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Configures git so cargo can fetch the private cuervo-ai/paloma crates
+      # (paloma-budget, paloma-policy, etc. — workspace deps in halcon-providers).
+      # Without this, cargo build fails with "failed to load source for dependency
+      # `paloma-budget`" on every target. CI/Security workflows wired this in #8;
+      # release.yml was missed, so the v0.3.15 release initially errored on all
+      # six build jobs. cross-rs bind-mounts ~/.cargo into the build container,
+      # so the host-side git rewrite installed here is reused by cargo inside
+      # cross transparently.
+      - uses: ./.github/actions/setup-private-deps
+        with:
+          token: ${{ secrets.PALOMA_HTTPS_TOKEN }}
+
       - name: Setup Zuclubit (momoto-ui) path
         shell: bash
         run: |
