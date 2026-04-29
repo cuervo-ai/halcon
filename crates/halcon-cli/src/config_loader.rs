@@ -817,15 +817,25 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
-    fn safe_write_file_permission_denied_on_readonly_dir() {
-        // Root can write anywhere, so skip this test when running as root.
+    fn safe_write_file_uses_xdg_fallback_when_primary_readonly() {
+        // Root bypasses DAC, so the read-only directory below would still be
+        // writable and the fallback path would not be exercised.
         let euid = unsafe { libc::geteuid() };
         if euid == 0 {
-            eprintln!("Skipping permission test (running as root)");
+            eprintln!("Skipping fallback test (running as root)");
             return;
         }
 
-        // Create a read-only directory so the write fails.
+        let _lock = ENV_LOCK.lock().unwrap();
+
+        // Point XDG_DATA_HOME at a writable tempdir so safe_write_file's
+        // fallback (xdg_fallback_path) lands somewhere we can verify.
+        let xdg_dir = tempfile::tempdir().unwrap();
+        let prev_xdg = std::env::var("XDG_DATA_HOME").ok();
+        std::env::set_var("XDG_DATA_HOME", xdg_dir.path());
+
+        // Build a read-only primary directory so the inner atomic write fails
+        // with PermissionDenied, triggering the fallback branch.
         let dir = tempfile::tempdir().unwrap();
         let ro_dir = dir.path().join("readonly");
         std::fs::create_dir(&ro_dir).unwrap();
@@ -833,13 +843,36 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&ro_dir, std::fs::Permissions::from_mode(0o555)).unwrap();
 
-        let path = ro_dir.join("should_fail.txt");
+        let path = ro_dir.join("session.json");
         let result = safe_write_file(&path, b"content");
 
-        // Restore permissions so tempdir cleanup succeeds.
+        // Restore permissions before assertions so tempdir cleanup never fails.
         std::fs::set_permissions(&ro_dir, std::fs::Permissions::from_mode(0o755)).unwrap();
 
-        assert!(!result.is_ok(), "write to read-only dir should fail");
+        // Restore the previous XDG_DATA_HOME (if any) before asserting.
+        match prev_xdg {
+            Some(v) => std::env::set_var("XDG_DATA_HOME", v),
+            None => std::env::remove_var("XDG_DATA_HOME"),
+        }
+
+        // Contract: primary fails → XDG fallback succeeds → FallbackUsed returned.
+        // is_ok() is true (data persisted) but the variant must be FallbackUsed.
+        assert!(result.is_ok(), "fallback should persist data: {result:?}");
+        match &result {
+            WriteResult::FallbackUsed {
+                primary_path,
+                fallback_path,
+                ..
+            } => {
+                assert_eq!(primary_path, &path);
+                assert!(
+                    fallback_path.starts_with(xdg_dir.path()),
+                    "fallback should land in XDG_DATA_HOME, got {fallback_path:?}"
+                );
+                assert_eq!(std::fs::read(fallback_path).unwrap(), b"content");
+            }
+            other => panic!("expected FallbackUsed, got {other:?}"),
+        }
     }
 
     #[test]
