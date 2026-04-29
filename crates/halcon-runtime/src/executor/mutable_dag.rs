@@ -260,7 +260,7 @@ impl MutableDag {
     /// This matches the scheduling semantics of `repl/orchestrator.rs::topological_waves`.
     pub fn ready_nodes_with_priority(&self) -> Vec<TaskNode> {
         let mut nodes = self.ready_nodes();
-        nodes.sort_by(|a, b| b.priority.cmp(&a.priority));
+        nodes.sort_by_key(|n| std::cmp::Reverse(n.priority));
         nodes
     }
 

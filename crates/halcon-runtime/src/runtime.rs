@@ -138,7 +138,9 @@ impl HalconRuntime {
         context: &SharedContext,
         cancel: tokio_util::sync::CancellationToken,
     ) -> Result<ExecutionResult> {
-        self.executor.execute_with_cancel(dag, context, cancel).await
+        self.executor
+            .execute_with_cancel(dag, context, cancel)
+            .await
     }
 
     /// Invoke a specific agent by ID.

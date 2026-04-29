@@ -11,6 +11,8 @@ use halcon_core::error::{HalconError, Result};
 use halcon_core::traits::Tool;
 use halcon_core::types::{PermissionLevel, ToolInput, ToolOutput};
 
+use crate::network_policy::NetworkPolicy;
+
 /// Maximum response body size (1 MB).
 const MAX_BODY_BYTES: usize = 1_048_576;
 /// Default request timeout in seconds.
@@ -54,11 +56,23 @@ impl Tool for WebFetchTool {
                     message: "missing required 'url' argument".into(),
                 })?;
 
-        // Validate URL scheme.
-        if !url.starts_with("http://") && !url.starts_with("https://") {
-            return Err(HalconError::ToolExecutionFailed {
-                tool: "web_fetch".into(),
-                message: format!("invalid URL scheme: must be http or https — got '{url}'"),
+        // SSRF guard. Rejects loopback / RFC1918 / link-local /
+        // cloud-metadata hostnames before issuing the request.
+        if let Err(policy_err) = NetworkPolicy::strict().validate_url(url).await {
+            tracing::warn!(
+                tool = "web_fetch",
+                url = %url,
+                reason = %policy_err,
+                "network policy denied outbound request"
+            );
+            return Ok(ToolOutput {
+                tool_use_id: input.tool_use_id,
+                content: format!("web_fetch error: {policy_err}"),
+                is_error: true,
+                metadata: Some(json!({
+                    "blocked_by": "network_policy",
+                    "reason": policy_err.to_string(),
+                })),
             });
         }
 
@@ -355,10 +369,16 @@ mod tests {
             arguments: json!({"url": "ftp://example.com"}),
             working_directory: "/tmp".into(),
         };
-        let result = tool.execute(input).await;
-        assert!(result.is_err());
-        let err = result.unwrap_err().to_string();
-        assert!(err.contains("invalid URL scheme"));
+        let out = tool
+            .execute(input)
+            .await
+            .expect("scheme rejection now flows through network_policy and returns ToolOutput");
+        assert!(out.is_error);
+        assert!(
+            out.content.contains("scheme") || out.content.contains("http"),
+            "expected scheme rejection message, got: {}",
+            out.content
+        );
     }
 
     #[test]

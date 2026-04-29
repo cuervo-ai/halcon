@@ -114,7 +114,7 @@ impl MultimodalMetrics {
             audio_transcribed: self.audio_transcribed.load(Ordering::Relaxed),
             videos_analyzed: self.videos_analyzed.load(Ordering::Relaxed),
             bytes_processed: self.bytes_processed.load(Ordering::Relaxed),
-            avg_latency_ms: if req > 0 { lat / req } else { 0 },
+            avg_latency_ms: lat.checked_div(req).unwrap_or(0),
         }
     }
 }

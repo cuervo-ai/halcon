@@ -245,7 +245,7 @@ impl ParseLogsTool {
         }
 
         let mut top_errors: Vec<(String, usize)> = error_messages.into_iter().collect();
-        top_errors.sort_by(|a, b| b.1.cmp(&a.1));
+        top_errors.sort_by_key(|e| std::cmp::Reverse(e.1));
         top_errors.truncate(10);
 
         LogStats {

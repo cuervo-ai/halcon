@@ -225,7 +225,7 @@ pub async fn list_tasks(
 ) -> Result<Json<Vec<TaskExecution>>, ApiError> {
     let executions = state.task_executions.read().await;
     let mut tasks: Vec<TaskExecution> = executions.values().cloned().collect();
-    tasks.sort_by(|a, b| b.submitted_at.cmp(&a.submitted_at));
+    tasks.sort_by_key(|t| std::cmp::Reverse(t.submitted_at));
     Ok(Json(tasks))
 }
 
@@ -277,7 +277,9 @@ pub async fn cancel_task(
         tracing::debug!(execution_id = %id, "cancel_task: no running token found (task may have just completed)");
     }
 
-    Ok(Json(serde_json::json!({ "cancelled": true, "id": id.to_string() })))
+    Ok(Json(
+        serde_json::json!({ "cancelled": true, "id": id.to_string() }),
+    ))
 }
 
 /// GET /api/v1/tasks/:id/events — stream task lifecycle events as SSE.

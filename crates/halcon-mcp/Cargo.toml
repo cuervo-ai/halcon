@@ -34,6 +34,7 @@ chrono = { workspace = true }
 anyhow = { workspace = true }
 dirs = "5"
 futures = { workspace = true }
+subtle = "2"
 
 [dev-dependencies]
 tempfile = { workspace = true }

@@ -349,8 +349,8 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
         requested_provider,
         policy,
         paloma_router,
-        audit_sink,
-        tenant_id,
+        audit_sink: _audit_sink,
+        tenant_id: _tenant_id,
     } = ctx;
 
     let silent = render_sink.is_silent();
@@ -2553,7 +2553,7 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
             effective_provider,
             selected_model,
             #[cfg(feature = "paloma")]
-            paloma_reservation: round_reservation,
+                paloma_reservation: round_reservation,
         } = round_setup_out;
 
         // Phase A: track tool suppression for ResponseTrust classification.
@@ -2779,7 +2779,7 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
             #[cfg(feature = "paloma")]
             round_cost_usd,
             #[cfg(not(feature = "paloma"))]
-            round_cost_usd: _,
+                round_cost_usd: _,
         } = provider_out;
 
         // ── Paloma health feedback + INV-5 budget commit ─────────────────────

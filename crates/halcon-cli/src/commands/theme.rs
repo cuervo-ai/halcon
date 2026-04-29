@@ -4,7 +4,7 @@
 use crate::render::adaptive_optimizer::{AdaptivePaletteOptimizer, OptimizationConfig};
 #[cfg(feature = "color-science")]
 use crate::render::intelligent_theme::{IntelligentPaletteBuilder, QualityThresholds};
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::{Args, Subcommand};
 
 #[derive(Debug, Args)]

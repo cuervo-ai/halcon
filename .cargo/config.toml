@@ -2,5 +2,12 @@
 # Incremental compilation for dev builds
 incremental = true
 
+[net]
+# Use the system git CLI rather than libgit2 so that:
+#   - global gitconfig rewrites (set up in CI for cuervo-ai/paloma) are honoured
+#   - SSH agent / system credential helpers Just Work for human devs
+# Without this, libgit2 auth attempts fail silently in CI.
+git-fetch-with-cli = true
+
 [target.aarch64-apple-darwin]
 rustflags = ["-C", "link-arg=-undefined", "-C", "link-arg=dynamic_lookup"]

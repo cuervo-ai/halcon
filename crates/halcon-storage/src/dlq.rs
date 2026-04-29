@@ -26,7 +26,7 @@ use anyhow::{Context, Result};
 use rusqlite::{params, Connection, OptionalExtension};
 use std::path::Path;
 use std::time::{SystemTime, UNIX_EPOCH};
-use tracing::{debug, info, warn};
+use tracing::{info, warn};
 
 /// Status of a failed task in the DLQ.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

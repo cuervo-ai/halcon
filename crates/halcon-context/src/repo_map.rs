@@ -114,7 +114,7 @@ impl RepoMap {
 
         // Sort files by symbol count descending (most important first).
         let mut ranked: Vec<&FileSymbols> = self.files.iter().collect();
-        ranked.sort_by(|a, b| b.symbols.len().cmp(&a.symbols.len()));
+        ranked.sort_by_key(|f| std::cmp::Reverse(f.symbols.len()));
 
         let mut output = String::from("[Repository Map]\n");
         let mut budget_remaining =

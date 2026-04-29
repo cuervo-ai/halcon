@@ -380,6 +380,10 @@ impl GraphBuilder {
         }
     }
 
+    // Several arms of the inner match guard the body with a
+    // `!contains_key(...)` check; clippy wants to collapse those into
+    // arm guards but that hurts readability when the body is long.
+    #[allow(clippy::collapsible_match, clippy::collapsible_if)]
     fn process(&mut self, idx: usize, event: &RuntimeEvent) {
         self.events_processed += 1;
 

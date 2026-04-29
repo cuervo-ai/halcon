@@ -63,7 +63,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/tasks", post(handlers::tasks::submit_task))
         .route("/tasks/:id", get(handlers::tasks::get_task))
         .route("/tasks/:id", delete(handlers::tasks::cancel_task))
-        .route("/tasks/:id/events", get(handlers::tasks::stream_task_events))
+        .route(
+            "/tasks/:id/events",
+            get(handlers::tasks::stream_task_events),
+        )
         // Tool endpoints
         .route("/tools", get(handlers::tools::list_tools))
         .route("/tools/:name/toggle", post(handlers::tools::toggle_tool))

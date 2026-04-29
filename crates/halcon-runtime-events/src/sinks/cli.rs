@@ -250,6 +250,7 @@ impl EventSink for CliEventSink {
                     ToolBlockReason::CatastrophicPattern => "catastrophic pattern",
                     ToolBlockReason::DryRunMode => "dry-run mode",
                     ToolBlockReason::BudgetExhausted => "budget exhausted",
+                    ToolBlockReason::NetworkPolicyDenied => "network policy denied",
                 };
                 self.write_line(&format!(
                     "  {} {} blocked: {} — {}",

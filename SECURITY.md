@@ -2,9 +2,13 @@
 
 ## Supported Versions
 
+Only the latest minor on `main` receives security fixes during
+the pre-1.0 phase. There is no LTS branch yet.
+
 | Version | Supported          |
 | ------- | ------------------ |
-| 0.1.x   | :white_check_mark: |
+| 0.3.x   | :white_check_mark: |
+| < 0.3   | :x:                |
 
 ## Reporting a Vulnerability
 
@@ -49,6 +53,31 @@ Cuervo CLI implements a three-tier permission model for all tools:
 - Bash commands run with configurable rlimits (CPU time, file size)
 - Output is truncated to prevent memory exhaustion
 - Destructive commands always require user confirmation
+
+### Network Policy (SSRF Defense)
+
+All outbound HTTP tools (`http_request`, `web_fetch`, `http_probe`)
+validate URLs through `halcon_tools::network_policy::NetworkPolicy`
+before issuing the request. Blocked classes:
+
+- Loopback (`127.0.0.0/8`, `::1`)
+- RFC 1918 private (`10/8`, `172.16/12`, `192.168/16`)
+- Link-local (`169.254.0.0/16`, `fe80::/10`)
+- Unique-local IPv6 (`fc00::/7`)
+- CGNAT (`100.64.0.0/10`)
+- Cloud metadata services (AWS / GCP / Azure IMDS) by FQDN
+
+This protects against prompt-injection attacks that try to drive
+the agent into the operator's internal network.
+
+### OAuth Flow Defenses
+
+- PKCE S256 for all authorization-code exchanges
+- `state` parameter validated in **constant time** (`subtle::ConstantTimeEq`)
+  on every callback to prevent CSRF
+- Tokens are persisted to OS keystores (macOS Keychain, Linux
+  Secret Service / XDG `0600`, Windows Credential Manager) — never
+  to plain disk
 
 ### Data Protection
 

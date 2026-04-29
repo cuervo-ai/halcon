@@ -136,6 +136,10 @@ impl FailureInjectionHarness {
     /// Potentially inject a failure into a tool result.
     ///
     /// Modes are checked in order; the first matching injection wins.
+    // Each match arm gates its body on a probability roll; collapsing
+    // those into match-arm guards would tangle the rng call with the
+    // pattern. Kept readable as nested if-inside-match.
+    #[allow(clippy::collapsible_match, clippy::collapsible_if)]
     pub fn inject_tool_result(&mut self, output: &str, is_error: bool) -> InjectedToolResult {
         self.stats.total_calls += 1;
 

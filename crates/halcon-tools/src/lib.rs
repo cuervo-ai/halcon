@@ -40,6 +40,7 @@ pub mod make_tool;
 pub mod native_crawl;
 pub mod native_index_query;
 pub mod native_search;
+pub mod network_policy;
 pub mod openapi_validate;
 pub mod parse_logs;
 pub mod patch_apply;

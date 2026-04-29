@@ -109,10 +109,7 @@ pub fn build(opts: AuditSinkOptions) -> Result<Option<AuditSink>> {
     if let Some(parent) = store_path.parent() {
         if !parent.exists() {
             if let Err(e) = std::fs::create_dir_all(parent) {
-                let msg = format!(
-                    "audit: cannot create store dir {}: {e}",
-                    parent.display()
-                );
+                let msg = format!("audit: cannot create store dir {}: {e}", parent.display());
                 if opts.strict {
                     anyhow::bail!(msg);
                 } else {

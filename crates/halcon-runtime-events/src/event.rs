@@ -710,6 +710,11 @@ pub enum ToolBlockReason {
     CatastrophicPattern,
     DryRunMode,
     BudgetExhausted,
+    /// Outbound HTTP target rejected by `halcon_tools::network_policy`
+    /// (loopback, RFC1918, link-local, IMDS metadata, etc.). Emitted
+    /// from the agent loop when a tool returns
+    /// `metadata.blocked_by == "network_policy"`.
+    NetworkPolicyDenied,
 }
 
 /// An LSP diagnostic on a speculative edit overlay.

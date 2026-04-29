@@ -23,6 +23,7 @@ rand = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true }
 zeroize = { version = "1", features = ["derive"] }
+subtle = "2"
 
 [features]
 # Enable test helper constructors (e.g. FileCredentialStore::at) in integration

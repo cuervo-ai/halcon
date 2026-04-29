@@ -490,7 +490,7 @@ fn render_oklch_spectrum(
     reset: &str,
 ) {
     let dim = palette.text_dim.fg();
-    let accent = palette.accent.fg();
+    let _accent = palette.accent.fg();
 
     // Simple 6-color spectrum using palette
     let _ = writeln!(out, "  {dim}╔═══════════════════════╗{reset}");

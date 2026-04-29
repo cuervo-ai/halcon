@@ -76,8 +76,12 @@ impl AuthError {
     /// Duración de espera sugerida antes del siguiente retry (cuando aplique).
     pub fn retry_after(&self) -> Option<Duration> {
         match self {
-            Self::SsoUnavailable { retry_after_secs, .. }
-            | Self::RateLimited { retry_after_secs } => Some(Duration::from_secs(*retry_after_secs)),
+            Self::SsoUnavailable {
+                retry_after_secs, ..
+            }
+            | Self::RateLimited { retry_after_secs } => {
+                Some(Duration::from_secs(*retry_after_secs))
+            }
             Self::NetworkError(_) | Self::KeystoreError(_) => Some(Duration::from_secs(2)),
             _ => None,
         }
@@ -107,7 +111,10 @@ mod tests {
             retry_after_secs: 5
         }
         .is_transient());
-        assert!(AuthError::RateLimited { retry_after_secs: 30 }.is_transient());
+        assert!(AuthError::RateLimited {
+            retry_after_secs: 30
+        }
+        .is_transient());
     }
 
     #[test]
@@ -121,7 +128,9 @@ mod tests {
 
     #[test]
     fn retry_after_respected() {
-        let e = AuthError::RateLimited { retry_after_secs: 60 };
+        let e = AuthError::RateLimited {
+            retry_after_secs: 60,
+        };
         assert_eq!(e.retry_after(), Some(Duration::from_secs(60)));
 
         let e = AuthError::SsoUnavailable {

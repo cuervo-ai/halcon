@@ -2,16 +2,13 @@
 
 pub mod budget;
 pub mod coordinator;
-pub mod failure_cascade;
 pub mod mutable_dag;
-pub mod role_policy;
-pub mod scheduling;
 pub mod tenant_scope;
 
-use tokio_util::sync::CancellationToken;
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 use std::time::Instant;
+use tokio_util::sync::CancellationToken;
 
 use uuid::Uuid;
 
@@ -945,9 +942,10 @@ mod tests {
         let ctx = SharedContext::new();
         let cancel_clone = cancel.clone();
 
-        let handle = tokio::spawn(async move {
-            executor.execute_with_cancel(dag, &ctx, cancel_clone).await
-        });
+        let handle =
+            tokio::spawn(
+                async move { executor.execute_with_cancel(dag, &ctx, cancel_clone).await },
+            );
 
         // Let the spawns reach the invoke() sleep, then cancel.
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -979,6 +977,9 @@ mod tests {
         // tiny window to catch a buggy detached-spawn regression.
         tokio::time::sleep(std::time::Duration::from_millis(100)).await;
         let done = completed.load(std::sync::atomic::Ordering::Relaxed);
-        assert_eq!(done, 0, "agents finished after cancel (detached bug): {done}");
+        assert_eq!(
+            done, 0,
+            "agents finished after cancel (detached bug): {done}"
+        );
     }
 }

@@ -12,13 +12,21 @@ use std::time::{Duration, Instant};
 use super::budget::{BudgetExceeded, RuntimeBudget};
 
 use serde::{Deserialize, Serialize};
-use tokio::sync::{watch, Notify, RwLock};
+use tokio::sync::{Notify, RwLock};
 use uuid::Uuid;
 
-use super::mutable_dag::{DagSnapshot, MutableDag, MutationAuthor, NodeStatus};
-use super::{AgentSelector, TaskNode};
-use crate::error::{Result, RuntimeError};
+use super::mutable_dag::{DagSnapshot, MutableDag, NodeStatus};
+use super::TaskNode;
+use crate::error::Result;
 use halcon_storage::{EventCategory, EventStore};
+
+// Re-imports needed only by the in-file `#[cfg(test)]` module. Kept
+// behind cfg(test) so the production build doesn't get an
+// unused-import error after the zombie-module cleanup.
+#[cfg(test)]
+use super::mutable_dag::MutationAuthor;
+#[cfg(test)]
+use super::AgentSelector;
 
 /// Execution mode controlling how the coordinator advances.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -642,7 +650,7 @@ mod tests {
     fn test_budget(token_limit: u64) -> Arc<RuntimeBudget> {
         Arc::new(RuntimeBudget::new(
             token_limit,
-            0.0, // no cost limit in these tests
+            0.0,            // no cost limit in these tests
             Duration::ZERO, // no duration limit
         ))
     }
@@ -775,7 +783,12 @@ mod tests {
     async fn pause_and_resume() {
         let dag = make_dag_with_nodes(2);
         let (tx, _rx) = mpsc::unbounded_channel();
-        let coord = Arc::new(ExecutionCoordinator::new(Uuid::new_v4(), dag, test_budget(0), tx));
+        let coord = Arc::new(ExecutionCoordinator::new(
+            Uuid::new_v4(),
+            dag,
+            test_budget(0),
+            tx,
+        ));
 
         // Start paused.
         coord.pause(PauseReason::UserRequested).await;
@@ -803,7 +816,12 @@ mod tests {
     async fn cancel_stops_execution() {
         let dag = make_dag_with_nodes(5);
         let (tx, _rx) = mpsc::unbounded_channel();
-        let coord = Arc::new(ExecutionCoordinator::new(Uuid::new_v4(), dag, test_budget(0), tx));
+        let coord = Arc::new(ExecutionCoordinator::new(
+            Uuid::new_v4(),
+            dag,
+            test_budget(0),
+            tx,
+        ));
 
         coord.pause(PauseReason::UserRequested).await;
 
@@ -826,7 +844,12 @@ mod tests {
     async fn step_node_mode() {
         let dag = make_dag_with_nodes(3);
         let (tx, mut rx) = mpsc::unbounded_channel();
-        let coord = Arc::new(ExecutionCoordinator::new(Uuid::new_v4(), dag, test_budget(0), tx));
+        let coord = Arc::new(ExecutionCoordinator::new(
+            Uuid::new_v4(),
+            dag,
+            test_budget(0),
+            tx,
+        ));
 
         // Set step-node mode.
         *coord.mode.write().await = ExecutionMode::StepNode;

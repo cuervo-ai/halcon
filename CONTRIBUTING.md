@@ -21,16 +21,22 @@ Thank you for your interest in contributing! This guide covers everything you ne
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 # Clone and build
-git clone https://github.com/cuervo-ai/halcon-cli.git
-cd halcon-cli
-cargo build --workspace
+git clone https://github.com/cuervo-ai/halcon.git
+cd halcon
+cargo build --workspace --no-default-features --features tui
 
 # Run tests
-cargo test --workspace
+cargo test --workspace --no-default-features --features tui
 
 # Run the CLI
 cargo run -p halcon-cli -- "hello"
 ```
+
+> **Note** — the workspace defaults pull in the private
+> `momoto-*` color-science crates and the `paloma` git deps.
+> For local dev the recipes above use `--no-default-features`
+> to keep the build hermetic. CI replicates this exactly.
+> If you have access to those private deps, `cargo build` works.
 
 **Required tools:**
 ```bash

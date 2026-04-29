@@ -10,7 +10,6 @@ use std::time::{Duration, Instant};
 
 use anyhow::Result;
 use chrono::Utc;
-use halcon_providers::compute_actual_cost_with_fallback;
 use futures::StreamExt;
 use halcon_core::traits::ModelProvider;
 use halcon_core::types::{
@@ -19,6 +18,7 @@ use halcon_core::types::{
     DEFAULT_CONTEXT_WINDOW_TOKENS,
 };
 use halcon_core::EventSender;
+use halcon_providers::compute_actual_cost_with_fallback;
 use halcon_storage::{AsyncDatabase, InvocationMetric, TraceStepType};
 use halcon_tools::ToolRegistry;
 
@@ -31,7 +31,9 @@ use super::super::round_scorer::RoundEvaluation;
 use super::super::tool_speculation::ToolSpeculator;
 use super::budget_guards;
 use super::loop_state::{LoopState, SynthesisOrigin, SynthesisPriority, SynthesisTrigger};
-use super::provider_client::{check_control, invoke_with_fallback};
+#[cfg(feature = "tui")]
+use super::provider_client::check_control;
+use super::provider_client::invoke_with_fallback;
 use crate::render::sink::RenderSink;
 
 use super::super::agent_types::StopCondition;
@@ -1588,8 +1590,7 @@ pub(super) async fn run(
         // cierra SSE con HTTP 200 clean y tokens 0/0 tras 120s sin chunks).
         // Se mantiene la condición de que el stream haya sido consumido sin
         // contenido tipado — completed_tools ya filtrado arriba.
-        let is_truly_empty =
-            round_text.trim().is_empty() && round_usage.output_tokens == 0;
+        let is_truly_empty = round_text.trim().is_empty() && round_usage.output_tokens == 0;
         if is_truly_empty {
             tracing::warn!(
                 metric.empty_response = true,

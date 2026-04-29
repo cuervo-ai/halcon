@@ -1,0 +1,44 @@
+name: 'Setup access to private Cuervo deps'
+description: |
+  Configures git so that cargo can fetch Cuervo-org private
+  dependencies (currently `cuervo-ai/paloma`) over HTTPS using a
+  PAT or GitHub App token stored as the `PALOMA_HTTPS_TOKEN`
+  secret. Fails loud and early if the secret is not configured,
+  with a pointer to the runbook.
+
+inputs:
+  token:
+    description: >-
+      Token with read access to cuervo-ai/paloma. Pass the
+      PALOMA_HTTPS_TOKEN secret from the calling workflow
+      (using the secrets context).
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Verify token present
+      shell: bash
+      env:
+        PALOMA_HTTPS_TOKEN: ${{ inputs.token }}
+      run: |
+        if [ -z "${PALOMA_HTTPS_TOKEN:-}" ]; then
+          echo "::error title=Missing secret::Secret PALOMA_HTTPS_TOKEN is not set."
+          echo "::error::CI cannot fetch cuervo-ai/paloma. See docs/development/CI_SECRETS.md"
+          exit 1
+        fi
+        echo "PALOMA_HTTPS_TOKEN detected (length=${#PALOMA_HTTPS_TOKEN})"
+
+    - name: Configure git rewrite for cuervo-ai HTTPS
+      shell: bash
+      env:
+        PALOMA_HTTPS_TOKEN: ${{ inputs.token }}
+      run: |
+        # Rewrite all https://github.com/cuervo-ai/* fetches to use
+        # the token. The x-access-token username is the convention
+        # GitHub recognises for both PATs and App-installation
+        # tokens. Limited to the cuervo-ai org so other deps are
+        # unaffected.
+        git config --global \
+          "url.https://x-access-token:${PALOMA_HTTPS_TOKEN}@github.com/cuervo-ai/.insteadOf" \
+          "https://github.com/cuervo-ai/"

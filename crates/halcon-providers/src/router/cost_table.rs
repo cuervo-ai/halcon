@@ -52,59 +52,123 @@ fn price_table() -> &'static HashMap<&'static str, ModelPricing> {
     PRICE_TABLE.get_or_init(|| {
         let mut m = HashMap::new();
         // Anthropic — cache pricing per https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
-        m.insert("anthropic:claude-opus-4-7", ModelPricing {
-            input_per_1k_usd: 0.015,    output_per_1k_usd: 0.075,
-            cache_read_per_1k_usd: 0.0015, cache_creation_per_1k_usd: 0.01875,
-        });
-        m.insert("anthropic:claude-sonnet-4-6", ModelPricing {
-            input_per_1k_usd: 0.003,    output_per_1k_usd: 0.015,
-            cache_read_per_1k_usd: 0.0003, cache_creation_per_1k_usd: 0.00375,
-        });
-        m.insert("anthropic:claude-haiku-4-5", ModelPricing {
-            input_per_1k_usd: 0.00025,  output_per_1k_usd: 0.00125,
-            cache_read_per_1k_usd: 0.000025, cache_creation_per_1k_usd: 0.0003125,
-        });
-        m.insert("anthropic:claude-haiku-4-5-20251001", ModelPricing {
-            input_per_1k_usd: 0.00025,  output_per_1k_usd: 0.00125,
-            cache_read_per_1k_usd: 0.000025, cache_creation_per_1k_usd: 0.0003125,
-        });
+        m.insert(
+            "anthropic:claude-opus-4-7",
+            ModelPricing {
+                input_per_1k_usd: 0.015,
+                output_per_1k_usd: 0.075,
+                cache_read_per_1k_usd: 0.0015,
+                cache_creation_per_1k_usd: 0.01875,
+            },
+        );
+        m.insert(
+            "anthropic:claude-sonnet-4-6",
+            ModelPricing {
+                input_per_1k_usd: 0.003,
+                output_per_1k_usd: 0.015,
+                cache_read_per_1k_usd: 0.0003,
+                cache_creation_per_1k_usd: 0.00375,
+            },
+        );
+        m.insert(
+            "anthropic:claude-haiku-4-5",
+            ModelPricing {
+                input_per_1k_usd: 0.00025,
+                output_per_1k_usd: 0.00125,
+                cache_read_per_1k_usd: 0.000025,
+                cache_creation_per_1k_usd: 0.0003125,
+            },
+        );
+        m.insert(
+            "anthropic:claude-haiku-4-5-20251001",
+            ModelPricing {
+                input_per_1k_usd: 0.00025,
+                output_per_1k_usd: 0.00125,
+                cache_read_per_1k_usd: 0.000025,
+                cache_creation_per_1k_usd: 0.0003125,
+            },
+        );
         // OpenAI — cache read at 50% of input, no separate creation charge
-        m.insert("openai:gpt-4o", ModelPricing {
-            input_per_1k_usd: 0.0025,   output_per_1k_usd: 0.010,
-            cache_read_per_1k_usd: 0.00125, cache_creation_per_1k_usd: 0.0025,
-        });
-        m.insert("openai:gpt-4o-mini", ModelPricing {
-            input_per_1k_usd: 0.00015,  output_per_1k_usd: 0.00060,
-            cache_read_per_1k_usd: 0.000075, cache_creation_per_1k_usd: 0.00015,
-        });
-        m.insert("openai:o3-mini", ModelPricing {
-            input_per_1k_usd: 0.0011,   output_per_1k_usd: 0.0044,
-            cache_read_per_1k_usd: 0.00055, cache_creation_per_1k_usd: 0.0011,
-        });
+        m.insert(
+            "openai:gpt-4o",
+            ModelPricing {
+                input_per_1k_usd: 0.0025,
+                output_per_1k_usd: 0.010,
+                cache_read_per_1k_usd: 0.00125,
+                cache_creation_per_1k_usd: 0.0025,
+            },
+        );
+        m.insert(
+            "openai:gpt-4o-mini",
+            ModelPricing {
+                input_per_1k_usd: 0.00015,
+                output_per_1k_usd: 0.00060,
+                cache_read_per_1k_usd: 0.000075,
+                cache_creation_per_1k_usd: 0.00015,
+            },
+        );
+        m.insert(
+            "openai:o3-mini",
+            ModelPricing {
+                input_per_1k_usd: 0.0011,
+                output_per_1k_usd: 0.0044,
+                cache_read_per_1k_usd: 0.00055,
+                cache_creation_per_1k_usd: 0.0011,
+            },
+        );
         m.insert("openai:o1", ModelPricing::simple(0.015, 0.060));
         // DeepSeek — official pricing with cache hit discount
-        m.insert("deepseek:deepseek-chat", ModelPricing {
-            input_per_1k_usd: 0.00014,  output_per_1k_usd: 0.00028,
-            cache_read_per_1k_usd: 0.000014, cache_creation_per_1k_usd: 0.00014,
-        });
-        m.insert("deepseek:deepseek-reasoner", ModelPricing {
-            input_per_1k_usd: 0.00055,  output_per_1k_usd: 0.00219,
-            cache_read_per_1k_usd: 0.000137, cache_creation_per_1k_usd: 0.00055,
-        });
+        m.insert(
+            "deepseek:deepseek-chat",
+            ModelPricing {
+                input_per_1k_usd: 0.00014,
+                output_per_1k_usd: 0.00028,
+                cache_read_per_1k_usd: 0.000014,
+                cache_creation_per_1k_usd: 0.00014,
+            },
+        );
+        m.insert(
+            "deepseek:deepseek-reasoner",
+            ModelPricing {
+                input_per_1k_usd: 0.00055,
+                output_per_1k_usd: 0.00219,
+                cache_read_per_1k_usd: 0.000137,
+                cache_creation_per_1k_usd: 0.00055,
+            },
+        );
         // Gemini — no separate cache pricing at this tier
-        m.insert("gemini:gemini-2.5-pro", ModelPricing::simple(0.00125, 0.010));
-        m.insert("gemini:gemini-2.0-flash", ModelPricing::simple(0.000075, 0.00030));
-        m.insert("gemini:gemini-1.5-pro", ModelPricing::simple(0.00125, 0.005));
+        m.insert(
+            "gemini:gemini-2.5-pro",
+            ModelPricing::simple(0.00125, 0.010),
+        );
+        m.insert(
+            "gemini:gemini-2.0-flash",
+            ModelPricing::simple(0.000075, 0.00030),
+        );
+        m.insert(
+            "gemini:gemini-1.5-pro",
+            ModelPricing::simple(0.00125, 0.005),
+        );
         // Azure (OpenAI-compatible — same prices as OpenAI upstream)
-        m.insert("azure:gpt-4o", ModelPricing {
-            input_per_1k_usd: 0.0025,   output_per_1k_usd: 0.010,
-            cache_read_per_1k_usd: 0.00125, cache_creation_per_1k_usd: 0.0025,
-        });
+        m.insert(
+            "azure:gpt-4o",
+            ModelPricing {
+                input_per_1k_usd: 0.0025,
+                output_per_1k_usd: 0.010,
+                cache_read_per_1k_usd: 0.00125,
+                cache_creation_per_1k_usd: 0.0025,
+            },
+        );
         // Cenzontle (internal — zero external billing)
-        m.insert("cenzontle:cenzontle", ModelPricing {
-            input_per_1k_usd: 0.0, output_per_1k_usd: 0.0,
-            cache_read_per_1k_usd: 0.0, cache_creation_per_1k_usd: 0.0,
-        });
+        m.insert(
+            "cenzontle:cenzontle",
+            ModelPricing {
+                input_per_1k_usd: 0.0,
+                output_per_1k_usd: 0.0,
+                cache_read_per_1k_usd: 0.0,
+                cache_creation_per_1k_usd: 0.0,
+            },
+        );
         // Sentinel — used when provider/model is unknown
         m.insert("default", ModelPricing::simple(0.001, 0.003));
         m
@@ -143,15 +207,15 @@ fn resolve_pricing(provider: &str, model: &str) -> &'static ModelPricing {
 /// cache-creation).  Zero-usage → zero cost.
 pub fn compute_actual_cost(usage: &TokenUsage, provider: &str, model: &str) -> f64 {
     let p = resolve_pricing(provider, model);
-    let input       = usage.input_tokens as f64;
-    let output      = usage.output_tokens as f64;
-    let cache_read  = usage.cache_read_tokens.unwrap_or(0) as f64;
+    let input = usage.input_tokens as f64;
+    let output = usage.output_tokens as f64;
+    let cache_read = usage.cache_read_tokens.unwrap_or(0) as f64;
     let cache_write = usage.cache_creation_tokens.unwrap_or(0) as f64;
 
-    (input       * p.input_per_1k_usd          / 1_000.0)
-  + (output      * p.output_per_1k_usd         / 1_000.0)
-  + (cache_read  * p.cache_read_per_1k_usd     / 1_000.0)
-  + (cache_write * p.cache_creation_per_1k_usd / 1_000.0)
+    (input * p.input_per_1k_usd / 1_000.0)
+        + (output * p.output_per_1k_usd / 1_000.0)
+        + (cache_read * p.cache_read_per_1k_usd / 1_000.0)
+        + (cache_write * p.cache_creation_per_1k_usd / 1_000.0)
 }
 
 /// Like `compute_actual_cost` but falls back to `estimated_usd` when every
@@ -180,8 +244,16 @@ mod tests {
         TokenUsage {
             input_tokens: input,
             output_tokens: output,
-            cache_read_tokens: if cache_read == 0 { None } else { Some(cache_read) },
-            cache_creation_tokens: if cache_write == 0 { None } else { Some(cache_write) },
+            cache_read_tokens: if cache_read == 0 {
+                None
+            } else {
+                Some(cache_read)
+            },
+            cache_creation_tokens: if cache_write == 0 {
+                None
+            } else {
+                Some(cache_write)
+            },
             reasoning_tokens: None,
         }
     }
@@ -202,7 +274,11 @@ mod tests {
 
     #[test]
     fn unknown_model_falls_back_to_default() {
-        let cost = compute_actual_cost(&usage(1_000, 1_000, 0, 0), "unknown_provider", "unknown_model");
+        let cost = compute_actual_cost(
+            &usage(1_000, 1_000, 0, 0),
+            "unknown_provider",
+            "unknown_model",
+        );
         // default: $0.001 input + $0.003 output = $0.004
         assert!((cost - 0.004).abs() < 1e-9, "got {cost}");
     }
@@ -257,7 +333,7 @@ mod tests {
     fn deepseek_with_cache_hit_is_cheaper() {
         // 1k input + 10k cache reads vs 11k fresh input
         let cached = compute_actual_cost(&usage(1_000, 0, 10_000, 0), "deepseek", "deepseek-chat");
-        let fresh  = compute_actual_cost(&usage(11_000, 0, 0, 0),     "deepseek", "deepseek-chat");
+        let fresh = compute_actual_cost(&usage(11_000, 0, 0, 0), "deepseek", "deepseek-chat");
         assert!(
             cached < fresh,
             "cache-read must be cheaper than fresh input (cached={cached:.6}, fresh={fresh:.6})"
@@ -266,18 +342,18 @@ mod tests {
 
     #[test]
     fn cenzontle_zero_cost() {
-        let cost = compute_actual_cost(&usage(100_000, 100_000, 100_000, 100_000), "cenzontle", "cenzontle");
+        let cost = compute_actual_cost(
+            &usage(100_000, 100_000, 100_000, 100_000),
+            "cenzontle",
+            "cenzontle",
+        );
         assert_eq!(cost, 0.0);
     }
 
     #[test]
     fn cache_tokens_billed_correctly_for_sonnet() {
         // The XIYO-audit bug: sonnet-4-6 with 100k cache reads → not ~$0.015
-        let cost = compute_actual_cost(
-            &usage(0, 0, 100_000, 0),
-            "anthropic",
-            "claude-sonnet-4-6",
-        );
+        let cost = compute_actual_cost(&usage(0, 0, 100_000, 0), "anthropic", "claude-sonnet-4-6");
         // 100.0 * 0.0003 = 0.030
         assert!((cost - 0.030).abs() < 1e-9, "got {cost} (expected 0.03)");
     }
@@ -286,8 +362,11 @@ mod tests {
     fn cache_creation_more_expensive_than_input() {
         // Anthropic cache-creation is 125% of input
         let create = compute_actual_cost(&usage(0, 0, 0, 1_000), "anthropic", "claude-sonnet-4-6");
-        let fresh  = compute_actual_cost(&usage(1_000, 0, 0, 0), "anthropic", "claude-sonnet-4-6");
-        assert!(create > fresh, "cache-creation must exceed input: create={create}, fresh={fresh}");
+        let fresh = compute_actual_cost(&usage(1_000, 0, 0, 0), "anthropic", "claude-sonnet-4-6");
+        assert!(
+            create > fresh,
+            "cache-creation must exceed input: create={create}, fresh={fresh}"
+        );
     }
 
     #[test]
@@ -303,7 +382,11 @@ mod tests {
     fn monotonic_in_tokens() {
         // More tokens → more cost
         let small = compute_actual_cost(&usage(100, 50, 0, 0), "anthropic", "claude-sonnet-4-6");
-        let big   = compute_actual_cost(&usage(100_000, 50_000, 0, 0), "anthropic", "claude-sonnet-4-6");
+        let big = compute_actual_cost(
+            &usage(100_000, 50_000, 0, 0),
+            "anthropic",
+            "claude-sonnet-4-6",
+        );
         assert!(big > small * 100.0, "cost must scale linearly");
     }
 }
