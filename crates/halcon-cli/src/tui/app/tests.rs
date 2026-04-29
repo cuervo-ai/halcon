@@ -1468,8 +1468,12 @@ fn collapse_animation_reaches_zero() {
 
 #[test]
 fn expansion_animation_progresses_midway() {
-    let anim = ExpansionAnimation::expand_from(0.0);
-    std::thread::sleep(Duration::from_millis(50)); // ~25% of duration
+    // Determinístic: backdate `started_at` 50ms (≈25% of the 200ms expand
+    // duration) instead of `thread::sleep(50)`. Real sleep on noisy CI
+    // runners (macOS especially) routinely overshoots, completing the
+    // animation and breaking the (0, 0.5) midway window.
+    let mut anim = ExpansionAnimation::expand_from(0.0);
+    anim.started_at = Instant::now() - Duration::from_millis(50);
     let current = anim.current();
     // With EaseInOut, early progress is slower than linear
     assert!(
@@ -1481,8 +1485,10 @@ fn expansion_animation_progresses_midway() {
 
 #[test]
 fn cancel_mid_animation_reverses_direction() {
-    let anim1 = ExpansionAnimation::expand_from(0.0);
-    std::thread::sleep(Duration::from_millis(100)); // ~50% of 200ms
+    // Determinístic: 100ms ≈ 50% of the 200ms expand duration. Avoids the
+    // sleep-overshoot flake that produced midpoint=1.0 on macOS CI.
+    let mut anim1 = ExpansionAnimation::expand_from(0.0);
+    anim1.started_at = Instant::now() - Duration::from_millis(100);
     let midpoint = anim1.current();
     assert!(midpoint > 0.0 && midpoint < 1.0, "Should be mid-animation");
 
