@@ -219,14 +219,38 @@ impl TransitionEngine {
 mod tests {
     use super::*;
 
+    /// Channel-wise tolerance for "right after start" color reads.
+    ///
+    /// `current()` uses `Instant::now() - started_at`, so even a 1-2 ms gap
+    /// between `start()` and the read produces a few units of channel drift
+    /// for short-duration transitions (5 ms of a 100 ms transition is t≈0.05,
+    /// eased to ≈0.005 → ≈1.3/255 channel delta on a 255-unit step).
+    /// Linux runners measure sub-millisecond gaps; macOS-latest under load
+    /// routinely shows 5+ ms. Strict equality is therefore inherently flaky
+    /// on macOS — see PR #10's animation tests for the same class of fix.
+    const START_DRIFT_TOLERANCE: i16 = 5;
+
+    fn assert_color_near(actual: ThemeColor, expected: ThemeColor, ctx: &str) {
+        let [ar, ag, ab] = actual.srgb8();
+        let [er, eg, eb] = expected.srgb8();
+        let dr = (ar as i16 - er as i16).abs();
+        let dg = (ag as i16 - eg as i16).abs();
+        let db = (ab as i16 - eb as i16).abs();
+        assert!(
+            dr <= START_DRIFT_TOLERANCE
+                && dg <= START_DRIFT_TOLERANCE
+                && db <= START_DRIFT_TOLERANCE,
+            "{ctx}: expected ~({er},{eg},{eb}) ±{START_DRIFT_TOLERANCE}, got ({ar},{ag},{ab})"
+        );
+    }
+
     #[test]
     fn transition_starts_at_from_color() {
         let from = ThemeColor::from_srgb8([255, 0, 0]);
         let to = ThemeColor::from_srgb8([0, 0, 255]);
         let transition = ColorTransition::new(from, to, Duration::from_millis(100));
 
-        let current = transition.current();
-        assert_eq!(current.srgb8(), from.srgb8());
+        assert_color_near(transition.current(), from, "fresh transition");
     }
 
     #[test]
@@ -302,21 +326,30 @@ mod tests {
         let red = ThemeColor::from_srgb8([255, 0, 0]);
         let green = ThemeColor::from_srgb8([0, 255, 0]);
         let blue = ThemeColor::from_srgb8([0, 0, 255]);
+        // Sentinel default — disambiguates "key missing" from "transition is at start".
+        let sentinel = ThemeColor::from_srgb8([42, 42, 42]);
 
         engine.start("border", red, green, Duration::from_millis(100));
         engine.start("bg", red, blue, Duration::from_millis(100));
 
-        assert_eq!(engine.current("border", red).srgb8(), red.srgb8());
-        assert_eq!(engine.current("bg", red).srgb8(), red.srgb8());
+        let border = engine.current("border", sentinel);
+        let bg = engine.current("bg", sentinel);
+        assert_ne!(border.srgb8(), sentinel.srgb8(), "border key not stored");
+        assert_ne!(bg.srgb8(), sentinel.srgb8(), "bg key not stored");
+        assert_color_near(border, red, "border at start");
+        assert_color_near(bg, red, "bg at start");
     }
 
     #[test]
     fn engine_update_or_start_creates_if_missing() {
         let mut engine = TransitionEngine::new();
         let red = ThemeColor::from_srgb8([255, 0, 0]);
+        let sentinel = ThemeColor::from_srgb8([42, 42, 42]);
 
         engine.update_or_start("border", red, Duration::from_millis(100));
-        assert_eq!(engine.current("border", red).srgb8(), red.srgb8());
+        let border = engine.current("border", sentinel);
+        assert_ne!(border.srgb8(), sentinel.srgb8(), "border key not created");
+        assert_color_near(border, red, "border at start");
     }
 
     #[test]
