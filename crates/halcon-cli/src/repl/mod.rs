@@ -2744,9 +2744,28 @@ impl Repl {
                 )
                 .await;
 
-                // Skip model selection when user explicitly set --model on the CLI.
+                // Skip model selection when:
+                //   1. user explicitly set --model on the CLI, OR
+                //   2. config has `model_selection.respect_default_model = true` AND
+                //      `general.default_model` is set to a non-empty/non-"auto" value.
+                //
+                // (2) prevents the adaptive selector from silently downgrading a
+                // user-pinned model (e.g. claude-sonnet-4-6) to a cheaper variant
+                // (gemini-2.0-flash) for "simple" queries — which is exactly the
+                // routing-correctness bug documented in
+                // docs/architecture/routing-correctness-audit.md.
+                let default_model = self.infra.config.general.default_model.trim();
+                let pinned_via_config = self
+                    .infra
+                    .config
+                    .agent
+                    .model_selection
+                    .respect_default_model
+                    && !default_model.is_empty()
+                    && default_model != "auto";
                 let selector = if self.infra.config.agent.model_selection.enabled
                     && !self.render.explicit_model
+                    && !pinned_via_config
                 {
                     let mut sel = model_selector::ModelSelector::new(
                         self.infra.config.agent.model_selection.clone(),
@@ -2768,6 +2787,13 @@ impl Repl {
 
                     Some(sel)
                 } else {
+                    if pinned_via_config {
+                        tracing::info!(
+                            model = %default_model,
+                            reason = "respect_default_model",
+                            "Adaptive model selector skipped — user pinned default_model"
+                        );
+                    }
                     None
                 };
 
