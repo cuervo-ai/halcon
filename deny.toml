@@ -56,6 +56,54 @@ license-files = [
     { path = "LICENSE", hash = 0xbd0eed23 },
 ]
 
+# ── First-party Cuervo crates ────────────────────────────────────────────
+# Paloma crates ship without a `license = "..."` field in their Cargo.toml
+# because the Paloma repository itself is private and the licence of the
+# whole repo (Apache-2.0) is implicit. cargo-deny refuses to assume; we
+# clarify here so license enforcement still flags genuinely unlicensed
+# third-party deps. If Paloma adds explicit license metadata, these
+# clarifications become redundant and can be removed.
+[[licenses.clarify]]
+name = "paloma-budget"
+expression = "Apache-2.0"
+license-files = []
+[[licenses.clarify]]
+name = "paloma-health"
+expression = "Apache-2.0"
+license-files = []
+[[licenses.clarify]]
+name = "paloma-pipeline"
+expression = "Apache-2.0"
+license-files = []
+[[licenses.clarify]]
+name = "paloma-policy"
+expression = "Apache-2.0"
+license-files = []
+[[licenses.clarify]]
+name = "paloma-registry"
+expression = "Apache-2.0"
+license-files = []
+[[licenses.clarify]]
+name = "paloma-scoring"
+expression = "Apache-2.0"
+license-files = []
+[[licenses.clarify]]
+name = "paloma-planner"
+expression = "Apache-2.0"
+license-files = []
+[[licenses.clarify]]
+name = "paloma-types"
+expression = "Apache-2.0"
+license-files = []
+[[licenses.clarify]]
+name = "paloma-trace"
+expression = "Apache-2.0"
+license-files = []
+[[licenses.clarify]]
+name = "paloma-ledger"
+expression = "Apache-2.0"
+license-files = []
+
 [bans]
 # Lint level for when multiple versions of the same crate are detected
 multiple-versions = "warn"
@@ -80,4 +128,7 @@ unknown-registry = "deny"
 # in the allow list is encountered
 unknown-git = "warn"
 allow-registry = ["https://github.com/rust-lang/crates.io-index"]
-allow-git = []
+allow-git = [
+    # First-party Cuervo crates (private — pinned by tag). Trusted source.
+    "https://github.com/cuervo-ai/paloma",
+]
