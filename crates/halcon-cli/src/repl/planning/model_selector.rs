@@ -1238,12 +1238,24 @@ mod tests {
             complexity_token_threshold: 3000,
             simple_model: Some("gpt-4o-mini".into()),
             complex_model: Some("claude-opus-4-6".into()),
+            respect_default_model: true,
         };
         let json = serde_json::to_string(&config).unwrap();
         let roundtrip: ModelSelectionConfig = serde_json::from_str(&json).unwrap();
         assert!(roundtrip.enabled);
         assert_eq!(roundtrip.budget_cap_usd, 10.0);
         assert_eq!(roundtrip.simple_model.as_deref(), Some("gpt-4o-mini"));
+        assert!(roundtrip.respect_default_model);
+    }
+
+    #[test]
+    fn config_back_compat_default_false() {
+        // Configs written before the routing-correctness audit do not carry
+        // `respect_default_model`. Loading them must not error and must
+        // default to false (preserves prior selector-overrides-default behavior).
+        let json = r#"{"enabled":true,"budget_cap_usd":0.0,"complexity_token_threshold":2000,"simple_model":null,"complex_model":null}"#;
+        let cfg: ModelSelectionConfig = serde_json::from_str(json).unwrap();
+        assert!(!cfg.respect_default_model);
     }
 
     #[test]

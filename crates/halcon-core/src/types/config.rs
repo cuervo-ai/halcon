@@ -1268,6 +1268,16 @@ pub struct ModelSelectionConfig {
     /// Override model for complex tasks.
     #[serde(default)]
     pub complex_model: Option<String>,
+    /// When `true`, treat `[general].default_model` as a hard pin equivalent
+    /// to passing `--model` on the CLI: the automatic selector will not run
+    /// and the configured model is used verbatim.
+    ///
+    /// Default `false` for back-compat with installations that intentionally
+    /// rely on adaptive routing. Users who want their `default_model` to be
+    /// authoritative (no silent override to a cheaper/different model) should
+    /// set this to `true`.
+    #[serde(default)]
+    pub respect_default_model: bool,
 }
 
 fn default_complexity_threshold() -> u32 {
@@ -1282,6 +1292,7 @@ impl Default for ModelSelectionConfig {
             complexity_token_threshold: default_complexity_threshold(),
             simple_model: None,
             complex_model: None,
+            respect_default_model: false,
         }
     }
 }

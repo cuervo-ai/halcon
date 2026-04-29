@@ -2704,32 +2704,68 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
                 });
             }
             provider_round::ProviderRoundOutcome::EmptyResponse => {
-                // D1: Model returned empty response. Inject a nudge and continue
-                // the loop instead of breaking — the model may respond on retry.
+                // D1: Model returned empty response. The current behavior is to
+                // inject a nudge and retry the SAME model up to `max_empty_retries`
+                // times. This is wrong for *structural* empties (model not
+                // registered upstream, deployment misconfigured, quota exhausted,
+                // backend gateway dropping the request) — retrying the same model
+                // cannot recover from a structural failure.
+                //
+                // TODO(routing-correctness): swap to next entry in
+                //   `routing_config.fallback_models` on the first empty when one
+                //   is available, instead of nudging. Tracking issue:
+                //   docs/architecture/routing-correctness-audit.md (FIX 2).
+                //   Requires plumbing `effective_provider`/`selected_model`
+                //   mutation through round_setup so the next iteration picks a
+                //   different model deterministically.
                 state.next_round_restarts += 1;
                 let max_empty_retries = 2;
+                let fallback_avail: Vec<&str> = routing_config
+                    .fallback_models
+                    .iter()
+                    .map(String::as_str)
+                    .filter(|m| *m != selected_model.as_str())
+                    .collect();
                 if state.next_round_restarts > max_empty_retries {
                     tracing::warn!(
                         retries = state.next_round_restarts,
+                        provider = %effective_provider.name(),
+                        model = %selected_model,
+                        fallbacks_available = fallback_avail.len(),
+                        fallbacks = ?fallback_avail,
                         "D1: max empty response retries ({max_empty_retries}) exceeded — breaking loop"
                     );
                     if !state.silent {
-                        render_sink.warning(
-                            &format!("[frontier] model returned empty response {max_empty_retries} times — synthesizing"),
-                            None,
-                        );
+                        let hint = if let Some(next) = fallback_avail.first() {
+                            format!(
+                                "[frontier] {} returned empty {} times — try: halcon -m {} chat ...",
+                                selected_model, max_empty_retries, next
+                            )
+                        } else {
+                            format!(
+                                "[frontier] {} returned empty {} times and no fallback configured — check provider health (halcon doctor)",
+                                selected_model, max_empty_retries
+                            )
+                        };
+                        render_sink.warning(&hint, None);
                     }
                     break 'agent_loop;
                 }
-                tracing::info!(
+                tracing::warn!(
                     retry = state.next_round_restarts,
                     max = max_empty_retries,
-                    "D1: empty response — injecting nudge and retrying round"
+                    provider = %effective_provider.name(),
+                    model = %selected_model,
+                    fallbacks_available = fallback_avail.len(),
+                    "D1: empty response — re-attempting same model (TODO: failover to fallback_models)"
                 );
                 if !state.silent {
                     render_sink.info(&format!(
-                        "[frontier] empty response detected (retry {}/{})",
-                        state.next_round_restarts, max_empty_retries
+                        "[frontier] empty response detected (retry {}/{}) — model={} provider={}",
+                        state.next_round_restarts,
+                        max_empty_retries,
+                        selected_model,
+                        effective_provider.name()
                     ));
                 }
                 // Inject a user message nudge to prompt the model to continue.
