@@ -566,7 +566,10 @@ mod tests {
                     "line_end": 5,
                     "stats": true
                 }),
-                working_directory: "/Users/oscarvalois/Documents/Github/cuervo-cli".into(),
+                // Workspace root — has the workspace Cargo.toml that this test
+                // blames. Hardcoded paths broke in CI and after the cuervo→halcon
+                // rename.
+                working_directory: concat!(env!("CARGO_MANIFEST_DIR"), "/../..").into(),
             })
             .await
             .unwrap();

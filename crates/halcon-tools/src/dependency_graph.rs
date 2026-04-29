@@ -326,7 +326,9 @@ mod tests {
         ToolInput {
             tool_use_id: "t1".into(),
             arguments: args,
-            working_directory: "/Users/oscarvalois/Documents/Github/cuervo-cli".into(),
+            // Workspace root — required for dependency-graph tooling that
+            // shells out to `cargo metadata`. Hardcoded user paths broke in CI.
+            working_directory: concat!(env!("CARGO_MANIFEST_DIR"), "/../..").into(),
         }
     }
 
@@ -380,7 +382,7 @@ mod tests {
     #[tokio::test]
     async fn detect_ecosystem_rust() {
         let eco =
-            DependencyGraphTool::detect_ecosystem("/Users/oscarvalois/Documents/Github/cuervo-cli")
+            DependencyGraphTool::detect_ecosystem(concat!(env!("CARGO_MANIFEST_DIR"), "/../.."))
                 .await;
         assert_eq!(eco, "rust");
     }

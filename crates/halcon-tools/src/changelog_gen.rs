@@ -581,7 +581,9 @@ mod tests {
             .execute(ToolInput {
                 tool_use_id: "t1".into(),
                 arguments: json!({ "mode": "range", "range": "HEAD~5..HEAD" }),
-                working_directory: "/Users/oscarvalois/Documents/Github/cuervo-cli".into(),
+                // Workspace root (two dirs above this crate's manifest). Hardcoded
+                // paths break in CI and after any project relocation/rename.
+                working_directory: concat!(env!("CARGO_MANIFEST_DIR"), "/../..").into(),
             })
             .await
             .unwrap();

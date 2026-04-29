@@ -56,11 +56,16 @@ use tracing_subscriber::EnvFilter;
 
 mod audit;
 mod audit_sink_bootstrap;
-mod commands;
 mod config_loader;
 mod render;
 mod repl;
 mod tui;
+
+// `commands` is owned by the lib (see lib.rs). Importing it here lets main.rs
+// keep its existing `commands::foo` call sites untouched while ensuring the
+// source is compiled exactly once and `insta` snapshots resolve to a single
+// crate-prefixed file.
+use halcon_cli::commands;
 
 #[cfg(feature = "headless")]
 mod agent_bridge;

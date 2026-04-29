@@ -334,10 +334,15 @@ data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usa
 event: message_stop\n\
 data: {\"type\":\"message_stop\"}\n\n";
 
+    // Use `1..` to align with the agent loop's D1 empty-response defense:
+    // when the model returns an empty response, the loop injects a nudge
+    // ("[System] Your previous response was empty. Please continue.") and
+    // re-issues the request up to `max_empty_retries` times. The contract
+    // this test guards is "should not crash" — not "exactly one request".
     Mock::given(method("POST"))
         .and(path("/v1/messages"))
         .respond_with(ResponseTemplate::new(200).set_body_raw(body, "text/event-stream"))
-        .expect(1)
+        .expect(1..)
         .mount(&server)
         .await;
 

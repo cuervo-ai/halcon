@@ -596,8 +596,7 @@ fn world() {}
             .execute(ToolInput {
                 tool_use_id: "t1".into(),
                 arguments: serde_json::json!({ "max_files": 10 }),
-                working_directory:
-                    "/Users/oscarvalois/Documents/Github/cuervo-cli/crates/halcon-tools/src".into(),
+                working_directory: concat!(env!("CARGO_MANIFEST_DIR"), "/src").into(),
             })
             .await
             .unwrap();
@@ -612,8 +611,7 @@ fn world() {}
             .execute(ToolInput {
                 tool_use_id: "t1".into(),
                 arguments: serde_json::json!({ "format": "json", "max_files": 5 }),
-                working_directory:
-                    "/Users/oscarvalois/Documents/Github/cuervo-cli/crates/halcon-tools/src".into(),
+                working_directory: concat!(env!("CARGO_MANIFEST_DIR"), "/src").into(),
             })
             .await
             .unwrap();
