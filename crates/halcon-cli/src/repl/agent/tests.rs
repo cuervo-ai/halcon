@@ -2688,6 +2688,75 @@ impl ModelProvider for AlwaysErrorProvider {
     }
 }
 
+/// Provider whose stream emits a typed `Err(HalconError)` mid-stream after
+/// no content has been produced. Models the cenzontle gateway behaviour
+/// where the SSE error chunk is parsed by `OpenAIErrorChunk` and surfaced
+/// as `Err(HalconError::ProviderError { ... })`.
+///
+/// Phase 2 closure invariant: this MUST surface as
+/// `ProviderRoundOutcome::EarlyReturn` with `StopCondition::ProviderError`
+/// — NOT `EmptyResponse`. R1 failover walking against a typed structural
+/// error is wasted work because the same body would fail every fallback
+/// the same way.
+struct ErrorChunkStreamProvider {
+    models: Vec<ModelInfo>,
+}
+
+impl ErrorChunkStreamProvider {
+    fn new() -> Self {
+        Self {
+            models: vec![ModelInfo {
+                id: "echo".into(),
+                name: "Error Chunk Stream".into(),
+                provider: "error_chunk_stream".into(),
+                context_window: 4096,
+                max_output_tokens: 4096,
+                supports_streaming: true,
+                supports_tools: true,
+                supports_vision: false,
+                supports_reasoning: false,
+                cost_per_input_token: 0.0,
+                cost_per_output_token: 0.0,
+                ..Default::default()
+            }],
+        }
+    }
+}
+
+#[async_trait]
+impl ModelProvider for ErrorChunkStreamProvider {
+    fn name(&self) -> &str {
+        "error_chunk_stream"
+    }
+
+    fn supported_models(&self) -> &[ModelInfo] {
+        &self.models
+    }
+
+    async fn invoke(
+        &self,
+        _request: &ModelRequest,
+    ) -> halcon_core::error::Result<BoxStream<'static, halcon_core::error::Result<ModelChunk>>>
+    {
+        // Emit a typed error mid-stream — exactly what `openai_compat`
+        // emits when it parses an `OpenAIErrorChunk` from cenzontle.
+        let chunks: Vec<halcon_core::error::Result<ModelChunk>> =
+            vec![Err(halcon_core::error::HalconError::ApiError {
+                message: "All LLM providers failed (upstream Azure rejected body)".to_string(),
+                status: Some(502),
+            })];
+        Ok(Box::pin(futures::stream::iter(chunks)))
+    }
+
+    async fn is_available(&self) -> bool {
+        true
+    }
+
+    fn estimate_cost(&self, _request: &ModelRequest) -> TokenCost {
+        TokenCost::default()
+    }
+}
+
 // ── Recording RenderSink ─────────────────────────────────────────────────
 
 /// A render sink that records FSM transitions and spinner stop calls.
@@ -3291,6 +3360,75 @@ async fn zero_token_output_completion_no_stuck_states() {
         result.full_text.contains("[frontier]"),
         "Zero-token/R1: terminal cascade must produce a visible diagnostic (got {:?})",
         result.full_text
+    );
+}
+
+// ── Phase 2 closure: typed stream errors are NOT EmptyResponse ───────────
+//
+// When the OpenAIErrorChunk parser surfaces a typed error to the stream and
+// retries are exhausted with no partial content, `provider_round` MUST emit
+// `ProviderRoundOutcome::EarlyReturn` with `StopCondition::ProviderError`,
+// NOT `EmptyResponse`. Routing R1 failover walking against a structural
+// upstream failure (HTTP 502/4xx for the same body) is pure waste — every
+// fallback model would fail the same way against the same body.
+//
+// Acceptance criterion: no path where an upstream error terminates as a
+// silent empty response or a generic message. The diagnostic must name the
+// provider, model, and the captured upstream error, and be visible in
+// `full_text` (conversation pane), not just in a transient warning line.
+
+#[tokio::test]
+async fn typed_stream_error_surfaces_as_provider_error_not_empty() {
+    let provider: Arc<dyn ModelProvider> = Arc::new(ErrorChunkStreamProvider::new());
+    let mut session = Session::new("err_chunk".into(), "echo".into(), "/tmp".into());
+    let request = make_request(vec![]);
+    let tool_reg = ToolRegistry::new();
+    let mut perms = ConversationalPermissionHandler::new(true);
+    let (event_tx, _rx) = test_event_tx();
+    let limits = AgentLimits::default();
+    let mut resilience = test_resilience();
+    let routing_config = RoutingConfig::default();
+
+    let result = run_agent_loop(test_ctx(
+        &provider,
+        &mut session,
+        &request,
+        &tool_reg,
+        &mut perms,
+        &event_tx,
+        &limits,
+        &mut resilience,
+        &routing_config,
+    ))
+    .await
+    .unwrap();
+
+    // Phase 2 closure invariants:
+    assert!(
+        matches!(
+            result.stop_condition,
+            StopCondition::ProviderError | StopCondition::EndTurn | StopCondition::MaxRounds
+        ),
+        "typed-stream-error: stop_condition must classify as ProviderError-family, got {:?}",
+        result.stop_condition
+    );
+    // Visible diagnostic in full_text (conversation pane), not just warning.
+    assert!(
+        result.full_text.contains("[provider-error]") || result.full_text.contains("[frontier]"),
+        "typed-stream-error: full_text must carry a structured diagnostic (got {:?})",
+        result.full_text
+    );
+    // No tokens means no partial output — confirms the round was a true
+    // structural failure not a content-with-error scenario.
+    assert_eq!(
+        result.output_tokens, 0,
+        "typed-stream-error: zero output tokens expected"
+    );
+    // Loop must terminate (no hang).
+    assert!(
+        result.rounds <= 4,
+        "typed-stream-error: must terminate (got rounds={})",
+        result.rounds
     );
 }
 
