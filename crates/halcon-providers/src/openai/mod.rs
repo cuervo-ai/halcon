@@ -84,6 +84,61 @@ impl ModelProvider for OpenAIProvider {
         &self,
         request: &ModelRequest,
     ) -> Result<BoxStream<'static, Result<ModelChunk>>> {
+        // Pre-flight payload guard (mirrors the wiring in cenzontle::invoke).
+        // Skips silently when the model is unknown to the local registry —
+        // fresh deployments still pass through. When the model is known and
+        // the estimate exceeds the declared context window, fail at the
+        // client with `LlmError::PayloadTooLarge` rather than wasting a
+        // round-trip to OpenAI's API for a 400/413.
+        if let Some(model_info) = self
+            .inner
+            .supported_models()
+            .iter()
+            .find(|m| m.id == request.model)
+        {
+            let hint = self.tokenizer_hint();
+            let estimator = crate::estimator::HeuristicTokenEstimator;
+            let est = <crate::estimator::HeuristicTokenEstimator as crate::estimator::TokenEstimator>::estimate(
+                &estimator,
+                request,
+                hint,
+            );
+            if let Err(llm_err) = crate::estimator::validate_request_fits(
+                "openai",
+                &request.model,
+                est,
+                model_info.context_window,
+                crate::estimator::DEFAULT_SAFETY_BUFFER,
+            ) {
+                tracing::warn!(
+                    model = %request.model,
+                    est_tokens = est.total,
+                    max_context = model_info.context_window,
+                    dominant = est.dominant_source(),
+                    "OpenAI: pre-flight payload guard rejected oversize request"
+                );
+                return Err(halcon_core::error::HalconError::from(llm_err));
+            }
+            // TPM guard (P1-1 wiring) — only enforced when the registry
+            // reports `tpm`. Skips silently otherwise.
+            if let Some(tpm) = model_info.tpm {
+                if let Err(llm_err) = crate::estimator::validate_fits_tpm(
+                    "openai",
+                    &request.model,
+                    est,
+                    tpm,
+                    crate::estimator::DEFAULT_TPM_SAFETY_FACTOR,
+                ) {
+                    tracing::warn!(
+                        model = %request.model,
+                        est_tokens = est.total,
+                        tpm,
+                        "OpenAI: pre-flight TPM guard rejected request larger than per-minute budget"
+                    );
+                    return Err(halcon_core::error::HalconError::from(llm_err));
+                }
+            }
+        }
         self.inner.invoke(request).await
     }
 

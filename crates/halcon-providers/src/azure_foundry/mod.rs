@@ -80,6 +80,7 @@ impl AzureFoundryProvider {
                 supports_reasoning: false,
                 cost_per_input_token: 3.0 / 1_000_000.0,
                 cost_per_output_token: 15.0 / 1_000_000.0,
+                ..Default::default()
             },
             ModelInfo {
                 id: "claude-haiku-4-5-20251001".into(),
@@ -93,6 +94,7 @@ impl AzureFoundryProvider {
                 supports_reasoning: false,
                 cost_per_input_token: 0.80 / 1_000_000.0,
                 cost_per_output_token: 4.0 / 1_000_000.0,
+                ..Default::default()
             },
         ]
     }

@@ -55,6 +55,7 @@ impl ToolCallProvider {
                 supports_reasoning: false,
                 cost_per_input_token: 0.0,
                 cost_per_output_token: 0.0,
+                ..Default::default()
             }],
         }
     }

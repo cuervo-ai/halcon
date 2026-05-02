@@ -616,6 +616,14 @@ pub(super) async fn run(
                 }
                 let mut stream = attempt.stream;
                 let mut stream_had_error = false;
+                // Phase 2 closure: capture the LAST typed stream error so that
+                // when retries exhaust and the round produced no content, the
+                // outer logic can surface a typed `ProviderError` outcome
+                // instead of misclassifying the round as `EmptyResponse` and
+                // triggering an R1 failover walk against the same structural
+                // failure. Holds the rendered error string (already
+                // user-visible via `render_sink.stream_error`).
+                let mut last_stream_error: Option<String> = None;
                 let stream_start = std::time::Instant::now();
                 // Wave 2 observability: log stream lifecycle for diagnostics.
                 tracing::info!(
@@ -715,8 +723,9 @@ pub(super) async fn run(
                                     }
                                 }
                                 Some(Err(e)) => {
+                                    let err_msg = format!("{e}");
                                     if !state.silent {
-                                        render_sink.stream_error(&format!("{e}"));
+                                        render_sink.stream_error(&err_msg);
                                     }
                                     // Record stream failure for health scoring.
                                     if resilience.is_enabled() {
@@ -730,6 +739,9 @@ pub(super) async fn run(
                                         }
                                     }
                                     stream_had_error = true;
+                                    // Phase 2 closure: persist the typed error
+                                    // for the post-retry classification branch.
+                                    last_stream_error = Some(err_msg);
                                     break false;
                                 }
                                 // Stream exhausted (includes post-[DONE] None) — always safe to exit.
@@ -854,6 +866,98 @@ pub(super) async fn run(
                         continue 'invoke_retry;
                     }
                     // Accept partial text on final stream error.
+                    //
+                    // Phase 2 closure (Frontier criterion): if no partial text
+                    // exists AND no tokens were produced, the round is a
+                    // structural failure that must NOT be classified as
+                    // `EmptyResponse` (which would trigger R1 failover walking
+                    // against the same body/upstream and waste retries). We
+                    // exit immediately with `StopCondition::ProviderError`,
+                    // emit a structured AgentCompleted event carrying the
+                    // typed error string, and persist a visible diagnostic
+                    // to `state.full_text` so the conversation pane shows
+                    // the upstream cause instead of "Agent completed".
+                    let no_partial_text = silent_text.trim().is_empty()
+                        && state.full_text.trim().is_empty()
+                        && round_usage.output_tokens == 0;
+                    if no_partial_text {
+                        let err_label = last_stream_error
+                            .clone()
+                            .unwrap_or_else(|| "stream error (no detail captured)".to_string());
+                        let diagnostic = format!(
+                            "[provider-error] {provider}/{model} failed after {retries} retries: {err}",
+                            provider = used_provider_name,
+                            model = round_request.model,
+                            retries = round_retry_count + 1,
+                            err = err_label,
+                        );
+                        if !state.silent {
+                            render_sink.error(&diagnostic, Some(
+                                "structural upstream failure — R1 failover skipped because the same body would fail every fallback the same way",
+                            ));
+                            render_sink.stream_text(&diagnostic);
+                            render_sink.stream_text("\n");
+                        }
+                        state.full_text.push_str(&diagnostic);
+                        state.full_text.push('\n');
+                        tracing::error!(
+                            provider = %used_provider_name,
+                            model = %round_request.model,
+                            retries = round_retry_count + 1,
+                            error = %err_label,
+                            "Phase 2 closure: stream error with no partial output — surfacing as ProviderError, NOT EmptyResponse"
+                        );
+                        // Phase H5 (Frontier observability): persist a typed
+                        // RoundFailed event with the per-attempt context. This
+                        // is what dashboards and post-mortem queries join
+                        // against to understand cascade behaviour.
+                        let error_type = super::error_label::classify_error_label(&err_label);
+                        super::loop_events::emit(
+                            &state.session_id.to_string(),
+                            round as u32,
+                            super::loop_events::LoopEvent::RoundFailed {
+                                round,
+                                provider: used_provider_name.clone(),
+                                model: round_request.model.clone(),
+                                error_type,
+                                latency_ms: round_start.elapsed().as_millis() as u64,
+                                retry_count: round_retry_count,
+                                hint: err_label.chars().take(256).collect::<String>(),
+                            },
+                            trace_db,
+                        );
+                        // Emit AgentCompleted so external listeners (TUI,
+                        // metrics) see a typed completion rather than a
+                        // hung session.
+                        halcon_core::emit_event(
+                            event_tx,
+                            DomainEvent::new(EventPayload::AgentCompleted {
+                                agent_type: AgentType::Chat,
+                                result: AgentResult {
+                                    success: false,
+                                    summary: format!("ProviderError: {err_label}"),
+                                    files_modified: vec![],
+                                    tools_used: vec![],
+                                },
+                            }),
+                        );
+                        return Ok(ProviderRoundOutcome::EarlyReturn(Box::new(
+                            ProviderEarlyReturnData {
+                                full_text: state.full_text.clone(),
+                                rounds: state.rounds,
+                                stop_condition: StopCondition::ProviderError,
+                                call_input_tokens: state.tokens.call_input_tokens,
+                                call_output_tokens: state.tokens.call_output_tokens,
+                                call_cost: state.tokens.call_cost,
+                                latency_ms: state.loop_start.elapsed().as_millis() as u64,
+                                execution_fingerprint: compute_fingerprint(&round_request.messages),
+                                round_evaluations: state.convergence.round_evaluations.clone(),
+                                timeline_json: None,
+                                last_model_used: Some(round_request.model.clone()),
+                                plan_completion_ratio: 0.0,
+                            },
+                        )));
+                    }
                 }
             }
             Err(e) => {

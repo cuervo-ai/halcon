@@ -21,11 +21,12 @@ use halcon_core::types::{
     TokenCost, TokenUsage,
 };
 
+use crate::error::LlmError;
 use crate::http;
 use types::{
-    OpenAIChatMessage, OpenAIChatRequest, OpenAIContentPart, OpenAIFunctionCall, OpenAIFunctionDef,
-    OpenAIImageUrl, OpenAIMessageContent, OpenAISseChunk, OpenAITool, OpenAIToolCall,
-    StreamOptions,
+    OpenAIChatMessage, OpenAIChatRequest, OpenAIContentPart, OpenAIErrorChunk, OpenAIFunctionCall,
+    OpenAIFunctionDef, OpenAIImageUrl, OpenAIMessageContent, OpenAISseChunk, OpenAITool,
+    OpenAIToolCall, StreamOptions,
 };
 
 /// Normalize a JSON Schema for OpenAI compatibility.
@@ -629,13 +630,64 @@ impl OpenAICompatibleProvider {
                         stream::iter(mapped)
                     }
                     Err(e) => {
-                        warn!(
-                            provider = %provider_name,
-                            error = %e,
-                            data = %data,
-                            "Failed to parse SSE chunk"
-                        );
-                        stream::iter(vec![])
+                        // Phase 1 / PR #A — before silently dropping, try to
+                        // parse as an SSE error chunk shaped {"error":{...}}.
+                        // This is what Cenzontle emits when its fallback chain
+                        // exhausts upstream. Treating it as an empty stream
+                        // (the previous behaviour) is what produces the silent
+                        // "Agent completed" symptom.
+                        match serde_json::from_str::<OpenAIErrorChunk>(&data) {
+                            Ok(err_chunk) => {
+                                let body = &err_chunk.error.message;
+                                // Prefer the upstream provider/model names emitted
+                                // by Cenzontle (C-P2-2 extension); fall back to
+                                // the local provider name when not present so
+                                // unknown gateways still produce a typed error.
+                                let upstream_provider = err_chunk
+                                    .error
+                                    .upstream_provider
+                                    .clone()
+                                    .unwrap_or_else(|| provider_name.clone());
+                                let upstream_model = err_chunk
+                                    .error
+                                    .upstream_model
+                                    .clone()
+                                    .unwrap_or_else(|| String::from("unknown"));
+                                let llm_err = match err_chunk.error.upstream_status {
+                                    Some(status) if status > 0 => LlmError::classify_http(
+                                        &upstream_provider,
+                                        &upstream_model,
+                                        status,
+                                        body,
+                                    ),
+                                    _ => LlmError::Unknown {
+                                        provider: upstream_provider.clone(),
+                                        model: upstream_model.clone(),
+                                        status: None,
+                                        hint: body.clone(),
+                                    },
+                                };
+                                warn!(
+                                    provider = %provider_name,
+                                    upstream_provider = %upstream_provider,
+                                    upstream_model = %upstream_model,
+                                    error_type = %llm_err.variant_name(),
+                                    request_id = ?err_chunk.error.request_id,
+                                    body = %body,
+                                    "SSE error chunk received — surfacing as typed error"
+                                );
+                                stream::iter(vec![Err(HalconError::from(llm_err))])
+                            }
+                            Err(_) => {
+                                warn!(
+                                    provider = %provider_name,
+                                    error = %e,
+                                    data = %data,
+                                    "Failed to parse SSE chunk (neither data nor error envelope)"
+                                );
+                                stream::iter(vec![])
+                            }
+                        }
                     }
                 }
             }
@@ -900,6 +952,7 @@ mod tests {
             supports_reasoning: false,
             cost_per_input_token: 2.5 / 1_000_000.0,
             cost_per_output_token: 10.0 / 1_000_000.0,
+            ..Default::default()
         }]
     }
 
@@ -1022,6 +1075,7 @@ mod tests {
             supports_reasoning: true,
             cost_per_input_token: 1.10 / 1_000_000.0,
             cost_per_output_token: 4.40 / 1_000_000.0,
+            ..Default::default()
         }];
         let provider = OpenAICompatibleProvider::new(
             "openai".into(),
@@ -1063,6 +1117,7 @@ mod tests {
             supports_reasoning: true,
             cost_per_input_token: 1.10 / 1_000_000.0,
             cost_per_output_token: 4.40 / 1_000_000.0,
+            ..Default::default()
         }];
         let provider = OpenAICompatibleProvider::new(
             "openai".into(),

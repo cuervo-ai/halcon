@@ -627,6 +627,7 @@ mod tests {
             supports_reasoning: reasoning,
             cost_per_input_token: cost / 2.0,
             cost_per_output_token: cost,
+            ..Default::default()
         }
     }
 
@@ -713,6 +714,7 @@ mod tests {
             supports_reasoning: false,
             cost_per_input_token: cost / 3.0,
             cost_per_output_token: cost,
+            ..Default::default()
         };
         let models = vec![
             make_full("claude-haiku-4-5", 8_192, 0.000004),

@@ -80,6 +80,31 @@ pub enum LoopEvent {
         tool_name: String,
         reason: String,
     },
+    /// Phase H5 (Frontier observability): emitted when a round fails with a
+    /// typed upstream error before producing content.
+    ///
+    /// Carries the per-attempt context that operators need to triage
+    /// production incidents (which provider, which model, what error
+    /// classification, how long it took, whether it was a retry). Persisted
+    /// to `execution_loop_events` so post-mortem queries can join against
+    /// `invocation_metrics` by `(session_id, round)`.
+    RoundFailed {
+        round: usize,
+        provider: String,
+        model: String,
+        /// `LlmError::variant_name()` snake-case (e.g. "throttle",
+        /// "provider_down", "deployment_not_found", "auth", "invalid_request",
+        /// "payload_too_large", "empty_response", "unknown").
+        error_type: String,
+        /// Wall-clock time from the start of this round's invocation.
+        latency_ms: u64,
+        /// Number of retries already performed against THIS model before
+        /// the failure became terminal (R1 walking is tracked separately).
+        retry_count: u32,
+        /// Truncated error hint for inline display. Full error is also
+        /// surfaced via `render_sink.error` and `state.full_text`.
+        hint: String,
+    },
 }
 
 impl LoopEvent {
@@ -96,6 +121,7 @@ impl LoopEvent {
             Self::OracleDecided { .. } => "oracle_decided",
             Self::ToolsSuppressed { .. } => "tools_suppressed",
             Self::PlanStepSkipped { .. } => "plan_step_skipped",
+            Self::RoundFailed { .. } => "round_failed",
         }
     }
 }

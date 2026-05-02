@@ -10,10 +10,13 @@
 //! - ClaudeCode (persistent `claude` CLI subprocess via NDJSON)
 
 pub mod anthropic;
+pub mod attempts;
 pub mod claude_code;
 mod contract;
 pub mod deepseek;
 pub mod echo;
+pub mod error;
+pub mod estimator;
 pub mod gemini;
 pub mod http;
 pub mod ollama;

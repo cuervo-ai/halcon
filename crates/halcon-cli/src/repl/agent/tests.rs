@@ -2590,6 +2590,7 @@ impl EmptyStreamProvider {
                 supports_reasoning: false,
                 cost_per_input_token: 0.0,
                 cost_per_output_token: 0.0,
+                ..Default::default()
             }],
         }
     }
@@ -2652,6 +2653,7 @@ impl AlwaysErrorProvider {
                 supports_reasoning: false,
                 cost_per_input_token: 0.0,
                 cost_per_output_token: 0.0,
+                ..Default::default()
             }],
         }
     }
@@ -2675,6 +2677,75 @@ impl ModelProvider for AlwaysErrorProvider {
         Err(halcon_core::error::HalconError::ProviderUnavailable {
             provider: "always_error".into(),
         })
+    }
+
+    async fn is_available(&self) -> bool {
+        true
+    }
+
+    fn estimate_cost(&self, _request: &ModelRequest) -> TokenCost {
+        TokenCost::default()
+    }
+}
+
+/// Provider whose stream emits a typed `Err(HalconError)` mid-stream after
+/// no content has been produced. Models the cenzontle gateway behaviour
+/// where the SSE error chunk is parsed by `OpenAIErrorChunk` and surfaced
+/// as `Err(HalconError::ProviderError { ... })`.
+///
+/// Phase 2 closure invariant: this MUST surface as
+/// `ProviderRoundOutcome::EarlyReturn` with `StopCondition::ProviderError`
+/// — NOT `EmptyResponse`. R1 failover walking against a typed structural
+/// error is wasted work because the same body would fail every fallback
+/// the same way.
+struct ErrorChunkStreamProvider {
+    models: Vec<ModelInfo>,
+}
+
+impl ErrorChunkStreamProvider {
+    fn new() -> Self {
+        Self {
+            models: vec![ModelInfo {
+                id: "echo".into(),
+                name: "Error Chunk Stream".into(),
+                provider: "error_chunk_stream".into(),
+                context_window: 4096,
+                max_output_tokens: 4096,
+                supports_streaming: true,
+                supports_tools: true,
+                supports_vision: false,
+                supports_reasoning: false,
+                cost_per_input_token: 0.0,
+                cost_per_output_token: 0.0,
+                ..Default::default()
+            }],
+        }
+    }
+}
+
+#[async_trait]
+impl ModelProvider for ErrorChunkStreamProvider {
+    fn name(&self) -> &str {
+        "error_chunk_stream"
+    }
+
+    fn supported_models(&self) -> &[ModelInfo] {
+        &self.models
+    }
+
+    async fn invoke(
+        &self,
+        _request: &ModelRequest,
+    ) -> halcon_core::error::Result<BoxStream<'static, halcon_core::error::Result<ModelChunk>>>
+    {
+        // Emit a typed error mid-stream — exactly what `openai_compat`
+        // emits when it parses an `OpenAIErrorChunk` from cenzontle.
+        let chunks: Vec<halcon_core::error::Result<ModelChunk>> =
+            vec![Err(halcon_core::error::HalconError::ApiError {
+                message: "All LLM providers failed (upstream Azure rejected body)".to_string(),
+                status: Some(502),
+            })];
+        Ok(Box::pin(futures::stream::iter(chunks)))
     }
 
     async fn is_available(&self) -> bool {
@@ -2824,15 +2895,13 @@ async fn p0_empty_stream_terminates_cleanly() {
     .await
     .unwrap();
 
-    // Ω-07 (HAL-05): empty stream en round 0 ya NO se interpreta como success.
-    // El D1 detector dispara EmptyResponse y el agent loop reintenta 2× antes
-    // de rendirse con synthesis. El test originalmente validaba spinner finalization
-    // (no hang); ese invariante sigue siendo correcto: la función RETORNA.
-    // Ahora: 3 rounds (initial + 2 retries) antes del break por synthesis fallback.
-    // Terminates (no hang). Rounds counter can be 0-4 depending on retry path:
-    // 0 = broke via synthesis before round counter incremented (new path)
-    // 1 = legacy single-round EndTurn path
-    // 3+ = exhausted retries + synthesis
+    // Ω-07 (HAL-05) + Phase 2 (R1): empty stream still terminates cleanly,
+    // but the cascade-exhausted branch now writes a user-visible diagnostic to
+    // `full_text` instead of breaking silently. Acceptance criterion:
+    // "no debe mostrarse 'Agent completed' sin mensaje del assistant".
+    // With the default RoutingConfig, `fallback_models` is empty, so the
+    // failover walk finds no candidate and falls through to the terminal
+    // branch on the first empty.
     assert!(
         result.rounds <= 4,
         "P0: empty stream must terminate (got rounds={})",
@@ -2847,8 +2916,8 @@ async fn p0_empty_stream_terminates_cleanly() {
         result.stop_condition
     );
     assert!(
-        result.full_text.is_empty(),
-        "P0: no text output for empty stream, got: {:?}",
+        result.full_text.contains("[frontier]") && result.full_text.contains("empty"),
+        "P0/R1: empty cascade must surface a visible diagnostic (got full_text={:?})",
         result.full_text
     );
     assert_eq!(
@@ -3265,9 +3334,11 @@ async fn zero_token_output_completion_no_stuck_states() {
     .await
     .unwrap();
 
-    // Ω-07 (HAL-05): zero-token output now triggers EmptyResponse retry + eventual
-    // synthesis, not single-round EndTurn.  Core invariant preserved: loop
-    // terminates, output_tokens remains 0, full_text stays empty.
+    // Ω-07 (HAL-05) + Phase 2 (R1): zero-token output triggers the
+    // EmptyResponse cascade. With `fallback_models` empty in the default
+    // RoutingConfig, the cascade reaches the terminal branch and writes a
+    // diagnostic to `full_text`. Core invariants preserved: loop terminates,
+    // `output_tokens` stays 0, `stop_condition` is clean.
     assert_eq!(
         result.output_tokens, 0,
         "Zero-token: output_tokens must be 0"
@@ -3286,8 +3357,78 @@ async fn zero_token_output_completion_no_stuck_states() {
         result.stop_condition
     );
     assert!(
-        result.full_text.is_empty(),
-        "Zero-token: no text in full_text"
+        result.full_text.contains("[frontier]"),
+        "Zero-token/R1: terminal cascade must produce a visible diagnostic (got {:?})",
+        result.full_text
+    );
+}
+
+// ── Phase 2 closure: typed stream errors are NOT EmptyResponse ───────────
+//
+// When the OpenAIErrorChunk parser surfaces a typed error to the stream and
+// retries are exhausted with no partial content, `provider_round` MUST emit
+// `ProviderRoundOutcome::EarlyReturn` with `StopCondition::ProviderError`,
+// NOT `EmptyResponse`. Routing R1 failover walking against a structural
+// upstream failure (HTTP 502/4xx for the same body) is pure waste — every
+// fallback model would fail the same way against the same body.
+//
+// Acceptance criterion: no path where an upstream error terminates as a
+// silent empty response or a generic message. The diagnostic must name the
+// provider, model, and the captured upstream error, and be visible in
+// `full_text` (conversation pane), not just in a transient warning line.
+
+#[tokio::test]
+async fn typed_stream_error_surfaces_as_provider_error_not_empty() {
+    let provider: Arc<dyn ModelProvider> = Arc::new(ErrorChunkStreamProvider::new());
+    let mut session = Session::new("err_chunk".into(), "echo".into(), "/tmp".into());
+    let request = make_request(vec![]);
+    let tool_reg = ToolRegistry::new();
+    let mut perms = ConversationalPermissionHandler::new(true);
+    let (event_tx, _rx) = test_event_tx();
+    let limits = AgentLimits::default();
+    let mut resilience = test_resilience();
+    let routing_config = RoutingConfig::default();
+
+    let result = run_agent_loop(test_ctx(
+        &provider,
+        &mut session,
+        &request,
+        &tool_reg,
+        &mut perms,
+        &event_tx,
+        &limits,
+        &mut resilience,
+        &routing_config,
+    ))
+    .await
+    .unwrap();
+
+    // Phase 2 closure invariants:
+    assert!(
+        matches!(
+            result.stop_condition,
+            StopCondition::ProviderError | StopCondition::EndTurn | StopCondition::MaxRounds
+        ),
+        "typed-stream-error: stop_condition must classify as ProviderError-family, got {:?}",
+        result.stop_condition
+    );
+    // Visible diagnostic in full_text (conversation pane), not just warning.
+    assert!(
+        result.full_text.contains("[provider-error]") || result.full_text.contains("[frontier]"),
+        "typed-stream-error: full_text must carry a structured diagnostic (got {:?})",
+        result.full_text
+    );
+    // No tokens means no partial output — confirms the round was a true
+    // structural failure not a content-with-error scenario.
+    assert_eq!(
+        result.output_tokens, 0,
+        "typed-stream-error: zero output tokens expected"
+    );
+    // Loop must terminate (no hang).
+    assert!(
+        result.rounds <= 4,
+        "typed-stream-error: must terminate (got rounds={})",
+        result.rounds
     );
 }
 
@@ -6424,5 +6565,68 @@ fn phase5_integration_session_retrospective_end_to_end() {
     assert!(
         profile.peak_utility >= profile.final_utility,
         "peak utility should be >= final utility"
+    );
+}
+
+// ── Phase 1 final consolidation · build_cascade_report ─────────────────────
+//
+// Lock the contract: the synthetic AllProvidersFailed::report() built from
+// `state.exhausted_models` must be non-empty when there are exhausted models,
+// must mention each model, and must classify each as EmptyResponse.
+
+#[test]
+fn cascade_report_empty_when_no_exhausted_models() {
+    use crate::repl::agent::build_cascade_report;
+    let r = build_cascade_report(&[], "cenzontle");
+    assert!(
+        r.is_empty(),
+        "no exhausted models → no cascade report (empty string preserves caller branch)"
+    );
+}
+
+#[test]
+fn cascade_report_lists_each_attempt_with_provider() {
+    use crate::repl::agent::build_cascade_report;
+    let exhausted = vec![
+        "claude-sonnet-4-6".to_string(),
+        "deepseek-v3-2-coding".to_string(),
+        "gpt-5-nano-fast".to_string(),
+    ];
+    let r = build_cascade_report(&exhausted, "cenzontle");
+    assert!(
+        r.contains("3 attempt(s)"),
+        "should report attempt count: {r}"
+    );
+    assert!(r.contains("claude-sonnet-4-6"), "must list each model: {r}");
+    assert!(
+        r.contains("deepseek-v3-2-coding"),
+        "must list each model: {r}"
+    );
+    assert!(r.contains("gpt-5-nano-fast"), "must list each model: {r}");
+    assert!(
+        r.contains("empty_response"),
+        "each attempt classified as empty_response: {r}"
+    );
+    assert!(r.contains("cenzontle/"), "each line tags the provider: {r}");
+}
+
+#[test]
+fn cascade_report_renders_round_indices() {
+    use crate::repl::agent::build_cascade_report;
+    let exhausted = vec!["m1".to_string(), "m2".to_string()];
+    let r = build_cascade_report(&exhausted, "p");
+    assert!(r.contains("[0] p/m1"), "round 0 tag missing: {r}");
+    assert!(r.contains("[1] p/m2"), "round 1 tag missing: {r}");
+}
+
+#[test]
+fn cascade_report_does_not_flag_caller_bug_for_empty_responses() {
+    // EmptyResponse is recoverable (allow_fallback=true), so the headline
+    // "caller bug" marker MUST NOT appear when the cascade was empty-only.
+    use crate::repl::agent::build_cascade_report;
+    let r = build_cascade_report(&["m1".to_string()], "p");
+    assert!(
+        !r.contains("caller bug"),
+        "empty-response cascade is not bug-shaped: {r}"
     );
 }

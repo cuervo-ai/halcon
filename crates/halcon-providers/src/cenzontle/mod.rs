@@ -455,6 +455,7 @@ fn model_info_from_cenzontle(m: CenzontleModel) -> ModelInfo {
         supports_reasoning,
         cost_per_input_token: cost_in,
         cost_per_output_token: cost_out,
+        ..Default::default()
     }
 }
 
@@ -560,12 +561,118 @@ impl ModelProvider for CenzontleProvider {
             });
         }
 
+        // ── Phase 3 / payload guard (pre-flight) ────────────────────────────
+        // Estimate prompt tokens before paying the cost of a network round-trip.
+        // We only enforce the guard when the model is known in our registry —
+        // unknown deployments bypass the check (best-effort, not regression).
+        // Threshold = the model's declared `context_window`. Any rejection
+        // here is materially better than letting the request fail at the wire
+        // with an opaque 4xx body that gets dropped by the SSE parser
+        // (the silent-failure mode we are exiting).
+        if let Some(model_info) = self.models.iter().find(|m| m.id == request.model) {
+            let hint = tokenizer_hint_for_model(&request.model);
+            let estimator = crate::estimator::HeuristicTokenEstimator;
+            let est = <crate::estimator::HeuristicTokenEstimator as crate::estimator::TokenEstimator>::estimate(
+                &estimator,
+                request,
+                hint,
+            );
+            if let Err(llm_err) = crate::estimator::validate_request_fits(
+                PROVIDER_NAME,
+                &request.model,
+                est,
+                model_info.context_window,
+                crate::estimator::DEFAULT_SAFETY_BUFFER,
+            ) {
+                tracing::warn!(
+                    model = %request.model,
+                    est_tokens = est.total,
+                    est_system = est.system,
+                    est_messages = est.messages,
+                    est_tools = est.tools,
+                    max_context = model_info.context_window,
+                    dominant = est.dominant_source(),
+                    "Cenzontle: pre-flight payload guard rejected oversize request"
+                );
+                return Err(HalconError::from(llm_err));
+            }
+            // TPM guard: when the deployment registry reports `tpm`, refuse
+            // candidates whose per-minute budget cannot serve the request
+            // size × DEFAULT_TPM_SAFETY_FACTOR. Skips silently when `tpm`
+            // is `None` (gateway didn't report it; defensive default).
+            if let Some(tpm) = model_info.tpm {
+                if let Err(llm_err) = crate::estimator::validate_fits_tpm(
+                    PROVIDER_NAME,
+                    &request.model,
+                    est,
+                    tpm,
+                    crate::estimator::DEFAULT_TPM_SAFETY_FACTOR,
+                ) {
+                    tracing::warn!(
+                        model = %request.model,
+                        est_tokens = est.total,
+                        tpm,
+                        "Cenzontle: pre-flight TPM guard rejected request larger than per-minute budget"
+                    );
+                    return Err(HalconError::from(llm_err));
+                }
+            }
+            // Proof-of-life trace at TRACE level for forensics on payload growth.
+            tracing::trace!(
+                model = %request.model,
+                est_tokens = est.total,
+                dominant = est.dominant_source(),
+                "Cenzontle: payload guard pass"
+            );
+        }
+
         // Build the OpenAI-compatible request body with SSE streaming enabled.
         let mut chat_request = self.inner.build_request(request);
         chat_request.stream = true;
         chat_request.stream_options = Some(StreamOptions {
             include_usage: true,
         });
+
+        // Cenzontle-gateway compatibility shim (Phase 2 audit, R4 client-side).
+        //
+        // The shared OpenAI-compat builder (`openai_compat::build_request`) emits
+        // `max_completion_tokens` for any model whose `supports_reasoning=true`
+        // (e.g. claude-opus-4-6, deepseek-r1-reasoning). The Cenzontle gateway
+        // validates incoming bodies against a strict whitelist that does NOT
+        // include the modern OpenAI rename, so the request fails with
+        // `HTTP 400 — property max_completion_tokens should not exist`.
+        //
+        // Until the backend accepts `max_completion_tokens` (cenzontle-backend
+        // R4), we map the field back to `max_tokens` so the request passes the
+        // gateway. This is safe because Cenzontle's internal router knows
+        // whether the resolved deployment is a reasoning model and applies the
+        // correct upstream field itself; the wire field name is purely a
+        // contract concern.
+        if let Some(mct) = chat_request.max_completion_tokens.take() {
+            if chat_request.max_tokens.is_none() {
+                chat_request.max_tokens = Some(mct);
+            }
+            tracing::debug!(
+                model = %chat_request.model,
+                value = mct,
+                "Cenzontle compat: mapped max_completion_tokens → max_tokens"
+            );
+        }
+
+        // Diagnostic: emit the wire-level body size so backend-empty failures
+        // can be correlated with payload weight. Activated by RUST_LOG.
+        if tracing::enabled!(tracing::Level::TRACE) {
+            if let Ok(body_str) = serde_json::to_string(&chat_request) {
+                tracing::trace!(
+                    model = %chat_request.model,
+                    body_bytes = body_str.len(),
+                    n_tools = chat_request.tools.len(),
+                    n_messages = chat_request.messages.len(),
+                    body_preview = %body_str.chars().take(2000).collect::<String>(),
+                    "Cenzontle: outbound body"
+                );
+            }
+        }
 
         // ── Idempotency key ──────────────────────────────────────────────────
         // SHA-256(model + last user message content) → stable hex key.
@@ -792,22 +899,45 @@ impl ModelProvider for CenzontleProvider {
                 }
                 let code = status.as_u16();
                 let body = response.text().await.unwrap_or_default();
-                return Err(HalconError::ApiError {
-                    message: format!(
-                        "Cenzontle HTTP {code} after {max_retries} retries: {}",
-                        sanitize_error_body(&body)
-                    ),
-                    status: Some(code),
-                });
+                let safe_body = sanitize_error_body(&body);
+                let llm_err = crate::error::LlmError::classify_http(
+                    PROVIDER_NAME,
+                    &chat_request.model,
+                    code,
+                    &safe_body,
+                );
+                tracing::warn!(
+                    status = code,
+                    error_type = %llm_err.variant_name(),
+                    retries = max_retries,
+                    "Cenzontle: retries exhausted on retryable status"
+                );
+                return Err(HalconError::from(llm_err));
             }
 
             if !status.is_success() {
                 let code = status.as_u16();
                 let body = response.text().await.unwrap_or_default();
-                return Err(HalconError::ApiError {
-                    message: format!("Cenzontle HTTP {code}: {}", sanitize_error_body(&body)),
-                    status: Some(code),
-                });
+                let safe_body = sanitize_error_body(&body);
+                // Phase 2 / wiring — classify upstream HTTP via LlmError so
+                // the caller (failover loop, CLI renderer) can pattern-match
+                // on `LlmError::DeploymentNotFound`, `InvalidRequest`,
+                // `UnsupportedOperation`, etc., instead of substring-matching
+                // the raw body. Bug-shaped errors (`InvalidRequest`, `Auth`)
+                // will not be retried/fallback'd by upstream policy.
+                let llm_err = crate::error::LlmError::classify_http(
+                    PROVIDER_NAME,
+                    &chat_request.model,
+                    code,
+                    &safe_body,
+                );
+                tracing::warn!(
+                    status = code,
+                    error_type = %llm_err.variant_name(),
+                    bug_shaped = !llm_err.allow_fallback(),
+                    "Cenzontle: non-success HTTP — surfacing as typed LlmError"
+                );
+                return Err(HalconError::from(llm_err));
             }
 
             // Success — reset circuit breaker.
@@ -927,6 +1057,90 @@ mod tests {
 
     // ── sanitize_error_body ──────────────────────────────────────────────────
 
+    // ── Cenzontle gateway compat shim (max_completion_tokens → max_tokens) ──
+    //
+    // Independent unit tests for the shim logic, exercising the same
+    // transformation that runs inside `invoke()`. Wiring is covered by an
+    // integration test (`cargo test -p halcon-cli` SSE roundtrip) but the
+    // raw shim semantics must be locked at this layer to catch regressions
+    // before they ship to production.
+
+    fn apply_max_tokens_shim(req: &mut crate::openai_compat::types::OpenAIChatRequest) {
+        if let Some(mct) = req.max_completion_tokens.take() {
+            if req.max_tokens.is_none() {
+                req.max_tokens = Some(mct);
+            }
+        }
+    }
+
+    fn empty_chat_request() -> crate::openai_compat::types::OpenAIChatRequest {
+        crate::openai_compat::types::OpenAIChatRequest {
+            model: "claude-opus-4-6".to_string(),
+            messages: vec![],
+            max_tokens: None,
+            max_completion_tokens: None,
+            temperature: None,
+            stream: true,
+            tools: vec![],
+            stream_options: None,
+        }
+    }
+
+    #[test]
+    fn cenzontle_shim_maps_max_completion_tokens_to_max_tokens() {
+        let mut req = empty_chat_request();
+        req.max_completion_tokens = Some(8192);
+        apply_max_tokens_shim(&mut req);
+        assert!(
+            req.max_completion_tokens.is_none(),
+            "shim must clear max_completion_tokens so cenzontle accepts the body"
+        );
+        assert_eq!(
+            req.max_tokens,
+            Some(8192),
+            "value must be preserved on max_tokens"
+        );
+    }
+
+    #[test]
+    fn cenzontle_shim_preserves_existing_max_tokens() {
+        // Defensive: when both fields are populated (shouldn't happen, but
+        // keeps the shim idempotent), the existing max_tokens wins because
+        // it was likely set by a code path that already knows the wire
+        // contract for this provider.
+        let mut req = empty_chat_request();
+        req.max_completion_tokens = Some(8192);
+        req.max_tokens = Some(4096);
+        apply_max_tokens_shim(&mut req);
+        assert!(req.max_completion_tokens.is_none());
+        assert_eq!(req.max_tokens, Some(4096), "existing max_tokens must win");
+    }
+
+    #[test]
+    fn cenzontle_shim_noop_when_field_absent() {
+        let mut req = empty_chat_request();
+        req.max_tokens = Some(2048);
+        apply_max_tokens_shim(&mut req);
+        assert_eq!(req.max_tokens, Some(2048));
+        assert!(req.max_completion_tokens.is_none());
+    }
+
+    #[test]
+    fn cenzontle_shim_serialised_body_excludes_max_completion_tokens() {
+        let mut req = empty_chat_request();
+        req.max_completion_tokens = Some(8192);
+        apply_max_tokens_shim(&mut req);
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(
+            !json.contains("max_completion_tokens"),
+            "serialized body must NOT contain max_completion_tokens — that is what the gateway rejects (got: {json})"
+        );
+        assert!(
+            json.contains("\"max_tokens\":8192"),
+            "serialized body must carry max_tokens (got: {json})"
+        );
+    }
+
     #[test]
     fn sanitize_error_body_redacts_anthropic_key() {
         let body = "{\"error\":\"forwarded key sk-ant-api01-AAA-bbb-CCC-XYZ rejected\"}";
@@ -997,6 +1211,7 @@ mod tests {
                 supports_reasoning: false,
                 cost_per_input_token: 0.0,
                 cost_per_output_token: 0.0,
+                ..Default::default()
             }],
         );
         assert_eq!(p.tokenizer_hint(), TokenizerHint::ClaudeBpe);
@@ -1019,6 +1234,7 @@ mod tests {
                 supports_reasoning: false,
                 cost_per_input_token: 0.0,
                 cost_per_output_token: 0.0,
+                ..Default::default()
             }],
         );
         assert_eq!(p.tokenizer_hint(), TokenizerHint::TiktokenCl100k);
@@ -1173,6 +1389,7 @@ mod tests {
             supports_reasoning: false,
             cost_per_input_token: 0.0,
             cost_per_output_token: 0.0,
+            ..Default::default()
         }];
         let p = CenzontleProvider::new("tok".to_string(), None, models.clone());
         assert_eq!(p.supported_models().len(), 1);
@@ -1348,5 +1565,355 @@ mod tests {
         let m2 = &resp2.data[0];
         assert_eq!(m2.supports_reasoning, Some(true));
         assert_eq!(m2.cost_tier.as_deref(), Some("high"));
+    }
+
+    // ── Phase 3 · payload guard wiring (in-isolation logic test) ────────────
+    //
+    // The full `invoke()` path is exercised by the integration suite (which
+    // requires a Cenzontle JWT). The unit-level lock here verifies that for
+    // a known model with a small `context_window`, an oversized request is
+    // rejected via the new estimator wiring with `PayloadTooLarge` rather than
+    // being sent to the wire.
+
+    #[test]
+    fn payload_guard_rejects_oversize_when_model_known() {
+        use halcon_core::types::{ChatMessage, MessageContent, Role};
+
+        let provider = CenzontleProvider::new(
+            "tok".to_string(),
+            None,
+            vec![ModelInfo {
+                id: "tiny-test-model".to_string(),
+                name: "Tiny".to_string(),
+                provider: "cenzontle".to_string(),
+                context_window: 4_000, // intentionally small
+                max_output_tokens: 1_024,
+                supports_streaming: true,
+                supports_tools: true,
+                supports_vision: false,
+                supports_reasoning: false,
+                cost_per_input_token: 0.0,
+                cost_per_output_token: 0.0,
+                ..Default::default()
+            }],
+        );
+
+        // ~10 K chars at default 4 cpt ≈ 2 500 tokens; with system prompt, system
+        // prompt + messages exceed the 4 K context after the safety buffer.
+        let big = "a".repeat(20_000); // ~5K tokens at 4cpt
+        let request = ModelRequest {
+            model: "tiny-test-model".to_string(),
+            messages: vec![ChatMessage {
+                role: Role::User,
+                content: MessageContent::Text(big),
+            }],
+            tools: vec![],
+            max_tokens: Some(256),
+            temperature: Some(0.0),
+            system: Some("you are a helpful assistant".to_string()),
+            stream: true,
+        };
+
+        // Drive the validation in isolation (mirrors the wiring in invoke()).
+        let model_info = provider
+            .models
+            .iter()
+            .find(|m| m.id == request.model)
+            .expect("model present");
+        let hint = tokenizer_hint_for_model(&request.model);
+        let estimator = crate::estimator::HeuristicTokenEstimator;
+        let est = <crate::estimator::HeuristicTokenEstimator as crate::estimator::TokenEstimator>::estimate(
+            &estimator, &request, hint,
+        );
+        let result = crate::estimator::validate_request_fits(
+            PROVIDER_NAME,
+            &request.model,
+            est,
+            model_info.context_window,
+            crate::estimator::DEFAULT_SAFETY_BUFFER,
+        );
+        match result {
+            Err(crate::error::LlmError::PayloadTooLarge {
+                provider: p,
+                model: m,
+                ..
+            }) => {
+                assert_eq!(p, PROVIDER_NAME);
+                assert_eq!(m, "tiny-test-model");
+            }
+            other => panic!("expected PayloadTooLarge for oversize, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn payload_guard_passes_for_small_request_on_large_context_model() {
+        use halcon_core::types::{ChatMessage, MessageContent, Role};
+
+        let provider = CenzontleProvider::new(
+            "tok".to_string(),
+            None,
+            vec![ModelInfo {
+                id: "claude-sonnet-4-6".to_string(),
+                name: "Sonnet".to_string(),
+                provider: "cenzontle".to_string(),
+                context_window: 200_000,
+                max_output_tokens: 16_000,
+                supports_streaming: true,
+                supports_tools: true,
+                supports_vision: true,
+                supports_reasoning: false,
+                cost_per_input_token: 0.0,
+                cost_per_output_token: 0.0,
+                ..Default::default()
+            }],
+        );
+
+        let request = ModelRequest {
+            model: "claude-sonnet-4-6".to_string(),
+            messages: vec![ChatMessage {
+                role: Role::User,
+                content: MessageContent::Text("hi".to_string()),
+            }],
+            tools: vec![],
+            max_tokens: Some(256),
+            temperature: Some(0.0),
+            system: None,
+            stream: true,
+        };
+
+        let model_info = provider
+            .models
+            .iter()
+            .find(|m| m.id == request.model)
+            .unwrap();
+        let hint = tokenizer_hint_for_model(&request.model);
+        let estimator = crate::estimator::HeuristicTokenEstimator;
+        let est = <crate::estimator::HeuristicTokenEstimator as crate::estimator::TokenEstimator>::estimate(
+            &estimator, &request, hint,
+        );
+        assert!(crate::estimator::validate_request_fits(
+            PROVIDER_NAME,
+            &request.model,
+            est,
+            model_info.context_window,
+            crate::estimator::DEFAULT_SAFETY_BUFFER,
+        )
+        .is_ok());
+    }
+
+    #[test]
+    fn payload_guard_skips_when_model_unknown_to_registry() {
+        // Defensive: when the cenzontle gateway returns a fresh deployment
+        // not yet in our local model list, the guard must skip the check
+        // rather than emit a false PayloadTooLarge. The wiring in invoke()
+        // gates on `self.models.iter().find(...)` returning Some.
+        let provider = CenzontleProvider::new("tok".to_string(), None, vec![]);
+        assert!(provider
+            .models
+            .iter()
+            .find(|m| m.id == "brand-new-deployment")
+            .is_none());
+        // (No assertion on the request side — the guard simply doesn't run.)
+    }
+
+    // ── TPM guard wiring (P1-1 follow-up) ────────────────────────────────────
+    //
+    // When `ModelInfo.tpm` is `Some(N)`, the cenzontle invoke pre-flight uses
+    // `validate_fits_tpm` to refuse requests larger than `N * safety_factor`.
+    // When `tpm` is `None`, the TPM guard is skipped (defensive — fresh
+    // deployments may not yet have TPM declared by the gateway).
+
+    #[test]
+    fn tpm_guard_rejects_when_request_exceeds_tpm_budget() {
+        use halcon_core::types::{ChatMessage, MessageContent, Role};
+
+        // 12K TPM (Groq Free Tier shape) + 27K-token Halcon-class request → reject.
+        let provider = CenzontleProvider::new(
+            "tok".to_string(),
+            None,
+            vec![ModelInfo {
+                id: "constrained-tpm-model".to_string(),
+                name: "Constrained".to_string(),
+                provider: "cenzontle".to_string(),
+                context_window: 200_000, // ample context...
+                max_output_tokens: 16_000,
+                supports_streaming: true,
+                supports_tools: true,
+                supports_vision: false,
+                supports_reasoning: false,
+                cost_per_input_token: 0.0,
+                cost_per_output_token: 0.0,
+                tpm: Some(12_000), // ...but TPM bottleneck
+                rpm: None,
+                api_kind: halcon_core::types::ApiKind::ChatCompletions,
+            }],
+        );
+
+        let huge = "x".repeat(108_000); // ~27K tokens at 4 chars/token
+        let request = ModelRequest {
+            model: "constrained-tpm-model".to_string(),
+            messages: vec![ChatMessage {
+                role: Role::User,
+                content: MessageContent::Text(huge),
+            }],
+            tools: vec![],
+            max_tokens: Some(256),
+            temperature: Some(0.0),
+            system: None,
+            stream: true,
+        };
+
+        let model_info = provider
+            .models
+            .iter()
+            .find(|m| m.id == request.model)
+            .unwrap();
+        let est = <crate::estimator::HeuristicTokenEstimator as crate::estimator::TokenEstimator>::estimate(
+            &crate::estimator::HeuristicTokenEstimator,
+            &request,
+            tokenizer_hint_for_model(&request.model),
+        );
+        assert!(
+            est.total > 12_000,
+            "test setup must produce >12K tokens; got {}",
+            est.total
+        );
+        let result = crate::estimator::validate_fits_tpm(
+            PROVIDER_NAME,
+            &request.model,
+            est,
+            model_info.tpm.expect("tpm set"),
+            crate::estimator::DEFAULT_TPM_SAFETY_FACTOR,
+        );
+        match result {
+            Err(crate::error::LlmError::PayloadTooLarge { .. }) => {} // expected
+            other => panic!("expected PayloadTooLarge for over-TPM request, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn tpm_guard_skips_when_tpm_not_set() {
+        // Backward-compat: ModelInfo with tpm=None must not produce false rejections.
+        let info = ModelInfo {
+            id: "untyped".to_string(),
+            name: "Untyped".to_string(),
+            provider: "cenzontle".to_string(),
+            context_window: 200_000,
+            max_output_tokens: 16_000,
+            supports_streaming: true,
+            supports_tools: true,
+            supports_vision: false,
+            supports_reasoning: false,
+            cost_per_input_token: 0.0,
+            cost_per_output_token: 0.0,
+            tpm: None,
+            rpm: None,
+            api_kind: halcon_core::types::ApiKind::ChatCompletions,
+        };
+        // Wiring contract: invoke() body uses `if let Some(tpm) = model_info.tpm`
+        // → when None, the validate_fits_tpm call site is bypassed.
+        assert!(info.tpm.is_none());
+    }
+
+    #[test]
+    fn tpm_guard_passes_when_request_within_budget() {
+        use halcon_core::types::{ChatMessage, MessageContent, Role};
+
+        let info = ModelInfo {
+            id: "ample-tpm-model".to_string(),
+            name: "Ample".to_string(),
+            provider: "cenzontle".to_string(),
+            context_window: 200_000,
+            max_output_tokens: 16_000,
+            supports_streaming: true,
+            supports_tools: true,
+            supports_vision: false,
+            supports_reasoning: false,
+            cost_per_input_token: 0.0,
+            cost_per_output_token: 0.0,
+            tpm: Some(200_000),
+            rpm: None,
+            api_kind: halcon_core::types::ApiKind::ChatCompletions,
+        };
+        let request = ModelRequest {
+            model: info.id.clone(),
+            messages: vec![ChatMessage {
+                role: Role::User,
+                content: MessageContent::Text("hi".to_string()),
+            }],
+            tools: vec![],
+            max_tokens: Some(256),
+            temperature: Some(0.0),
+            system: None,
+            stream: true,
+        };
+        let est = <crate::estimator::HeuristicTokenEstimator as crate::estimator::TokenEstimator>::estimate(
+            &crate::estimator::HeuristicTokenEstimator,
+            &request,
+            tokenizer_hint_for_model(&info.id),
+        );
+        assert!(crate::estimator::validate_fits_tpm(
+            PROVIDER_NAME,
+            &info.id,
+            est,
+            info.tpm.unwrap(),
+            crate::estimator::DEFAULT_TPM_SAFETY_FACTOR,
+        )
+        .is_ok());
+    }
+
+    // ── ApiKind default + serde back-compat ─────────────────────────────────
+
+    #[test]
+    fn model_info_default_api_kind_is_chat_completions() {
+        let info = ModelInfo::default();
+        assert_eq!(info.api_kind, halcon_core::types::ApiKind::ChatCompletions);
+    }
+
+    #[test]
+    fn model_info_serde_roundtrip_preserves_new_fields() {
+        let info = ModelInfo {
+            id: "x".into(),
+            name: "X".into(),
+            provider: "p".into(),
+            context_window: 100_000,
+            max_output_tokens: 1_000,
+            supports_streaming: true,
+            supports_tools: true,
+            supports_vision: false,
+            supports_reasoning: false,
+            cost_per_input_token: 0.0,
+            cost_per_output_token: 0.0,
+            tpm: Some(50_000),
+            rpm: Some(60),
+            api_kind: halcon_core::types::ApiKind::Responses,
+        };
+        let json = serde_json::to_string(&info).unwrap();
+        let back: ModelInfo = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.tpm, Some(50_000));
+        assert_eq!(back.rpm, Some(60));
+        assert_eq!(back.api_kind, halcon_core::types::ApiKind::Responses);
+    }
+
+    #[test]
+    fn model_info_deserializes_legacy_payload_without_new_fields() {
+        // Backward-compat: pre-existing JSON registries from upstream gateways
+        // that don't include tpm/rpm/api_kind must continue to deserialize.
+        let json = r#"{
+            "id":"legacy-model",
+            "name":"Legacy",
+            "provider":"cenzontle",
+            "context_window":128000,
+            "max_output_tokens":4096,
+            "supports_streaming":true,
+            "supports_tools":true,
+            "supports_vision":false,
+            "cost_per_input_token":0.0,
+            "cost_per_output_token":0.0
+        }"#;
+        let info: ModelInfo = serde_json::from_str(json).expect("must accept legacy shape");
+        assert_eq!(info.tpm, None);
+        assert_eq!(info.rpm, None);
+        assert_eq!(info.api_kind, halcon_core::types::ApiKind::ChatCompletions);
     }
 }

@@ -1037,6 +1037,7 @@ mod tests {
                 supports_reasoning: false,
                 cost_per_input_token: 0.1 / 1_000_000.0,
                 cost_per_output_token: 0.2 / 1_000_000.0,
+                ..Default::default()
             },
             ModelInfo {
                 id: "mid-model".into(),
@@ -1050,6 +1051,7 @@ mod tests {
                 supports_reasoning: false,
                 cost_per_input_token: 2.5 / 1_000_000.0,
                 cost_per_output_token: 10.0 / 1_000_000.0,
+                ..Default::default()
             },
             ModelInfo {
                 id: "expensive-model".into(),
@@ -1063,6 +1065,7 @@ mod tests {
                 supports_reasoning: true,
                 cost_per_input_token: 15.0 / 1_000_000.0,
                 cost_per_output_token: 75.0 / 1_000_000.0,
+                ..Default::default()
             },
             ModelInfo {
                 id: "no-tools-model".into(),
@@ -1076,6 +1079,7 @@ mod tests {
                 supports_reasoning: true,
                 cost_per_input_token: 0.5 / 1_000_000.0,
                 cost_per_output_token: 2.0 / 1_000_000.0,
+                ..Default::default()
             },
         ]
     }
@@ -1349,6 +1353,7 @@ mod tests {
                 supports_reasoning: false,
                 cost_per_input_token: 0.1 / 1_000_000.0,
                 cost_per_output_token: 0.2 / 1_000_000.0,
+                ..Default::default()
             },
             ModelInfo {
                 id: "gemini-flash".into(),
@@ -1362,6 +1367,7 @@ mod tests {
                 supports_reasoning: false,
                 cost_per_input_token: 0.05 / 1_000_000.0,
                 cost_per_output_token: 0.1 / 1_000_000.0,
+                ..Default::default()
             },
         ];
         let selector = ModelSelector {
@@ -1395,6 +1401,7 @@ mod tests {
                 supports_reasoning: false,
                 cost_per_input_token: 10.0 / 1_000_000.0,
                 cost_per_output_token: 20.0 / 1_000_000.0,
+                ..Default::default()
             },
             ModelInfo {
                 id: "cheap".into(),
@@ -1408,6 +1415,7 @@ mod tests {
                 supports_reasoning: false,
                 cost_per_input_token: 0.01 / 1_000_000.0,
                 cost_per_output_token: 0.02 / 1_000_000.0,
+                ..Default::default()
             },
         ];
         let selector = ModelSelector {
@@ -1586,6 +1594,7 @@ mod tests {
                 supports_reasoning: false,
                 cost_per_input_token: 1.0 / 1_000_000.0,
                 cost_per_output_token: 2.0 / 1_000_000.0,
+                ..Default::default()
             },
             ModelInfo {
                 id: "bad-model".into(),
@@ -1599,6 +1608,7 @@ mod tests {
                 supports_reasoning: false,
                 cost_per_input_token: 1.0 / 1_000_000.0, // same cost as good-model
                 cost_per_output_token: 2.0 / 1_000_000.0,
+                ..Default::default()
             },
         ];
         let selector = ModelSelector {

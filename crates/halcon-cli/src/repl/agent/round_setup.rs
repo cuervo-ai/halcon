@@ -434,96 +434,145 @@ pub(super) async fn run(
     #[cfg(not(feature = "paloma"))]
     let paloma_decision = paloma_router.map(|router| router.route(&routing_req));
 
+    // Phase 2 (R1): empty-response failover pin takes priority over every other
+    // routing input — Paloma, the adaptive selector, and the persistent
+    // `fallback_adapted_model`. This is the deterministic "next iteration uses
+    // a different model" mutation referenced by audit decision C. Consumed via
+    // `take()` so it only applies for one round; another empty re-arms it.
+    let failover_pin: Option<(String, String)> = match (
+        state.failover_pinned_model.take(),
+        state.failover_pinned_provider.take(),
+    ) {
+        (Some(model), Some(provider_name)) => Some((model, provider_name)),
+        (Some(model), None) => Some((model, provider.name().to_string())),
+        (None, _) => None,
+    };
+
     // Optional: context-aware model selection with mid-session re-evaluation.
     // Uses the pipeline's context-managed state.messages for accurate complexity scoring,
     // not the original request (which only has the first user message).
-    let (mut selected_model, effective_provider) = if let Some(ref decision) = paloma_decision {
-        // Paloma decision takes priority — formally verified routing.
-        tracing::info!(
-            model = %decision.model,
-            provider = %decision.provider,
-            tier = ?decision.tier,
-            reason = %decision.reason,
-            "Paloma routing decision"
-        );
-        if !state.silent {
-            render_sink.model_selected(&decision.model, &decision.provider, &decision.reason);
-        }
-        let resolved_provider = registry
-            .and_then(|r| r.get(&decision.provider))
-            .map(Arc::clone)
-            .unwrap_or_else(|| Arc::clone(provider));
-        (decision.model.clone(), resolved_provider)
-    } else if let Some(selector) = model_selector {
-        let spend = session.estimated_cost_usd;
-        // Reuse built_messages (already constructed above) for complexity scoring.
-        let round_context_request = ModelRequest {
-            model: request.model.clone(),
-            messages: built_messages.clone(),
-            tools: state.cached_tools.clone(),
-            max_tokens: request.max_tokens,
-            temperature: request.temperature,
-            system: state.cached_system.clone(),
-            stream: true,
-        };
-        // FASE F / Phase 136: forced_routing_bias (set by model_downgrade_advisory) overrides
-        // the UCB1 strategy bias for this round only. Consumed via take() so subsequent
-        // rounds revert to normal StrategyContext routing unless advisory fires again.
-        let forced_bias = state.forced_routing_bias.take();
-        let routing_bias_hint: Option<&str> = forced_bias.as_deref().or_else(|| {
-            state
-                .strategy_context
-                .as_ref()
-                .and_then(|sc| sc.routing_bias.as_deref())
-        });
-        if let Some(selection) =
-            selector.select_model(&round_context_request, spend, routing_bias_hint)
-        {
-            tracing::debug!(
-                model = %selection.model_id,
-                provider = %selection.provider_name,
-                reason = %selection.reason,
-                "Model selector override"
+    let failover_pin_consumed = failover_pin.is_some();
+    let (mut selected_model, effective_provider) =
+        if let Some((pin_model, pin_provider)) = failover_pin {
+            let resolved_provider = registry
+                .and_then(|r| r.get(&pin_provider))
+                .map(Arc::clone)
+                .unwrap_or_else(|| Arc::clone(provider));
+            tracing::warn!(
+                model = %pin_model,
+                provider = %resolved_provider.name(),
+                requested_provider = %pin_provider,
+                exhausted = ?state.exhausted_models,
+                "R1: failover pin applied — bypassing Paloma + adaptive selector"
             );
             if !state.silent {
                 render_sink.model_selected(
-                    &selection.model_id,
-                    &selection.provider_name,
-                    &selection.reason,
+                    &pin_model,
+                    resolved_provider.name(),
+                    "empty_response_failover",
                 );
             }
-            // Switch provider if the selected model belongs to a different one.
-            let resolved_provider = if selection.provider_name != provider.name() {
-                let looked_up = registry.and_then(|r| r.get(&selection.provider_name));
-                if let Some(p) = looked_up {
-                    tracing::info!(
-                        from = provider.name(),
-                        to = p.name(),
-                        model = %selection.model_id,
-                        "Switched provider for model selection"
-                    );
-                    Arc::clone(p)
-                } else {
-                    tracing::warn!(
-                        target_provider = %selection.provider_name,
-                        "Model selector target provider not in registry, keeping default"
-                    );
-                    Arc::clone(provider)
-                }
-            } else {
-                Arc::clone(provider)
+            (pin_model, resolved_provider)
+        } else if let Some(ref decision) = paloma_decision {
+            // Paloma decision takes priority — formally verified routing.
+            tracing::info!(
+                model = %decision.model,
+                provider = %decision.provider,
+                tier = ?decision.tier,
+                reason = %decision.reason,
+                "Paloma routing decision"
+            );
+            if !state.silent {
+                render_sink.model_selected(&decision.model, &decision.provider, &decision.reason);
+            }
+            let resolved_provider = registry
+                .and_then(|r| r.get(&decision.provider))
+                .map(Arc::clone)
+                .unwrap_or_else(|| Arc::clone(provider));
+            (decision.model.clone(), resolved_provider)
+        } else if let Some(selector) = model_selector {
+            let spend = session.estimated_cost_usd;
+            // Reuse built_messages (already constructed above) for complexity scoring.
+            let round_context_request = ModelRequest {
+                model: request.model.clone(),
+                messages: built_messages.clone(),
+                tools: state.cached_tools.clone(),
+                max_tokens: request.max_tokens,
+                temperature: request.temperature,
+                system: state.cached_system.clone(),
+                stream: true,
             };
-            (selection.model_id, resolved_provider)
+            // FASE F / Phase 136: forced_routing_bias (set by model_downgrade_advisory) overrides
+            // the UCB1 strategy bias for this round only. Consumed via take() so subsequent
+            // rounds revert to normal StrategyContext routing unless advisory fires again.
+            let forced_bias = state.forced_routing_bias.take();
+            let routing_bias_hint: Option<&str> = forced_bias.as_deref().or_else(|| {
+                state
+                    .strategy_context
+                    .as_ref()
+                    .and_then(|sc| sc.routing_bias.as_deref())
+            });
+            if let Some(selection) =
+                selector.select_model(&round_context_request, spend, routing_bias_hint)
+            {
+                tracing::debug!(
+                    model = %selection.model_id,
+                    provider = %selection.provider_name,
+                    reason = %selection.reason,
+                    "Model selector override"
+                );
+                if !state.silent {
+                    render_sink.model_selected(
+                        &selection.model_id,
+                        &selection.provider_name,
+                        &selection.reason,
+                    );
+                }
+                // Switch provider if the selected model belongs to a different one.
+                let resolved_provider = if selection.provider_name != provider.name() {
+                    let looked_up = registry.and_then(|r| r.get(&selection.provider_name));
+                    if let Some(p) = looked_up {
+                        tracing::info!(
+                            from = provider.name(),
+                            to = p.name(),
+                            model = %selection.model_id,
+                            "Switched provider for model selection"
+                        );
+                        Arc::clone(p)
+                    } else {
+                        tracing::warn!(
+                            target_provider = %selection.provider_name,
+                            "Model selector target provider not in registry, keeping default"
+                        );
+                        Arc::clone(provider)
+                    }
+                } else {
+                    Arc::clone(provider)
+                };
+                (selection.model_id, resolved_provider)
+            } else {
+                (request.model.clone(), Arc::clone(provider))
+            }
         } else {
             (request.model.clone(), Arc::clone(provider))
-        }
-    } else {
-        (request.model.clone(), Arc::clone(provider))
-    };
+        };
 
     // Phase 30: if a previous round's fallback adapted the model, use it.
-    if let Some(ref adapted) = state.fallback_adapted_model {
-        selected_model = adapted.clone();
+    //
+    // Phase 2 (R1): the failover pin must take strict priority over the
+    // persistent `fallback_adapted_model`. Without this guard, the latched
+    // `fallback_adapted_model` (set by the FIRST failover) would clobber
+    // every subsequent pin, freezing the loop on a single fallback while
+    // each empty round only nudges `exhausted_models` — i.e. the user-visible
+    // bug where a 4-step `[a, b, c, d]` walk gets stuck retrying `b` forever.
+    if !failover_pin_consumed {
+        if let Some(ref adapted) = state.fallback_adapted_model {
+            selected_model = adapted.clone();
+        }
+    } else {
+        // Update the persistent latch to the pin's value so post-pin code
+        // paths that read `fallback_adapted_model` see the correct identity.
+        state.fallback_adapted_model = Some(selected_model.clone());
     }
 
     // Phase 32: persist model selector override for cross-round stability.

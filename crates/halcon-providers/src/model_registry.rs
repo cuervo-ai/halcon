@@ -308,6 +308,7 @@ fn infer_model_info(id: &str, provider: &str, _base_url: &str) -> ModelInfo {
         supports_reasoning,
         cost_per_input_token: cost_in,
         cost_per_output_token: cost_out,
+        ..Default::default()
     }
 }
 
@@ -396,6 +397,7 @@ fn model(
         supports_reasoning: reasoning,
         cost_per_input_token: cost_in_per_m / 1_000_000.0,
         cost_per_output_token: cost_out_per_m / 1_000_000.0,
+        ..Default::default()
     }
 }
 
