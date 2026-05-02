@@ -17,6 +17,7 @@ mod setup;
 // Phase 4: LoopState decomposition scaffolding — additive snapshot types.
 mod loop_state_roles;
 // Phase 1: Structured loop event emission (round_started, guard_fired, etc.).
+mod error_label;
 mod loop_events;
 mod plan_formatter;
 mod planning_policy;

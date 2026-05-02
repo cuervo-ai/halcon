@@ -96,6 +96,12 @@ pub struct AppState {
     pub focus: FocusZone,
     /// Whether the agent loop is currently running.
     pub agent_running: bool,
+    /// Phase H6 (Frontier UX): set to `true` whenever a `UiEvent::Error`
+    /// fires during the current prompt processing. Reset to `false` at
+    /// `RoundStart`. When `AgentDone` arrives with this flag still `true`,
+    /// the "Agent completed" success toast is suppressed — the user already
+    /// saw the error and should not get a confusing success acknowledgement.
+    pub current_round_had_error: bool,
     /// Whether the user has requested quit.
     pub should_quit: bool,
     /// Spinner frame index (cycles during inference).
@@ -218,6 +224,7 @@ impl AppState {
         Self {
             focus: FocusZone::Prompt,
             agent_running: false,
+            current_round_had_error: false,
             should_quit: false,
             spinner_frame: 0,
             spinner_active: false,

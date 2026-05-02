@@ -907,6 +907,25 @@ pub(super) async fn run(
                             error = %err_label,
                             "Phase 2 closure: stream error with no partial output — surfacing as ProviderError, NOT EmptyResponse"
                         );
+                        // Phase H5 (Frontier observability): persist a typed
+                        // RoundFailed event with the per-attempt context. This
+                        // is what dashboards and post-mortem queries join
+                        // against to understand cascade behaviour.
+                        let error_type = super::error_label::classify_error_label(&err_label);
+                        super::loop_events::emit(
+                            &state.session_id.to_string(),
+                            round as u32,
+                            super::loop_events::LoopEvent::RoundFailed {
+                                round,
+                                provider: used_provider_name.clone(),
+                                model: round_request.model.clone(),
+                                error_type,
+                                latency_ms: round_start.elapsed().as_millis() as u64,
+                                retry_count: round_retry_count,
+                                hint: err_label.chars().take(256).collect::<String>(),
+                            },
+                            trace_db,
+                        );
                         // Emit AgentCompleted so external listeners (TUI,
                         // metrics) see a typed completion rather than a
                         // hung session.

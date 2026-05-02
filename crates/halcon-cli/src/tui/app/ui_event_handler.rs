@@ -197,6 +197,11 @@ impl TuiApp {
                 self.activity_model.push_error(&message, hint.as_deref());
                 self.toasts
                     .push(Toast::new(truncate_str(&message, 40), ToastLevel::Error));
+                // Phase H6 (Frontier UX): mark this round as errored so the
+                // subsequent `AgentDone` does NOT show a misleading "Agent
+                // completed" success toast. The user already saw the typed
+                // error toast; an additional success ack would be confusing.
+                self.state.current_round_had_error = true;
 
                 // Phase 4C: CRITICAL FIX - Force unlock input on ANY error to prevent stuck UI
                 // When provider errors occur (auth, quota, etc.), we MUST guarantee input remains accessible.
@@ -370,11 +375,27 @@ impl TuiApp {
                         prompts_queued = self.state.prompts_queued,
                         "AgentDone: prompts still queued - agent will process next prompt"
                     );
+                } else if self.state.current_round_had_error {
+                    // Phase H6 (Frontier UX): the round produced a typed error
+                    // that the user already saw via UiEvent::Error toast +
+                    // activity row. Showing "Agent completed" now would be
+                    // misleading. Suppress the success ack and instead emit
+                    // a faded informational ack so the user knows the runtime
+                    // returned to idle.
+                    tracing::debug!(
+                        "AgentDone after error in round — suppressing 'Agent completed' success toast"
+                    );
+                    self.toasts.push(Toast::new(
+                        "Agent finished (with errors)",
+                        ToastLevel::Warning,
+                    ));
                 } else {
-                    // Only show completion toast if queue is empty
+                    // Only show completion toast if queue is empty AND no error fired.
                     self.toasts
                         .push(Toast::new("Agent completed", ToastLevel::Success));
                 }
+                // Reset error flag for the next prompt regardless of outcome.
+                self.state.current_round_had_error = false;
 
                 // Log final state AFTER changes
                 tracing::debug!(
