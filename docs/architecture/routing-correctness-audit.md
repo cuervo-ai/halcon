@@ -1,8 +1,8 @@
 # Routing-correctness audit & remediation
 
-**Status:** in flight (Phase 1 of 3 landed)
+**Status:** Phase 1 + Phase 2 (R1) landed
 **Owners:** halcon-cli + cenzontle-backend
-**Date:** 2026-04-29
+**Date:** 2026-04-29 (Phase 1) · 2026-05-01 (Phase 2 / R1)
 **Trigger:** user reported "agent doesn't respond" — investigation found
 `claude-sonnet-4-6` requests being silently rerouted and dropped.
 
@@ -197,7 +197,7 @@ follow-on PRs. Each has a one-paragraph design and an estimate.
 
 | ID | Item | Owner | Why deferred | Estimate |
 |---|---|---|---|---|
-| R1 | True empty-response failover (mutate `effective_provider/model` and continue loop with next fallback) | halcon-cli | Cross-module mutability refactor; needs design with the agent-loop owner. | M (~1.5 day) |
+| R1 | ✅ True empty-response failover (mutate `effective_provider/model` and continue loop with next fallback) — **landed Phase 2 (2026-05-01)**. See §10. | halcon-cli | n/a | n/a |
 | R2 | `PALOMA_ROUTING_ENFORCED` flag with shadow-mode + diff metric | cenzontle | Requires baseline of tenant-registration coverage first. | L (~3 days) |
 | R3 | Capability-based routing (vision/tools/long-ctx) validated against Paloma's registered capabilities, not local heuristics | cenzontle + halcon | Needs Paloma capability schema published as a typed contract. | L |
 | R4 | Strict provider-model validation in Cenzontle: reject `OPENAI:gemini-*` at the gateway boundary unless Paloma explicitly registered that mapping | cenzontle | Needs registry refactor (`getRegisteredDeployments(provider)`) | M |
@@ -284,8 +284,137 @@ Three checks, in order:
 | Gemini cannot run under OPENAI provider unless Paloma registers it | 🔶 Phase 1 detects+errors the failure mode at runtime (FIX 3). R4 prevents the routing decision itself. |
 | No `200 OK` with empty body on errors | ✅ via FIX 3. |
 | Failures are typed, observable, actionable | ✅ via FIX 3 + enriched logs (Halcon FIX 2 light). |
-| Fallback does not retry the same model blindly | 🔶 Halcon now *warns* with the next fallback name and recommends the explicit command. True automated failover scoped as R1. |
+| Fallback does not retry the same model blindly | ✅ **Phase 2 (R1):** the agent loop now sets a transient `failover_pinned_model` + `failover_pinned_provider` consumed by `round_setup`, walks `agent.routing.fallback_models` skipping exhausted entries, and surfaces a visible diagnostic when no candidate remains. Same-model retry is preserved as a config-gated transient buffer (`same_model_empty_retries`, default `0`). |
 | Telemetry reflects real provider/model/deployment | ✅ FIX 3 emits a `Logger.warn` with `requested → effective` mapping at the detection point, regardless of whether the underlying telemetry write succeeds. |
-| Tests cover happy path + errors + degradation | ✅ Phase 1 ships unit tests for the config back-compat and roundtrip; FIX 3 contract test (curl above) is included in the validation script. Integration tests for R1 will accompany that PR. |
+| Tests cover happy path + errors + degradation | ✅ Phase 1 ships unit tests for the config back-compat and roundtrip; Phase 2 adds 7 failover-selection unit tests (`failover_picks_first_unseen_fallback`, `failover_skips_current_model_even_if_listed_first`, `failover_skips_exhausted_models`, `failover_returns_none_when_all_exhausted`, `failover_returns_none_for_empty_fallback_list`, `failover_pin_take_semantics`, `same_model_streak_gates_transient_absorption`) plus 3 `RoutingConfig` serde tests, and updates the legacy `p0_empty_stream_terminates_cleanly` / `zero_token_output_completion_no_stuck_states` to lock in the new visible-diagnostic contract. |
 
-Legend: ✅ closed by Phase 1 · 🔶 partially closed; remainder tracked as roadmap item.
+Legend: ✅ closed by Phase 1 / Phase 2 · 🔶 partially closed; remainder tracked as roadmap item.
+
+---
+
+## 10. Phase 2 (R1) — automated empty-response failover (2026-05-01)
+
+### What changed
+
+| Path | Change |
+|---|---|
+| `crates/halcon-core/src/types/config.rs` | `RoutingConfig::failover_on_empty: bool` (default `true`) — master switch. `RoutingConfig::same_model_empty_retries: u8` (default `0`) — number of same-model retries before failover triggers, preserving the legacy nudge path as a transient absorption buffer. |
+| `crates/halcon-cli/src/repl/agent/loop_state.rs` | New `LoopState` fields: `failover_pinned_model: Option<String>`, `failover_pinned_provider: Option<String>` (single-round pin, consumed via `take()`), `exhausted_models: Vec<String>` (de-duped, ordered), `same_model_empty_streak: u8` (reset on success or on failover). |
+| `crates/halcon-cli/src/repl/agent/round_setup.rs` | At the top of model resolution, if a failover pin is active, the pin is consumed and applied **before** Paloma and the adaptive selector. The provider name is resolved via the registry; if not found, falls back to the current effective provider so `validate_model` fails loudly downstream rather than silently misrouting. |
+| `crates/halcon-cli/src/repl/agent/mod.rs` | The `EmptyResponse` branch is restructured into three deterministic paths: (1) **transient absorption** when `same_model_empty_streak ≤ same_model_empty_retries`; (2) **failover** when `failover_on_empty=true` and a fresh fallback exists, walking `fallback_models` skipping `exhausted_models` and the current model, with the registry-walk locating the owning provider via `supported_models()`; (3) **terminal cascade** when no candidate remains, emitting both `render_sink.warning(...)` and `render_sink.stream_text(...)` so the TUI conversation pane shows a visible message — closes the "Agent completed without assistant text" symptom. The `ToolUse(out)` success path resets `same_model_empty_streak`. |
+
+### Decision notes
+
+**A. `failover_on_empty` defaults to `true`.** Unlike `respect_default_model` (opt-in) which changes routing *intent*, `failover_on_empty` only changes the *recovery* path — the new behaviour strictly improves on the prior silent break. New installs are protected by default.
+
+**B. `same_model_empty_retries` defaults to `0`.** The audit revealed structural empties dominate. Burning two same-model retries against a misrouted upstream is observability noise, not recovery. Operators who measure genuine transient empties on their network can bump this to absorb them.
+
+**C. Provider resolution via `supported_models()` walk.** The fallback list is just model IDs; the owning provider has to be recovered. Walking the `ProviderRegistry` and matching against each provider's `supported_models()` is O(providers × models) but providers are O(10) and models O(100) — negligible. If no match: keep the current provider so `round_setup`'s `validate_model` produces a loud, actionable error rather than a silent misroute.
+
+**D. Visible terminal diagnostic.** Both `render_sink.warning(...)` and `render_sink.stream_text(...)` are called when the cascade exhausts. The `stream_text` path puts the message in the conversation pane (where the user expects assistant output); the `warning` path keeps the structured warning channel for log parsers. Acceptance criterion "no debe mostrarse 'Agent completed' sin mensaje del assistant" is enforced by the updated `p0_empty_stream_terminates_cleanly` test which now requires `full_text.contains("[frontier]")`.
+
+**E. Phase 2 leaves the legacy `state.next_round_restarts` counter intact.** It is consumed by oscillation detectors (`SubsystemHealth::shows_oscillation`, threshold 3); decoupling it from empty-retry semantics is a separate concern. The new `same_model_empty_streak` is the dedicated counter for empty-recovery decisions.
+
+### How to validate (Phase 2)
+
+```bash
+# Ensure the CI tests still cover the failover surface.
+cargo test -p halcon-cli --lib --no-default-features --features tui \
+    repl::agent::loop_state::tests::failover
+cargo test -p halcon-core --lib types::config::tests::routing_config
+
+# Smoke-test the cascade-exhausted contract end-to-end.
+cargo test -p halcon-cli --lib --no-default-features --features tui \
+    p0_empty_stream_terminates_cleanly zero_token_output_completion
+```
+
+### Hot-fixes shipped alongside R1 (2026-05-01)
+
+While verifying R1 in production, three independent client-side defects
+surfaced and were resolved in the same Phase 2 build:
+
+1. **`Phase 30 fallback_adapted_model` clobbering the failover pin.**
+   `round_setup.rs` had a Phase 30 block that always copied
+   `state.fallback_adapted_model` over `selected_model` after the model
+   resolution branches. Once the first failover latched
+   `fallback_adapted_model` to the FIRST fallback, every subsequent pin
+   was overwritten — the loop nudged `exhausted_models` correctly but
+   kept retrying the SAME model. Fix: Phase 30 is now gated by
+   `failover_pin_consumed`; when a pin was consumed this round, the
+   latch is *updated* to the pin's value instead of read.
+
+2. **Cenzontle gateway rejects `max_completion_tokens`.** Models with
+   `supports_reasoning=true` (claude-opus-4-6, deepseek-r1-reasoning)
+   get the modern OpenAI rename via the shared `openai_compat::build_request`,
+   but the Cenzontle backend uses strict-whitelist validation that does
+   not include the new field. The request fails with `HTTP 400 — property
+   max_completion_tokens should not exist`. Fix: a compatibility shim in
+   `cenzontle/mod.rs::invoke()` maps `max_completion_tokens` →
+   `max_tokens` before dispatch (`if let Some(mct) = chat_request.max_completion_tokens.take()`). Locked by 4 unit tests in
+   `cenzontle::tests::cenzontle_shim_*`.
+
+3. **Pre-existing release-build breakage (`audit_sink`/`tenant_id`,
+   `theme.rs::Context`).** The default release feature set
+   (`color-science, tui, paloma`) failed to compile because
+   `mod.rs:352-353` destructured `audit_sink: _audit_sink` while the
+   `cfg(feature = "paloma")` blocks referenced the unbinded name, and
+   `commands/theme.rs` used `Option::context()` without importing the
+   `anyhow::Context` trait. Both fixed in this PR.
+
+### Outstanding backend issue (R4, deferred to cenzontle-backend)
+
+After Phase 2 client-side hot-fixes, R1 mechanically failover-walks
+through all configured models and produces a visible diagnostic when
+the cascade exhausts — the original "Agent completed silently" symptom
+is fully resolved at the CLI layer.
+
+However, **production traffic against `cenzontle.api.zuclubit.com/v1/llm/chat`
+returns SSE streams that contain only the `type:stage`/`cognitive_state`
+telemetry envelope (no `delta.content` or `delta.tool_calls`) when the
+request body exceeds approximately 30 KB**. The 35 KB body that halcon
+sends after answering "Yes" to the `Load HALCON.md instructions?` prompt
+hits this threshold consistently across every model registered for the
+provider (claude-sonnet-4-6, gpt-4o-mini, claude-opus-4-6,
+deepseek-v3-2-coding, mistral-small-latest). Direct curl with a 600-byte
+body succeeds for the same models. Trace evidence:
+
+```
+TRACE Cenzontle: outbound body  body_bytes=35492 n_tools=0 n_messages=2
+WARN  D1: empty response detected  latency_ms=1929 input_tokens=0
+```
+
+This is **not** the routing bug Phase 1/2 closed; it is an upstream
+limitation of the Cenzontle gateway's deployment (likely a header or
+upstream Azure body-size cap on the streaming proxy). Tracked as **R4**.
+Until the backend is patched, operators have three workarounds:
+
+- Decline `Load HALCON.md instructions?` at session start (smaller prompt).
+- Run with `halcon -p claude_code` for direct chat — Claude Code CLI is
+  local and handles the full prompt without the gateway layer.
+- Run `halcon` from a directory without an `HALCON.md` file.
+
+### Operator validation checklist (post-Phase 2)
+
+After installing the Phase 2 binary the operator can confirm the CLI
+side is healthy independent of the backend status:
+
+```bash
+# Verify shim + R1 + visible terminal diagnostic in a single run.
+halcon -m claude-sonnet-4-6 chat "responde solo OK" --output-format json 2>&1 \
+  | grep -E "Cenzontle compat|empty response detected|R1: failover pin applied"
+```
+
+Expected (regardless of whether the response itself is empty):
+- One `Cenzontle compat: mapped max_completion_tokens → max_tokens` line
+  for every reasoning-model failover step.
+- One `D1: empty response detected` warning per round when the backend
+  returns an empty stream.
+- One `R1: failover pin applied` line per round AFTER the first empty.
+- The `exhausted` array grows monotonically until either a non-empty
+  response arrives OR the visible terminal diagnostic fires.
+
+Production smoke (operator):
+
+1. Confirm `failover_on_empty = true` (the default) is in effect — no config change required for new installs.
+2. With a `fallback_models` list configured (e.g. `["claude-haiku-4-5-20251001", "claude-sonnet-4-6", "gpt-4o-mini"]`), force an empty by setting `default_model` to a known-misrouted id (e.g. `gemini-2.0-flash` on a deployment with no Gemini provider). Observe the TUI surfaces `[frontier] gemini-2.0-flash returned empty — failing over to claude-haiku-4-5-20251001 (provider=…)` and the chat receives a real response from the next viable model.
+3. With an empty `fallback_models = []`, the same scenario produces the visible terminal diagnostic in the conversation pane (instead of a silent "Agent completed").

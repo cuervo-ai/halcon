@@ -100,6 +100,7 @@ impl BedrockProvider {
                 supports_reasoning: false,
                 cost_per_input_token: 3.0 / 1_000_000.0,
                 cost_per_output_token: 15.0 / 1_000_000.0,
+                ..Default::default()
             })
             .collect()
     }

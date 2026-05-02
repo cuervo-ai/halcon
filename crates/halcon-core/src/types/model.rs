@@ -1,7 +1,14 @@
 use serde::{Deserialize, Serialize};
 
 /// Information about a model available through a provider.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// **Backward-compatibility note**: every field added after the original
+/// 11-field shape (`tpm`, `rpm`, `api_kind`) defaults to `None` / `Default`
+/// via `#[serde(default)]`, so older JSON payloads from upstream registries
+/// continue to deserialize without modification. Constructors use the
+/// `..Default::default()` pattern; pre-existing struct literals were updated
+/// in tandem when these fields were added.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ModelInfo {
     pub id: String,
     pub name: String,
@@ -15,6 +22,38 @@ pub struct ModelInfo {
     pub supports_reasoning: bool,
     pub cost_per_input_token: f64,
     pub cost_per_output_token: f64,
+    /// Tokens-per-minute budget for this deployment. `None` when the
+    /// upstream gateway / discovery endpoint did not report it. Consumed
+    /// by `halcon_providers::estimator::validate_fits_tpm` to skip
+    /// candidates whose per-minute budget cannot serve the request size.
+    #[serde(default)]
+    pub tpm: Option<u32>,
+    /// Requests-per-minute budget for this deployment. `None` when not
+    /// reported by the upstream registry.
+    #[serde(default)]
+    pub rpm: Option<u32>,
+    /// API surface this deployment exposes. Used by the router to refuse
+    /// chat-completions calls against `Responses`-only deployments
+    /// (e.g. `gpt-51-codex-mini` on Azure AI Services).
+    #[serde(default)]
+    pub api_kind: ApiKind,
+}
+
+/// API surface a deployment supports. Defaults to `ChatCompletions` since
+/// that is the dominant shape across providers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ApiKind {
+    /// OpenAI-style `/chat/completions` API. The default for most models.
+    #[default]
+    ChatCompletions,
+    /// OpenAI Responses API. Required by some Azure AI deployments
+    /// (e.g. `gpt-51-codex-mini`) which reject chat-completions calls.
+    Responses,
+    /// Native Anthropic Messages API (api.anthropic.com).
+    Anthropic,
+    /// Native Google Gemini API.
+    Gemini,
 }
 
 /// A request to a model provider.

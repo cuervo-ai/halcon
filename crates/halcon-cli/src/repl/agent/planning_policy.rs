@@ -301,6 +301,7 @@ mod tests {
             supports_reasoning,
             cost_per_input_token: 0.000_001,
             cost_per_output_token: 0.000_002,
+            ..Default::default()
         }
     }
 

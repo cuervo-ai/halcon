@@ -299,6 +299,7 @@ impl ClaudeCodeProvider {
                 supports_reasoning: false,
                 cost_per_input_token: 0.0,
                 cost_per_output_token: 0.0,
+                ..Default::default()
             },
             ModelInfo {
                 id: "claude-opus-4-6".into(),
@@ -313,6 +314,7 @@ impl ClaudeCodeProvider {
                 // Billed via Claude subscription, not tracked here.
                 cost_per_input_token: 0.0,
                 cost_per_output_token: 0.0,
+                ..Default::default()
             },
             ModelInfo {
                 // Allow the command name (e.g. "claude") as a model alias.
@@ -327,6 +329,7 @@ impl ClaudeCodeProvider {
                 supports_reasoning: false,
                 cost_per_input_token: 0.0,
                 cost_per_output_token: 0.0,
+                ..Default::default()
             },
         ]
     }
@@ -375,7 +378,11 @@ impl ModelProvider for ClaudeCodeProvider {
         let request_timeout = Duration::from_secs(config.request_timeout_secs);
 
         // Run I/O in a task to hold the async Mutex properly.
-        let result = tokio::spawn(async move {
+        // NOTE: explicit Result<_, HalconError> type annotation is required to
+        // disambiguate inference now that `From<LlmError> for HalconError` exists
+        // in halcon-providers (the compiler otherwise can't pick the unique
+        // closure return type from multiple Into<HalconError> candidates).
+        let result: std::result::Result<Vec<ModelChunk>, HalconError> = tokio::spawn(async move {
             let mut mgd = managed_arc.lock().await;
             let t0 = Instant::now();
             let model = &request.model;
@@ -472,11 +479,18 @@ impl ModelProvider for ClaudeCodeProvider {
                     if msg.contains("authentication_error")
                         || msg.contains("OAuth token has expired")
                     {
+                        // The Claude Code subprocess owns its own credential
+                        // store under `~/.claude/`. There is no
+                        // `halcon auth login claude_code` subcommand — that
+                        // was a stale message that mis-instructed users.
+                        // The actual recovery path is to run the official
+                        // `claude /login` flow (interactive in a real
+                        // terminal, NOT inside the halcon TUI).
                         return ModelChunk::Error(format!(
                             "{msg}\n\n\
-                            💡  Tu token de Claude Code ha expirado.\n\
-                            \x20   Renueva la sesión ejecutando:\n\
-                            \x20     halcon auth login claude_code"
+                            💡  Tu sesión de Claude Code expiró.\n\
+                            \x20   Renueva ejecutando, en tu terminal (NO dentro de halcon):\n\
+                            \x20     claude /login"
                         ));
                     }
                 }

@@ -353,6 +353,14 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
         tenant_id: _tenant_id,
     } = ctx;
 
+    // Re-bind under the `paloma` feature so the audit-sink call sites in this
+    // function compile. Under `--no-default-features` (paloma off) the
+    // underscore-prefixed bindings above silence the unused-variable warning.
+    #[cfg(feature = "paloma")]
+    let audit_sink = _audit_sink;
+    #[cfg(feature = "paloma")]
+    let tenant_id = _tenant_id;
+
     let silent = render_sink.is_silent();
 
     // BRECHA-B (startup provider fallback): provider_factory.rs emits a warning to stderr
@@ -2301,6 +2309,11 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
         forced_routing_bias: None,
         last_round_model_name,
         next_round_restarts: 0,
+        // Phase 2 (R1): empty-response failover state — see audit doc.
+        failover_pinned_model: None,
+        failover_pinned_provider: None,
+        exhausted_models: Vec::new(),
+        same_model_empty_streak: 0,
         loop_start,
         tool_timeout,
         silent,
@@ -2462,12 +2475,26 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
         }
 
         // Phase 1: emit RoundStarted event (additive — fire-and-forget, no behavior change).
+        //
+        // Phase 4 fix (Phase 2 R1 follow-up): when failover has pinned an
+        // alternate model for THIS round (state.failover_pinned_model set
+        // by the EmptyResponse branch in the previous round), surface that
+        // pinned model in the event instead of `request.model` — otherwise
+        // dashboards and audit traces show the original model the user
+        // asked for, hiding the actual model the runtime is about to call.
+        // Round setup still consumes the pin downstream; this is purely
+        // about the event payload.
+        let effective_model_for_event = state
+            .failover_pinned_model
+            .as_ref()
+            .cloned()
+            .unwrap_or_else(|| request.model.clone());
         loop_events::emit(
             &state.session_id.to_string(),
             round as u32,
             loop_events::LoopEvent::RoundStarted {
                 round,
-                model: request.model.clone(),
+                model: effective_model_for_event,
             },
             trace_db,
         );
@@ -2704,88 +2731,250 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
                 });
             }
             provider_round::ProviderRoundOutcome::EmptyResponse => {
-                // D1: Model returned empty response. The current behavior is to
-                // inject a nudge and retry the SAME model up to `max_empty_retries`
-                // times. This is wrong for *structural* empties (model not
-                // registered upstream, deployment misconfigured, quota exhausted,
-                // backend gateway dropping the request) — retrying the same model
-                // cannot recover from a structural failure.
+                // D1: Model returned an empty response. The legacy behaviour was to
+                // inject a nudge and retry the SAME model up to a hard-coded ceiling,
+                // which is wrong for *structural* empties (model not registered
+                // upstream, deployment misconfigured, quota exhausted, backend
+                // gateway dropping the request) — retrying the same model cannot
+                // recover from a structural failure.
                 //
-                // TODO(routing-correctness): swap to next entry in
-                //   `routing_config.fallback_models` on the first empty when one
-                //   is available, instead of nudging. Tracking issue:
-                //   docs/architecture/routing-correctness-audit.md (FIX 2).
-                //   Requires plumbing `effective_provider`/`selected_model`
-                //   mutation through round_setup so the next iteration picks a
-                //   different model deterministically.
+                // Phase 2 (R1) — automated failover:
+                //   1. If `routing_config.failover_on_empty` is true and a fresh
+                //      fallback exists, pin the next round to that model+provider
+                //      via `state.failover_pinned_*` and continue the loop. The
+                //      current model is added to `exhausted_models` so it cannot
+                //      be re-selected as a target.
+                //   2. The legacy same-model nudge-and-retry path is preserved as
+                //      an absorbing buffer for transient empties: it fires up to
+                //      `routing_config.same_model_empty_retries` times before the
+                //      failover kicks in. Default is `0` (failover on first empty).
+                //   3. When all fallbacks are exhausted (or none are configured),
+                //      we render a clear assistant-visible message naming the
+                //      models tried and suggesting `halcon doctor`, then break.
+                //
+                // See: docs/architecture/routing-correctness-audit.md (FIX 2 / R1).
                 state.next_round_restarts += 1;
-                let max_empty_retries = 2;
-                let fallback_avail: Vec<&str> = routing_config
+                state.same_model_empty_streak = state.same_model_empty_streak.saturating_add(1);
+
+                // Track current model as exhausted-on-empty (deduped, preserves order).
+                if !state
+                    .exhausted_models
+                    .iter()
+                    .any(|m| m == selected_model.as_str())
+                {
+                    state.exhausted_models.push(selected_model.clone());
+                }
+
+                // Pick the next viable fallback: first entry of fallback_models
+                // not already exhausted and not equal to the current model.
+                let next_fallback: Option<String> = routing_config
                     .fallback_models
                     .iter()
-                    .map(String::as_str)
-                    .filter(|m| *m != selected_model.as_str())
-                    .collect();
-                if state.next_round_restarts > max_empty_retries {
+                    .find(|m| {
+                        m.as_str() != selected_model.as_str()
+                            && !state.exhausted_models.iter().any(|e| e == *m)
+                    })
+                    .cloned();
+
+                let same_model_budget = routing_config.same_model_empty_retries;
+                let absorb_transient = state.same_model_empty_streak <= same_model_budget;
+
+                if absorb_transient {
+                    // Same-model retry path (legacy behaviour, opt-in via config).
                     tracing::warn!(
-                        retries = state.next_round_restarts,
+                        retry = state.same_model_empty_streak,
+                        max = same_model_budget,
                         provider = %effective_provider.name(),
                         model = %selected_model,
-                        fallbacks_available = fallback_avail.len(),
-                        fallbacks = ?fallback_avail,
-                        "D1: max empty response retries ({max_empty_retries}) exceeded — breaking loop"
+                        fallback_candidate = ?next_fallback,
+                        exhausted = ?state.exhausted_models,
+                        "D1: empty response — absorbing as transient (same_model_empty_retries budget)"
                     );
                     if !state.silent {
-                        let hint = if let Some(next) = fallback_avail.first() {
-                            format!(
-                                "[frontier] {} returned empty {} times — try: halcon -m {} chat ...",
-                                selected_model, max_empty_retries, next
-                            )
-                        } else {
-                            format!(
-                                "[frontier] {} returned empty {} times and no fallback configured — check provider health (halcon doctor)",
-                                selected_model, max_empty_retries
-                            )
-                        };
-                        render_sink.warning(&hint, None);
+                        render_sink.info(&format!(
+                            "[frontier] empty response detected (transient retry {}/{}) — model={} provider={}",
+                            state.same_model_empty_streak,
+                            same_model_budget,
+                            selected_model,
+                            effective_provider.name()
+                        ));
                     }
-                    break 'agent_loop;
+                    state.messages.push(ChatMessage {
+                        role: Role::User,
+                        content: MessageContent::Text(
+                            "[System] Your previous response was empty. Please continue \
+                             with the task. Use the available tools to make progress on \
+                             the active plan, or provide your analysis if you have enough \
+                             information."
+                                .to_string(),
+                        ),
+                    });
+                    state.context_pipeline.add_message(ChatMessage {
+                        role: Role::User,
+                        content: MessageContent::Text(
+                            "[System] Your previous response was empty. Please continue."
+                                .to_string(),
+                        ),
+                    });
+                    #[cfg(feature = "paloma")]
+                    if let (Some(router), Some(ref r)) = (paloma_router, &round_reservation) {
+                        router.release_reservation(r);
+                        if let Some(sink) = audit_sink {
+                            sink.append(
+                                tenant_id.unwrap_or("anonymous"),
+                                Some(session.id),
+                                Some(r.plan_id),
+                                halcon_storage::AuditEventType::ReservationReleased {
+                                    reason: "empty_response_transient".to_string(),
+                                },
+                                "agent_loop",
+                                format!("{}:{}", effective_provider.name(), &selected_model),
+                            );
+                        }
+                    }
+                    continue 'agent_loop;
                 }
-                tracing::warn!(
-                    retry = state.next_round_restarts,
-                    max = max_empty_retries,
+
+                if routing_config.failover_on_empty {
+                    if let Some(target) = next_fallback {
+                        // Resolve target provider via the registry: walk the
+                        // registered providers and pick the first whose
+                        // `supported_models()` contains the target id. Falls
+                        // back to the current provider if no match (round_setup
+                        // re-validates with `validate_model` and fails loudly,
+                        // which is the desired behaviour vs. silent misrouting).
+                        let target_provider_name = registry
+                            .and_then(|reg| {
+                                reg.list().into_iter().find_map(|name| {
+                                    reg.get(name).and_then(|p| {
+                                        if p.supported_models().iter().any(|m| m.id == target) {
+                                            Some(p.name().to_string())
+                                        } else {
+                                            None
+                                        }
+                                    })
+                                })
+                            })
+                            .unwrap_or_else(|| effective_provider.name().to_string());
+
+                        tracing::warn!(
+                            from_model = %selected_model,
+                            to_model = %target,
+                            from_provider = %effective_provider.name(),
+                            to_provider = %target_provider_name,
+                            exhausted = ?state.exhausted_models,
+                            remaining_fallbacks = routing_config
+                                .fallback_models
+                                .iter()
+                                .filter(|m| {
+                                    m.as_str() != target.as_str()
+                                        && !state.exhausted_models.iter().any(|e| e == *m)
+                                })
+                                .count(),
+                            "D1: automated failover on empty response — pinning next model"
+                        );
+                        if !state.silent {
+                            render_sink.warning(
+                                &format!(
+                                    "[frontier] {} returned empty — failing over to {} (provider={})",
+                                    selected_model, target, target_provider_name
+                                ),
+                                Some("Phase 2 (R1) automated failover; see halcon doctor for routing diagnostics."),
+                            );
+                        }
+                        state.failover_pinned_model = Some(target);
+                        state.failover_pinned_provider = Some(target_provider_name);
+                        state.same_model_empty_streak = 0;
+
+                        #[cfg(feature = "paloma")]
+                        if let (Some(router), Some(ref r)) = (paloma_router, &round_reservation) {
+                            router.release_reservation(r);
+                            if let Some(sink) = audit_sink {
+                                sink.append(
+                                    tenant_id.unwrap_or("anonymous"),
+                                    Some(session.id),
+                                    Some(r.plan_id),
+                                    halcon_storage::AuditEventType::ReservationReleased {
+                                        reason: "empty_response_failover".to_string(),
+                                    },
+                                    "agent_loop",
+                                    format!("{}:{}", effective_provider.name(), &selected_model),
+                                );
+                            }
+                        }
+                        continue 'agent_loop;
+                    }
+                    // No fallback target available — fall through to terminal handling.
+                }
+
+                // Terminal: all fallbacks exhausted (or failover disabled) AND
+                // the same-model retry budget is also blown. Surface a visible,
+                // actionable assistant message instead of the prior silent break.
+                let exhausted_list = state.exhausted_models.join(", ");
+                let configured_fallbacks = routing_config.fallback_models.join(", ");
+                tracing::error!(
                     provider = %effective_provider.name(),
-                    model = %selected_model,
-                    fallbacks_available = fallback_avail.len(),
-                    "D1: empty response — re-attempting same model (TODO: failover to fallback_models)"
+                    last_model = %selected_model,
+                    exhausted = %exhausted_list,
+                    configured_fallbacks = %configured_fallbacks,
+                    failover_on_empty = routing_config.failover_on_empty,
+                    "D1: empty-response cascade exhausted — no recovery path"
                 );
-                if !state.silent {
-                    render_sink.info(&format!(
-                        "[frontier] empty response detected (retry {}/{}) — model={} provider={}",
-                        state.next_round_restarts,
-                        max_empty_retries,
+                let user_msg = if routing_config.fallback_models.is_empty() {
+                    format!(
+                        "[frontier] {} returned an empty response and no fallback models are configured. \
+                         Check `[agent.routing].fallback_models` in your config and run `halcon doctor` \
+                         to verify provider health (provider={}).",
                         selected_model,
                         effective_provider.name()
-                    ));
+                    )
+                } else if routing_config.failover_on_empty {
+                    format!(
+                        "[frontier] empty-response cascade exhausted — tried [{}] without success. \
+                         All configured fallbacks are exhausted. Run `halcon doctor` and verify \
+                         provider/deployment health (provider={}).",
+                        exhausted_list,
+                        effective_provider.name()
+                    )
+                } else {
+                    format!(
+                        "[frontier] {} returned empty and `routing.failover_on_empty=false`. \
+                         Enable automated failover or pass `--model {}` explicitly. (provider={})",
+                        selected_model,
+                        routing_config
+                            .fallback_models
+                            .iter()
+                            .find(|m| m.as_str() != selected_model.as_str())
+                            .map(String::as_str)
+                            .unwrap_or("<none>"),
+                        effective_provider.name()
+                    )
+                };
+                // Phase 1 final consolidation: append a structured cascade report
+                // built from the typed `AllProvidersFailed` taxonomy so operators
+                // and users see the per-attempt detail (provider, model, error_type,
+                // bug_shape) — not just the model-id list. The headline above is
+                // preserved verbatim to keep existing UX assertions and the actionable
+                // remediation hint visible.
+                let cascade_report =
+                    build_cascade_report(&state.exhausted_models, effective_provider.name());
+                let combined_msg = if cascade_report.is_empty() {
+                    user_msg.clone()
+                } else {
+                    format!("{user_msg}\n\n{cascade_report}")
+                };
+                if !state.silent {
+                    render_sink.warning(&user_msg, None);
+                    // Stream the structured combined message so the TUI shows
+                    // the cascade detail in the conversation pane (not just
+                    // a transient warning), satisfying "no silent Agent
+                    // completed" + the structured-error acceptance criterion.
+                    render_sink.stream_text(&combined_msg);
+                    render_sink.stream_text("\n");
                 }
-                // Inject a user message nudge to prompt the model to continue.
-                state.messages.push(ChatMessage {
-                    role: Role::User,
-                    content: MessageContent::Text(
-                        "[System] Your previous response was empty. Please continue \
-                         with the task. Use the available tools to make progress on \
-                         the active plan, or provide your analysis if you have enough \
-                         information."
-                            .to_string(),
-                    ),
-                });
-                state.context_pipeline.add_message(ChatMessage {
-                    role: Role::User,
-                    content: MessageContent::Text(
-                        "[System] Your previous response was empty. Please continue.".to_string(),
-                    ),
-                });
-                // INV-5: release reservation — empty response, will create new reservation on retry.
+                state.full_text.push_str(&combined_msg);
+                state.full_text.push('\n');
+
                 #[cfg(feature = "paloma")]
                 if let (Some(router), Some(ref r)) = (paloma_router, &round_reservation) {
                     router.release_reservation(r);
@@ -2795,16 +2984,23 @@ pub async fn run_agent_loop(ctx: AgentContext<'_>) -> Result<AgentLoopResult> {
                             Some(session.id),
                             Some(r.plan_id),
                             halcon_storage::AuditEventType::ReservationReleased {
-                                reason: "empty_response".to_string(),
+                                reason: "empty_response_exhausted".to_string(),
                             },
                             "agent_loop",
                             format!("{}:{}", effective_provider.name(), &selected_model),
                         );
                     }
                 }
-                continue 'agent_loop;
+                break 'agent_loop;
             }
-            provider_round::ProviderRoundOutcome::ToolUse(out) => out,
+            provider_round::ProviderRoundOutcome::ToolUse(out) => {
+                // R1: a successful round closes the empty-response transient
+                // window. Reset the streak so the next legitimate empty (if any)
+                // re-enters the absorb-transient path from zero rather than
+                // tripping the failover budget on first occurrence.
+                state.same_model_empty_streak = 0;
+                out
+            }
         };
         let provider_round::ProviderRoundOutput {
             completed_tools,
@@ -3318,6 +3514,46 @@ fn infer_tier_from_model(model: &str) -> Option<&'static str> {
         return Some("ECONOMY");
     }
     None
+}
+
+/// Build a structured `AllProvidersFailed` report from the agent loop's
+/// `exhausted_models` list, treating each as an `EmptyResponse` attempt.
+///
+/// Returns `String::new()` when there is nothing to report (preserves the
+/// caller's "no detail to append" branch).
+///
+/// This is a *synthetic* report: per-attempt timing and detailed upstream
+/// errors are not tracked in `LoopState` today (that's a follow-up that
+/// requires accumulator wiring across `provider_round`). What we *can*
+/// surface is the deterministic, typed per-attempt list with `EmptyResponse`
+/// classification — strictly better than the prior bare model-id join and
+/// good enough to close the "no silent failure" criterion.
+fn build_cascade_report(exhausted_models: &[String], provider_name: &str) -> String {
+    if exhausted_models.is_empty() {
+        return String::new();
+    }
+    use halcon_providers::attempts::{AllProvidersFailed, ProviderAttempt};
+    use halcon_providers::error::LlmError;
+    use std::time::{Duration, SystemTime};
+
+    let now = SystemTime::now();
+    let attempts: Vec<ProviderAttempt> = exhausted_models
+        .iter()
+        .enumerate()
+        .map(|(i, model)| {
+            let err = LlmError::EmptyResponse {
+                provider: provider_name.to_string(),
+                model: model.clone(),
+            };
+            ProviderAttempt::from_error(i as u32, now, Duration::ZERO, &err)
+        })
+        .collect();
+    let result = AllProvidersFailed {
+        attempts,
+        skipped: Vec::new(),
+        total_elapsed: Duration::ZERO,
+    };
+    result.report()
 }
 
 #[cfg(test)]

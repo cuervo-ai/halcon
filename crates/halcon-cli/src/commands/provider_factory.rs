@@ -1268,6 +1268,7 @@ pub fn load_dynamic_providers(dir: &std::path::Path, registry: &mut ProviderRegi
                 supports_reasoning: false,
                 cost_per_input_token: 0.0,
                 cost_per_output_token: 0.0,
+                ..Default::default()
             }]
         } else {
             manifest
@@ -1285,6 +1286,7 @@ pub fn load_dynamic_providers(dir: &std::path::Path, registry: &mut ProviderRegi
                     supports_reasoning: m.supports_reasoning,
                     cost_per_input_token: m.cost_per_input_token,
                     cost_per_output_token: m.cost_per_output_token,
+                    ..Default::default()
                 })
                 .collect()
         };

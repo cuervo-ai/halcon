@@ -4,6 +4,50 @@
 
 use serde::{Deserialize, Serialize};
 
+// --- SSE error chunk types (Phase 1 / PR #A) ---
+//
+// When upstream rejects mid-stream (Cenzontle gateway exhausting fallback,
+// Azure rejecting payload, etc.), the SSE stream emits:
+//   data: {"error":{"message":"All LLM providers failed.","type":"api_error",...}}
+// Without an explicit type, the generic `OpenAISseChunk` parse fails and the
+// chunk is silently dropped — Halcon then interprets the stream as
+// `EmptyResponse` ("Agent completed silencioso" symptom).
+//
+// `upstream_*` and `request_id` are Cenzontle extensions proposed in
+// `docs/cenzontle-required-changes.md` (C-P2-2). All optional via
+// `#[serde(default)]` so the parser stays compatible with the strict OpenAI
+// shape AND the enriched Cenzontle shape.
+
+/// SSE error chunk shape: `{"error": {...}}` with no `id`/`choices`.
+#[derive(Debug, Deserialize)]
+pub struct OpenAIErrorChunk {
+    pub error: OpenAIErrorBody,
+}
+
+/// Body of an SSE error chunk.
+#[derive(Debug, Deserialize)]
+pub struct OpenAIErrorBody {
+    pub message: String,
+    #[serde(default, rename = "type")]
+    pub error_type: Option<String>,
+    /// HTTP-style code or vendor-specific string code.
+    #[serde(default)]
+    pub code: Option<serde_json::Value>,
+    /// Cenzontle extension: which upstream provider failed (e.g. "OPENAI").
+    #[serde(default, rename = "upstreamProvider")]
+    pub upstream_provider: Option<String>,
+    /// Cenzontle extension: which upstream model failed.
+    #[serde(default, rename = "upstreamModel")]
+    pub upstream_model: Option<String>,
+    /// Cenzontle extension: HTTP status returned by upstream.
+    #[serde(default, rename = "upstreamStatus")]
+    pub upstream_status: Option<u16>,
+    /// Cenzontle extension: server-correlated request_id (matches Halcon's
+    /// `x-request-id` UUID when propagated end-to-end).
+    #[serde(default, rename = "requestId")]
+    pub request_id: Option<String>,
+}
+
 // --- Request types ---
 
 #[derive(Debug, Serialize)]
@@ -346,5 +390,70 @@ mod tests {
     fn completion_tokens_details_defaults_reasoning_tokens_to_none() {
         let details = CompletionTokensDetails::default();
         assert!(details.reasoning_tokens.is_none());
+    }
+
+    // ── SSE error chunk (PR #A) ─────────────────────────────────────────────
+
+    #[test]
+    fn deserialize_minimal_error_chunk_openai_shape() {
+        let json = r#"{"error":{"message":"Internal server error","type":"server_error"}}"#;
+        let chunk: OpenAIErrorChunk = serde_json::from_str(json).expect("must parse");
+        assert_eq!(chunk.error.message, "Internal server error");
+        assert_eq!(chunk.error.error_type.as_deref(), Some("server_error"));
+        assert!(chunk.error.upstream_provider.is_none());
+        assert!(chunk.error.request_id.is_none());
+    }
+
+    #[test]
+    fn deserialize_cenzontle_extended_error_chunk() {
+        // Cenzontle C-P2-2 extension shape with full upstream attribution.
+        let json = r#"{"error":{"message":"All LLM providers failed. Attempted 2 provider(s).","type":"api_error","upstreamProvider":"OPENAI","upstreamModel":"deepseek-v3-2-coding","upstreamStatus":404,"requestId":"abc-123"}}"#;
+        let chunk: OpenAIErrorChunk = serde_json::from_str(json).expect("must parse");
+        assert_eq!(chunk.error.upstream_provider.as_deref(), Some("OPENAI"));
+        assert_eq!(
+            chunk.error.upstream_model.as_deref(),
+            Some("deepseek-v3-2-coding")
+        );
+        assert_eq!(chunk.error.upstream_status, Some(404));
+        assert_eq!(chunk.error.request_id.as_deref(), Some("abc-123"));
+    }
+
+    #[test]
+    fn error_chunk_does_not_match_normal_data_chunk() {
+        // The whole point of the parse-as-error fallback path: a normal data
+        // chunk must NOT be misinterpreted as an error envelope. Verifying
+        // that `from_str::<OpenAIErrorChunk>` rejects a chunk shape with
+        // `id` and `choices` but no `error`.
+        let normal = r#"{"id":"chatcmpl-xxx","choices":[{"index":0,"delta":{"content":"hi"}}]}"#;
+        let result = serde_json::from_str::<OpenAIErrorChunk>(normal);
+        assert!(
+            result.is_err(),
+            "must NOT match a normal data chunk: {result:?}"
+        );
+    }
+
+    #[test]
+    fn error_chunk_accepts_both_string_and_int_code() {
+        // OpenAI returns string codes ("rate_limit_exceeded"); some gateways return ints.
+        let with_string = r#"{"error":{"message":"x","code":"rate_limit_exceeded"}}"#;
+        let chunk: OpenAIErrorChunk = serde_json::from_str(with_string).unwrap();
+        assert_eq!(
+            chunk.error.code,
+            Some(serde_json::json!("rate_limit_exceeded"))
+        );
+
+        let with_int = r#"{"error":{"message":"x","code":429}}"#;
+        let chunk: OpenAIErrorChunk = serde_json::from_str(with_int).unwrap();
+        assert_eq!(chunk.error.code, Some(serde_json::json!(429)));
+    }
+
+    #[test]
+    fn error_chunk_partial_upstream_extension_ok() {
+        // Forward-compat: partial Cenzontle extension (only some fields present).
+        let json = r#"{"error":{"message":"All providers failed.","upstreamProvider":"OPENAI"}}"#;
+        let chunk: OpenAIErrorChunk = serde_json::from_str(json).expect("must parse");
+        assert_eq!(chunk.error.upstream_provider.as_deref(), Some("OPENAI"));
+        assert!(chunk.error.upstream_model.is_none());
+        assert!(chunk.error.upstream_status.is_none());
     }
 }

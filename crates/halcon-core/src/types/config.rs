@@ -1549,10 +1549,25 @@ pub struct RoutingConfig {
     /// When true, the agent loop consults PalomaRouter before ModelSelector.
     #[serde(default)]
     pub paloma_enabled: bool,
+    /// Phase 2 (R1, audit doc): when an upstream returns an empty response, automatically
+    /// swap to the next entry in `fallback_models` instead of retrying the same misrouted
+    /// model. Default `true`. Set to `false` to preserve the legacy nudge-and-retry path.
+    #[serde(default = "default_failover_on_empty")]
+    pub failover_on_empty: bool,
+    /// Number of times to retry the SAME model on `EmptyResponse` before triggering
+    /// the automated failover. Default `0` (failover on first empty). Increase to
+    /// absorb transient empties when the upstream is occasionally flaky but
+    /// structurally correct.
+    #[serde(default)]
+    pub same_model_empty_retries: u8,
 }
 
 fn default_routing_mode() -> String {
     "failover".to_string()
+}
+
+fn default_failover_on_empty() -> bool {
+    true
 }
 
 impl Default for RoutingConfig {
@@ -1564,6 +1579,8 @@ impl Default for RoutingConfig {
             max_retries: 1,
             speculation_providers: Vec::new(),
             paloma_enabled: false,
+            failover_on_empty: default_failover_on_empty(),
+            same_model_empty_retries: 0,
         }
     }
 }
@@ -2204,6 +2221,60 @@ mod tests {
     }
 
     #[test]
+    fn routing_config_default_failover_on_empty_is_true() {
+        // Phase 2 (R1): default behaviour for new installs is automated failover.
+        // This is the *opposite* of `respect_default_model` (opt-in) because it
+        // closes a known silent-failure mode rather than changing routing intent.
+        let cfg = RoutingConfig::default();
+        assert!(
+            cfg.failover_on_empty,
+            "failover_on_empty must default to true so new installs are protected \
+             against the routing-correctness empty-response cascade"
+        );
+        assert_eq!(
+            cfg.same_model_empty_retries, 0,
+            "default is failover on first empty (no transient absorption)"
+        );
+    }
+
+    #[test]
+    fn routing_config_back_compat_missing_failover_fields() {
+        // Configs written before Phase 2 lack `failover_on_empty` and
+        // `same_model_empty_retries`. They must deserialise without error
+        // and pick up the safe defaults.
+        let json_legacy = r#"{
+            "strategy": "balanced",
+            "mode": "failover",
+            "fallback_models": ["claude-haiku-4-5-20251001"],
+            "max_retries": 1
+        }"#;
+        let cfg: RoutingConfig = serde_json::from_str(json_legacy)
+            .expect("legacy routing config (pre-Phase 2) must still parse");
+        assert!(cfg.failover_on_empty, "missing field → safe default true");
+        assert_eq!(cfg.same_model_empty_retries, 0);
+        assert_eq!(cfg.fallback_models, vec!["claude-haiku-4-5-20251001"]);
+    }
+
+    #[test]
+    fn routing_config_serde_roundtrip_preserves_failover_fields() {
+        let original = RoutingConfig {
+            strategy: "quality".into(),
+            mode: "failover".into(),
+            fallback_models: vec!["fallback-a".into(), "fallback-b".into()],
+            max_retries: 1,
+            speculation_providers: vec![],
+            paloma_enabled: false,
+            failover_on_empty: false,
+            same_model_empty_retries: 3,
+        };
+        let serialised = serde_json::to_string(&original).expect("serialise");
+        let roundtrip: RoutingConfig = serde_json::from_str(&serialised).expect("deserialise");
+        assert!(!roundtrip.failover_on_empty);
+        assert_eq!(roundtrip.same_model_empty_retries, 3);
+        assert_eq!(roundtrip.fallback_models.len(), 2);
+    }
+
+    #[test]
     fn warning_on_resilience_no_fallback() {
         let mut config = AppConfig::default();
         config.resilience.enabled = true;
@@ -2458,6 +2529,7 @@ mod tests {
             supports_reasoning: true,
             cost_per_input_token: 0.0,
             cost_per_output_token: 0.0,
+            ..Default::default()
         };
         let json = serde_json::to_string(&info).unwrap();
         assert!(json.contains("\"supports_reasoning\":true"));

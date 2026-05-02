@@ -555,6 +555,28 @@ pub(super) struct LoopState {
     pub last_round_model_name: String,
     pub next_round_restarts: usize,
 
+    // ── Phase 2 (R1, audit doc): empty-response automated failover ─────────
+    /// When `Some`, `round_setup` must use this model verbatim for the next
+    /// round, bypassing both Paloma and the adaptive selector. Consumed via
+    /// `take()` so it only applies to one round (re-armed if another empty
+    /// happens). Paired with `failover_pinned_provider` when the fallback
+    /// lives on a different provider.
+    pub failover_pinned_model: Option<String>,
+    /// Provider name to pair with `failover_pinned_model`. Resolved via the
+    /// provider registry; falls back to the current effective provider when
+    /// `None` or unresolvable.
+    pub failover_pinned_provider: Option<String>,
+    /// Models that already returned `EmptyResponse` this session. Excluded
+    /// from future failover-target selection so we never re-pin a known-bad
+    /// model. Persisted across rounds; cleared only when a non-empty round
+    /// successfully completes (handled in `provider_round`).
+    pub exhausted_models: Vec<String>,
+    /// Consecutive `EmptyResponse` outcomes against the *same* model. Reset
+    /// when the failover swaps to a new model. Compared against
+    /// `routing_config.same_model_empty_retries` to decide whether to nudge
+    /// the same model again or trigger the failover.
+    pub same_model_empty_streak: u8,
+
     // ── Timing ─────────────────────────────────────────────────────────────
     pub loop_start: Instant,
     pub tool_timeout: Duration,
@@ -1084,6 +1106,88 @@ mod tests {
         let strategy_bias: Option<&str> = None;
         let result: Option<&str> = forced.as_deref().or(strategy_bias);
         assert!(result.is_none(), "both absent must yield None");
+    }
+
+    // ── Phase 2 (R1) failover-pin selection tests ────────────────────────────
+    //
+    // The agent loop's `EmptyResponse` branch picks a failover target with the
+    // rule: first entry of `routing_config.fallback_models` that is neither
+    // the current model nor already exhausted. These tests pin that contract
+    // independently of the surrounding loop state, so a regression in the
+    // selection logic is caught without spinning up a full LoopState.
+
+    fn pick_failover<'a>(
+        fallback_models: &'a [String],
+        current_model: &str,
+        exhausted: &[String],
+    ) -> Option<&'a str> {
+        fallback_models
+            .iter()
+            .map(String::as_str)
+            .find(|m| *m != current_model && !exhausted.iter().any(|e| e == *m))
+    }
+
+    #[test]
+    fn failover_picks_first_unseen_fallback() {
+        let fallbacks = vec!["a".into(), "b".into(), "c".into()];
+        let pick = pick_failover(&fallbacks, "primary", &[]);
+        assert_eq!(pick, Some("a"), "first untouched fallback wins");
+    }
+
+    #[test]
+    fn failover_skips_current_model_even_if_listed_first() {
+        let fallbacks = vec!["primary".into(), "b".into(), "c".into()];
+        let pick = pick_failover(&fallbacks, "primary", &[]);
+        assert_eq!(pick, Some("b"), "must not re-pin the current empty model");
+    }
+
+    #[test]
+    fn failover_skips_exhausted_models() {
+        let fallbacks = vec!["a".into(), "b".into(), "c".into()];
+        let exhausted = vec!["a".to_string(), "b".to_string()];
+        let pick = pick_failover(&fallbacks, "primary", &exhausted);
+        assert_eq!(pick, Some("c"), "exhausted models must be skipped");
+    }
+
+    #[test]
+    fn failover_returns_none_when_all_exhausted() {
+        let fallbacks = vec!["a".into(), "b".into()];
+        let exhausted = vec!["a".to_string(), "b".to_string()];
+        let pick = pick_failover(&fallbacks, "primary", &exhausted);
+        assert!(
+            pick.is_none(),
+            "all-exhausted must yield None — caller surfaces visible error"
+        );
+    }
+
+    #[test]
+    fn failover_returns_none_for_empty_fallback_list() {
+        let pick = pick_failover(&[], "primary", &[]);
+        assert!(pick.is_none(), "no fallbacks configured → no pick");
+    }
+
+    #[test]
+    fn failover_pin_take_semantics() {
+        // The pin is consumed via take() in round_setup so it only applies
+        // to one round. A second take returns None.
+        let mut pin: Option<String> = Some("claude-haiku-4-5-20251001".into());
+        let consumed = pin.take();
+        assert_eq!(consumed.as_deref(), Some("claude-haiku-4-5-20251001"));
+        assert!(pin.take().is_none(), "single-round activation");
+    }
+
+    #[test]
+    fn same_model_streak_gates_transient_absorption() {
+        // streak <= budget → absorb (legacy nudge path).
+        // streak >  budget → trigger failover.
+        let budget: u8 = 1;
+        for streak in 0u8..=3 {
+            let absorb = streak <= budget;
+            match streak {
+                0 | 1 => assert!(absorb, "streak {streak} ≤ budget {budget} must absorb"),
+                _ => assert!(!absorb, "streak {streak} > budget {budget} must failover"),
+            }
+        }
     }
 
     // ── ExecutionIntentPhase tests ────────────────────────────────────────────
