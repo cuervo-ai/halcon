@@ -227,9 +227,15 @@ impl LlmError {
 
             // ── 404: distinguish deployment-not-found from generic ──────────
             404 => {
-                if body_lower.contains("deployment") || body_lower.contains("api deployment") {
-                    Self::DeploymentNotFound { provider, model }
-                } else if body_lower.contains("model") && body_lower.contains("not found") {
+                // Match either the explicit "deployment ... not found" shape
+                // (Azure AI Services, OpenAI Azure) or a generic "model ...
+                // not found" shape. Both map to the same variant — a typed
+                // `DeploymentNotFound` — because the consumer-side semantics
+                // are identical: try a different deployment.
+                let is_deployment_404 = body_lower.contains("deployment")
+                    || body_lower.contains("api deployment")
+                    || (body_lower.contains("model") && body_lower.contains("not found"));
+                if is_deployment_404 {
                     Self::DeploymentNotFound { provider, model }
                 } else {
                     Self::Unknown {
