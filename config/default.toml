@@ -39,11 +39,34 @@ default_model = "gemini-2.0-flash"
 
 # Cenzontle — plataforma AI propia de Zuclubit (SSO OAuth 2.1 PKCE)
 # Autenticación: halcon login cenzontle  o  CENZONTLE_ACCESS_TOKEN
+#
+# IMPORTANTE — `default_model` debe corresponder a un deployment que
+# realmente existe en el Azure AI Services account servido por Cenzontle
+# (`ai-claude-zuclubit-prod`). Validar la lista actual con:
+#
+#   az cognitiveservices account deployment list \
+#       -g rg-zuclubit-prod -n ai-claude-zuclubit-prod --query "[].name"
+#
+# Deployments válidos al 2026-05-02 (todos con tool-calling):
+#   - deepseek-v3-2-coding   (DeepSeek-V3.2,  primary)
+#   - deepseek-r1-reasoning  (DeepSeek-R1)
+#   - gpt-51-codex-mini      (Responses API only)
+#   - gpt-5-nano-fast        (gpt-5-nano)
+#
+# Histórico (2026-04 / 2026-05): el valor previo era `claude-sonnet-4-6`,
+# que NO existe como deployment en la cuenta Azure y producía HTTP 404
+# "The API deployment for this resource does not exist" en cada
+# request — la causa raíz documentada de `paloma_returned_null` y
+# `All LLM providers failed`. Reproducible con `curl` directo.
+#
+# Para servir Claude nativo, habilitar `[models.providers.anthropic]`
+# (que apunta a api.anthropic.com con `claude-sonnet-4-6` real) o el
+# provider Anthropic directo en Cenzontle (Cenzontle ticket PR #D).
 [models.providers.cenzontle]
 enabled       = true
 api_base      = "https://cenzontle.api.zuclubit.com"
 api_key_env   = "CENZONTLE_ACCESS_TOKEN"
-default_model = "claude-sonnet-4-6"
+default_model = "deepseek-v3-2-coding"
 
 # AWS Bedrock — activar con CLAUDE_CODE_USE_BEDROCK=1
 # Requiere: AWS_ACCESS_KEY_ID, AWS_SECRET_ACCESS_KEY, AWS_REGION
